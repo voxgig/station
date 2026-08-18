@@ -1232,11 +1232,13 @@ merged.
   observable contract is fixed. The JSON corpus cannot express this,
   so per-language stress tests against the testkit proxy cover it
   (§13).
-- **Layout:** the `voxgig/station` repo mirrors a generated SDK
-  project's shape — per-language directories (`ts/`, `go/`, `py/`,
-  …), the proxy under `proxy/`, the conformance corpus under
-  `spec/`, and `sdkgen-station/` holding the sdkgen package. Every
-  voxgig engineer and agent already knows how to navigate that shape.
+- **Layout:** the `voxgig/station` repo mirrors its sibling
+  multi-port libraries, sekreto and omni — per-language directories
+  by full name (`typescript/`, `go/`, `python/`, …), the proxy under
+  `proxy/`, the conformance corpus under `spec/`, and
+  `sdkgen-station/` holding the sdkgen package. Station is a port
+  library like they are, and every voxgig engineer and agent already
+  navigates that shape in both.
 
 Rollout follows the tier table and the parity-tier spirit (§17):
 reference implementation is `ts`, as it is for the SDK targets.

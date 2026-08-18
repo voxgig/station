@@ -1,0 +1,23 @@
+{
+  "name": "@voxgig/station",
+  "version": "0.0.1",
+  "description": "station: one control surface for outbound integrations (TypeScript, canonical)",
+  "license": "MIT",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "files": ["dist/src"],
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "test": "npm run build && node --test \"dist/test/*.test.js\"",
+    "test-some": "npm run build && node --test --test-name-pattern=$npm_config_pattern \"dist/test/*.test.js\""
+  },
+  "dependencies": {
+    "@voxgig/sekreto": "^0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@voxgig/omni": "^0.1.0",
+    "typescript": "^5.5.0"
+  }
+}
