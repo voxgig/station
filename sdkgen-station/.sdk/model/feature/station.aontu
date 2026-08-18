@@ -1,0 +1,85 @@
+
+main: kit: feature: station: {
+
+  name: key()
+  title: "Station control surface binding for outbound integrations"
+  version: '0.0.1'
+  active: true
+  base: 'BASE'
+
+  config: {
+    options: {
+      # Binding is opt-in per client; connect()/adopt()/st.options()
+      # activate this entry (design station.md 9.1)
+      active: false
+      # station/proxy URL ('' = discovery when fromEnv)
+      url: ''
+      # read VOXGIG_STATION_* from the environment
+      fromEnv: true
+      # station.json profile ('' = VOXGIG_STATION_PROFILE, else default)
+      profile: ''
+      # secret name override ('' = the descriptor default)
+      secret: ''
+      # register the descriptor with the station at construction
+      register: true
+      # event capture level: meta | headers | body
+      capture: 'meta'
+    }
+  }
+
+  hook: {
+    PostConstruct: active: true
+
+    PrePoint: active: true
+    PreDone: active: true
+    PreUnexpected: active: true
+  }
+
+  # One dep per target: the station library only; sekreto is the
+  # library's own dependency, never named here (design station.md 9.2).
+  # perl/lua/c/cpp vendor the library through the tm overlay (no dep);
+  # swift needs url+product coordinates Package_swift cannot yet emit.
+  deps: ts: {
+    '@voxgig/station': { active: true, version: '>=0.0.1', kind: peer }
+  }
+  deps: js: {
+    '@voxgig/station-js': { active: true, version: '>=0.0.1', kind: peer }
+  }
+
+  deps: go: {
+    'github.com/voxgig/station/go': { active: true, version: 'v0.0.1', kind: prod }
+  }
+
+  # Plain versions where the emitter supplies the constraint operator:
+  # py prepends '>=', rb '~>', php '^'; java/kotlin/csharp take exact
+  # coordinates.
+  deps: py: {
+    'voxgig-station': { active: true, version: '0.0.1', kind: prod }
+  }
+  deps: rb: {
+    'voxgig_station': { active: true, version: '0.0.1', kind: prod }
+  }
+  deps: php: {
+    'voxgig/station': { active: true, version: '0.0.1', kind: prod }
+  }
+
+  deps: java: {
+    'com.voxgig:station': { active: true, version: '0.0.1', kind: prod }
+  }
+  # JVM interop to the java library (sekreto's precedent).
+  deps: kotlin: .java
+
+  deps: csharp: {
+    'Voxgig.Station': { active: true, version: '0.0.1', kind: prod }
+  }
+
+  deps: dart: {
+    'voxgig_station': { active: true, version: '>=0.0.1', kind: prod }
+  }
+  deps: elixir: {
+    'voxgig_station': { active: true, version: '>=0.0.1', kind: prod }
+  }
+  deps: rust: {
+    'voxgig_station': { active: true, version: '>=0.0.1', kind: prod }
+  }
+}

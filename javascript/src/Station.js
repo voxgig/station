@@ -1,37 +1,33 @@
-import { adapterFeature } from './adapter'
-import { StationError } from './error'
-import { EventBuffer } from './events'
-import { canonicalSerialize, normalizeDescriptor } from './descriptor'
-import { loadConfig, resolveProfile, selectProfile, ResolvedProfile } from './profile'
-import { SecretBroker, placeholderFor } from './secrets'
-import {
-  Binding, PluginEntry, PluginProfile, StationEvent, StationOptions,
-} from './types'
-
 // The station library core, solo mode (design D1): fully functional
 // in-process with no other component running. The proxy (D2) is a
 // deferred amplifier - `require` therefore fails on the operation path
 // (design §2.1/§14), and `auto` degrades to solo with one warning event.
+//
+// A port of typescript/src/Station.ts, which is canonical.
 
-export class Station {
-  private static ambient: Station | null = null
-  private static ambientOpts: string | null = null
+const { StationError } = require('./error')
+const { EventBuffer } = require('./events')
+const { canonicalSerialize, normalizeDescriptor } = require('./descriptor')
+const { loadConfig, resolveProfile, selectProfile } = require('./profile')
+const { SecretBroker, placeholderFor } = require('./secrets')
 
-  private opts: StationOptions
-  private profile: ResolvedProfile
-  private broker: SecretBroker
-  private buffer: EventBuffer
-  private registry = new Map<string, PluginEntry>()
-  private secretOverride = new Map<string, string>()
-  private requireProxy: boolean
-  private closed = false
+// adapter.js requires this module for Station.current(), so the carried
+// adapter is required lazily - at the one point construct() needs it -
+// rather than at load time, which would see a half-built module.
+function adapterFeature(station, calleropts) {
+  return require('./adapter').adapterFeature(station, calleropts)
+}
+
+class Station {
+  static ambient = null
+  static ambientOpts = null
 
   // Ambient instance (design §10.2): open() is the idempotent
   // process-wide singleton; a second open() with conflicting options is
   // an error; `new Station(opts)` stays isolated for tests and
   // multi-tenant hosts. open() is non-blocking - solo involves no
   // network, and the deferred proxy probe must never change that.
-  static open(opts?: StationOptions): Station {
+  static open(opts) {
     const key = JSON.stringify(opts || {})
     if (null != Station.ambient) {
       if (key !== Station.ambientOpts) {
@@ -49,17 +45,17 @@ export class Station {
   // station feature binds through this when no explicit handle rides
   // its options (design §3.1: binding is never implicit; only open()
   // creates the ambient instance).
-  static current(): Station | null {
+  static current() {
     return Station.ambient
   }
 
   // Test seam: drop the ambient instance.
-  static reset(): void {
+  static reset() {
     Station.ambient = null
     Station.ambientOpts = null
   }
 
-  constructor(opts?: StationOptions) {
+  constructor(opts) {
     this.opts = opts || {}
 
     const config = undefined !== this.opts.config
@@ -69,6 +65,9 @@ export class Station {
     this.profile = resolveProfile(config ?? null, selectProfile(this.opts.profile))
     this.broker = new SecretBroker(this.profile.providers)
     this.buffer = new EventBuffer()
+    this.registry = new Map()
+    this.secretOverride = new Map()
+    this.closed = false
 
     const proxy = this.opts.proxy ?? 'auto'
     this.requireProxy = 'require' === proxy
@@ -89,18 +88,18 @@ export class Station {
   // the adapter with §3.3 ordering. The activation entry plus the
   // extend-supplied instance ride the tolerance added to the generated
   // constructor (sdkgen §9.3 change).
-  connect(SDK: any, opts?: any): any {
+  connect(SDK, opts) {
     return this.construct(SDK, opts)
   }
 
   // adopt(SDK, opts): the retrofit path - construction-time sugar, not
-  // post-hoc attachment (§3.1). In ts it is the same construction as
+  // post-hoc attachment (§3.1). In js it is the same construction as
   // connect; a resident options.apikey is hoisted by the adapter.
-  adopt(SDK: any, opts?: any): any {
+  adopt(SDK, opts) {
     return this.construct(SDK, opts)
   }
 
-  private construct(SDK: any, opts?: any): any {
+  construct(SDK, opts) {
     if (this.closed) {
       throw new StationError('station_no_plugin', 'station is closed')
     }
@@ -126,7 +125,7 @@ export class Station {
   // generated constructor already accepts - the handle, the activation
   // entry, and the profile's per-plugin base (applied here, at
   // options-build time, so caller opts passed in `extra` still win).
-  options(extra?: any): any {
+  options(extra) {
     extra = extra || {}
     const fmap = { ...(extra.feature || {}) }
     fmap['station'] = {
@@ -145,17 +144,14 @@ export class Station {
   // construction reaches featureBinding twice - the second arrival
   // must no-op, while a genuinely second client of the same SDK class
   // still fails _register's slug check (§10.2).
-  _boundEntry(client: any): PluginEntry | null {
+  _boundEntry(client) {
     for (const entry of this.registry.values()) {
       if (entry.client === client) { return entry }
     }
     return null
   }
 
-  _register(client: any, config: any, options: any, _calleropts: any,
-    fopts?: any):
-    { binding: Binding, profilePlugin?: PluginProfile } {
-
+  _register(client, config, options, _calleropts, fopts) {
     const { descriptor, warnings } = normalizeDescriptor(config, options.feature)
     const slug = descriptor.slug
 
@@ -176,7 +172,7 @@ export class Station {
     }
 
     const rung = descriptor.auth.active ? 'R1' : 'none'
-    const binding: Binding = {
+    const binding = {
       plugin: slug,
       placeholder: descriptor.auth.active ? placeholderFor(slug) : undefined,
       secretname: descriptor.auth.active ? secretname : undefined,
@@ -196,7 +192,7 @@ export class Station {
     return { binding, profilePlugin }
   }
 
-  _hoist(slug: string, value: string): void {
+  _hoist(slug, value) {
     this.broker.hoist(slug, value)
     this.emit({
       t: Date.now(), kind: 'station', plugin: slug,
@@ -210,9 +206,7 @@ export class Station {
 
   // --- the transport middleware (design §3.3, §5.3) ---
 
-  async _transport(slug: string, inner: any, fctx: any, fullurl: string,
-    fetchdef: any): Promise<any> {
-
+  async _transport(slug, inner, fctx, fullurl, fetchdef) {
     // Fail-closed means traffic (§2.1): with the proxy deferred,
     // `require` can never attach, so every operation fails here - the
     // operation path, never the constructor.
@@ -261,11 +255,11 @@ export class Station {
       const secretname = firstNonEmpty(this.secretOverride.get(slug),
         profilePlugin?.secret) || entry.descriptor.auth.secretname
 
-      let value: string
+      let value
       try {
         value = await this.broker.value(slug, secretname)
       }
-      catch (e: any) {
+      catch (e) {
         this.emitErr(slug, fctx, e)
         return e instanceof Error ? e : new Error(String(e))
       }
@@ -282,11 +276,11 @@ export class Station {
     const corr = fctx.station$?.corr
     const started = Date.now()
 
-    let res: any
+    let res
     try {
       res = await inner(fctx, fullurl, senddef)
     }
-    catch (e: any) {
+    catch (e) {
       this.emitHttp(slug, corr, fullurl, senddef, 0, started, 0)
       this.emitErr(slug, fctx, e)
       throw e
@@ -306,8 +300,7 @@ export class Station {
     return res
   }
 
-  private emitHttp(slug: string, corr: string | undefined, fullurl: string,
-    fetchdef: any, status: number, started: number, bytes: number): void {
+  emitHttp(slug, corr, fullurl, fetchdef, status, started, bytes) {
     let host = '', path = ''
     try {
       const u = new URL(fullurl)
@@ -323,7 +316,7 @@ export class Station {
     })
   }
 
-  private emitErr(slug: string, fctx: any, err: any): void {
+  emitErr(slug, fctx, err) {
     this.emit({
       t: Date.now(), kind: 'error', plugin: slug, corr: fctx?.station$?.corr,
       err: {
@@ -336,7 +329,7 @@ export class Station {
   }
 
   // Op events from the hook bridge (design §3 item 3).
-  _opEvent(slug: string, ctx: any, outcome: string): void {
+  _opEvent(slug, ctx, outcome) {
     const st = ctx.station$ || {}
     this.emit({
       t: Date.now(), kind: 'op', plugin: slug, corr: st.corr,
@@ -353,7 +346,7 @@ export class Station {
 
   // --- the query/observe surface (design §3.2, §6) ---
 
-  plugins(): { slug: string, descriptor: any, rung: string, warnings: string[] }[] {
+  plugins() {
     return Array.from(this.registry.values()).map((e) => ({
       slug: e.slug,
       descriptor: e.descriptor,
@@ -362,7 +355,7 @@ export class Station {
     }))
   }
 
-  descriptorOf(slug: string): any {
+  descriptorOf(slug) {
     const entry = this.registry.get(slug)
     if (null == entry) {
       throw new StationError('station_no_plugin', 'unknown plugin "' + slug +
@@ -371,19 +364,19 @@ export class Station {
     return entry.descriptor
   }
 
-  canonicalDescriptor(slug: string): string {
+  canonicalDescriptor(slug) {
     return canonicalSerialize(this.descriptorOf(slug))
   }
 
-  events(): StationEvent[] {
+  events() {
     return this.buffer.events()
   }
 
-  tap(fn: (ev: StationEvent) => void): () => void {
+  tap(fn) {
     return this.buffer.tap(fn)
   }
 
-  status(): any {
+  status() {
     return {
       mode: 'solo',
       profile: this.profile.name,
@@ -392,11 +385,11 @@ export class Station {
     }
   }
 
-  redact(text: string): string {
+  redact(text) {
     return this.broker.scrub(text)
   }
 
-  refreshSecrets(): void {
+  refreshSecrets() {
     this.broker.refresh()
   }
 
@@ -404,7 +397,7 @@ export class Station {
   // plugin keys that matched no registered plugin - a typo'd key
   // silently configuring nothing is the worst outcome for a
   // secrets-and-policy file (design §11).
-  close(): void {
+  close() {
     if (this.closed) { return }
     for (const slug of Object.keys(this.profile.plugin)) {
       if (!this.registry.has(slug)) {
@@ -423,14 +416,18 @@ export class Station {
     }
   }
 
-  private emit(ev: StationEvent): void {
+  emit(ev) {
     this.buffer.emit(ev)
   }
 }
 
-function firstNonEmpty(...vals: (string | undefined)[]): string | undefined {
+function firstNonEmpty(...vals) {
   for (const v of vals) {
     if (null != v && '' !== v) { return v }
   }
   return undefined
+}
+
+module.exports = {
+  Station,
 }
