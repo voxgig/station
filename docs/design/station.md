@@ -6,7 +6,14 @@ in throughout (wrap ordering, adopt semantics, identity fields, support
 tiers, proxy-side policy authority). Revised again to make
 [voxgig/sekreto](https://github.com/voxgig/sekreto) the secrets
 subcomponent: station no longer defines a secret-reference grammar or
-any store client of its own (§5).
+any store client of its own (§5). Revised again (2026-08-18) after
+a second automated review on the move PR: redirect policy on
+`/v1/forward`, register-cache scoping to app identity, exact-value
+credential scrubbing on the agent boundary, per-header upstream
+metadata, a wire home for the proof-of-token challenge,
+bounded-blocking event flush named as such, lossy-capture replay
+refusal, the prod examples' provider order, and `require` failure
+timing aligned to §2.1.
 
 Moved here from `voxgig/sdkgen` (`docs/design/voxgig-station.md`), which
 is where it was drafted; this repo is now its home. Unqualified source
@@ -454,9 +461,13 @@ Birth is §3-items-1-4. Death and duration, equally specified:
   reattachment after proxy loss is always a full re-register.
 - **Process-per-request runtimes** (php, CGI perl) run solo by
   default; attached mode uses a cheap rejoin handshake (the register
-  response is cacheable across requests keyed by descriptor hash) —
-  specified so the per-request cost is one conditional, not one
-  registration.
+  response is cacheable across requests, keyed by the authenticated
+  app identity *plus* descriptor hash — hash alone would hand one
+  app's `{ session, binding }` to another app that registered a
+  byte-identical descriptor, straight through the per-app grant
+  boundary of §8.4 — and the cached entry expires with the session
+  TTL above) — specified so the per-request cost is one conditional,
+  not one registration.
 
 ### 3.5 Config resolution
 
@@ -638,7 +649,6 @@ plus the per-plugin secret name:
         { "kind": "dotenv", "file": ".env.local" } ] } },
     "prod": {
       "secrets": { "providers": [
-        { "kind": "env" },
         { "kind": "hashicorp", "addr": "https://vault.example.com",
           "auth": { "method": "kubernetes", "role": "solar" } } ] },
       "plugin": { "solardemo": {
@@ -779,9 +789,13 @@ async runtimes flush batches in the background; synchronous
 single-threaded libraries (c, lua, perl) flush inline at operation
 boundaries under an explicit time/size budget that §14's latency
 budget includes; process-per-request runtimes use the §3.4 rejoin
-path or stay solo. In every model: events never block or fail an
-operation, buffers are bounded, overflow drops oldest, and drop
-counts are visible in `status`.
+path or stay solo. In every model: events never fail an operation,
+and never delay one beyond the stated budget — zero for threaded
+and async runtimes, the explicit inline budget for the synchronous
+single-threaded targets, which is *bounded blocking* and is named
+as such rather than promised away as non-blocking (§14 line-items
+it); buffers are bounded, overflow drops oldest, and drop counts
+are visible in `status`.
 
 Consumers: **solo** — a bounded ring buffer (`station.events()`), a
 live subscription (`station.tap(fn)`, callbacks serialized), nothing
@@ -871,10 +885,14 @@ but an upstream can echo an injected credential back (a 401
 diagnostic, a token exchange), and `station_call`'s live result is
 not the capture store, so capture-time redaction alone would not
 cover it. Tool responses therefore pass the same credential-aware
-scrub as captures — redact-list headers, plus sekreto's own
-`redact(text)`, which replaces every value *that* sekreto instance
-resolved (and only values of four characters or more, so logs stay
-readable) — before entering the agent's context. With that in place, an agent given full station access can
+scrub as captures before entering the agent's context: redact-list
+headers, plus sekreto's own `redact(text)`, which replaces every
+value *that* sekreto instance resolved — and without sekreto's
+four-character readability floor, which is right for logs and wrong
+here. On this boundary and in capture redaction, station scrubs
+every resolved credential exactly, whatever its length, because the
+promise is absolute. With that in place, an agent given full
+station access can
 operate every integration without being *able* to read a credential
 — the §5 caveats about in-process code do not apply on the MCP side
 of the proxy.
@@ -902,9 +920,13 @@ Local auth is a token file (`~/.voxgig/station/token`, 0600, in a
 loopback port is not the Docker-socket model — any local user can
 bind it first — so the client **authenticates the proxy before
 sending anything sensitive**: on TCP, a challenge-response
-proof-of-token (client sends a nonce; proxy answers
-`HMAC(token, nonce)`; both sides hold the token file) precedes the
-bearer token, envelopes, and events. Probe failures — including
+proof-of-token precedes the bearer token, envelopes, and events —
+and it has a wire home rather than an out-of-band hand-wave: the
+client sends its nonce on the already-exempt health endpoint
+(`GET /v1/health?nonce=…`) and the proxy's response carries a
+`Station-Proof: HMAC(token, nonce)` header (both sides hold the
+token file), so the unauthenticated surface stays exactly one
+endpoint long. Probe failures — including
 auth/proof failures against an imposter — degrade exactly like
 absence, with the cause named in the warning event. Every request on
 every transport requires the bearer token (only `/v1/health` is
@@ -938,10 +960,21 @@ Data:
   policy, injects credentials (R2), sends upstream, and captures.
   The response is deliberately *not* a JSON wrapper — a JSON `body`
   field can neither stream nor carry binary without escaping — so
-  the upstream status and headers ride back as response metadata
-  (`Station-Status`; `Station-Headers`, base64-encoded JSON) and the
-  raw upstream body is the response body itself, passed through
-  chunked and binary-safe. Request bodies are buffered in v1 with a
+  the upstream status and headers ride back as response metadata —
+  `Station-Status` for the status; the upstream headers themselves
+  individually, each prefixed `Station-Up-`, repeats preserved. (One
+  aggregated base64-JSON header was rejected: a third of encoding
+  overhead, and a large-but-valid set — several sizable `Set-Cookie`
+  values, say — would blow a single-header limit in some attached
+  language's HTTP stack even though the original response was fine.)
+  The raw upstream body is the response body itself, passed through
+  chunked and binary-safe. The proxy's upstream client **never
+  follows redirects**: a 3xx rides back like any other response, so
+  a `Location` pointing off the `policy.hosts` allowlist cannot pull
+  an automatic follow-up request — injected credentials attached —
+  to a host no policy decision ever approved. A caller that chooses
+  to follow issues a new envelope, policed, credentialed, and
+  captured like any other. Request bodies are buffered in v1 with a
   size limit (below); streaming uploads are an open question (§18).
 
 A transparent HTTP forward proxy (the existing `proxy` feature's
@@ -1004,6 +1037,14 @@ Named defaults, all configurable, all visible in `status`: library
 ring 1k events; proxy capture store 10k entries / 256 MB LRU;
 `capture: full` bodies truncated at 64 KB with a `truncated` marker;
 `/v1/forward` request-body limit 32 MB with a structured error.
+Truncation and redaction make some captures lossy, and a lossy
+capture is not a replayable one: each capture records `replayable`,
+false when the request body was truncated or body-field redaction
+replaced bytes the request needs (redacted *auth headers* are the
+exception — replay restores those through the credential path, §6),
+and `replay` refuses a `replayable: false` capture with
+`station_replay_lossy` rather than silently re-issuing a corrupt
+request.
 In-memory by default; the optional SQLite capture store (for
 replay/record across restarts) carries age/size retention config;
 secret values live in memory only — every sekreto provider is a
@@ -1272,7 +1313,6 @@ values):**
       "plugin": { "solardemo": { "base": "http://localhost:8000" } } },
     "prod": {
       "secrets": { "providers": [
-        { "kind": "env" },
         { "kind": "hashicorp", "addr": "https://vault.example.com",
           "auth": { "method": "kubernetes", "role": "solar" } } ] },
       "plugin": { "solardemo": {
@@ -1296,7 +1336,11 @@ dangerous: a `default` profile's `env` entry surviving in front of
 quietly out-ranks the production secret, on some ports and not
 others depending on how each merged. Replacement is the only rule
 that reads the same in ten languages, and the `profile` corpus
-section pins the resulting order.
+section pins the resulting order. It is also why the `prod` examples
+here and in §5.2 have no `env` entry at all: first-provider-wins
+means an `env` entry in front of the vault would let a stale
+variable on the host out-rank the production secret — the exact
+failure this paragraph exists to prevent.
 
 The `plugin` map is keyed by **descriptor slug** (= the model's
 hyphenated `name`), discoverable via `station.plugins()` /
@@ -1446,7 +1490,10 @@ well-behaved:
 - **Proxy absent at startup (`auto`)** → solo mode, one
   `station`-kind warning event naming the cause (not found, auth
   failed, proof-of-token failed — an imposter reads as absence).
-  `require` → constructor-time `station_no_proxy`.
+  `require` → never solo, but the failure rides the operation path,
+  not the constructor: `open()` stays non-blocking (§2.1), and every
+  operation awaits attachment with the bounded timeout, then fails
+  `station_no_proxy`.
 - **Proxy dies mid-flight** → the next envelope fails; a plugin whose
   chain the library can run itself degrades to solo seamlessly (events
   buffer, capture gap noted); a `resolve: proxy` plugin fails closed
@@ -1455,8 +1502,11 @@ well-behaved:
   would quietly downgrade the isolation the deployment chose.
   Reattachment is automatic with backoff and is always a full
   re-register (§3.4).
-- **Events never block.** Fire-and-forget within each execution
-  model's delivery semantics (§6), bounded buffers, drop-oldest,
+- **Events never fail an operation, and never delay one beyond
+  §6's per-model budget** (zero, or the inline bounded-blocking
+  budget on synchronous single-threaded targets). Fire-and-forget
+  within each execution model's delivery semantics (§6), bounded
+  buffers, drop-oldest,
   drop counts in `status`. An observability outage must not become
   an application outage.
 - **Latency budget:** solo middleware overhead target < 0.1ms/op
@@ -1474,7 +1524,7 @@ well-behaved:
 
 | code | when |
 |---|---|
-| `station_no_proxy` | `require` unmet at open, or proxy lost for a `resolve: proxy` plugin |
+| `station_no_proxy` | attachment `require`d but not achieved within an operation's bounded wait (§2.1), or proxy lost for a `resolve: proxy` plugin |
 | `station_secret_no_value` | the chain ran and no store had the name (sekreto's `unknown secret`) |
 | `station_secret_error` | a store could not answer — locked vault, refused login, unreachable host; carries sekreto's message verbatim and is never retried against a weaker store (§5.2) |
 | `station_secret_name` | a configured secret name sekreto rejects as malformed, caught at profile load rather than first request |
@@ -1485,6 +1535,7 @@ well-behaved:
 | `station_no_plugin` / `station_no_entity` / `station_no_op` | unknown lookup in `station_call`/`station_describe`; the payload lists the valid candidates (§7) |
 | `station_agent_allow` | `agent.write`/`agent.read` policy denial, on call or replay |
 | `station_body_limit` | `/v1/forward` request body over the configured limit |
+| `station_replay_lossy` | replay refused: the capture's request cannot be reconstructed byte-for-byte (truncated or redaction-damaged body, §8.5) |
 
 ## 15. Security posture
 
