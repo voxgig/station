@@ -1,0 +1,13 @@
+{
+  "name": "voxgig/station",
+  "description": "voxgig/station - one control surface for outbound integrations (PHP library, solo mode)",
+  "type": "library",
+  "license": "MIT",
+  "keywords": ["voxgig", "station", "sdk", "secrets", "observability"],
+  "require": {
+    "php": ">=8.2"
+  },
+  "autoload": {
+    "files": ["src/Station.php"]
+  }
+}

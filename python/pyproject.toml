@@ -1,0 +1,13 @@
+[project]
+name = "voxgig-station"
+version = "0.0.1"
+description = "station: one control surface for outbound integrations"
+requires-python = ">=3.9"
+dependencies = ["voxgig-sekreto>=0.1"]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["voxgig_station"]

@@ -1,0 +1,3 @@
+# Mix build output (make clean removes it too).
+_build/
+deps/

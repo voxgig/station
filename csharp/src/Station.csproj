@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>VoxgigStation</AssemblyName>
+    <RootNamespace>Voxgig.Station</RootNamespace>
+    <!-- The NuGet coordinate generated csproj files declare (the
+         sdkgen-station feature model's deps.csharp entry). Publication is
+         pending - like sekreto's csharp port, which declares no PackageId
+         at all yet and must gain one first (station design 9.6). -->
+    <PackageId>Voxgig.Station</PackageId>
+    <Version>0.0.1</Version>
+    <Authors>Voxgig</Authors>
+    <Description>voxgig/station - one control surface for outbound integrations (solo mode).</Description>
+  </PropertyGroup>
+  <PropertyGroup>
+    <!-- voxgig/sekreto is the one library dependency the modem principle
+         allows (station design 10). It is not published to NuGet yet, so it
+         is referenced as a sibling-checkout project; the Makefile passes
+         SekretoPath when the checkout sits elsewhere. -->
+    <SekretoPath Condition="'$(SekretoPath)' == ''">../../../sekreto/csharp/src/Sekreto.csproj</SekretoPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(SekretoPath)" />
+  </ItemGroup>
+</Project>

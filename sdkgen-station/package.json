@@ -1,0 +1,18 @@
+{
+  "name": "@voxgig/sdkgen-station",
+  "version": "0.0.1",
+  "description": "sdkgen package: the `station` feature - binds generated SDKs to a voxgig/station control surface",
+  "license": "MIT",
+  "keywords": [
+    "sdkgen-package",
+    "voxgig",
+    "station"
+  ],
+  "files": [
+    ".sdk",
+    "sdkgen-package.json"
+  ],
+  "peerDependencies": {
+    "@voxgig/sdkgen": ">=3.6"
+  }
+}

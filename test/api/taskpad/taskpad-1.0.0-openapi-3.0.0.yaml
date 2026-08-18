@@ -1,0 +1,108 @@
+openapi: 3.0.0
+info:
+  title: Taskpad API
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8902
+
+security:
+  - taskpadKey: []
+
+paths:
+  /api/todo:
+    get:
+      summary: List todos
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Todo'
+    post:
+      summary: Create todo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Todo'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Todo'
+  /api/todo/{todo_id}:
+    get:
+      summary: Get todo
+      parameters:
+        - name: todo_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Todo'
+    put:
+      summary: Update todo
+      parameters:
+        - name: todo_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Todo'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Todo'
+    delete:
+      summary: Delete todo
+      parameters:
+        - name: todo_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Deleted
+
+components:
+  securitySchemes:
+    taskpadKey:
+      type: apiKey
+      in: header
+      name: Authorization
+  schemas:
+    Todo:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        done:
+          type: boolean
+        due:
+          type: string
+      required:
+        - title

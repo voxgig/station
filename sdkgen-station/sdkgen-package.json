@@ -1,0 +1,36 @@
+{
+  "sdkgen": {
+    "package": 1
+  },
+  "name": "@voxgig/sdkgen-station",
+  "version": "0.0.1",
+  "engines": {
+    "sdkgen": ">=3.6"
+  },
+  "provides": {
+    "feature": [
+      "station"
+    ]
+  },
+  "targetsSupported": {
+    "station": [
+      "c",
+      "cpp",
+      "csharp",
+      "dart",
+      "elixir",
+      "go",
+      "java",
+      "js",
+      "kotlin",
+      "lua",
+      "perl",
+      "php",
+      "py",
+      "rb",
+      "rust",
+      "swift",
+      "ts"
+    ]
+  }
+}

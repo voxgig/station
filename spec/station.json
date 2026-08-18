@@ -1,0 +1,676 @@
+{
+ "primary": {
+  "station": {
+   "canonical": {
+    "set": [
+     {
+      "doc": true,
+      "id": "canonical#sorted",
+      "in": {
+       "a": 2,
+       "b": 1
+      },
+      "out": "{\"a\":2,\"b\":1}"
+     },
+     {
+      "in": {
+       "a": {
+        "x": null,
+        "y": true
+       },
+       "z": [
+        3,
+        1,
+        2
+       ]
+      },
+      "out": "{\"a\":{\"x\":null,\"y\":true},\"z\":[3,1,2]}"
+     },
+     {
+      "in": {
+       "e": 2,
+       "é": 1
+      },
+      "out": "{\"e\":2,\"é\":1}"
+     },
+     {
+      "in": {
+       "n": 9007199254740991
+      },
+      "out": "{\"n\":9007199254740991}"
+     },
+     {
+      "in": "plain \"quoted\" text",
+      "out": "\"plain \\\"quoted\\\" text\""
+     },
+     {
+      "in": [],
+      "out": "[]"
+     }
+    ]
+   },
+   "descriptor": {
+    "set": [
+     {
+      "doc": true,
+      "id": "descriptor#modern",
+      "in": {
+       "config": {
+        "entity": {
+         "pet": {
+          "fields": [
+           {
+            "kind": "String",
+            "name": "name"
+           }
+          ],
+          "op": {
+           "load": {
+            "points": [
+             {
+              "method": "GET",
+              "orig": "/api/pet/:pet_id",
+              "parts": [
+               "api",
+               "pet",
+               ":pet_id"
+              ]
+             }
+            ]
+           }
+          }
+         }
+        },
+        "feature": {
+         "test": {}
+        },
+        "main": {
+         "name": "GnarlyPets",
+         "slug": "gnarly-pets",
+         "target": "ts",
+         "version": "0.0.1"
+        },
+        "options": {
+         "auth": {
+          "prefix": "Bearer"
+         },
+         "base": "http://localhost:8903",
+         "entity": {
+          "pet": {}
+         }
+        }
+       },
+       "feature": {
+        "station": {
+         "active": true
+        },
+        "test": {
+         "active": false
+        }
+       }
+      },
+      "out": {
+       "auth": {
+        "active": true,
+        "prefix": "Bearer",
+        "secretname": "gnarly_pets.apikey"
+       },
+       "base": "http://localhost:8903",
+       "entities": {
+        "pet": {
+         "fields": {
+          "name": {
+           "kind": "String"
+          }
+         },
+         "ops": {
+          "load": {
+           "points": [
+            {
+             "method": "GET",
+             "params": [
+              "pet_id"
+             ],
+             "path": "/api/pet/:pet_id"
+            }
+           ]
+          }
+         }
+        }
+       },
+       "envtoken": "GNARLY_PETS",
+       "features": [
+        {
+         "active": false,
+         "name": "test"
+        }
+       ],
+       "name": "GnarlyPets",
+       "server": [],
+       "slug": "gnarly-pets",
+       "station": 1,
+       "target": "ts",
+       "version": "0.0.1"
+      }
+     },
+     {
+      "id": "descriptor#legacy",
+      "in": {
+       "config": {
+        "entity": {
+         "planet": {
+          "fields": [
+           {
+            "kind": "String",
+            "name": "name"
+           }
+          ],
+          "op": {
+           "list": {
+            "points": [
+             {
+              "method": "GET",
+              "orig": "/api/planet",
+              "parts": [
+               "api",
+               "planet"
+              ]
+             }
+            ]
+           }
+          }
+         }
+        },
+        "feature": {
+         "test": {}
+        },
+        "main": {
+         "name": "VoxgigSolardemo"
+        },
+        "options": {
+         "auth": {
+          "prefix": ""
+         },
+         "base": "http://localhost:8901",
+         "entity": {
+          "planet": {}
+         }
+        }
+       },
+       "feature": {}
+      },
+      "out": {
+       "auth": {
+        "active": true,
+        "prefix": "",
+        "secretname": "voxgigsolardemo.apikey"
+       },
+       "base": "http://localhost:8901",
+       "entities": {
+        "planet": {
+         "fields": {
+          "name": {
+           "kind": "String"
+          }
+         },
+         "ops": {
+          "list": {
+           "points": [
+            {
+             "method": "GET",
+             "params": [],
+             "path": "/api/planet"
+            }
+           ]
+          }
+         }
+        }
+       },
+       "envtoken": "VOXGIGSOLARDEMO",
+       "features": [
+        {
+         "active": false,
+         "name": "test"
+        }
+       ],
+       "name": "VoxgigSolardemo",
+       "server": [],
+       "slug": "voxgigsolardemo",
+       "station": 1,
+       "target": "unknown",
+       "version": "0.0.0"
+      }
+     },
+     {
+      "id": "descriptor#noauth",
+      "in": {
+       "config": {
+        "entity": {},
+        "feature": {},
+        "main": {
+         "name": "Solardemo",
+         "slug": "solardemo",
+         "target": "ts",
+         "version": "1.2.3"
+        },
+        "options": {
+         "base": "http://localhost:8901",
+         "entity": {}
+        }
+       },
+       "feature": {}
+      },
+      "out": {
+       "auth": {
+        "active": false,
+        "prefix": "",
+        "secretname": "solardemo.apikey"
+       },
+       "base": "http://localhost:8901",
+       "entities": {},
+       "envtoken": "SOLARDEMO",
+       "features": [],
+       "name": "Solardemo",
+       "server": [],
+       "slug": "solardemo",
+       "station": 1,
+       "target": "ts",
+       "version": "1.2.3"
+      }
+     }
+    ]
+   },
+   "descriptorwarnings": {
+    "set": [
+     {
+      "in": {
+       "config": {
+        "entity": {
+         "pet": {
+          "fields": [
+           {
+            "kind": "String",
+            "name": "name"
+           }
+          ],
+          "op": {
+           "load": {
+            "points": [
+             {
+              "method": "GET",
+              "orig": "/api/pet/:pet_id",
+              "parts": [
+               "api",
+               "pet",
+               ":pet_id"
+              ]
+             }
+            ]
+           }
+          }
+         }
+        },
+        "feature": {
+         "test": {}
+        },
+        "main": {
+         "name": "GnarlyPets",
+         "slug": "gnarly-pets",
+         "target": "ts",
+         "version": "0.0.1"
+        },
+        "options": {
+         "auth": {
+          "prefix": "Bearer"
+         },
+         "base": "http://localhost:8903",
+         "entity": {
+          "pet": {}
+         }
+        }
+       },
+       "feature": {}
+      },
+      "out": 0
+     },
+     {
+      "in": {
+       "config": {
+        "entity": {
+         "planet": {
+          "fields": [
+           {
+            "kind": "String",
+            "name": "name"
+           }
+          ],
+          "op": {
+           "list": {
+            "points": [
+             {
+              "method": "GET",
+              "orig": "/api/planet",
+              "parts": [
+               "api",
+               "planet"
+              ]
+             }
+            ]
+           }
+          }
+         }
+        },
+        "feature": {
+         "test": {}
+        },
+        "main": {
+         "name": "VoxgigSolardemo"
+        },
+        "options": {
+         "auth": {
+          "prefix": ""
+         },
+         "base": "http://localhost:8901",
+         "entity": {
+          "planet": {}
+         }
+        }
+       },
+       "feature": {}
+      },
+      "out": 1
+     }
+    ]
+   },
+   "errors": {
+    "set": [
+     {
+      "in": "station_no_proxy",
+      "out": true
+     },
+     {
+      "in": "station_secret_no_value",
+      "out": true
+     },
+     {
+      "in": "station_secret_error",
+      "out": true
+     },
+     {
+      "in": "station_secret_name",
+      "out": true
+     },
+     {
+      "in": "station_host_allow",
+      "out": true
+     },
+     {
+      "in": "station_grant_expired",
+      "out": true
+     },
+     {
+      "in": "station_wrap_order",
+      "out": true
+     },
+     {
+      "in": "station_protocol",
+      "out": true
+     },
+     {
+      "in": "station_no_plugin",
+      "out": true
+     },
+     {
+      "in": "station_no_entity",
+      "out": true
+     },
+     {
+      "in": "station_no_op",
+      "out": true
+     },
+     {
+      "in": "station_agent_allow",
+      "out": true
+     },
+     {
+      "in": "station_body_limit",
+      "out": true
+     },
+     {
+      "in": "station_replay_lossy",
+      "out": true
+     },
+     {
+      "in": "station_open_conflict",
+      "out": true
+     },
+     {
+      "in": "station_bound_twice",
+      "out": true
+     },
+     {
+      "in": "station_made_up",
+      "out": false
+     },
+     {
+      "in": "no_such_code",
+      "out": false
+     }
+    ]
+   },
+   "placeholder": {
+    "set": [
+     {
+      "in": "gnarly-pets",
+      "out": "[station:gnarly-pets]"
+     },
+     {
+      "in": "solardemo",
+      "out": "[station:solardemo]"
+     }
+    ]
+   },
+   "profile": {
+    "set": [
+     {
+      "doc": true,
+      "id": "profile#replace-wholesale",
+      "in": {
+       "config": {
+        "profiles": {
+         "default": {
+          "plugin": {
+           "solardemo": {
+            "base": "http://dev:1",
+            "resolve": "library"
+           }
+          },
+          "secrets": {
+           "providers": [
+            {
+             "kind": "env"
+            },
+            {
+             "file": ".env",
+             "kind": "dotenv"
+            }
+           ]
+          }
+         },
+         "prod": {
+          "plugin": {
+           "solardemo": {
+            "base": "http://prod:2"
+           }
+          },
+          "secrets": {
+           "providers": [
+            {
+             "addr": "https://v",
+             "kind": "hashicorp"
+            }
+           ]
+          }
+         }
+        },
+        "station": 1
+       },
+       "profile": "prod"
+      },
+      "out": {
+       "name": "prod",
+       "plugin": {
+        "solardemo": {
+         "base": "http://prod:2",
+         "resolve": "library"
+        }
+       },
+       "providers": [
+        {
+         "addr": "https://v",
+         "kind": "hashicorp"
+        }
+       ]
+      }
+     },
+     {
+      "id": "profile#default-chain",
+      "in": {
+       "config": null,
+       "profile": "default"
+      },
+      "out": {
+       "name": "default",
+       "plugin": {},
+       "providers": [
+        {
+         "kind": "env"
+        }
+       ]
+      }
+     },
+     {
+      "id": "profile#overlay-merges-per-plugin",
+      "in": {
+       "config": {
+        "profiles": {
+         "default": {
+          "plugin": {
+           "a": {
+            "base": "http://a"
+           },
+           "b": {
+            "base": "http://b"
+           }
+          }
+         },
+         "stage": {
+          "plugin": {
+           "a": {
+            "secret": "custom.name"
+           }
+          }
+         }
+        },
+        "station": 1
+       },
+       "profile": "stage"
+      },
+      "out": {
+       "name": "stage",
+       "plugin": {
+        "a": {
+         "base": "http://a",
+         "secret": "custom.name"
+        },
+        "b": {
+         "base": "http://b"
+        }
+       },
+       "providers": [
+        {
+         "kind": "env"
+        }
+       ]
+      }
+     },
+     {
+      "err": "station_secret_name",
+      "id": "profile#bad-secret-name",
+      "in": {
+       "config": {
+        "profiles": {
+         "default": {
+          "plugin": {
+           "a": {
+            "secret": "Not A Name"
+           }
+          }
+         }
+        },
+        "station": 1
+       },
+       "profile": "default"
+      }
+     }
+    ]
+   },
+   "secretname": {
+    "set": [
+     {
+      "doc": true,
+      "id": "secretname#basic",
+      "in": {
+       "slug": "solardemo"
+      },
+      "out": {
+       "envkey": "SOLARDEMO_APIKEY",
+       "envtoken": "SOLARDEMO",
+       "secretname": "solardemo.apikey"
+      }
+     },
+     {
+      "in": {
+       "slug": "gnarly-pets"
+      },
+      "out": {
+       "envkey": "GNARLY_PETS_APIKEY",
+       "envtoken": "GNARLY_PETS",
+       "secretname": "gnarly_pets.apikey"
+      }
+     },
+     {
+      "in": {
+       "slug": "voxgig-solardemo"
+      },
+      "out": {
+       "envkey": "VOXGIG_SOLARDEMO_APIKEY",
+       "envtoken": "VOXGIG_SOLARDEMO",
+       "secretname": "voxgig_solardemo.apikey"
+      }
+     },
+     {
+      "in": {
+       "slug": "Weird--Name..2"
+      },
+      "out": {
+       "envkey": "WEIRD_NAME_2_APIKEY",
+       "envtoken": "WEIRD_NAME_2",
+       "secretname": "weird_name_2.apikey"
+      }
+     },
+     {
+      "in": {
+       "slug": "-lead-trail-"
+      },
+      "out": {
+       "envkey": "LEAD_TRAIL_APIKEY",
+       "envtoken": "LEAD_TRAIL",
+       "secretname": "lead_trail.apikey"
+      }
+     }
+    ]
+   }
+  }
+ }
+}
