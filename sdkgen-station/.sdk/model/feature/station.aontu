@@ -37,8 +37,7 @@ main: kit: feature: station: {
 
   # One dep per target: the station library only; sekreto is the
   # library's own dependency, never named here (design station.md 9.2).
-  # perl/lua/c/cpp vendor the library through the tm overlay (no dep);
-  # swift needs url+product coordinates Package_swift cannot yet emit.
+  # perl/lua/c/cpp vendor the library through the tm overlay (no dep).
   deps: ts: {
     '@voxgig/station': { active: true, version: '>=0.0.1', kind: peer }
   }
@@ -81,5 +80,13 @@ main: kit: feature: station: {
   }
   deps: rust: {
     'voxgig_station': { active: true, version: '>=0.0.1', kind: prod }
+  }
+
+  # SwiftPM needs a package URL as well as a product: the entry KEY is
+  # the PRODUCT name (the module the adapter imports); the extra `url`
+  # field is the git repository SwiftPM resolves; `version` feeds
+  # `from:`. Package_swift.ts documents the convention.
+  deps: swift: {
+    'VoxgigStation': { active: true, version: '0.0.1', kind: prod, url: 'https://github.com/voxgig/station-swift' }
   }
 }

@@ -15,15 +15,44 @@ names a secret, never a value.
 
 ## Status
 
-Design plus a working TypeScript spike of the solo-mode library core.
-The proxy (D2) is deliberately deferred; everything here runs
-in-process.
+Design plus solo-mode library ports across the sdkgen target set, and
+the `@voxgig/sdkgen-station` feature package that turns generated SDKs
+into station plugins. The proxy (D2) is deliberately deferred;
+everything here runs in-process.
+
+| port | dir | secrets | validated here |
+|---|---|---|---|
+| TypeScript (canonical) | `typescript/` | sekreto | full suite + live e2e |
+| JavaScript | `javascript/` | sekreto-js | full suite + live e2e |
+| Go | `go/` | sekreto go | full suite + live e2e |
+| Python | `python/` | sekreto py | full suite + live e2e |
+| Ruby | `ruby/` | sekreto rb | full suite + live e2e |
+| PHP | `php/` | sekreto php | full suite + live e2e |
+| Perl | `perl/` | sekreto perl (vendored into SDKs) | full suite + live e2e |
+| Java | `java/` | sekreto java | full suite + live e2e |
+| Kotlin | (rides the java library, JVM interop) | — | generation-validated |
+| C# | `csharp/` | sekreto csharp | written; no local .NET toolchain |
+| Swift | `swift/` | env-only | written; no local toolchain |
+| Dart | `dart/` | env-only | written; no local toolchain |
+| Elixir | `elixir/` | env-only | written; no local toolchain |
+| Lua | `lua/` | env-only (vendored into SDKs) | suite run under a JS Lua VM |
+| Rust | `rust/` | sekreto rust | full suite |
+| C (tier C) | `c/` | env-only (vendored) | full suite + live e2e |
+| C++ (tier C) | `cpp/` | env-only (vendored) | full suite + live e2e |
+
+Deferred per the design's §9.1/§17: scala, clojure, haskell, ocaml,
+zig, lean adapters (monolithic feature modules or static reference
+points), and everything proxy-side.
 
 - [`docs/design/station.md`](./docs/design/station.md) — the full design:
   the plugin contract, the descriptor, secret placement, observability
   and debugging, the MCP agent surface, the wire protocol and companion
   proxy, the sdkgen integration, and delivery phasing.
-- [`typescript/`](./typescript/) — the canonical library port (spike):
+- [`sdkgen-station/`](./sdkgen-station/) — the sdkgen feature package
+  (design §9 item 5): the feature model, per-target adapter overlays,
+  and the deps that flow each target's station library into generated
+  manifests. `voxgig-sdkgen package add @voxgig/sdkgen-station`.
+- [`typescript/`](./typescript/) — the canonical library port:
   `Station.open`/`connect`/`adopt`, the descriptor normalizer and
   canonical serializer, profile resolution over `station.json`, the
   sekreto-backed secret broker with placeholder injection at the

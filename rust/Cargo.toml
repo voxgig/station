@@ -1,0 +1,23 @@
+[package]
+name = "voxgig_station"
+version = "0.1.0"
+edition = "2021"
+description = "station: one control surface for outbound integrations (Rust)"
+license = "MIT"
+
+[lib]
+name = "voxgig_station"
+path = "src/lib.rs"
+
+[dependencies]
+# sekreto is the one dependency a station library takes (design §10): it
+# resolves secrets, station places them. It is a sibling checkout, not a
+# published crate - `make vendor` links vendor/sekreto to wherever the
+# checkout actually is, so this path works on any machine. sekreto's own
+# rustls/webpki-roots tree rides along - the design's stated Rust
+# exception to "no transitive dependencies" (§10).
+voxgig_sekreto = { path = "vendor/sekreto" }
+
+# voxgig/omni drives the conformance suite only. Same vendor-link scheme.
+[dev-dependencies]
+voxgig_omni = { path = "vendor/omni" }

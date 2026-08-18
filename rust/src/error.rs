@@ -1,0 +1,63 @@
+//! Error codes follow the SDKs' house grammar (design §14):
+//! `<subject>_<condition>`, absence as `no_<thing>`, gates as `_allow`.
+//! The `errors` corpus section pins the exact strings.
+//!
+//! A port of typescript/src/error.ts, which is canonical. Rust has no
+//! exceptions: the operation path returns `StationError` in a `Result`,
+//! and construction-time misconfiguration (open conflicts, wrap order,
+//! double binding) panics with the same `code: message` text - the
+//! generated Rust SDKs' own idiom for a broken constructor.
+
+use std::fmt;
+
+const CODES: &[&str] = &[
+    "station_no_proxy",
+    "station_secret_no_value",
+    "station_secret_error",
+    "station_secret_name",
+    "station_host_allow",
+    "station_grant_expired",
+    "station_wrap_order",
+    "station_protocol",
+    "station_no_plugin",
+    "station_no_entity",
+    "station_no_op",
+    "station_agent_allow",
+    "station_body_limit",
+    "station_replay_lossy",
+    "station_open_conflict",
+    "station_bound_twice",
+];
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct StationError {
+    pub code: String,
+    pub msg: String,
+}
+
+impl StationError {
+    pub fn new(code: &str, msg: impl Into<String>) -> StationError {
+        StationError {
+            code: code.to_string(),
+            msg: msg.into(),
+        }
+    }
+
+    /// The full message, the way the canonical port's Error.message reads:
+    /// `code: message`.
+    pub fn message(&self) -> String {
+        format!("{}: {}", self.code, self.msg)
+    }
+}
+
+impl fmt::Display for StationError {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(out, "{}", self.message())
+    }
+}
+
+impl std::error::Error for StationError {}
+
+pub fn is_known_code(code: &str) -> bool {
+    CODES.contains(&code)
+}
