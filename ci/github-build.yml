@@ -1,0 +1,83 @@
+# Conformance in CI for every shipped library (station design §13):
+# each port runs its unit suite plus the shared spec/station.json
+# corpus through the sibling voxgig/omni runner. The integration
+# suites that need generated SDKs skip cleanly here; the package-side
+# fixture-consumer lane (§9.5) covers those pre-graduation.
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  ports:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: station
+      - uses: actions/checkout@v4
+        with:
+          repository: voxgig/omni
+          path: omni
+      - uses: actions/checkout@v4
+        with:
+          repository: voxgig/sekreto
+          path: sekreto
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: typescript
+        run: |
+          cd station/typescript
+          mkdir -p node_modules/@voxgig
+          ln -sfn ../../../../sekreto/typescript node_modules/@voxgig/sekreto
+          ln -sfn ../../../../omni/typescript node_modules/@voxgig/omni
+          (cd ../../omni/typescript && npm install --no-audit --no-fund && npm run build)
+          (cd ../../sekreto/typescript && npm install --no-audit --no-fund && npm run build)
+          npm install --no-save --no-audit --no-fund typescript @types/node
+          npm test
+      - name: javascript
+        run: |
+          cd station/javascript
+          mkdir -p node_modules/@voxgig
+          ln -sfn ../../../../sekreto/javascript node_modules/@voxgig/sekreto-js
+          npm test
+      - name: go
+        run: make -C station/go test
+      - name: python
+        run: make -C station/python test
+      - name: ruby
+        run: |
+          cd station/ruby
+          ruby test/station_test.rb
+          ruby test/conform_test.rb
+      - name: php
+        run: cd station/php && php test/run.php
+      - name: perl
+        run: make -C station/perl test
+      - name: java
+        run: make -C station/java test
+      - name: rust
+        run: cd station/rust && cargo test
+      - name: c
+        run: make -C station/c test
+      - name: cpp
+        run: make -C station/cpp test
