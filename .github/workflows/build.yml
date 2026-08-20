@@ -3,6 +3,13 @@
 # corpus through the sibling voxgig/omni runner. The integration
 # suites that need generated SDKs skip cleanly here; the package-side
 # fixture-consumer lane (§9.5) covers those pre-graduation.
+#
+# Every port step is `continue-on-error` with an id, and the final
+# `result` step fails the job naming each red port. Without that the
+# job stops at the first failure and the ports after it never run - on
+# the activation run that hid c and cpp behind a rust failure, so a
+# suite whose whole purpose is naming the port that disagrees named
+# one and hid two.
 name: build
 
 on:
@@ -14,37 +21,40 @@ on:
 jobs:
   ports:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: station
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: voxgig/omni
           path: omni
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: voxgig/sekreto
           path: sekreto
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.24'
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.3'
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
 
       - name: typescript
+        id: typescript
+        continue-on-error: true
         run: |
           cd station/typescript
           mkdir -p node_modules/@voxgig
@@ -55,29 +65,81 @@ jobs:
           npm install --no-save --no-audit --no-fund typescript @types/node
           npm test
       - name: javascript
+        id: javascript
+        continue-on-error: true
         run: |
           cd station/javascript
           mkdir -p node_modules/@voxgig
           ln -sfn ../../../../sekreto/javascript node_modules/@voxgig/sekreto-js
           npm test
       - name: go
+        id: go
+        continue-on-error: true
         run: make -C station/go test
       - name: python
+        id: python
+        continue-on-error: true
         run: make -C station/python test
       - name: ruby
+        id: ruby
+        continue-on-error: true
         run: |
           cd station/ruby
           ruby test/station_test.rb
           ruby test/conform_test.rb
+          ruby test/quickstart_test.rb
       - name: php
+        id: php
+        continue-on-error: true
         run: cd station/php && php test/run.php
       - name: perl
+        id: perl
+        continue-on-error: true
         run: make -C station/perl test
       - name: java
+        id: java
+        continue-on-error: true
         run: make -C station/java test
+      # `make test`, not a bare `cargo test`: Cargo.toml names path
+      # dependencies under vendor/, and the Makefile's `vendor` target is
+      # what links them to the sibling checkouts. Calling cargo directly
+      # skips it and the build cannot resolve voxgig_sekreto.
       - name: rust
-        run: cd station/rust && cargo test
+        id: rust
+        continue-on-error: true
+        env:
+          SEKRETO_HOME: ${{ github.workspace }}/sekreto
+          OMNI_HOME: ${{ github.workspace }}/omni
+        run: make -C station/rust test
       - name: c
+        id: c
+        continue-on-error: true
         run: make -C station/c test
       - name: cpp
+        id: cpp
+        continue-on-error: true
         run: make -C station/cpp test
+
+      - name: result
+        if: always()
+        env:
+          OUTCOMES: |
+            typescript ${{ steps.typescript.outcome }}
+            javascript ${{ steps.javascript.outcome }}
+            go ${{ steps.go.outcome }}
+            python ${{ steps.python.outcome }}
+            ruby ${{ steps.ruby.outcome }}
+            php ${{ steps.php.outcome }}
+            perl ${{ steps.perl.outcome }}
+            java ${{ steps.java.outcome }}
+            rust ${{ steps.rust.outcome }}
+            c ${{ steps.c.outcome }}
+            cpp ${{ steps.cpp.outcome }}
+        run: |
+          printf '%s\n' "$OUTCOMES" | awk 'NF'
+          red=$(printf '%s\n' "$OUTCOMES" | awk '$2 != "success" { printf "%s ", $1 }')
+          if [ -n "$red" ]; then
+            echo "::error::red ports: $red"
+            exit 1
+          fi
+          echo "all 11 ports green"

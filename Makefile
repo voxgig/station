@@ -34,8 +34,11 @@ test-perl:
 test-java:
 	cd java && $(MAKE) test
 
+# via the port Makefile: rust's `test` depends on `vendor`, which links
+# vendor/sekreto and vendor/omni to the sibling checkouts that Cargo.toml
+# names as path dependencies. A bare `cargo test` cannot resolve them.
 test-rust:
-	cd rust && cargo test --offline
+	cd rust && $(MAKE) test
 
 test-c:
 	cd c && $(MAKE) test
@@ -47,8 +50,10 @@ test-cpp:
 test-csharp:
 	cd csharp && $(MAKE) test
 
+# via the port Makefile, for the same reason as rust: `test` depends on
+# `vendor`, which links vendor/omni. swift/vendor is not tracked.
 test-swift:
-	cd swift && swift test
+	cd swift && $(MAKE) test
 
 test-dart:
 	cd dart && dart test
