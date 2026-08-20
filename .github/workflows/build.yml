@@ -136,10 +136,15 @@ jobs:
             c ${{ steps.c.outcome }}
             cpp ${{ steps.cpp.outcome }}
         run: |
+          # `NF` is load-bearing: the YAML block scalar ends with a newline,
+          # so the stream carries a trailing blank line. Without the guard
+          # awk matches it ($2 is empty, so != "success"), prints an empty
+          # $1, and the job fails naming no port at all.
           printf '%s\n' "$OUTCOMES" | awk 'NF'
-          red=$(printf '%s\n' "$OUTCOMES" | awk '$2 != "success" { printf "%s ", $1 }')
+          red=$(printf '%s\n' "$OUTCOMES" |
+            awk 'NF && $2 != "success" { printf "%s ", $1 }' | sed 's/ *$//')
           if [ -n "$red" ]; then
             echo "::error::red ports: $red"
             exit 1
           fi
-          echo "all 11 ports green"
+          echo "all $(printf '%s\n' "$OUTCOMES" | awk 'NF' | wc -l) ports green"
