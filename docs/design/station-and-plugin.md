@@ -9,9 +9,17 @@ targets. [station](./station.md) is its first host, and this document
 is the agreed position between the two designs: what they share, where
 they disagreed, and which side moved.
 
-References of the form **P§n** are to
-[plugin's design](https://github.com/voxgig/plugin/blob/claude/voxgig-plugin-architecture-h6cly0/docs/design/plugin.md);
-bare **§n** are to [`station-declarative-config.md`](./station-declarative-config.md);
+References of the form **P§n** are to plugin's design **as reconciled
+in [voxgig/plugin#3](https://github.com/voxgig/plugin/pull/3), commit
+[`f001b9f`](https://github.com/voxgig/plugin/blob/f001b9f8530611089ca32e9c7bfa31806595ebe4/docs/design/plugin.md)**
+— pinned rather than tracking
+[the branch](https://github.com/voxgig/plugin/blob/claude/voxgig-plugin-architecture-h6cly0/docs/design/plugin.md),
+because an agreement whose references move is not reproducible: every
+section number and every "plugin adopted this" claim below is against
+that revision. Re-pin when plugin's design branch advances, and check
+the claims still hold rather than assuming they do.
+
+Bare **§n** are to [`station-declarative-config.md`](./station-declarative-config.md);
 **S§n** to [`station.md`](./station.md).
 
 The ordering matters and is stated once: **plugin is the general
@@ -57,8 +65,12 @@ takes regardless of whether it ever depends on the library:
    test-first-then-alphabetical default plus an explicit `order` list,
    and gets vacuous satisfaction right (`after: 'test'` in a host with
    no test plugin loads fine — sdkgen's `__after__` behaviour kept).
-2. **The `transport` role becomes unnecessary** — which point you bind
-   to carries it. This deletes a seventeen-model sdkgen change from §11.
+2. **The `transport` role becomes unnecessary — once features are
+   bindings.** Which point a feature binds to carries the role
+   structurally: a `chain` binding is in the wrap chain, a `hook`
+   binding is not. That holds in plugin's model and *not yet* in
+   station's native one, so the seventeen-model sdkgen change is
+   deferred rather than deleted — §2.10 has the staging.
 3. **Position verification (P§6.6)** generalizes S§3.3's hand-rolled
    wrap-order guard to every plugin in every host.
 4. **Runtime deactivation with resource release (P§8)** makes "turn
@@ -160,9 +172,21 @@ ref-keyed `instance` map. It declares nothing, never appears in
 This **replaces** seneca's shortname rule rather than sitting beside
 it: the untagged instance is now an ordinary instance whose options
 apply only to itself. Two sources for one value is the defect class
-both repos have spent fixes on, and the two key spaces are disjoint —
-a name is never a ref — so no reader has to ask which of two places a
-value came from. The forfeit is familiarity for seneca users.
+both repos have spent fixes on.
+
+**The two maps are separate namespaces, not separate spellings** — an
+earlier draft of this section got that wrong. An untagged ref *is* a
+bare name (P§4 rule 5 canonicalizes `stripe$` and `stripe` to the same
+thing), so `api.stripe` and `sdk.stripe` are the same key string in two
+maps, and a normalizer that tried to tell them apart lexically would
+reject the ordinary single-instance case — which is most of station's
+existing config files. The map decides the meaning: the `api` block
+configures every instance of that api and declares none; the `sdk`
+block declares the untagged instance and configures only it.
+Disambiguation is structural, and the corpus pins the case where a name
+has both.
+
+The forfeit is familiarity for seneca users.
 
 Settled now rather than deferred because plugin's P1 ships the document
 normalizer and requires the `config` corpus green at its exit; a
@@ -195,6 +219,18 @@ in its SDK definition shape and §3.3's guarantee is unchanged. The
 mechanism already existed in P§9.4 for lists; it generalizes to maps,
 and the question is answered in one place that travels with the
 definition.
+
+**One boundary is not top-level, and it is station's.** §8.3 merges
+`feature` **by feature name, then by option key**, and replaces below
+that — so a map-valued feature option like `headers` must replace
+wholesale rather than merge key-by-key with the fleet default
+underneath it. Marking the top-level `feature` key `replace` would
+destroy the composition a fleet default exists for; leaving it deep
+would silently retain base keys inside an option an overlay meant to
+replace. Neither top-level marker expresses the rule. So `$MERGE` takes
+a depth bound — `{"$MERGE": {"deep": 2}}` on `feature` — which states
+§8.3 exactly, once, instead of one `replace` marker per feature per
+option that would be wrong the first time someone adds a feature.
 
 ### 2.6 Defaults were applied at the wrong time
 
@@ -275,13 +311,29 @@ its own architecture, and must not lose a tie to a document.
 
 ### 2.10 Two smaller ones, recorded rather than resolved
 
-- **`transport: 'base'` had no plugin expression.** A chain's base is
-  host-owned (P§6.2), so a plugin cannot replace it. The mapping is
-  that a substituting plugin — sdkgen's `test`, which assigns
+- **`transport: 'base'` had no plugin expression, and deleting the
+  role is staged rather than immediate.** A chain's base is host-owned
+  (P§6.2), so a plugin cannot replace it. The mapping is that a
+  substituting plugin — sdkgen's `test`, which assigns
   `ctx.utility.fetcher` outright — binds as the **innermost link and
-  declines to call `next`**. Behaviourally identical, and it deletes
-  the declared role along with the seventeen-model sdkgen change.
-  P§6.2 now says so; §8.4 is amended.
+  declines to call `next`**, which is behaviourally identical and needs
+  no declared role. P§6.2 now says so.
+
+  **But the role is only structural once features are bindings.** In
+  station's native Stage 3b — which is what station builds now, and for
+  as long as it does not depend on the library — a generated SDK's
+  features are still an ordered array composed from `FEATURE_CLASS`,
+  with no `chain` or `hook` point to read a role off. §8.4 is explicit
+  that the roles cannot be inferred: the obvious signal, an empty
+  `hook: {}`, is wrong for `station` itself, which both wraps *and*
+  dispatches hooks. Dropping `transport` now would leave Stage 3b
+  unable to classify features or validate an explicit `order` at all.
+
+  So: **keep `transport` for the native phase, and delete it when
+  features become bindings** — over P3's `FeatureHost` bridge (§2.3) or
+  after sdkgen adopts. The seventeen-model sdkgen change is deferred to
+  that point, not cancelled, and §8.4 is amended to say so rather than
+  to strike the field.
 - **`active` is overloaded, in both directions.** Station's `active:
   false` means *barred from running*; plugin's `active` is a lifecycle
   **status** meaning *bindings live, resources held*. Both documents
@@ -374,10 +426,13 @@ stay station's:
 3. **Build Stages 2–3 natively, to plugin's semantics** — state names,
    ref grammar, the §3.2 ladder, list-replace, vacuous constraint
    satisfaction — written so plugin can extract them.
-4. **Adopt P§7's ordering in §8.4 now**, dropping the `transport` field
-   and the seventeen-model sdkgen change with it, and expressing
-   station's pinned wrap position as a pin rather than a validation
-   special case.
+4. **Adopt P§7's ordering in §8.4 now** — constraints and bands,
+   vacuous satisfaction, and station's pinned wrap position expressed
+   as a pin rather than a validation special case. **Keep `transport`
+   while the native implementation needs it** (§2.10): the role stops
+   being data and starts being structure only when features are
+   bindings, so the seventeen-model sdkgen change is deferred to the
+   bridge rather than dropped now.
 5. **Declare `policy` and `options` as `$MERGE: replace`** in the SDK
    definition shape, which is what keeps §3.3's guarantee under
    plugin's merge (§2.5).
