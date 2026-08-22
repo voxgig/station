@@ -3,7 +3,7 @@
 Status: **proposal** (2026-08-22). An extension of
 [`station.md`](./station.md), not a replacement. Where the two
 disagree, this document wins and names the section of `station.md` it
-amends (§15 collects every amendment in one list).
+amends (§16 collects every amendment in one list).
 
 Unqualified `typescript/...`, `go/...`, `spec/...` paths are relative
 to this repo. Unqualified `ts/src/...` and `ts/project/.sdk/...` paths
@@ -34,17 +34,21 @@ component rather than a demo:
   nowhere else** — never inline in the config, never by a second
   mechanism — and that has to be coordinated with the generated SDKs,
   which have their own credential convention.
+- **SDK features are managed universally** — activation and
+  configuration for `retry`, `cache`, `debug`, `proxy` and the rest,
+  across the whole fleet from one place, rather than by hand in 20 call
+  sites (§8).
 
 All of it works in every target language. `ts` is the tracer bullet.
 
 The one-sentence answer:
 
-> **`station.json` declares named SDK *instances*; `station.sdk(name)`
-> returns one, constructed lazily and cached; the registry is keyed by
-> instance rather than by API; the config is normalized to its
-> documented defaults and then validated against a struct shape that
-> is closed by construction — so the grammar cannot express a
-> credential, and a typo cannot survive `open()`.**
+> **`station.json` declares named SDK *instances* and the features they
+> run; `station.sdk(name)` returns one, constructed lazily and cached;
+> the registry is keyed by instance rather than by API; the config is
+> normalized to its documented defaults and then validated against a
+> struct shape that is closed by construction — so the grammar cannot
+> express a credential, and a typo cannot survive `open()`.**
 
 
 ## 1. Why today's design does not do this yet
@@ -110,8 +114,8 @@ of its api (§7.4).
 The degenerate case is the important one: **an instance whose name
 equals its api slug, and which is the only instance of that api, has
 exactly today's behaviour** — the same resolved secret name, the same
-env var, the same base URL, the same binding calls, and the §11
-two-line quickstart unchanged. Multi-instance is what you get when you
+env var, the same base URL, the same binding calls, and
+`station.md` §11's two-line quickstart unchanged. Multi-instance is what you get when you
 ask for it.
 
 Two changes cross that line and are called out rather than buried,
@@ -143,6 +147,8 @@ functions, no references, no expressions, no environment interpolation
   "profiles": {
     "<profile>": {
       "secrets": { "providers": [ /* sekreto ProviderSpec, verbatim */ ] },
+      "feature": { "<feature-name>":  { /* fleet-wide feature defaults, §8.2 */ } },
+      "order":   [ /* explicit feature wrap order, §8.4 */ ],
       "api":     { "<api-slug>":      { /* block */ } },
       "sdk":     { "<instance-name>": { "api": "<api-slug>", /* block */ } }
     }
@@ -160,7 +166,8 @@ A **block** — the same eight keys in both positions:
 | `secret` | string | sekreto secret **name** — never a value (§5) |
 | `resolve` | `"library"` \| `"proxy"` | R1 in-process, or R2 proxy-side (`station.md` §5.3) |
 | `policy` | `{ "hosts": [string] }` | egress allowlist |
-| `options` | map | extra options passed to the SDK constructor (§5.3 restricts it) |
+| `feature` | map | SDK features to activate and configure (§8) |
+| `options` | map | extra options passed to the SDK constructor (§5.2 restricts it) |
 | `active` | boolean | default `true`; `false` declares an instance without allowing it to be built |
 
 An `sdk` block adds one key, `api`, naming which api it instantiates;
@@ -168,7 +175,7 @@ it defaults to the instance name, so the single-instance case never
 writes it. An `api` block is the same block *minus* `api` — settings
 inherited by every instance of that api. The two spec objects in the
 shape file are identical apart from that one key, and a guard test
-asserts it (§9.1), because they are one concept written twice as data.
+asserts it (§10.1), because they are one concept written twice as data.
 
 ### 3.2 Twenty SDKs, twenty-six instances
 
@@ -294,7 +301,8 @@ exactly this case.
 
 Two rules survive unchanged from `station.md` and one is corrected:
 
-- **`secrets.providers` replaces wholesale**, never merges (§3.5, §5.2).
+- **`secrets.providers` replaces wholesale**, never merges (`station.md`
+  §3.5, §5.2).
   It is profile-level, so this is untouched by the block levels.
 - Merging within a block is **shallow, per key**. `station.md` §3.5 says
   "deep-merge per plugin"; the TypeScript and Go ports both implement a
@@ -302,7 +310,7 @@ Two rules survive unchanged from `station.md` and one is corrected:
   (`typescript/src/profile.ts`, `go/station/profile.go:93`). The
   implementations agree with each other and the prose is the outlier.
   **Settled as shallow** — it is the rule that reads the same in 22
-  languages — and `station.md` §3.5 is corrected (§15). The visible
+  languages — and `station.md` §3.5 is corrected (§16). The visible
   consequence: an overlay's `policy` replaces the base's `policy`
   entirely rather than merging `hosts` into it. That is also the safer
   reading for an allowlist.
@@ -312,7 +320,7 @@ Two rules survive unchanged from `station.md` and one is corrected:
   outranks the environment, as steps 7 and 8 above require and as every
   shipped `selectProfile` already implements
   (`typescript/src/profile.ts`). `station.md` §3.5 states only the env
-  var and the default; it is completed here rather than changed (§15).
+  var and the default; it is completed here rather than changed (§16).
 
 ### 3.4 Migration from `plugin`
 
@@ -340,7 +348,7 @@ themselves run on. So the shape can be **data**: one JSON file, read by
 every port, producing the same verdict and the same message paths
 everywhere. That is a strictly stronger position than a JSON Schema
 (which would need a validator dependency per language, and would be
-the only such dependency in a design whose §10 forbids them).
+the only such dependency in a design whose `station.md` §10 forbids them).
 
 Three struct properties do the real work, all verified against
 `@voxgig/struct@0.2.2` while writing this:
@@ -386,8 +394,15 @@ message:
 - `profiles: {}` when absent;
 - per profile: `secrets.providers` → `[{"kind":"env"}]` (the documented
   default chain), `api` → `{}`, `sdk` → `{}`;
-- per block: `active` → `true`;
-- per `sdk` block: `api` → the instance name.
+- per profile: `feature` → `{}`;
+- per block: `active` → `true`, `feature` → `{}`;
+- per `sdk` block: `api` → the instance name;
+- per feature entry, at every level: `active` → `true`. A feature named
+  in the config is one you are asking for; the SDK's own default is
+  `active: false` for all but `log`, and `{"retry": {"retries": 3}}`
+  plainly means "retry, with three attempts". It also keeps the feature
+  map closed for the same reason every other block needs one present
+  key.
 
 After normalization every container is present, so the shape can
 require them, so unexpected-key detection is live at every level and
@@ -421,35 +436,146 @@ against the cases in §4.5.
 
 ```json
 {
-  "station": ["`$EXACT`", 1],
+  "station": [
+    "`$EXACT`",
+    1
+  ],
   "profiles": {
     "`$CHILD`": {
-      "secrets": { "providers": "`$LIST`" },
+      "secrets": {
+        "providers": "`$LIST`"
+      },
       "api": {
         "`$CHILD`": {
-          "active":  "`$BOOLEAN`",
-          "package": ["`$ONE`", "`$NIL`", "`$STRING`"],
-          "export":  ["`$ONE`", "`$NIL`", "`$STRING`"],
-          "base":    ["`$ONE`", "`$NIL`", "`$STRING`"],
-          "secret":  ["`$ONE`", "`$NIL`", "`$STRING`"],
-          "resolve": ["`$ONE`", "`$NIL`", ["`$EXACT`", "library"], ["`$EXACT`", "proxy"]],
-          "policy":  ["`$ONE`", "`$NIL`", { "hosts": ["`$CHILD`", "`$STRING`"] }],
-          "options": ["`$ONE`", "`$NIL`", "`$MAP`"]
+          "active": "`$BOOLEAN`",
+          "package": [
+            "`$ONE`",
+            "`$NIL`",
+            "`$STRING`"
+          ],
+          "export": [
+            "`$ONE`",
+            "`$NIL`",
+            "`$STRING`"
+          ],
+          "base": [
+            "`$ONE`",
+            "`$NIL`",
+            "`$STRING`"
+          ],
+          "secret": [
+            "`$ONE`",
+            "`$NIL`",
+            "`$STRING`"
+          ],
+          "resolve": [
+            "`$ONE`",
+            "`$NIL`",
+            [
+              "`$EXACT`",
+              "library"
+            ],
+            [
+              "`$EXACT`",
+              "proxy"
+            ]
+          ],
+          "policy": [
+            "`$ONE`",
+            "`$NIL`",
+            {
+              "hosts": [
+                "`$CHILD`",
+                "`$STRING`"
+              ]
+            }
+          ],
+          "options": [
+            "`$ONE`",
+            "`$NIL`",
+            "`$MAP`"
+          ],
+          "feature": {
+            "`$CHILD`": {
+              "active": "`$BOOLEAN`",
+              "`$OPEN`": true
+            }
+          }
         }
       },
       "sdk": {
         "`$CHILD`": {
-          "api":     "`$STRING`",
-          "active":  "`$BOOLEAN`",
-          "package": ["`$ONE`", "`$NIL`", "`$STRING`"],
-          "export":  ["`$ONE`", "`$NIL`", "`$STRING`"],
-          "base":    ["`$ONE`", "`$NIL`", "`$STRING`"],
-          "secret":  ["`$ONE`", "`$NIL`", "`$STRING`"],
-          "resolve": ["`$ONE`", "`$NIL`", ["`$EXACT`", "library"], ["`$EXACT`", "proxy"]],
-          "policy":  ["`$ONE`", "`$NIL`", { "hosts": ["`$CHILD`", "`$STRING`"] }],
-          "options": ["`$ONE`", "`$NIL`", "`$MAP`"]
+          "api": "`$STRING`",
+          "active": "`$BOOLEAN`",
+          "package": [
+            "`$ONE`",
+            "`$NIL`",
+            "`$STRING`"
+          ],
+          "export": [
+            "`$ONE`",
+            "`$NIL`",
+            "`$STRING`"
+          ],
+          "base": [
+            "`$ONE`",
+            "`$NIL`",
+            "`$STRING`"
+          ],
+          "secret": [
+            "`$ONE`",
+            "`$NIL`",
+            "`$STRING`"
+          ],
+          "resolve": [
+            "`$ONE`",
+            "`$NIL`",
+            [
+              "`$EXACT`",
+              "library"
+            ],
+            [
+              "`$EXACT`",
+              "proxy"
+            ]
+          ],
+          "policy": [
+            "`$ONE`",
+            "`$NIL`",
+            {
+              "hosts": [
+                "`$CHILD`",
+                "`$STRING`"
+              ]
+            }
+          ],
+          "options": [
+            "`$ONE`",
+            "`$NIL`",
+            "`$MAP`"
+          ],
+          "feature": {
+            "`$CHILD`": {
+              "active": "`$BOOLEAN`",
+              "`$OPEN`": true
+            }
+          }
         }
-      }
+      },
+      "feature": {
+        "`$CHILD`": {
+          "active": "`$BOOLEAN`",
+          "`$OPEN`": true
+        }
+      },
+      "order": [
+        "`$ONE`",
+        "`$NIL`",
+        [
+          "`$CHILD`",
+          "`$STRING`"
+        ]
+      ]
     }
   }
 }
@@ -458,6 +584,13 @@ against the cases in §4.5.
 `api` and `active` are required rather than optional — normalization
 guarantees both are present, and requiring at least one key per block
 is precisely what keeps the block closed.
+
+**A feature's options stay `` `$OPEN` ``**, also by design rather than
+omission: which options a feature accepts is the SDK's declaration, not
+station's, and station does not hold a descriptor at `open()`. Only
+`active` is typed statically. The rest is checked — closed, against the
+SDK's own key set — at bind time (§8.5), which is the earliest moment
+the answer exists.
 
 **`secrets.providers` is `` `$LIST` `` and nothing more**, by design
 rather than by omission. `station.md` §5.2 and §19 say station neither
@@ -480,7 +613,7 @@ chain is a list; sekreto checks what is in it.
   `validate_CHILD` installs the template across the data's indices, sets
   `keyI = 0` and returns element 0 as the slot value, and the injection
   loop resumes past it. This is an upstream struct defect; **filing it
-  against voxgig/struct is a deliverable of this plan** (§9.5). Its only
+  against voxgig/struct is a deliverable of this plan** (§10.6). Its only
   reach here is `policy.hosts[0]`, and the failure is closed rather than
   open — a non-string host matches no request, so traffic is denied, not
   admitted.
@@ -488,7 +621,7 @@ chain is a list; sekreto checks what is in it.
 ### 4.5 What the shape catches
 
 Verified against `@voxgig/struct@0.2.2`; these become the `config`
-section of the conformance corpus (§9.1).
+section of the conformance corpus (§10.1).
 
 | case | verdict |
 |---|---|
@@ -508,6 +641,12 @@ section of the conformance corpus (§9.1).
 | `base: 8080` | `to be one of nil, string, but found integer: 8080` |
 | `policy: {host:[…]}` | fails (generic `$ONE` form, §4.4) |
 | `profiles: []` | `Expected field profiles to be object, but found list` |
+| the §8.2 three-level feature config | passes |
+| `profiles.default.features` (typo for `feature`) | `Unexpected keys at field profiles.default: features` |
+| `feature.retry.active: "yes"` | `Expected field ... .active to be boolean, but found string: yes` |
+| `order: ["test", 7]` | `to be one of nil, [child,string]` |
+| `feature: []` | `Expected field profiles.default.feature to be object, but found list` |
+| `feature.retry.retires: 5` | **passes statically** — caught at bind time by §8.5, with the declared key list |
 | three separate errors in three instances | **all three reported in one message** |
 
 ### 4.6 Cost
@@ -590,15 +729,19 @@ has to be, it is passthrough to a generated constructor — so it is the
 one place a value can hide. Three defences, in decreasing strength, and
 then the residual:
 
-1. **`validateConfig` scans `options` recursively** — every nested map
-   and list, not just the top level — and rejects credential-shaped
-   keys with `station_config_secret`. The list: `apikey` (the generated
-   SDK's actual credential option, so this one is not a guess);
-   `auth`, `authorization`, `token`, `secret`, `password`,
-   `credential`, `bearer`; and any key whose `envtoken` normalization
-   ends `_KEY`, `_TOKEN`, `_SECRET` or `_PASSWORD` — which is what
-   catches `access_key`, `X-Api-Token` and friends in one rule rather
-   than a growing list of spellings.
+1. **`validateConfig` scans `options` and `feature` recursively** —
+   every nested map and list, not just the top level — and rejects
+   credential-shaped keys with `station_config_secret`. The list:
+   `apikey` (the generated SDK's actual credential option, so this one
+   is not a guess); `auth`, `authorization`, `token`, `secret`,
+   `password`, `credential`, `bearer`; and any key whose `envtoken`
+   normalization ends `_KEY`, `_TOKEN`, `_SECRET` or `_PASSWORD` —
+   which is what catches `access_key`, `X-Api-Token` and friends in one
+   rule rather than a growing list of spellings. Plus one rule that is
+   about values rather than keys, because the `proxy` feature makes it
+   concrete: **a string that parses as a URL carrying userinfo** —
+   `http://user:pass@proxy.internal:8080` — is rejected wherever it
+   appears, with the remediation naming `proxy.fromEnv` (§8.6).
 2. **At construction, station knows the descriptor**, and the
    descriptor names this API's auth prefix and header. So the
    *instance-specific* check that validation cannot do — "does this
@@ -704,6 +847,7 @@ const test    = station.sdk('stripe-test')
 | `station.sdk(name)` | the instance, constructed on first call and cached; same name → same object |
 | `station.create(name, overrides?)` | an uncached client from the same resolved config plus overrides |
 | `station.instances()` | every **declared** instance: name, api, active, live, rung |
+| `station.features(filter?)` | the fleet feature view: instance × feature, effective options, and which config level set each (§8.7) |
 | `station.plugins()` | every **live** plugin — as today, now one entry per instance |
 | `station.check()` | eagerly resolve and construct every active instance; for CI (§6.6) |
 | `station.warm(names?)` | batch-resolve secrets for active instances (§5.5) |
@@ -825,7 +969,7 @@ ESM-only package, or one with top-level `await`, only loads through
 `import()`, which is a promise. Making `sdk()` async to cover that
 would put an `await` in front of every call site in every language for
 a cost only two of them pay — the wrong trade, and it would break the
-chained call in §9.2's test. So the rule is explicit rather than
+chained call in §10.2's test. So the rule is explicit rather than
 discovered at runtime:
 
 - **the synchronous loader handles CommonJS.** That covers every SDK
@@ -881,6 +1025,9 @@ New error codes for `station.md` §14's catalog:
 | `station_instance_inactive` | the instance is declared with `active: false` |
 | `station_sdk_load` | `package` could not be imported, `export` is absent from it, or it is ESM-only and `station.load()` was not awaited (§6.3) |
 | `station_secret_collision` | two instances derive the same secret name (§5.1) |
+| `station_feature_unknown` | a configured feature the SDK does not have; message lists what it does (§8.5) |
+| `station_feature_option` | an option key the feature does not declare, or the wrong type (§8.5) |
+| `station_feature_order` | an `order` that misplaces a base or the station wrap (§8.4) |
 | `station_no_factory` | no factory for the api; message names both remedies |
 | `station_factory_conflict` | two different factories registered for one api |
 
@@ -967,7 +1114,16 @@ other's secret metadata wrongly. The split:
 
 So `descriptorOf(instance)` reports the api's conventional name and
 `plugins()` reports each instance's effective one, and neither is a
-guess about the other. The `descriptor` corpus section gains a case
+guess about the other.
+
+**One field has to arrive, too.** The descriptor's `features` list is
+`{name, active}` today, which throws away what the SDK already embeds:
+`config.feature[name].options`, the feature's declared option keys with
+typed defaults (§8.1). It gains `options` (the declared defaults) and
+`transport` (the role from §8.4), because that is the schema §8.5
+validates against and the roles §8.4 orders by. Both are already inside
+the SDK; the descriptor stops discarding them. Additive, so
+`station.md` §4's descriptor v1 consumers are unaffected. The `descriptor` corpus section gains a case
 asserting the shared descriptor is byte-identical across two instances
 of one api.
 
@@ -984,6 +1140,11 @@ For the inverted binding, `st.options('solar-eu')` puts the instance
 name in the same place. For a bare `connect(SDK)` with no name, the
 adapter falls back to the descriptor slug, which is today's behaviour.
 
+Station constructing the SDK is also what makes §8 possible: the
+ordered feature array it already builds for its own wrap placement now
+carries the whole resolved feature set. No new seam — the same
+`options.feature` array form, with more in it.
+
 ### 7.6 `close()`
 
 The `close()`-time warning for profile keys that matched no registered
@@ -994,7 +1155,262 @@ real typo case that validation cannot catch, since an api block key is
 a free-form slug.
 
 
-## 8. Every language
+## 8. Managing SDK features
+
+Every generated SDK ships the same feature set — `log`, `debug`,
+`telemetry`, `metrics`, `audit`, `clienttrack`, `retry`, `cache`,
+`ratelimit`, `timeout`, `proxy`, `netsim`, `paging`, `streaming`,
+`idempotency`, `rbac`, `test`, and station's own adapter. Today each one
+is configured by hand, per SDK, in application code. At 20 SDKs "turn on
+retry everywhere, and debug only in staging" is 20 edits in 20 call
+sites, and there is no way to ask what is currently on.
+
+Features belong in the declarative config for the same reason base URLs
+and secret names do, and station is the only component positioned to
+manage them across a fleet.
+
+### 8.1 What is already there
+
+More than expected, again, and it decides the design:
+
+- **The activation seam is one option.** A feature is on when
+  `options.feature.<name>.active` is true, and its settings are the
+  other keys of that same map
+  (`ts/project/.sdk/tm/ts/src/utility/MakeOptionsUtility.ts`).
+- **The ordered form already exists.** `options.feature` accepts an
+  ordered **array** of `{name, ...opts}` entries whose position *is* the
+  init order, as well as the plain map. Station already passes the array
+  form for its own wrap placement (`station.md` §3.3), so declaring the
+  whole feature set is the same seam carrying more.
+- **The default order is test-first, then alphabetical, with station
+  hoisted to just after test.** That special case has landed in the
+  shipped `makeOptions`, so `station.md` §9.3's featureorder change is
+  done rather than pending.
+- **Every feature's option schema is already inside the SDK.**
+  `configDefinition` embeds `featureDefs[name] = feature.config`
+  (`ts/src/utility.ts`), and each feature model declares
+  `config.options` with its keys *and typed defaults* —
+  `retry` carries `{active, retries, minDelay, maxDelay, factor,
+  statuses}`, `cache` carries `{active, ttl, max, methods}`. So the SDK
+  knows exactly which options it accepts, and station is currently
+  throwing that away: `normalizeDescriptor` reads the feature key set
+  and drops the config (`typescript/src/descriptor.ts`).
+- **sdkgen validates options with struct too.** `makeOptions` runs
+  `struct.validate` against an `optspec`, in which features are
+  `` {'`$CHILD`': {'`$OPEN`': true, active: false}} `` — open per
+  feature. Station and the SDK are already using the same validator;
+  §8.5 is about closing that one map.
+
+So this section adds a config surface and a checker. It adds no new
+runtime mechanism at all.
+
+### 8.2 The config surface
+
+`feature` is a block key like any other, valid at **three** levels:
+
+```json
+{ "station": 1,
+  "profiles": {
+    "default": {
+      "feature": { "retry": { "active": true, "retries": 3 } },
+
+      "api": {
+        "stripe": { "feature": { "idempotency": { "active": true } } }
+      },
+
+      "sdk": {
+        "stripe":      { "api": "stripe" },
+        "stripe-test": { "api": "stripe",
+                         "feature": { "netsim": { "active": true, "latency": 50 } } }
+      }
+    },
+
+    "staging": {
+      "feature": { "debug": { "active": true, "max": 500 } }
+    }
+  }
+}
+```
+
+Read out, because the three levels are the point:
+
+- **profile-level `feature`** is the fleet default — `retry` on for all
+  20 SDKs, one block. This is the "universally" in the request.
+- **api-level** is per-API — `idempotency` for every stripe instance,
+  because it is a property of that API's semantics.
+- **instance-level** is per-use — `netsim` on the test instance only.
+- and the `staging` overlay turns `debug` on across the fleet without
+  touching a single instance block, which is the thing that is 20 edits
+  today.
+
+### 8.3 How feature blocks merge
+
+§3.3's rule is that a block merges **shallow, per key**. `feature` is
+the one key where that is wrong, and rather than leave the exception
+implicit, the whole merge behaviour is one table:
+
+| key | merge | why |
+|---|---|---|
+| scalars (`base`, `secret`, `resolve`, `active`, `package`, `export`) | replace | last writer wins; the §3.3 order decides who that is |
+| `policy` | **replace wholesale** | an allowlist that silently widens because two levels merged is the failure mode worth designing against (§3.2) |
+| `options` | replace wholesale | opaque passthrough; station cannot merge what it cannot interpret |
+| `feature` | **merge per feature name, then per option key** | composition is the entire point: a fleet default plus a per-instance tweak |
+
+So `feature` is a two-level merge — the same shape as api-defaults ⊕
+instance, applied one level down — and it runs across all six sources in
+§3.3's order, extended by the profile level:
+
+1. base profile — `feature`
+2. base profile — `api.<slug>.feature`
+3. base profile — `sdk.<name>.feature`
+4. overlay profile — `feature`
+5. overlay profile — `api.<slug>.feature`
+6. overlay profile — `sdk.<name>.feature`
+
+Same principle as §3.3: profile specificity outranks block specificity,
+and within a profile the narrower block wins. Same defaults-after-merge
+rule too — a `feature` entry mentioned at one level with only a tuning
+key must not synthesize `active` and switch a feature on that a broader
+level turned off. The `feature` corpus section pins that case explicitly,
+because it is the §3.3 defect one level down.
+
+### 8.4 Activation and order
+
+Station composes the merged feature map into the **ordered array form**
+and hands it to the constructor. No new seam: it is what `connect()`
+already does for station's own placement.
+
+Order matters only for the features that wrap the transport, and it
+matters a lot — nesting decides whether a cache hit skips a retry or
+each retry attempt consults the cache. Today that nesting is decided by
+**alphabet**, which is deterministic but arbitrary: `cache` sorts before
+`retry`, so cache inits first and ends up *inside* retry. Whether that
+is right is a per-project question, and there is currently no way to
+answer it. So:
+
+- **`order`** — an optional list at profile level naming the wrap order
+  explicitly. Absent, the default is exactly today's rule (test first,
+  station immediately after, then alphabetical), so a project that does
+  not care sees no change.
+- **Features declare their transport role.** A feature model gains
+  `transport: 'base' | 'wrap' | 'none'` — `test` and `netsim` are
+  `base`, `station`/`retry`/`cache`/`ratelimit`/`timeout`/`proxy` are
+  `wrap`, the hook-only features are `none`. This cannot be inferred:
+  the obvious signal, an empty `hook: {}`, is wrong for station, which
+  both wraps *and* dispatches hooks. It is a listed sdkgen change
+  (§11).
+- With the role declared, station **validates an explicit `order`** —
+  a `base` feature anywhere but first is `station_feature_order`, and a
+  recording feature placed inside station's wrap gets the warning
+  `station.md` §3.3 already demands — and **explains the resulting
+  onion** in `instances()` and `check()`, so the nesting is inspectable
+  rather than folklore.
+
+Station's own position stays pinned by `station.md` §3.3 and is not
+orderable: an `order` that moves `station` away from immediately-after-
+base is rejected, not honoured.
+
+### 8.5 Validation against the SDK's own schema
+
+This is what makes feature management worth doing declaratively rather
+than leaving it in `options`.
+
+Statically, the shape can only check that `feature` is a map of name →
+map: station does not know at `open()` which SDK an instance names, and
+different SDKs carry different features. But **at bind time station
+holds the descriptor, and the descriptor knows** — §8.1's
+`config.feature[name].options` is the feature's own declared key set
+with typed defaults. So station builds the checker *from the SDK's own
+declaration*:
+
+- **an unknown feature name** → `station_feature_unknown`, with the
+  SDK's actual feature list in the message;
+- **an unknown option key** → `station_feature_option`, with that
+  feature's declared keys. This catches `retry.retires: 5`, which today
+  is accepted and silently ignored: `makeOptions`' feature spec is
+  `` `$OPEN` `` per feature, so the SDK cannot catch it and nothing
+  else looks;
+- **a wrong type** → checked against the *default's* type, since the
+  defaults are typed (`retries: 2` a number, `statuses: [...]` a list).
+
+The checker is a struct spec **derived from the descriptor**, not
+hand-written, so it cannot drift from what the SDK accepts — when a
+feature gains an option, the next regeneration teaches station about it
+with no station change at all. And it runs through the same
+`struct.validate` the SDK's own `makeOptions` uses, which is why the two
+verdicts agree by construction rather than by care.
+
+`station.check()` (§6.6) runs this for every declared instance, so a
+feature typo is a CI failure rather than a setting that quietly did
+nothing in production. That is the same fatal-at-open / fatal-at-first-
+use split as §6.4: the *shape* is checked at `open()`, the
+*SDK-specific* part when the SDK is known.
+
+### 8.6 Credentials in feature config
+
+Moving feature settings into the config file opens a credential path the
+§5.2 scan must cover, and one of them is real rather than theoretical:
+**`proxy.url` accepts `http://user:pass@proxy.internal:8080`**. A
+config file that cannot hold an API key would then happily hold proxy
+credentials.
+
+So the §5.2 scan extends to `feature` blocks, with one addition beyond
+the key deny-list: **any string value that parses as a URL carrying
+userinfo is `station_config_secret`**, wherever it appears. The
+remediation names the alternative — `fromEnv: true`, which the proxy
+feature already supports, with sekreto resolving the value.
+
+This is a net *improvement* to §5.2's residual, not a new hole. Feature
+settings written in `options.feature.*` today are inside the opaque
+`options` passthrough that §5.2 can only scan heuristically; written as
+`feature`, they are a structured, descriptor-checked surface where
+station knows every key's name, type and meaning.
+
+### 8.7 The fleet view
+
+The management half. One question, one call, across 20 SDKs:
+
+| call | answers |
+|---|---|
+| `station.features()` | every instance × every feature: active, effective options, and which config level set each |
+| `station.features({feature: 'debug'})` | "is debug on anywhere?" — the question that is 20 greps today |
+| `station.features({instance: 'stripe'})` | one instance's resolved feature set and wrap order |
+
+Reporting **which level set a value** is the part that earns its keep: a
+setting that arrives from a profile-level default two files up is
+exactly the one nobody can find by reading the instance block. The
+resolver knows the provenance because it did the merge, so it costs a
+field, not a search.
+
+On the agent surface (`station.md` §7), `station_features` is the same
+data, and it makes a question like "why is this integration slow" answerable
+without reading any code: the tool shows `retry` on with four attempts
+and `timeout` at 30 s.
+
+### 8.8 What this is not
+
+**Not runtime toggling.** Features are installed at construction — a
+wrap feature's `init()` is what puts it in the transport chain — so
+changing a feature means constructing a client, and there is no
+supported late-attach in v1 (`station.md` §3.1, and the
+`client.extend()` seam listed in `station.md` §18). The declarative
+contract is therefore: **feature config takes effect at construction**,
+and `station.create(name, {feature: {...}})` (§6.1) is the supported way
+to get a differently-featured client — a debug-enabled one for a single
+suspicious code path, without disturbing the cached instance everyone
+else uses. Saying so plainly is better than a `setFeature()` that half
+works.
+
+**Not a feature registry.** Station configures the features an SDK
+already has. Adding a feature to an SDK is sdkgen's job
+(`package add`, `add-feature`), and station reporting a feature the SDK
+lacks is an error (§8.5), never an install.
+
+**Not per-request.** Feature config is per instance, resolved once.
+Per-request behaviour is what the SDK's own operation options are for.
+
+
+## 9. Every language
 
 `ts` is the tracer bullet and the reference, as it is for the SDK
 targets. The porting surface, honestly:
@@ -1012,13 +1428,18 @@ corpus. A port implements the mechanism; it never restates the rules.
 | `validateConfig` | ~20 lines | calls the port's struct `validate`, plus the recursive `options` scan |
 | the §3.3 block merge | ~30 lines | replaces the two-way plugin merge; api resolved first, defaults applied last |
 | derived secret-name collision check | ~10 lines | §5.1 |
+| feature merge + order composition | ~50 lines | §8.3, §8.4; emits the array form the constructor already accepts |
+| descriptor-derived feature checker | ~40 lines | §8.5; a struct spec built from the descriptor, then the port's own `validate` |
 | instance table + lazy cache | ~60 lines | plus the port's concurrency idiom |
 | factory table + `provide` | ~30 lines | process-global |
 | loader | ~30 lines | dynamic-import languages only |
 | re-keying to instance | — | registry, placeholder, broker, events |
 
-Call it 175–225 lines added per port against `station.md` §10.1's
-1–2k budget for a tier A library. It fits, and it is mostly the same
+Call it 265–315 lines added per port against `station.md` §10.1's
+1–2k budget for a tier A library. Feature management is the largest
+single piece and also the most mechanical — a two-level map merge and a
+spec built from data — which is exactly the kind of work the corpus
+keeps honest across 22 ports. It fits, and it is mostly the same
 shape in every language because it is mostly map manipulation.
 
 **The one new dependency question.** Station libraries take exactly one
@@ -1039,14 +1460,14 @@ tree. Two positions need naming rather than assuming:
 languages, cheap second and third proofs). Then `go` and `java` — the
 factory-table path with no loader, which is the shape that proves the
 design is not TypeScript-flavoured. Then the rest in `station.md` §17's
-demand order. The rule from §9.6 is unchanged and unchanged in force:
+demand order. The rule from `station.md` §9.6 is unchanged and unchanged in force:
 **an adapter never ships for a target before that target's station
 library exists.**
 
 
-## 9. Testing
+## 10. Testing
 
-### 9.1 Corpus
+### 10.1 Corpus
 
 `spec/station.json` gains and amends:
 
@@ -1065,6 +1486,14 @@ library exists.**
 - **`secretname` collisions (new cases)** — two instances deriving one
   name is `station_secret_collision`; two instances *naming* one
   secret explicitly is legal.
+- **`feature` (new)** — the three-level merge of §8.3 (profile ⊕ api ⊕
+  instance, across base ⊕ overlay), per-name and then per-option-key;
+  the defaults-after-merge guard one level down (a tuning-only entry
+  must not synthesize `active` and switch on a feature a broader level
+  turned off); the §8.4 default order and an explicit `order`, including
+  the rejections. Feature *option* checking is descriptor-dependent, so
+  it lives in the integration suites (§10.2) with a small
+  descriptor-shaped fixture, not in the JSON corpus.
 - **`profile` (rewritten)** — `plugin` → `sdk`, and the existing cases
   restated in the new grammar.
 - **`secretname` (extended)** — instance-name derivation and the
@@ -1076,7 +1505,7 @@ A guard test asserts the two block specs in `config-shape.json` differ
 only by the `api` key (§3.1) — the sdkgen discipline for data that must
 be duplicated.
 
-### 9.2 The integration test that is the requirement
+### 10.2 The integration test that is the requirement
 
 `typescript/test/declarative.test.ts`, against the real generated
 taskpad SDK and two live servers. `test/api/taskpad/server.js` already
@@ -1097,19 +1526,37 @@ takes `TASKPAD_PORT` and `TASKPAD_APIKEY`, so:
 That single test is requirement "SDKs are not singletons" made
 executable, and it runs against a real generated SDK rather than a mock.
 
-### 9.3 Scale test
+### 10.3 Feature management, end to end
+
+Against the same generated taskpad SDK, because §8's claims are all
+checkable:
+
+- a profile-level `feature: {retry: {active: true, retries: 3}}` reaches
+  an instance that names no feature block at all;
+- an instance-level `{retry: {retries: 1}}` tunes it without turning it
+  off, and `features()` reports `retries` as instance-set and `active`
+  as profile-set;
+- `feature.retry.retires: 5` fails `check()` with
+  `station_feature_option` naming the declared keys — the case the SDK's
+  own `` `$OPEN` `` spec cannot catch;
+- an unknown feature name fails with the SDK's real feature list;
+- an explicit `order` produces that wrap nesting, and one that displaces
+  the station wrap is rejected;
+- a `proxy.url` with userinfo fails validation at `open()` (§8.6).
+
+### 10.4 Scale test
 
 A generated 20-api / 26-instance config: `open()` under the §4.6 budget,
 `instances()` complete, exactly the touched SDKs constructed, and
 `warm()` issuing one batch resolve rather than 26.
 
-### 9.4 Negative tests
+### 10.5 Negative tests
 
 Every §4.5 failing case as a unit test, plus: a credential in
 `options`; a `package` key arriving from a simulated `~/.voxgig`
 config; `load: false`; a `provide()` conflict.
 
-### 9.5 Upstream
+### 10.6 Upstream
 
 File the `` `$CHILD` ``-skips-element-0 defect against voxgig/struct
 with the minimal reproduction from §4.4. When it is fixed, `hosts[0]`
@@ -1117,7 +1564,7 @@ starts being checked and the corpus case flips from documented-gap to
 enforced.
 
 
-## 10. sdkgen and sdkgen-station
+## 11. sdkgen and sdkgen-station
 
 Small, because the plugin contract does not move.
 
@@ -1136,13 +1583,33 @@ Small, because the plugin contract does not move.
    read that file to learn what the application talks to.
 5. **`docs/how-to/use-station.md`** (sdkgen, `station.md` §9.4) leads
    with the declarative flow.
+6. **Every feature model declares `transport`** — `'base' | 'wrap' |
+   'none'`, defaulting to `'none'` (§8.4). Seventeen one-line additions
+   in the bundled models, plus station's own in sdkgen-station;
+   `test`/`netsim` are `base`, `station`/`retry`/`cache`/`ratelimit`/
+   `timeout`/`proxy` are `wrap`, the rest `none`. It cannot be inferred
+   — the obvious signal, `hook: {}`, is wrong for station.
+7. **`configDefinition` carries `transport` beside each feature's
+   `config`** (`ts/src/utility.ts`, where `featureDefs[f.name] =
+   f.config` already embeds the options). Additive.
+
+Two things `station.md` §9.3 lists as pending are **already in the
+tree** and should stop being planned as work: the `makeOptions`
+featureorder special case for station (shipped, unconditional), and
+`configDefinition`'s `main.slug`/`version`/`target`. The second is
+gated on a target passing its own name, which **17 of the 20 `Config_*`
+components now do** — clojure, ocaml and zig still call
+`configDefinition(model)`, and those are the targets `station.md`
+§9.1/§17 defers anyway. So the accurate status is "done for every
+target station targets first", not "done everywhere"; the three
+stragglers are one argument each, whenever their ports come up.
 
 Everything already listed in `station.md` §9 — the three
 `configDefinition` fields, the `makeOptions` featureorder special case,
 the `extend` tolerance — is unchanged and still required.
 
 
-## 11. Implementation plan
+## 12. Implementation plan
 
 Five stages. Each ends in a state where `make test` is green and the
 repo is coherent; nothing here is a long-lived branch.
@@ -1202,8 +1669,29 @@ suites are green with no behaviour change for single-instance projects.
   `options(instanceName, extra)`; the deferred-availability errors.
 - `index.ts` exports.
 
-*Exit:* §9.2's two-instance integration test is green, and §6.5's
+*Exit:* §10.2's two-instance integration test is green, and §6.5's
 `open()` budget is asserted.
+
+### Stage 3b — features
+
+Sequenced after Stage 3 because it needs the instance table and the
+construction path, and before Stage 4 because the generator work in
+§11 items 6–7 is what unblocks ordering and checking.
+
+- `typescript/src/feature.ts` — the §8.3 three-level merge, the §8.4
+  order composition into the array form, and the descriptor-derived
+  checker of §8.5 (`station_feature_unknown` / `station_feature_option`
+  / `station_feature_order`).
+- `shape.ts` — the `feature`/`order` shape additions, the feature-level
+  `active` default, and the URL-userinfo rule of §8.6.
+- `descriptor.ts` — carry each feature's declared `options` and
+  `transport` instead of discarding them (§7.4).
+- `Station.ts` — `features(filter?)` with per-value provenance;
+  `check()` runs the feature checker for every active instance.
+
+*Exit:* §10.3 is green — a fleet-wide feature default reaches an
+instance that never mentions it, a per-instance tweak composes with it,
+and `retry.retires` fails `check()` naming the real keys.
 
 ### Stage 4 — the generator side
 
@@ -1221,18 +1709,18 @@ import in application code.
 ### Stage 5 — ports
 
 `js`, `py`, then `go`, `java`, then `station.md` §17's order. Each port
-is one independent deliverable: the seven pieces in §8's table, the
+is one independent deliverable: the pieces in §9's table, the
 corpus green, its own README updated. The corpus is what makes them
 parallelizable and what makes "it works in every language" checkable
 rather than claimed.
 
-**Docs.** `station.md` gets its §15 amendments applied in the same
+**Docs.** `station.md` gets its §16 amendments applied in the same
 change as Stage 3, so the two documents never disagree in `main`. The
 repo README's status table gains a declarative-config column as ports
 land.
 
 
-## 12. Risks
+## 13. Risks
 
 - **The struct optional-container trap (§4.2) is easy to reintroduce.**
   Someone adds an optional key, wraps a container in `` `$ONE` ``, and
@@ -1260,11 +1748,22 @@ land.
 - **`options` is scanned, not proven** (§5.2). The residual is stated
   in the doc and in the error message; a project that needs the proof
   empties `options`.
+- **Feature order is a semantic decision wearing a mechanical hat.**
+  Making `order` configurable lets a project get the retry/cache nesting
+  it wants — and lets it get one it did not intend. Mitigated by keeping
+  today's default when `order` is absent, by validating against the
+  declared `transport` roles, and by `instances()` printing the
+  resulting onion rather than leaving it to be inferred.
+- **The feature checker depends on a descriptor field that does not
+  exist yet.** Until §11 items 6–7 land, station knows feature *names* but not
+  their option schemas, so §8.5 degrades to name-checking only. That is
+  a strictly-better-than-today state, not a broken one, and the plan
+  sequences it explicitly (Stage 3b before Stage 4).
 - **A 22-port change of this size drifts.** The corpus is the control,
   and CI already runs every port against it.
 
 
-## 13. Non-goals
+## 14. Non-goals
 
 Everything in `station.md` §19 still holds. Added:
 
@@ -1281,7 +1780,7 @@ Everything in `station.md` §19 still holds. Added:
   20 SDKs; it does not sequence, transact or fan out across them.
 
 
-## 14. Open questions
+## 15. Open questions
 
 - **Should an api block be able to declare its instances?** A
   `"instances": ["eu","us"]` shorthand would shorten a fleet where
@@ -1296,6 +1795,17 @@ Everything in `station.md` §19 still holds. Added:
   want each service to contribute its own instances. Composition rules
   (precedence, conflict) are a real design, not an afterthought;
   deferred until someone has the problem.
+- **Runtime feature toggling.** §8.8 makes feature config
+  construction-time, which is what the shipped pipeline supports. A
+  live toggle needs the `client.extend()` late-attach seam
+  (`station.md` §18) — worth revisiting together, since "turn debug on
+  for the next five minutes without a redeploy" is the single most
+  requested version of this.
+- **Feature config for features station itself provides.** Station's own
+  adapter is a feature, so `feature.station` is expressible in the
+  config. Most of its options are station's business, not the project's;
+  which subset (if any) should be settable there needs a pass before
+  Stage 3b.
 - **`instances()` for an agent** — should `station_integrations` list
   declared-but-never-built instances, or only live plugins? Declared, on
   the argument that an agent asking what the app integrates with wants
@@ -1303,7 +1813,7 @@ Everything in `station.md` §19 still holds. Added:
   distinguish them.
 
 
-## 15. Amendments to `station.md`
+## 16. Amendments to `station.md`
 
 Applied in the same change as Stage 3, so the documents never disagree:
 
@@ -1312,12 +1822,13 @@ Applied in the same change as Stage 3, so the documents never disagree:
 | §3.1 | binding forms gain `sdk()`/`create()`; `connect` gains `as`; `options()` gains an instance name |
 | §3.2 | the registry is keyed by instance; `plugins()` returns one entry per instance |
 | §3.5 | the resolution order becomes §3.3 of this document; "deep-merge per plugin" corrected to **shallow**, matching every port; profile selection completed to `open({profile})` > env > `default`, matching every shipped `selectProfile` |
-| §4 | the descriptor is shared per api and looked up by instance name; `secretname-default` stays the **api** default and the instance's effective name moves to `Binding.secretname` (§7.4) |
+| §4 | the descriptor is shared per api and looked up by instance name; it carries each feature's declared options and transport role (§7.4); `secretname-default` stays the **api** default and the instance's effective name moves to `Binding.secretname` (§7.4) |
 | §5.1 | secret names derive from the **instance** name; the degenerate case is unchanged |
 | §5.2 | `station.json`'s `plugin` map becomes `sdk` + `api`; providers validated as a list only |
 | §5.3 | broker keying corrected: overrides by instance, resolution cache by secret name |
 | §6 | events carry `plugin` = instance name and a new `api` field |
-| §11 | the declarative quickstart leads; the two-line imperative form stays as the retrofit path |
-| §13 | the `config` and `instance` corpus sections; `profile`, `secretname`, `placeholder` amended |
-| §14 | eight new error codes (§6.4); `station_bound_twice` re-keyed to the instance, and explicitly not a cap on clients per instance (§6.1) |
-| §17 | Phase 1 gains Stages 1–4 of §11; Phase 2's `station.json` schema item is satisfied by the struct shape |
+| §9 | two items listed as pending are already shipped (the `makeOptions` station featureorder case, the three `configDefinition` fields); feature models gain `transport`, and `configDefinition` carries it (§11 items 6–7) |
+| §11 | the declarative quickstart leads; the two-line imperative form stays as the retrofit path; features are configured in `station.json` rather than per call site (§8) |
+| §13 | the `config`, `instance` and `feature` corpus sections; `profile`, `secretname`, `placeholder` amended |
+| §14 | eleven new error codes (§6.4); `station_bound_twice` re-keyed to the instance, and explicitly not a cap on clients per instance (§6.1) |
+| §17 | Phase 1 gains Stages 1–4 of §12; Phase 2's `station.json` schema item is satisfied by the struct shape |
