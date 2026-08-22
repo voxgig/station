@@ -1882,6 +1882,16 @@ the `extend` tolerance — is unchanged and still required.
 Five stages. Each ends in a state where `make test` is green and the
 repo is coherent; nothing here is a long-lived branch.
 
+> **Cross-repo sequencing lives in
+> [`station-and-plugin-plan.md`](./station-and-plugin-plan.md).** The
+> stages below stay authoritative for their own contents; what they
+> cannot state from inside this repo is where they sit against
+> voxgig/plugin's P0–P6, what plugin owes this repo and when, and the
+> two conclusions neither per-repo plan reaches — that **Stage 5 should
+> stop after ts and js until plugin's P4 has settled the canonical**,
+> and that Stage 5's `py`/`go` ports should be paired with plugin's P4
+> rather than run independently.
+
 ### Stage 1 — the grammar, as data (no behaviour change)
 
 - `spec/config-shape.json` — §4.3, verbatim.
@@ -1893,8 +1903,10 @@ repo is coherent; nothing here is a long-lived branch.
   `options` scan of §5.2), raising `station_config_invalid` /
   `station_config_secret`.
 - `typescript/src/profile.ts` — the §3.3 merge over **raw** blocks with
-  defaults applied to the merged instance and the api resolved before
-  its block is read; `ResolvedProfile` becomes
+  defaults applied to the merged instance, and the api read from the
+  ref's own prefix rather than from a merged field — the phasing that
+  used to be required here is *removed* by the ref re-key, not
+  reordered; `ResolvedProfile` becomes
   `{ name, providers, api, sdk }`; `validname` per instance; the
   derived-secret-name collision check.
 - `selectProfile` — no change; §3.3 documents what it already does.
