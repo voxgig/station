@@ -56,14 +56,21 @@ Step 0   land the designs
      |                                                      |
    P2 canonical                                       Stage 3 front door
      |                                                      |
+     |                                                Stage 3b features
+     |                                                      |
      |         <---- M2: station is the proof host ---------|
-   P3 proof + bridge                                 Stage 3b features
+   P3 proof + bridge                                        |
      |                    M3: bridge enables nested hosts -->|
    P3b capabilities                                  Stage 4 generator
      |                                                      |
-   P4 go + python <===== M4: pair these, see §5 =====> Stage 5 ports
+     |                                                Stage 5: ts, js
      |                                                      |
-   P5 tier 3 ------------ dependency decision ---------> (revisit)
+   P4 go + python <===== M4: pair these, see §5 =====> Stage 5: py, go
+     |                                                      |
+   P5 tier 3                                         Stage 5: the rest
+     |                                                      |
+     +------------- dependency decision (§6) -------> (a later migration,
+     |                                                 not a gate here)
      |
    P6 tier 4
 ```
@@ -102,11 +109,20 @@ else in both plans is internal.
 |---|---|---|---|---|
 | **C1** | plugin | station | `ref` and `config` corpus sections, as pure data | **before station Stage 2** — earlier than P1's exit |
 | **C2** | plugin | station | `lifecycle` and `order` corpus sections **plus** the draft language-neutral driver contract in `DOCS.md` (P§15.2's probes, command vocabulary, canonical observable) | **before P1's exit** |
-| **C3** | station | plugin | a working Stages 2–3 implementation to extract from, and its own suites as the bar | **before plugin P3** |
-| **C4** | station | plugin | conformance: station's native implementation runs C1's and C2's corpus sections against itself, and reports divergence as a plugin issue rather than absorbing it | **continuous from Stage 2** |
+| **C3** | station | plugin | a working Stages 2–**3b** implementation to extract from, and its own suites as the bar | **before plugin P3** |
+| **C4a** | station | plugin | conformance on the pure sections: station runs C1's `ref` and `config` against its own implementation, and reports divergence as a plugin issue rather than absorbing it | **continuous from Stage 2** |
+| **C4b** | station | plugin | conformance on the driver sections: the same for C2's `lifecycle` and `order` | **continuous from Stage 3b** |
 
 C1 and C2 are the reason plugin's P1 has an obligation that looks
-external to it. C4 is the only thing preventing the drift the
+external to it. C4 is split because the two halves become runnable at
+different moments: `ref` and `config` are exercised by Stage 2's
+identity change and Stage 1's grammar, while `lifecycle` and `order`
+describe feature behaviour station does not implement until Stage 3b.
+Asking Stage 2 to claim conformance to all four would either block it
+on C2 — contradicting its own gate — or have it assert conformance to
+sections it cannot execute, which is worse than not claiming it.
+
+Together they are the only thing preventing the drift the
 build-natively decision buys — and it is worth being blunt that it is
 also the easiest of the four to quietly skip, because nothing fails when
 a team stops running someone else's corpus.
@@ -128,7 +144,7 @@ this is cheap for plugin and only cheap if it is early.
 | **P0** skeleton | Step 0 | Layout, `Makefile`, `spec/def/plugin-spec.aontu`, `build-spec.js`, empty `check_parity.py`. Exit: `make spec` / `make spec-check` on an empty corpus. |
 | **P1** tracer bullet (ts) | P0 | Ships **C1 and C2** as its first deliverables, not its last — see §5.2. Also the four P1 configuration items the reconciliation pinned: the `default` map, the ten-level ladder, defaults-after-merge, and shape-declared merge depth including `{"deep": N}`. |
 | **P2** canonical | P1 | Dynamic resolution, `apply()`, exports, position verification, remaining corpus sections; `DOCS.md` completed from P1's draft. |
-| **P3** proof + bridge | P2, **C3** | Extraction against a working station, plus the `FeatureHost` bridge. |
+| **P3** proof + bridge | P2, **C3** | Extraction against a working station, plus the `FeatureHost` bridge. Gated on station's Stage **3b**, not Stage 3: P3's bar includes a fleet-wide feature default reaching an instance that never mentions it, and feature management is Stage 3b's deliverable. Gating on Stage 3 would start P3 with its own acceptance test unavailable. |
 | **P3b** capabilities | P3 | Deliberately after the station proof: station uses none of §11, and this is the largest tranche in the library. |
 | **P4** go + python | P3b | **May change the canonical — that is why it precedes P5.** See §5. |
 | **P5** tier 3 (14 langs) | P4 | Model changes now cost ~15 ports. Dependency decision reopens here. |
@@ -143,7 +159,7 @@ this is cheap for plugin and only cheap if it is early.
 | **Stage 3** front door | Stage 2 | Factory table with `{construct, config}`, loader, `sdk()`/`create()`/`instances()`/`check()`. |
 | **Stage 3b** features | Stage 3, **C2** | Three-level merge including the `{"deep": 2}` boundary; `transport` **retained** here (§2.10 of the reconciliation) because features are not yet bindings. |
 | **Stage 4** generator | Stage 3b | sdkgen-station: `instance` option, ts/js self-registration. |
-| **Stage 5** ports | Stage 4, **and see §5** | Sixteen languages. This is where the plan's one real disagreement with the per-repo plans lives. |
+| **Stage 5** ports | Stage 4; the fourteen beyond ts/js also on **P4** (§5.1) | Sixteen languages, in three tranches: ts/js after Stage 4, py/go paired with P4 (§5.2), the rest after P4 settles. Gated on P4 and **not** on the dependency decision — that is a later migration question (§6), and treating it as a gate here would stall the rollout behind a decision deliberately deferred to P5. |
 
 ### 4.3 The meeting points
 
@@ -210,7 +226,7 @@ synchronisation point rather than a coincidence of ordering.
 | decision | owner | gates | current state |
 |---|---|---|---|
 | Does **sdkgen** adopt plugin? (P§17.2) | sdkgen | nested hosts *natively*; deletion of `transport`; the seventeen-model change | **open** — explicitly uncommitted; carries a propagation cost across 23 template trees |
-| Does **station take the library as a dependency**? | station | Stage 5's remaining ports; the +800-lines-per-port trade | **deferred to plugin tier 3 (P5)**, by design |
+| Does **station take the library as a dependency**? | station | **not** the native port rollout — that resumes after P4 (§5.1). This decides only whether ports later *replace* their native implementation with the library, and the +800-lines-per-port trade | **deferred to plugin tier 3 (P5)**, by design, and explicitly **non-blocking** for native ports |
 | Is **`active`** renamed? | plugin | P1's public API and its corpus fixtures | **open, and undated** — see below |
 | Does **P3b move earlier**? | plugin | only if P3 turns up a station requirement needing capabilities | conditional on a finding, not a plan |
 

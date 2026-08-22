@@ -20,11 +20,14 @@ Status: **proposal** (2026-08-22). An extension of
 > - **§3.3's shallow-merge rule** is preserved by declaring `policy`
 >   and `options` as `$MERGE: replace` in the SDK definition shape,
 >   rather than by a global rule plugin does not share.
-> - **§8.4's ordering** adopts constraints and bands, and station's
->   pinned wrap position becomes a host pin. The proposed `transport`
->   field is **deferred, not deleted**: the role becomes structural
->   only once features are bindings, so it is carried through the
->   native phase.
+> - **§8.4's ordering** adopts plugin's constraints and bands
+>   throughout: the profile-level `order` list is **removed**, each
+>   feature entry gains a reserved `order` object (`before`/`after`/
+>   `band`), and station's pinned wrap position becomes a host pin.
+>   The proposed `transport` field is **deferred, not deleted** — the
+>   role becomes structural only once features are bindings, so it is
+>   carried through the native phase, and §11 items 6–7 still land
+>   because the native phase is what consumes them.
 > - **§6.2's factory table** is the model plugin adopted for its own
 >   catalog, and stays as written.
 >
@@ -191,7 +194,7 @@ functions, no references, no expressions, no environment interpolation
     "<profile>": {
       "secrets": { "providers": [ /* sekreto ProviderSpec, verbatim */ ] },
       "feature": { "<feature-name>":  { /* fleet-wide feature defaults, §8.2 */ } },
-      "order":   [ /* explicit feature wrap order, §8.4 */ ],
+
       "api":     { "<api-slug>": { /* block — defaults for every instance of it */ } },
       "sdk":     { "<ref>":      { /* block — one instance, ref is `api$tag` */ } }
     }
@@ -340,12 +343,27 @@ that got the phasing wrong silently picked another api's defaults. With
 available before any merge, and not overridable by an overlay. So:
 
 1. resolve the api from the ref — the substring before `$`;
-2. merge the **api** blocks for it — base ⊕ overlay (steps 3, 5);
-3. merge the **instance** blocks — base ⊕ overlay (steps 4, 6);
-4. compose: api defaults under the instance block.
+2. merge the four sources **in the order §3.3 states**, each over the
+   one before it:
 
-The phasing hazard is *removed* rather than handled, which is one of
-the concrete wins of the re-key rather than a restatement of it.
+   `base.api[<api>]` ⊕ `base.sdk[<ref>]` ⊕ `overlay.api[<api>]` ⊕ `overlay.sdk[<ref>]`
+
+**That is one flat left-to-right merge, and it must not be reorganized
+into "collapse each namespace, then put instance over api."** Collapsing
+first computes `(base.api ⊕ overlay.api)` and `(base.sdk ⊕ overlay.sdk)`
+and then lets *every* instance value beat *every* api value — the exact
+opposite of "profile specificity outranks block specificity". A
+production `api.stripe.policy` would then fail to override a default
+profile's `sdk.stripe$test.policy`, silently keeping the wider
+allowlist in production, which is the failure §3.2 designs against.
+
+Earlier drafts of this section had precisely that shape — one namespace
+at a time, composed at the end — and were wrong before the ref re-key
+as well. The re-key removed the **api-resolution phase**; it does not
+remove the **interleave**, and conflating the two is how the wrong
+algorithm survives a rewrite. What is genuinely gone is the phasing
+hazard: the api can no longer be a merged value, so no order of these
+four steps can select the wrong one.
 
 *Absent keys stay absent through the merge, and block defaults are
 applied once, to the fully merged instance.* This is the rule §4.2's
@@ -492,10 +510,13 @@ require them, so unexpected-key detection is live at every level and
 every error names its path.
 
 **The normalized form is an input to validation and to nothing else.**
-The two block-level defaults — `active` and `api` — must *not* be
+The one remaining block-level default — `active` — must *not* be
 materialized before the profile merge, because a default synthesized
 into an overlay block overwrites the base's real value and produces the
-wrong-api / silently-reactivated failure worked through in §3.3. So the
+silently-reactivated failure worked through in §3.3. (`api` was the
+second such default and is **gone**: the ref carries the api, and
+`sdk.<ref>.api` is now an unexpected key that validation rejects. A
+normalizer still synthesizing it would write an invalid field.) So the
 two consumers read the same defaults table at different moments:
 
 | consumer | when defaults are applied | why |
@@ -506,8 +527,8 @@ two consumers read the same defaults table at different moments:
 Written as one defaults table and two callers, not as two lists that
 drift. The profile-level containers (`secrets.providers`, `api`, `sdk`)
 are safe to materialize early either way — they are containers, and a
-missing one merges as empty regardless — so only the two block keys
-carry the timing rule.
+missing one merges as empty regardless — so only that one block key
+carries the timing rule.
 
 The normalizer is roughly 30 lines and pure data-in/data-out, which is
 what makes it portable to 22 languages and expressible in the corpus.
@@ -647,17 +668,14 @@ against the cases in §4.5.
       "feature": {
         "`$CHILD`": {
           "active": "`$BOOLEAN`",
+          "order": {
+            "before": ["`$ONE`", "`$NIL`", "`$STRING`", ["`$CHILD`", "`$STRING`"]],
+            "after": ["`$ONE`", "`$NIL`", "`$STRING`", ["`$CHILD`", "`$STRING`"]],
+            "band": ["`$ONE`", "`$NIL`", "`$INTEGER`"]
+          },
           "`$OPEN`": true
         }
-      },
-      "order": [
-        "`$ONE`",
-        "`$NIL`",
-        [
-          "`$CHILD`",
-          "`$STRING`"
-        ]
-      ]
+      }
     }
   }
 }
@@ -705,14 +723,17 @@ chain is a list; sekreto checks what is in it.
   defects.
 
   Until the upstream fix lands, **`validateConfig` carries an explicit
-  first-element check for both lists** — three lines, applied where the
-  shape cannot reach, raising the same errors the shape would
-  (`station_config_invalid` for `hosts`, `station_feature_order` for
-  `order`). Both cases are pinned in the corpus so the workaround is
-  removed deliberately rather than forgotten. The `hosts` failure was
-  always closed rather than open — a non-string host matches no request,
-  so traffic is denied — but `order` has no such consolation, which is
-  why the check exists rather than a note.
+  first-element check for `policy.hosts`** — three lines, applied where
+  the shape cannot reach, raising the same `station_config_invalid` the
+  shape would, and pinned in the corpus so the workaround is removed
+  deliberately rather than forgotten.
+
+  This check used to cover a second list, the profile-level `order`.
+  That list is gone (§8.4): ordering is per-feature constraints and
+  bands, so there is no string array left to mis-type. The `hosts`
+  failure was always closed rather than open — a non-string host
+  matches no request, so traffic is denied — which is why one narrow
+  check now suffices where two were needed.
 
 ### 4.5 What the shape catches
 
@@ -973,8 +994,19 @@ retrofit path and still how a project with no config file starts:
 
 - `station.connect(SDK, opts?)` — constructs an anonymous instance named
   by the api slug. Identical to today.
-- `station.connect(SDK, { as: 'solar-eu' })` — names it, so
-  multi-instance works imperatively too.
+- `station.connect(SDK, { as: 'eu' })` — **`as` is a tag, not a free
+  name.** The api comes from the SDK being passed, so the resulting ref
+  is `<api>$<tag>` — `voxgig-solardemo$eu` — and multi-instance works
+  imperatively too. A full ref is also accepted, and is validated: its
+  name must equal the SDK's api slug, or it is
+  `station_instance_api`. Both forms are needed because the imperative
+  path is where the api is implicit in an argument rather than written
+  in a key, and an `as` that took an arbitrary name would reintroduce
+  exactly the second-identity problem the ref re-key removed — under
+  the ref invariant `as: 'solar-eu'` would denote the untagged
+  `solar-eu` *definition*, not an instance of the SDK just handed in,
+  and registry grouping, api defaults and every ref consumer would
+  disagree about what it is.
 - `station.adopt(SDK, opts?)` — unchanged (`station.md` §3.1).
 - `station.options(instanceName?, extra?)` — the inverted binding for
   static languages, now able to say which instance it is building.
@@ -1018,9 +1050,18 @@ form bought still holds:
 `instances()` reports declared instances; `plugins()` reports live
 identities. At 20 SDKs with a per-request `create()` somewhere, that
 distinction is the difference between a readable status page and an
-unbounded one — so `plugins()` collapses auto-tagged entries to a count
-by default and lists them on request. They are recognisable as such
-because their tag is an integer the host assigned, which is also why a
+unbounded one.
+
+**The summary belongs to the status view, not to `plugins()`.** An
+earlier draft made the collapse `plugins()`' default, which quietly
+broke its own contract two sections up — one entry per live instance —
+and left inspection, health reporting and cleanup unable to enumerate
+the clients `create()` produced, which is when you most want them.
+So: **`plugins()` is exhaustive, always.** `status()` and the CLI's
+instance view collapse auto-tagged entries to a count and expand on
+request, because those are presentation surfaces and truncation is a
+presentation decision. Auto-tagged entries are recognisable because
+their tag is an integer the host assigned, which is also why a
 hand-written config should not use bare integer tags.
 
 Static languages need one accommodation: `sdk()` returns the language's
@@ -1185,13 +1226,14 @@ New error codes for `station.md` §14's catalog:
 |---|---|
 | `station_config_invalid` | struct validation failed; message carries every error with paths |
 | `station_config_secret` | a credential-shaped key in an `options` block (§5.2) |
-| `station_no_instance` | `sdk(name)` for an undeclared name; message lists the declared ones |
+| `station_no_instance` | `sdk(ref)` for an undeclared ref; message lists the declared ones |
+| `station_instance_api` | `connect(SDK, {as})` given a full ref whose name is not the SDK's api slug (§6.1) |
 | `station_instance_inactive` | the instance is declared with `active: false` |
 | `station_sdk_load` | `package` could not be imported, `export` is absent from it, or it is ESM-only and `station.load()` was not awaited (§6.3) |
 | `station_secret_collision` | two instances derive the same secret name (§5.1) |
 | `station_feature_unknown` | a configured feature the SDK does not have; message lists what it does (§8.5) |
 | `station_feature_option` | an option key the feature does not declare, or the wrong type (§8.5) |
-| `station_feature_order` | an `order` that misplaces a base or the station wrap, or is not a list of strings (§8.4) |
+| `station_feature_order` | a constraint cycle, a `base` feature resolved anywhere but innermost, or an ordering that would move the pinned station wrap (§8.4) |
 | `station_feature_reserved` | a `feature.station` key, or `options.feature` in a declarative config (§8.4, §8.6) |
 | `station_no_factory` | no factory for the api; message names both remedies |
 | `station_factory_conflict` | two different factories registered for one api |
@@ -1455,10 +1497,41 @@ each retry attempt consults the cache. Today that nesting is decided by
 is right is a per-project question, and there is currently no way to
 answer it. So:
 
-- **`order`** — an optional list at profile level naming the wrap order
-  explicitly. Absent, the default is exactly today's rule (test first,
-  station immediately after, then alphabetical), so a project that does
-  not care sees no change.
+- **Ordering is per feature, by constraints and bands** — plugin's §7
+  model, adopted whole (`station-and-plugin.md` §1). A feature entry
+  gains a reserved `order` key beside its reserved `active`:
+
+  ```json
+  "feature": {
+    "retry": { "active": true, "retries": 3 },
+    "cache": { "active": true, "order": { "after": "retry" } }
+  }
+  ```
+
+  `before` and `after` take a feature name or a list of them and are
+  **satisfied vacuously** when the named feature is absent — `after:
+  "test"` loads fine in a project with no test feature, which is
+  sdkgen's `__after__` behaviour kept rather than reinvented. `band` is
+  an integer, default 0, and higher is further *in*; bands break ties
+  that no constraint decides. Constraints beat bands, and remaining
+  ties break by the feature's position in the merged map, so the result
+  is a stable topological sort with no alphabetical accident in it.
+
+  **The profile-level `order: string[]` list is removed, not
+  supplemented.** A total list and a constraint set are two grammars
+  for one decision, and the list's failure mode is that adding a
+  feature silently changes where every later one sits. What the list
+  bought — "I want cache inside retry" — is one constraint, written on
+  the feature that cares.
+
+  **The default is today's behaviour, expressed in the new model rather
+  than as a special case.** `test`, when active, substitutes the base
+  transport, so it takes the innermost band; `station` sits immediately
+  outside it, pinned (below); everything else is band 0, outside
+  station. A project that writes no `order` anywhere sees exactly
+  today's nesting, and the two `makeOptions` special cases sdkgen grew
+  (`test`, then `station`) become two band values rather than two
+  branches.
 - **Features declare their transport role.** A feature model gains
   `transport: 'base' | 'wrap' | 'none'`. **`test` alone is `base`** —
   it *replaces* the slot (`ctx.utility.fetcher = testFetcher`) —
@@ -1487,12 +1560,15 @@ answer it. So:
   field is carried until plugin's P3 bridge or sdkgen adoption supplies
   the binding points, and the seventeen-model sdkgen change is deferred
   to that point rather than cancelled.
-- With the role declared, station **validates an explicit `order`** —
-  a `base` feature anywhere but first is `station_feature_order`, and a
-  recording feature placed inside station's wrap gets the warning
-  `station.md` §3.3 already demands — and **explains the resulting
-  onion** in `instances()` and `check()`, so the nesting is inspectable
-  rather than folklore.
+- With the role declared, station **validates the resolved order** —
+  a `base` feature anywhere but innermost, or a constraint cycle, is
+  `station_feature_order`; a recording feature placed inside station's
+  wrap gets the warning `station.md` §3.3 already demands — and
+  **explains the resulting onion** in `instances()` and `check()`, so
+  the nesting is inspectable rather than folklore. Note the dependency:
+  role validation needs `transport`, which arrives with §11 items 6–7,
+  so through early Stage 3b the order is composed and honoured but the
+  role checks degrade to nothing (§13).
 
 Station's own position stays pinned by `station.md` §3.3 and is not
 orderable: an `order` that moves `station` away from immediately-after-
@@ -1752,8 +1828,14 @@ library exists.**
   and what a port defaulting to a deep merge would silently get wrong;
   the defaults-after-merge guard one level down (a tuning-only entry
   must not synthesize `active` and switch on a feature a broader level
-  turned off); the §8.4 default order and an explicit `order`, including
-  the rejections. Feature *option* checking is descriptor-dependent, so
+  turned off); and the §8.4 **order resolution** — the default nesting
+  with no constraints written, `before`/`after` honoured, a constraint
+  naming an absent feature satisfied vacuously, bands breaking a tie no
+  constraint decides, constraints beating bands where both apply, a
+  cycle rejected, and an ordering that would move the pinned station
+  wrap rejected. That set is deliberately the same shape as plugin's
+  `order` corpus section, because it is the one station holds itself to
+  under C4 (`station-and-plugin-plan.md` §3). Feature *option* checking is descriptor-dependent, so
   it lives in the integration suites (§10.2) with a small
   descriptor-shaped fixture, not in the JSON corpus. Three rules that
   *are* pure data go in: `feature.station` reserved, `options.feature`
@@ -1806,8 +1888,9 @@ checkable:
   `station_feature_option` naming the declared keys — the case the SDK's
   own `` `$OPEN` `` spec cannot catch;
 - an unknown feature name fails with the SDK's real feature list;
-- an explicit `order` produces that wrap nesting, and one that displaces
-  the station wrap is rejected;
+- an `after` constraint on one feature produces that wrap nesting, a
+  constraint naming an absent feature is satisfied vacuously, and one
+  that would displace the pinned station wrap is rejected;
 - a `proxy.url` with userinfo fails validation at `open()`, while
   `feature.station.secret` holding a valid sekreto name does not (§5.2);
 - `check()` validates every instance's feature config **without
@@ -1968,12 +2051,18 @@ Sequenced after Stage 3 because it needs the instance table and the
 construction path, and before Stage 4 because the generator work in
 §11 items 6–7 is what unblocks ordering and checking.
 
-- `typescript/src/feature.ts` — the §8.3 three-level merge, the §8.4
-  order composition into the array form, and the descriptor-derived
-  checker of §8.5 (`station_feature_unknown` / `station_feature_option`
-  / `station_feature_order`).
-- `shape.ts` — the `feature`/`order` shape additions, the feature-level
-  `active` default, and the URL-userinfo rule of §8.6.
+- `typescript/src/feature.ts` — the §8.3 three-level merge; the §8.4
+  **constraint-and-band resolver** (topological sort, vacuous
+  satisfaction, bands as tie-break, the station pin) composing into the
+  array form; and the descriptor-derived checker of §8.5
+  (`station_feature_unknown` / `station_feature_option` /
+  `station_feature_order`). The resolver is written to plugin's §7
+  semantics so plugin can extract it — this is one of the pieces
+  `station-and-plugin-plan.md` §0 means by "builds natively to plugin's
+  semantics".
+- `shape.ts` — the `feature` shape additions including the per-feature
+  `order` object, the feature-level `active` default, and the
+  URL-userinfo rule of §8.6.
 - `descriptor.ts` — carry each feature's declared `options` and
   `transport` instead of discarding them (§7.4).
 - `factory.ts` — the entry becomes `{construct, config}` and the
@@ -2058,11 +2147,20 @@ land.
   today's default when `order` is absent, by validating against the
   declared `transport` roles, and by `instances()` printing the
   resulting onion rather than leaving it to be inferred.
-- **The feature checker depends on a descriptor field that does not
-  exist yet.** Until §11 items 6–7 land, station knows feature *names* but not
-  their option schemas, so §8.5 degrades to name-checking only. That is
-  a strictly-better-than-today state, not a broken one, and the plan
-  sequences it explicitly (Stage 3b before Stage 4).
+- **Two Stage 3b features depend on descriptor fields that do not
+  exist yet.** Until §11 items 6–7 land, station knows feature *names*
+  but neither their option schemas nor their `transport` roles. So §8.5
+  degrades to name-checking, **and §8.4's order validation degrades
+  with it** — an explicit `order` is still honoured and still composed,
+  but the base-must-be-first and station-wrap-position checks cannot
+  run until the roles arrive. Both are strictly-better-than-today
+  states rather than broken ones, and both lift at the same moment.
+
+  This is the reason items 6–7 are **not** deferred to the plugin
+  bridge (§16): the native phase is precisely what consumes them, so
+  deferring their arrival while retaining the field would leave Stage
+  3b with a role it requires and no source for it. Only their *removal*
+  waits on features becoming bindings.
 - **A 22-port change of this size drifts.** The corpus is the control,
   and CI already runs every port against it.
 
@@ -2157,6 +2255,7 @@ Applied in the same change as Stage 3, so the documents never disagree:
 | §3.1 | the `api` block is retained and redefined as plugin's name-keyed `default` map — inherited by every instance of the api, declaring none itself |
 | §3.3 | the shallow-per-key rule is preserved by declaring `policy` and `options` as `$MERGE: replace` in the SDK definition shape, rather than as a global merge rule |
 | §6.1 | `create()` uses plugin's `tag: '?'` auto-tagging in place of the `name#<n>` convention |
-| §8.4 | ordering adopts plugin's constraints and bands, and station's wrap position becomes a host pin; the `transport` field is **deferred** until features are bindings, not dropped |
-| §11 | the seventeen-model `transport` change and the `configDefinition` field carrying it are deferred to plugin's P3 bridge or sdkgen adoption (items 6–7) |
+| §8.4 | the profile-level `order` list is removed and replaced by per-feature `order: {before, after, band}`, resolved by topological sort with vacuous satisfaction; station's wrap position becomes a host pin; the `transport` field is **deferred** until features are bindings, not dropped |
+| §4.3, §4.4 | the shape carries the per-feature `order` object instead of the profile-level array, and the first-element workaround narrows to `policy.hosts` |
+| §11 | items 6–7 (`transport` on every feature model, `configDefinition` carrying it) **still land** — the native phase is what consumes them; what defers to plugin's P3 bridge or sdkgen adoption is their **removal**, once position carries the role |
 | §15 | the per-definition-defaults question is settled by the `default` map; the `feature.station` question stays settled as reserved, now by plugin's `reserved` mechanism |
