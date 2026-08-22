@@ -9,15 +9,17 @@ targets. [station](./station.md) is its first host, and this document
 is the agreed position between the two designs: what they share, where
 they disagreed, and which side moved.
 
-References of the form **P§n** are to plugin's design **as reconciled
-in [voxgig/plugin#3](https://github.com/voxgig/plugin/pull/3), commit
-[`7e42fa5`](https://github.com/voxgig/plugin/blob/7e42fa5153308b5886d03e2681a219c810aa15bc/docs/design/plugin.md)**
-— pinned rather than tracking
-[the branch](https://github.com/voxgig/plugin/blob/claude/voxgig-plugin-architecture-h6cly0/docs/design/plugin.md),
-because an agreement whose references move is not reproducible: every
-section number and every "plugin adopted this" claim below is against
-that revision. Re-pin when plugin's design branch advances, and check
-the claims still hold rather than assuming they do.
+References of the form **P§n** are to plugin's design **as merged by
+[voxgig/plugin#3](https://github.com/voxgig/plugin/pull/3), commit
+[`0ea4c4f`](https://github.com/voxgig/plugin/blob/0ea4c4f493f3870cb55f7178ca4381f6c874fbb0/docs/design/plugin.md)**
+— a merge commit rather than a branch head, because an agreement whose
+references move is not reproducible: every section number and every
+"plugin adopted this" claim below is against that revision. Earlier
+drafts of this line tracked
+[the branch](https://github.com/voxgig/plugin/blob/claude/voxgig-plugin-architecture-h6cly0/docs/design/plugin.md)
+and went stale three times in a day, which is the argument for pinning
+rather than a theory about it. Re-pin when plugin's design advances
+again, and re-check the claims rather than assuming they still hold.
 
 Bare **§n** are to [`station-declarative-config.md`](./station-declarative-config.md);
 **S§n** to [`station.md`](./station.md).
