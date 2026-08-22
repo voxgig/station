@@ -3,14 +3,30 @@
 Status: **proposal** (2026-08-22). An extension of
 [`station.md`](./station.md), not a replacement.
 
-> **Pending decision.** [voxgig/plugin](https://github.com/voxgig/plugin)
-> is designing a generic instance/lifecycle model that covers much of
-> §2–§8, and names station as its first consumer.
-> [`station-and-plugin.md`](./station-and-plugin.md) reviews it: adopt
-> the model, do not block on the library, and re-key §2's identity to
-> its `name$tag` refs before Stage 2 is written. Nothing in this
-> document is invalidated by that; §2's identity spelling and §8.4's
-> ordering are the two parts it would change.
+> **Reconciled with voxgig/plugin.**
+> [`station-and-plugin.md`](./station-and-plugin.md) now holds the
+> agreed position between the two designs: **adopt the model, do not
+> block on the library** — station builds Stages 2–3 natively to
+> plugin's semantics and plugin extracts them afterwards. Five parts of
+> this document change as a result, each amended in place and collected
+> in §16:
+>
+> - **§2's identity** re-keys to `name$tag` refs: `sdk` keys become
+>   refs and `sdk.<n>.api` is deleted, because the name before `$` is
+>   the api.
+> - **§3.1's `api` block** is retained and is now defined as plugin's
+>   name-keyed `default` map — it declares no instance, which is what
+>   it always meant and could not previously say.
+> - **§3.3's shallow-merge rule** is preserved by declaring `policy`
+>   and `options` as `$MERGE: replace` in the SDK definition shape,
+>   rather than by a global rule plugin does not share.
+> - **§8.4's ordering** adopts constraints and bands, which deletes the
+>   proposed `transport` field and the seventeen-model sdkgen change
+>   with it; station's pinned wrap position becomes a host pin.
+> - **§6.2's factory table** is the model plugin adopted for its own
+>   catalog, and stays as written.
+>
+> Nothing else here is invalidated.
 
  Where the two
 disagree, this document wins and names the section of `station.md` it
@@ -191,7 +207,17 @@ resources held", and the two share a spelling and not a meaning
 An `sdk` block adds one key, `api`, naming which api it instantiates;
 it defaults to the instance name, so the single-instance case never
 writes it. An `api` block is the same block *minus* `api` — settings
-inherited by every instance of that api. The two spec objects in the
+inherited by every instance of that api.
+
+**Both statements are amended by the reconciliation** (§16,
+`station-and-plugin.md` §3.1). The `sdk` key becomes a **ref**, so the
+`api` field is deleted rather than defaulted: `stripe$test` is the
+`test` instance of api `stripe`, and one token says so. The `api` block
+stays under that name and is now defined as plugin's `default` map —
+keyed by api slug, inherited by every instance of it, and **declaring
+no instance of its own**, which is what an api block always meant and
+had no way to state while the only per-definition slot was an untagged
+instance. The two spec objects in the
 shape file are identical apart from that one key, and a guard test
 asserts it (§10.1), because they are one concept written twice as data.
 
@@ -322,7 +348,12 @@ Two rules survive unchanged from `station.md` and one is corrected:
 - **`secrets.providers` replaces wholesale**, never merges (`station.md`
   §3.5, §5.2).
   It is profile-level, so this is untouched by the block levels.
-- Merging within a block is **shallow, per key**. `station.md` §3.5 says
+- Merging within a block is **shallow, per key**, and under plugin this
+  is declared rather than assumed: `policy` and `options` carry
+  `{"$MERGE": "replace"}` in the SDK definition shape, because plugin's
+  library default is a deep map merge and an allowlist that widens
+  because two precedence levels merged is the failure this rule exists
+  to prevent (`station-and-plugin.md` §2.5). `station.md` §3.5 says
   "deep-merge per plugin"; the TypeScript and Go ports both implement a
   shallow per-key merge and their comments say so
   (`typescript/src/profile.ts`, `go/station/profile.go:93`). The
@@ -1396,6 +1427,19 @@ answer it. So:
   The roles cannot be inferred: the obvious signal, an empty
   `hook: {}`, is wrong for station, which both wraps *and* dispatches
   hooks. It is a listed sdkgen change (§11).
+
+  **Superseded by the reconciliation** (§16,
+  `station-and-plugin.md` §2.10). The `transport` field is **not
+  added**, and the seventeen-model sdkgen change goes with it. Under
+  plugin's ordering, *which point a feature binds to* carries the role
+  structurally: a `chain` binding is in the wrap chain and a `hook`
+  binding is not. A feature that *replaces* the transport rather than
+  wrapping it — `test`, assigning `ctx.utility.fetcher` — is the
+  **innermost chain link declining to call `next`**, which is
+  behaviourally identical and needs no declared role. The reasoning
+  above about netsim and about roles being un-inferrable still holds;
+  it is now an argument for why position must carry the role rather
+  than for adding a field.
 - With the role declared, station **validates an explicit `order`** —
   a `base` feature anywhere but first is `station_feature_order`, and a
   recording feature placed inside station's wrap gets the warning
@@ -1405,7 +1449,12 @@ answer it. So:
 
 Station's own position stays pinned by `station.md` §3.3 and is not
 orderable: an `order` that moves `station` away from immediately-after-
-base is rejected, not honoured.
+base is rejected, not honoured. Under plugin this is a **host pin**
+(`host.point(name, {pin})`, `plugin_order_pinned`) rather than a
+station-specific validation rule — station's need is what put the
+mechanism in plugin, because position *verification* only tells a
+binding it was misplaced after the fact, where a pin makes the
+misplacement inexpressible (`station-and-plugin.md` §2.9).
 
 **And `feature.station` is reserved outright.** Station's adapter is a
 feature like any other, so the generic surface would otherwise let a
@@ -1961,6 +2010,10 @@ Everything in `station.md` §19 still holds. Added:
   `"instances": ["eu","us"]` shorthand would shorten a fleet where
   instances differ only by name. Deferred: the explicit `sdk` map is
   more readable at 26 entries and there is exactly one place to look.
+  The reconciliation sharpens the reason — an `api` block is plugin's
+  `default` map and **declares nothing** (§3.1), so letting it declare
+  instances would give one key two jobs, which is what the `default`
+  map was introduced to stop.
 - **Per-instance `resolve: proxy` grant scoping.** `station.md` §5.3's
   grant is plugin-scoped; with instances, is the grant per instance or
   per api? Per instance is the obvious answer and costs the proxy a
@@ -1970,13 +2023,13 @@ Everything in `station.md` §19 still holds. Added:
   want each service to contribute its own instances. Composition rules
   (precedence, conflict) are a real design, not an afterthought;
   deferred until someone has the problem.
-- **Adopting voxgig/plugin as the instance model.** Reviewed in
-  `station-and-plugin.md`: the model is right and better than this
-  document in four places, but the library has no ports and station has
-  sixteen. The recommendation is to take the semantics now and the
-  dependency when plugin reaches its tier 3 — which makes the `name$tag`
-  re-key a Stage 2 decision that wants making before Stage 2 is written,
-  not after.
+- ~~**Adopting voxgig/plugin as the instance model.**~~ *Settled* —
+  `station-and-plugin.md` is now the reconciled position between the
+  two designs: take the semantics now, take the dependency when plugin
+  reaches tier 3. The `name$tag` re-key lands in Stage 2, and the five
+  amendments this implies are listed in §16. What remains open is not
+  station's: whether **sdkgen** adopts plugin (plugin's §17.2), which
+  everything nested-host waits on.
 - **Runtime feature toggling.** §8.8 makes feature config
   construction-time, which is what the shipped pipeline supports. A
   live toggle needs the `client.extend()` late-attach seam
@@ -2009,8 +2062,21 @@ Applied in the same change as Stage 3, so the documents never disagree:
 | §5.2 | `station.json`'s `plugin` map becomes `sdk` + `api`; providers validated as a list only |
 | §5.3 | broker keying corrected: overrides by instance, resolution cache by secret name |
 | §6 | events carry `plugin` = instance name and a new `api` field |
-| §9 | two items listed as pending are already shipped (the `makeOptions` station featureorder case, the three `configDefinition` fields); feature models gain `transport`, and `configDefinition` carries it (§11 items 6–7) |
+| §9 | two items listed as pending are already shipped (the `makeOptions` station featureorder case, the three `configDefinition` fields); ~~feature models gain `transport`, and `configDefinition` carries it~~ — **dropped by the reconciliation**, which makes the role structural (§8.4, §11 items 6–7) |
 | §11 | the declarative quickstart leads; the two-line imperative form stays as the retrofit path; features are configured in `station.json` rather than per call site (§8) |
 | §13 | the `config`, `instance` and `feature` corpus sections; `profile`, `secretname`, `placeholder` amended |
 | §14 | eleven new error codes (§6.4); `station_bound_twice` re-keyed to the instance, and explicitly not a cap on clients per instance (§6.1) |
 | §17 | Phase 1 gains Stages 1–4 of §12; Phase 2's `station.json` schema item is satisfied by the struct shape |
+
+**Amendments to this document, from the voxgig/plugin reconciliation**
+(`station-and-plugin.md`), applied in the same change as Stage 2:
+
+| section | amendment |
+|---|---|
+| §2, §3.1 | `sdk` keys become `name$tag` refs; `sdk.<n>.api` is deleted, the name before `$` being the api |
+| §3.1 | the `api` block is retained and redefined as plugin's name-keyed `default` map — inherited by every instance of the api, declaring none itself |
+| §3.3 | the shallow-per-key rule is preserved by declaring `policy` and `options` as `$MERGE: replace` in the SDK definition shape, rather than as a global merge rule |
+| §6.1 | `create()` uses plugin's `tag: '?'` auto-tagging in place of the `name#<n>` convention |
+| §8.4 | the `transport` field is **not** added; ordering adopts plugin's constraints and bands, and station's wrap position becomes a host pin |
+| §11 | the seventeen-model `transport` change and the `configDefinition` field carrying it are both dropped (items 6–7) |
+| §15 | the per-definition-defaults question is settled by the `default` map; the `feature.station` question stays settled as reserved, now by plugin's `reserved` mechanism |
