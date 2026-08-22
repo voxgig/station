@@ -1,7 +1,18 @@
 # Design: declarative station config and dynamic SDK instances
 
 Status: **proposal** (2026-08-22). An extension of
-[`station.md`](./station.md), not a replacement. Where the two
+[`station.md`](./station.md), not a replacement.
+
+> **Pending decision.** [voxgig/plugin](https://github.com/voxgig/plugin)
+> is designing a generic instance/lifecycle model that covers much of
+> §2–§8, and names station as its first consumer.
+> [`station-and-plugin.md`](./station-and-plugin.md) reviews it: adopt
+> the model, do not block on the library, and re-key §2's identity to
+> its `name$tag` refs before Stage 2 is written. Nothing in this
+> document is invalidated by that; §2's identity spelling and §8.4's
+> ordering are the two parts it would change.
+
+ Where the two
 disagree, this document wins and names the section of `station.md` it
 amends (§16 collects every amendment in one list).
 
@@ -169,6 +180,13 @@ A **block** — the same eight keys in both positions:
 | `feature` | map | SDK features to activate and configure (§8) |
 | `options` | map | extra options passed to the SDK constructor (§5.2 restricts it) |
 | `active` | boolean | default `true`; `false` declares an instance without allowing it to be built |
+
+`active` here means **barred from running** — a declaration that stays
+in the file and in `instances()` while being refused a client. It is
+not a runtime state. That distinction matters beyond this document:
+voxgig/plugin has an `active` lifecycle *status* meaning "bindings live,
+resources held", and the two share a spelling and not a meaning
+(`station-and-plugin.md` §1).
 
 An `sdk` block adds one key, `api`, naming which api it instantiates;
 it defaults to the instance name, so the single-instance case never
@@ -1952,6 +1970,13 @@ Everything in `station.md` §19 still holds. Added:
   want each service to contribute its own instances. Composition rules
   (precedence, conflict) are a real design, not an afterthought;
   deferred until someone has the problem.
+- **Adopting voxgig/plugin as the instance model.** Reviewed in
+  `station-and-plugin.md`: the model is right and better than this
+  document in four places, but the library has no ports and station has
+  sixteen. The recommendation is to take the semantics now and the
+  dependency when plugin reaches its tier 3 — which makes the `name$tag`
+  re-key a Stage 2 decision that wants making before Stage 2 is written,
+  not after.
 - **Runtime feature toggling.** §8.8 makes feature config
   construction-time, which is what the shipped pipeline supports. A
   live toggle needs the `client.extend()` late-attach seam

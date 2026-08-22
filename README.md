@@ -56,6 +56,11 @@ points), and everything proxy-side.
   that the grammar cannot express a credential, plus universal
   management of SDK features. Proposal; amends the full design (its
   §16).
+- [`docs/design/station-and-plugin.md`](./docs/design/station-and-plugin.md)
+  — review of [voxgig/plugin](https://github.com/voxgig/plugin), which
+  names station as its first consumer: adopt the model, do not block on
+  the library (it has no ports; station has sixteen), and re-key to its
+  `name$tag` refs before the identity change is written.
 - [`sdkgen-station/`](./sdkgen-station/) — the sdkgen feature package
   (design §9 item 5): the feature model, per-target adapter overlays,
   and the deps that flow each target's station library into generated
