@@ -1503,6 +1503,15 @@ mechanism in plugin, because position *verification* only tells a
 binding it was misplaced after the fact, where a pin makes the
 misplacement inexpressible (`station-and-plugin.md` §2.9).
 
+**The pin is `innermost`, and the spelling matters.** Plugin composes a
+chain with the *first* binding outermost, so a pin written in sort
+terms — "station first" — would place every other wrapper between the
+adapter and the base: the exact inversion of S§3.3's
+immediately-outside-the-base invariant, and one that would leave
+station's wire-truth events observing the wrong boundary while still
+looking ordered. Plugin's pin vocabulary is positional for that reason
+(`outermost`/`innermost` for a chain), and station pins `innermost`.
+
 **And `feature.station` is reserved outright.** Station's adapter is a
 feature like any other, so the generic surface would otherwise let a
 config file set `feature.station.active: false` (binding silently off),
