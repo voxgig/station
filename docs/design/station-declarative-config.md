@@ -3,14 +3,35 @@
 Status: **proposal** (2026-08-22). An extension of
 [`station.md`](./station.md), not a replacement.
 
-> **Pending decision.** [voxgig/plugin](https://github.com/voxgig/plugin)
-> is designing a generic instance/lifecycle model that covers much of
-> §2–§8, and names station as its first consumer.
-> [`station-and-plugin.md`](./station-and-plugin.md) reviews it: adopt
-> the model, do not block on the library, and re-key §2's identity to
-> its `name$tag` refs before Stage 2 is written. Nothing in this
-> document is invalidated by that; §2's identity spelling and §8.4's
-> ordering are the two parts it would change.
+> **Reconciled with voxgig/plugin.**
+> [`station-and-plugin.md`](./station-and-plugin.md) now holds the
+> agreed position between the two designs: **adopt the model, do not
+> block on the library** — station builds Stages 2–3 natively to
+> plugin's semantics and plugin extracts them afterwards. Five parts of
+> this document change as a result, each amended in place and collected
+> in §16:
+>
+> - **§2's identity** re-keys to `name$tag` refs: `sdk` keys become
+>   refs and `sdk.<n>.api` is deleted, because the name before `$` is
+>   the api.
+> - **§3.1's `api` block** is retained and is now defined as plugin's
+>   name-keyed `default` map — it declares no instance, which is what
+>   it always meant and could not previously say.
+> - **§3.3's shallow-merge rule** is preserved by declaring `policy`
+>   and `options` as `$MERGE: replace` in the SDK definition shape,
+>   rather than by a global rule plugin does not share.
+> - **§8.4's ordering** adopts plugin's constraints and bands
+>   throughout: the profile-level `order` list is **removed**, each
+>   feature entry gains a reserved `order` object (`before`/`after`/
+>   `band`), and station's pinned wrap position becomes a host pin.
+>   The proposed `transport` field is **deferred, not deleted** — the
+>   role becomes structural only once features are bindings, so it is
+>   carried through the native phase, and §11 items 6–7 still land
+>   because the native phase is what consumes them.
+> - **§6.2's factory table** is the model plugin adopted for its own
+>   catalog, and stays as written.
+>
+> Nothing else here is invalidated.
 
  Where the two
 disagree, this document wins and names the section of `station.md` it
@@ -36,8 +57,8 @@ component rather than a demo:
 - **Scale.** A real project drives **at least 20 SDKs**. Twenty is the
   design point, not the stress case.
 - **SDKs are not singletons.** One API can have **many instances**, each
-  with its own configuration — `stripe-live` and `stripe-test`,
-  `github-cloud` and `github-enterprise`, one tenant's endpoint and
+  with its own configuration — `stripe$live` and `stripe$test`,
+  `github-cloud` and `github$enterprise`, one tenant's endpoint and
   another's.
 - **The config is plain JSON**, and it is validated with
   [voxgig/struct](https://github.com/voxgig/struct).
@@ -112,18 +133,32 @@ Three words, used precisely from here on. The middle one is new.
 | term | is | identified by | example |
 |---|---|---|---|
 | **api** | a generated SDK — one OpenAPI definition, one package | the descriptor **slug** (the model's hyphenated `name`) | `voxgig-solardemo` |
-| **instance** | one configured use of an api: its own base URL, secret, policy, options | the **instance name** — the key in `sdk` | `solar-eu` |
-| **plugin** | an instance *bound to a station* — a live client in the registry | the instance name | — |
+| **instance** | one configured use of an api: its own base URL, secret, policy, options | the **ref** — `api$tag`, the key in `sdk` | `voxgig-solardemo$eu` |
+| **plugin** | an instance *bound to a station* — a live client in the registry | the ref | — |
 
 The change in one line: **a plugin used to be an api; a plugin is now
 an instance.** Everything keyed by slug in the registry, the
-placeholder, the event stream and the config becomes keyed by instance
-name. The descriptor stays keyed by api, because it describes the API
-and not the use of it — and one descriptor is shared by every instance
-of its api (§7.4).
+placeholder, the event stream and the config becomes keyed by ref. The
+descriptor stays keyed by api, because it describes the API and not the
+use of it — and one descriptor is shared by every instance of its api
+(§7.4).
 
-The degenerate case is the important one: **an instance whose name
-equals its api slug, and which is the only instance of that api, has
+**A ref is `api$tag`, and the part before `$` is always the api**
+(`station-and-plugin.md` §3.1, plugin's §4). `stripe$test` is the
+`test` instance of api `stripe`; `stripe` alone is the untagged
+instance of it. There is no separate instance-name field and no `api`
+key to keep consistent with the name — one token carries both, so every
+log line naming an instance names its api.
+
+The cost is **aliasing**, and it is worth stating plainly rather than
+discovering later: an instance of `voxgig-solardemo` cannot be called
+`solardemo`. The api slug is the name, so short local aliases become
+`voxgig-solardemo$demo` or nothing at all. That is a real ergonomic
+loss on long slugs, accepted because a second name that can disagree
+with the first is the thing this identity exists to remove.
+
+The degenerate case is the important one: **an instance whose ref is
+just its api slug, and which is the only instance of that api, has
 exactly today's behaviour** — the same resolved secret name, the same
 env var, the same base URL, the same binding calls, and
 `station.md` §11's two-line quickstart unchanged. Multi-instance is what you get when you
@@ -159,9 +194,9 @@ functions, no references, no expressions, no environment interpolation
     "<profile>": {
       "secrets": { "providers": [ /* sekreto ProviderSpec, verbatim */ ] },
       "feature": { "<feature-name>":  { /* fleet-wide feature defaults, §8.2 */ } },
-      "order":   [ /* explicit feature wrap order, §8.4 */ ],
-      "api":     { "<api-slug>":      { /* block */ } },
-      "sdk":     { "<instance-name>": { "api": "<api-slug>", /* block */ } }
+
+      "api":     { "<api-slug>": { /* block — defaults for every instance of it */ } },
+      "sdk":     { "<ref>":      { /* block — one instance, ref is `api$tag` */ } }
     }
   }
 }
@@ -188,12 +223,21 @@ voxgig/plugin has an `active` lifecycle *status* meaning "bindings live,
 resources held", and the two share a spelling and not a meaning
 (`station-and-plugin.md` §1).
 
-An `sdk` block adds one key, `api`, naming which api it instantiates;
-it defaults to the instance name, so the single-instance case never
-writes it. An `api` block is the same block *minus* `api` — settings
-inherited by every instance of that api. The two spec objects in the
-shape file are identical apart from that one key, and a guard test
-asserts it (§10.1), because they are one concept written twice as data.
+**The two block positions differ in what they key, not in what they
+hold.** An `sdk` block is keyed by **ref**: `stripe$test` is the `test`
+instance of api `stripe`, and one token carries both, so there is no
+`api` field to keep consistent with the key. An `api` block is keyed by
+**api slug** and holds settings inherited by every instance of that
+api, **declaring no instance of its own** — which is what an api block
+always meant and had no way to state while the only per-definition slot
+was an untagged instance (§16, `station-and-plugin.md` §2.4; it is
+plugin's `default` map under station's spelling).
+
+The two spec objects in the shape file are therefore **identical**, and
+a guard test asserts it (§10.1), because they are one concept written
+twice as data. An earlier draft had them differ by exactly one key,
+`api`, on the `sdk` side; the ref re-key removed it and with it the
+merge-phasing hazard §3.3 used to have to handle.
 
 ### 3.2 Twenty SDKs, twenty-six instances
 
@@ -213,16 +257,16 @@ asserts it (§10.1), because they are one concept written twice as data.
       },
 
       "sdk": {
-        "solardemo":    { "api": "voxgig-solardemo" },
-        "stripe":       { "api": "stripe" },
-        "stripe-test":  { "api": "stripe", "base": "https://api.stripe.test",
-                          "secret": "stripe_test.apikey",
-                          "policy": { "hosts": ["api.stripe.test"] } },
-        "github":       { "api": "github" },
-        "github-ent":   { "api": "github", "base": "https://ghe.acme.internal",
-                          "secret": "github_ent.apikey" },
-        "slack-ops":    { "api": "slack", "secret": "slack_ops.apikey" },
-        "slack-alerts": { "api": "slack", "secret": "slack_alerts.apikey" }
+        "voxgig-solardemo": { },
+        "stripe":           { },
+        "stripe$test":      { "base": "https://api.stripe.test",
+                              "secret": "stripe_test.apikey",
+                              "policy": { "hosts": ["api.stripe.test"] } },
+        "github":           { },
+        "github$ent":       { "base": "https://ghe.acme.internal",
+                              "secret": "github_ent.apikey" },
+        "slack$ops":        { "secret": "slack_ops.apikey" },
+        "slack$alerts":     { "secret": "slack_alerts.apikey" }
       }
     },
 
@@ -231,7 +275,7 @@ asserts it (§10.1), because they are one concept written twice as data.
         { "kind": "hashicorp", "addr": "https://vault.example.com",
           "auth": { "method": "kubernetes", "role": "acme" } } ] },
       "sdk": {
-        "stripe-test": { "active": false },
+        "stripe$test": { "active": false },
         "stripe":      { "resolve": "proxy" }
       }
     }
@@ -241,12 +285,15 @@ asserts it (§10.1), because they are one concept written twice as data.
 
 Four things to read out of that, because they are the requirements:
 
-- **`stripe`, `stripe-test`, `github`, `github-ent`, `slack-ops`,
-  `slack-alerts`** — six instances over three apis, each with its own
-  base, secret and policy, all in JSON.
+- **`stripe`, `stripe$test`, `github`, `github$ent`, `slack$ops`,
+  `slack$alerts`** — six instances over three apis, each with its own
+  base, secret and policy, all in JSON. Note what is *absent*: no block
+  names its api, because every key already does. `voxgig-solardemo`
+  shows the cost — the instance carries the api's full slug, a shorter
+  alias being a second name to keep consistent (§2).
 - **`api.stripe.policy.hosts`** is written once and applies to every
   stripe instance that does not say otherwise. At 20 apis this is what
-  stops the file being repetitive — and `stripe-test`, which moves its
+  stops the file being repetitive — and `stripe$test`, which moves its
   `base` off the api's host, has to carry its own `policy` or the
   fail-closed host check in `station.md` §16 denies every request it
   makes. **An instance that overrides `base` away from the api's
@@ -255,8 +302,8 @@ Four things to read out of that, because they are the requirements:
   allowlist is never silently widened by a base URL — and it is the
   first thing `station.check()` should report on (§6.6).
 - **The `prod` overlay is short**, because a profile overlays instances
-  rather than redeclaring them. `stripe-test` is switched off in prod
-  by one key; `station.sdk('stripe-test')` then fails loudly rather
+  rather than redeclaring them. `stripe$test` is switched off in prod
+  by one key; `station.sdk('stripe$test')` then fails loudly rather
   than quietly talking to a test endpoint from production.
 - **There is no credential anywhere**, and §5.2 shows that is a
   property of the grammar rather than of the example.
@@ -287,14 +334,36 @@ for. It degenerates to today's `base.plugin ⊕ overlay.plugin` when no
 **Two mechanism rules make that order safe, and a port that skips
 either reintroduces a real defect.**
 
-*The api is resolved before its defaults are looked up.* An api block is
-keyed by api slug, and which api an instance uses is itself a merged
-value, so the merge is not a flat four-way pass over both maps:
+*The api is known before anything merges, and the ref re-key is what
+made that true.* An api block is keyed by api slug. Under the old
+free-form identity, which api an instance used was itself a merged
+value, so the merge could not be a flat pass over both maps and a port
+that got the phasing wrong silently picked another api's defaults. With
+`api$tag` refs the api is the part of the key before `$` — lexical,
+available before any merge, and not overridable by an overlay. So:
 
-1. merge the **instance** blocks — base ⊕ overlay (steps 4, 6);
-2. read `api` from the result, defaulting to the instance name;
-3. merge the **api** blocks for *that* api — base ⊕ overlay (steps 3, 5);
-4. compose: api defaults under the instance block.
+1. resolve the api from the ref — the substring before `$`;
+2. merge the four sources **in the order §3.3 states**, each over the
+   one before it:
+
+   `base.api[<api>]` ⊕ `base.sdk[<ref>]` ⊕ `overlay.api[<api>]` ⊕ `overlay.sdk[<ref>]`
+
+**That is one flat left-to-right merge, and it must not be reorganized
+into "collapse each namespace, then put instance over api."** Collapsing
+first computes `(base.api ⊕ overlay.api)` and `(base.sdk ⊕ overlay.sdk)`
+and then lets *every* instance value beat *every* api value — the exact
+opposite of "profile specificity outranks block specificity". A
+production `api.stripe.policy` would then fail to override a default
+profile's `sdk.stripe$test.policy`, silently keeping the wider
+allowlist in production, which is the failure §3.2 designs against.
+
+Earlier drafts of this section had precisely that shape — one namespace
+at a time, composed at the end — and were wrong before the ref re-key
+as well. The re-key removed the **api-resolution phase**; it does not
+remove the **interleave**, and conflating the two is how the wrong
+algorithm survives a rewrite. What is genuinely gone is the phasing
+hazard: the api can no longer be a merged value, so no order of these
+four steps can select the wrong one.
 
 *Absent keys stay absent through the merge, and block defaults are
 applied once, to the fully merged instance.* This is the rule §4.2's
@@ -303,26 +372,36 @@ rather than asserting it. Take a base that declares an instance
 properly and an overlay that only moves its base URL:
 
 ```json
-"default": { "sdk": { "pad-a": { "api": "taskpad", "active": false } } },
-"prod":    { "sdk": { "pad-a": { "base": "https://prod.example" } } }
+"default": { "sdk": { "taskpad$a": { "active": false } } },
+"prod":    { "sdk": { "taskpad$a": { "base": "https://prod.example" } } }
 ```
 
 If the overlay block had defaults filled in before merging, it would
-carry a synthesized `api: "pad-a"` and `active: true` — and those would
-overwrite the base's real values. The merged instance would name a
-**different api** and would be **live in production despite being
-declared inactive**. A one-key environment override, silently
-selecting the wrong SDK and re-enabling a disabled integration. So:
-merge the blocks as authored, then apply `api` → instance name and
-`active` → `true` to the result. The `instance` corpus section carries
-exactly this case.
+carry a synthesized `active: true`, and that would overwrite the base's
+`false`: the instance would be **live in production despite being
+declared inactive** — a one-key environment override silently
+re-enabling a disabled integration. So: merge the blocks as authored,
+then apply `active` → `true` to the result. The `instance` corpus
+section carries exactly this case.
+
+**This example used to carry a second failure and no longer can.**
+Before the ref re-key it also synthesized `api: "pad-a"`, so the merged
+instance named a *different SDK* as well as being live. That half is
+now impossible — the api is the ref's own prefix and no default can
+manufacture it — while the `active` half is untouched, which is why the
+rule still has to be stated and pinned.
 
 Two rules survive unchanged from `station.md` and one is corrected:
 
 - **`secrets.providers` replaces wholesale**, never merges (`station.md`
   §3.5, §5.2).
   It is profile-level, so this is untouched by the block levels.
-- Merging within a block is **shallow, per key**. `station.md` §3.5 says
+- Merging within a block is **shallow, per key**, and under plugin this
+  is declared rather than assumed: `policy` and `options` carry
+  `{"$MERGE": "replace"}` in the SDK definition shape, because plugin's
+  library default is a deep map merge and an allowlist that widens
+  because two precedence levels merged is the failure this rule exists
+  to prevent (`station-and-plugin.md` §2.5). `station.md` §3.5 says
   "deep-merge per plugin"; the TypeScript and Go ports both implement a
   shallow per-key merge and their comments say so
   (`typescript/src/profile.ts`, `go/station/profile.go:93`). The
@@ -343,9 +422,25 @@ Two rules survive unchanged from `station.md` and one is corrected:
 ### 3.4 Migration from `plugin`
 
 `profiles.<p>.plugin` becomes `profiles.<p>.sdk`. That is the whole
-migration: the keys used to be api slugs and are now instance names,
-and an instance name defaults to its api slug, so **every existing
-block means exactly what it meant before under the new key.**
+migration for a single-instance project: the keys used to be api slugs
+and are now **refs**, and an untagged ref *is* an api slug, so **every
+existing block means exactly what it meant before under the new key.**
+
+A project that wants a second instance of an api adds a tag —
+`stripe$test` beside `stripe` — and writes no other identity. There is
+no rename of the existing key and no `api` field to add, which is the
+property the ref form was chosen for.
+
+**Multi-instance projects keep their environment variables too, and
+that is worth stating because it is the migration's real cost
+question.** Secret names derive through `envtoken`, which maps `-` and
+`$` alike to `_` (§5.1), so an instance renamed from `stripe-test` to
+`stripe$test` derives the *same* `stripe_test.apikey` and therefore the
+same `STRIPE_TEST_APIKEY`. Nobody has to re-issue a credential or edit
+a deployment to adopt refs. The one thing to check on the way through is
+§5.1's collision rule: the same insensitivity that preserves the
+variable is what makes `stripe$test` and a `stripe-test` api collide,
+and `open()` reports that rather than resolving it.
 
 Station is pre-1.0 and unreleased. `plugin` is **removed**, not
 aliased, and validation rejects it by name with a message that says
@@ -414,7 +509,6 @@ message:
   default chain), `api` → `{}`, `sdk` → `{}`;
 - per profile: `feature` → `{}`;
 - per block: `active` → `true`, `feature` → `{}`;
-- per `sdk` block: `api` → the instance name;
 - per feature entry, at every level: `active` → `true`. A feature named
   in the config is one you are asking for; the SDK's own default is
   `active: false` for all but `log`, and `{"retry": {"retries": 3}}`
@@ -427,10 +521,13 @@ require them, so unexpected-key detection is live at every level and
 every error names its path.
 
 **The normalized form is an input to validation and to nothing else.**
-The two block-level defaults — `active` and `api` — must *not* be
+The one remaining block-level default — `active` — must *not* be
 materialized before the profile merge, because a default synthesized
 into an overlay block overwrites the base's real value and produces the
-wrong-api / silently-reactivated failure worked through in §3.3. So the
+silently-reactivated failure worked through in §3.3. (`api` was the
+second such default and is **gone**: the ref carries the api, and
+`sdk.<ref>.api` is now an unexpected key that validation rejects. A
+normalizer still synthesizing it would write an invalid field.) So the
 two consumers read the same defaults table at different moments:
 
 | consumer | when defaults are applied | why |
@@ -441,8 +538,8 @@ two consumers read the same defaults table at different moments:
 Written as one defaults table and two callers, not as two lists that
 drift. The profile-level containers (`secrets.providers`, `api`, `sdk`)
 are safe to materialize early either way — they are containers, and a
-missing one merges as empty regardless — so only the two block keys
-carry the timing rule.
+missing one merges as empty regardless — so only that one block key
+carries the timing rule.
 
 The normalizer is roughly 30 lines and pure data-in/data-out, which is
 what makes it portable to 22 languages and expressible in the corpus.
@@ -523,7 +620,6 @@ against the cases in §4.5.
       },
       "sdk": {
         "`$CHILD`": {
-          "api": "`$STRING`",
           "active": "`$BOOLEAN`",
           "package": [
             "`$ONE`",
@@ -583,17 +679,14 @@ against the cases in §4.5.
       "feature": {
         "`$CHILD`": {
           "active": "`$BOOLEAN`",
+          "order": {
+            "before": ["`$ONE`", "`$NIL`", "`$STRING`", ["`$CHILD`", "`$STRING`"]],
+            "after": ["`$ONE`", "`$NIL`", "`$STRING`", ["`$CHILD`", "`$STRING`"]],
+            "band": ["`$ONE`", "`$NIL`", "`$INTEGER`"]
+          },
           "`$OPEN`": true
         }
-      },
-      "order": [
-        "`$ONE`",
-        "`$NIL`",
-        [
-          "`$CHILD`",
-          "`$STRING`"
-        ]
-      ]
+      }
     }
   }
 }
@@ -641,14 +734,17 @@ chain is a list; sekreto checks what is in it.
   defects.
 
   Until the upstream fix lands, **`validateConfig` carries an explicit
-  first-element check for both lists** — three lines, applied where the
-  shape cannot reach, raising the same errors the shape would
-  (`station_config_invalid` for `hosts`, `station_feature_order` for
-  `order`). Both cases are pinned in the corpus so the workaround is
-  removed deliberately rather than forgotten. The `hosts` failure was
-  always closed rather than open — a non-string host matches no request,
-  so traffic is denied — but `order` has no such consolation, which is
-  why the check exists rather than a note.
+  first-element check for `policy.hosts`** — three lines, applied where
+  the shape cannot reach, raising the same `station_config_invalid` the
+  shape would, and pinned in the corpus so the workaround is removed
+  deliberately rather than forgotten.
+
+  This check used to cover a second list, the profile-level `order`.
+  That list is gone (§8.4): ordering is per-feature constraints and
+  bands, so there is no string array left to mis-type. The `hosts`
+  failure was always closed rather than open — a non-string host
+  matches no request, so traffic is denied — which is why one narrow
+  check now suffices where two were needed.
 
 ### 4.5 What the shape catches
 
@@ -724,7 +820,7 @@ exactly what the generated README documents. `station.md` §5.1's
 promise, that a project which configures nothing keeps reading the env
 var it reads today, survives intact.
 
-Multi-instance follows the same rule with no special case: `stripe-test`
+Multi-instance follows the same rule with no special case: `stripe$test`
 → `stripe_test.apikey` → `STRIPE_TEST_APIKEY`. Each instance has its own
 credential because each instance *is* a separate credentialed use of the
 API, and the env var a developer has to set is derivable from the name
@@ -733,9 +829,14 @@ they chose. Where that is not wanted — several instances sharing one key
 which is the case the api block exists for.
 
 **`envtoken` is lossy, so derived names can collide, and a collision
-here is two integrations quietly sharing one credential.** `stripe-test`
-and `stripe_test` are different instance names that both derive
-`stripe_test.apikey` — and since §5.3 keys the resolution cache by
+here is two integrations quietly sharing one credential.** It collapses
+*any* run of non-alphanumerics to `_`, so `$` and `-` are
+indistinguishable downstream: the ref `stripe$test` and an untagged
+instance of an api slugged `stripe-test` both derive
+`stripe_test.apikey`. That pairing is the realistic one rather than a
+contrived one, because api slugs are hyphenated by construction (§2) —
+so a fleet that has both a `stripe-test` api and a `test` instance of
+`stripe` collides by default. Since §5.3 keys the resolution cache by
 secret name, the second instance would silently receive the first's
 value while this section claims each has its own. So the derived names
 are checked for uniqueness at `open()`: **two instances whose
@@ -787,11 +888,49 @@ then the residual:
    (`config.options.secret`, `station.md` §9). A blanket key deny-list
    would reject the very mechanism that keeps values out of the file.
    The rule: **a `secret`-named key whose value passes sekreto's
-   `validname()` is a name and is allowed; anything else under that key
-   is `station_config_secret`.** `voxgig_solardemo.apikey` passes;
-   `sk-live-abc123` does not, because it is not a valid sekreto name.
-   The grammar's own naming rule does the discriminating, which is
-   better than a heuristic about what a credential looks like.
+   `validname()` *and* the run bound below is a name and is allowed;
+   anything else under that key is `station_config_secret`.**
+
+   **What `validname()` actually excludes, stated precisely, because
+   this is the load-bearing check and it was designed as a name grammar
+   rather than as a credential filter.** It is
+   `^[a-z0-9_]+$` per dot-separated part, so it rejects anything
+   carrying uppercase, hyphens, `+`, `/` or `=` — which is most real
+   credential formats: Stripe's `sk_test_`/`sk_live_` keys and GitHub's
+   `ghp_` tokens each carry a mixed-case random suffix, and base64
+   payloads and JWTs carry `+`, `/` or `=`.
+
+   *Their literal forms are deliberately not reproduced here.* A
+   section arguing that credentials do not belong in files should not
+   carry credential-shaped strings, and this is not a stylistic point:
+   an earlier draft of this paragraph pasted a real-format Stripe test
+   key as an illustration, and GitHub's push protection rejected the
+   commit. The tooling was right, and the incident is the shortest
+   available argument for §6.6 running `check()` in CI.
+
+   It does **not** exclude a lowercase token:
+   `550e8400e29b41d4a716446655440000` (a UUID with its hyphens stripped)
+   and any lowercase hex secret pass it cleanly. A character class
+   cannot tell a name from a secret, and pretending otherwise would be
+   the wrong version of a security claim.
+
+   So one bound is added, and it targets exactly that gap: **a `secret`
+   value containing an unbroken alphanumeric run of 24 characters or
+   more is `station_config_secret`.** Derived names break on every
+   separator — `voxgig_solardemo.apikey` runs 6/9/6 — and a hand-written
+   name for a human to read does too; a 32-character unbroken run is not
+   a name anybody writes. It is a backstop rather than a grammar, and it
+   is stated as one.
+
+   **The residual, precisely.** A short lowercase secret with a
+   separator in it still passes both checks. What saves that case is not
+   the grammar but the consequence: station hands the value to sekreto
+   as a *name*, the lookup finds nothing, and the request fails —
+   loudly, at bind time, and before anything reaches the wire. So the
+   accurate claim is that **a credential under `secret` cannot be used,
+   not that it cannot be written.** It would still be sitting in a
+   committed file, which is why the bound exists at all and why
+   `check()` running in CI (§6.6) is the thing that actually finds it.
 2. **At construction, station knows the descriptor**, and the
    descriptor names this API's auth prefix and header. So the
    *instance-specific* check that validation cannot do — "does this
@@ -873,7 +1012,7 @@ Four rules:
    reserved for multi-credential plugins.
 
    **The no-argument form warms *active* instances only.** In the §3.2
-   prod profile `stripe-test` is deliberately inactive; warming it would
+   prod profile `stripe$test` is deliberately inactive; warming it would
    ask the production provider chain for `stripe_test.apikey` — a secret
    that deployment has no business holding, and whose absence would turn
    a convenience call into a startup failure. Reaching for a credential
@@ -889,7 +1028,7 @@ Four rules:
 ```ts
 const station = Station.open()          // declarative init; no SDKs constructed
 const stripe  = station.sdk('stripe')   // built on first ask, cached, ready
-const test    = station.sdk('stripe-test')
+const test    = station.sdk('stripe$test')
 ```
 
 | call | does |
@@ -909,8 +1048,19 @@ retrofit path and still how a project with no config file starts:
 
 - `station.connect(SDK, opts?)` — constructs an anonymous instance named
   by the api slug. Identical to today.
-- `station.connect(SDK, { as: 'solar-eu' })` — names it, so
-  multi-instance works imperatively too.
+- `station.connect(SDK, { as: 'eu' })` — **`as` is a tag, not a free
+  name.** The api comes from the SDK being passed, so the resulting ref
+  is `<api>$<tag>` — `voxgig-solardemo$eu` — and multi-instance works
+  imperatively too. A full ref is also accepted, and is validated: its
+  name must equal the SDK's api slug, or it is
+  `station_instance_api`. Both forms are needed because the imperative
+  path is where the api is implicit in an argument rather than written
+  in a key, and an `as` that took an arbitrary name would reintroduce
+  exactly the second-identity problem the ref re-key removed — under
+  the ref invariant `as: 'solar-eu'` would denote the untagged
+  `solar-eu` *definition*, not an instance of the SDK just handed in,
+  and registry grouping, api defaults and every ref consumer would
+  disagree about what it is.
 - `station.adopt(SDK, opts?)` — unchanged (`station.md` §3.1).
 - `station.options(instanceName?, extra?)` — the inverted binding for
   static languages, now able to say which instance it is building.
@@ -927,9 +1077,18 @@ says. §7.5 registers every constructed adapter under its instance name
 and §6.4 keeps `station_bound_twice` for a second binding of one name,
 so a second `create('stripe')` — or the first one after `sdk('stripe')`
 — would throw, which is exactly the per-request case the row above
-promises. So a client from `create(name)` registers under a **derived
-identity**, `name#<n>` with `n` a per-name counter, carrying `instance:
-name` as the declared instance it came from:
+promises. So a client from `create(ref)` registers under an
+**auto-assigned tag**: plugin's `tag: '?'` (§4 rule 3 there) takes the
+lowest unused positive integer, giving `stripe$1`, `stripe$2`, … and
+returning the assigned ref.
+
+An earlier draft invented a `name#<n>` derived identity for this, with
+`instance: name` naming the declared instance it came from. The
+reconciliation replaces it (§16): an auto-tagged instance is an
+**ordinary instance**, not a parallel identity scheme, so `plugins()`,
+the placeholder, the event stream and `station_bound_twice` all keep
+working on one identity model rather than two. Everything the derived
+form bought still holds:
 
 - the registry key is unique, so `station_bound_twice` keeps meaning
   what it means: one *binding* per identity, never a cap on clients;
@@ -938,14 +1097,26 @@ name` as the declared instance it came from:
 - the placeholder follows the identity (§7.2), so injection is never
   ambiguous;
 - the **secret name does not** — it is resolved from the declared
-  instance, so every client of one instance shares one broker cache
-  entry (§5.3) rather than re-resolving per request.
+  instance the tag was assigned under, so every client of one instance
+  shares one broker cache entry (§5.3) rather than re-resolving per
+  request.
 
 `instances()` reports declared instances; `plugins()` reports live
 identities. At 20 SDKs with a per-request `create()` somewhere, that
 distinction is the difference between a readable status page and an
-unbounded one — so `plugins()` collapses `name#<n>` entries to a count
-by default and lists them on request.
+unbounded one.
+
+**The summary belongs to the status view, not to `plugins()`.** An
+earlier draft made the collapse `plugins()`' default, which quietly
+broke its own contract two sections up — one entry per live instance —
+and left inspection, health reporting and cleanup unable to enumerate
+the clients `create()` produced, which is when you most want them.
+So: **`plugins()` is exhaustive, always.** `status()` and the CLI's
+instance view collapse auto-tagged entries to a count and expand on
+request, because those are presentation surfaces and truncation is a
+presentation decision. Auto-tagged entries are recognisable because
+their tag is an integer the host assigned, which is also why a
+hand-written config should not use bare integer tags.
 
 Static languages need one accommodation: `sdk()` returns the language's
 dynamic form, and each port ships the idiomatic typed accessor over it —
@@ -1109,13 +1280,14 @@ New error codes for `station.md` §14's catalog:
 |---|---|
 | `station_config_invalid` | struct validation failed; message carries every error with paths |
 | `station_config_secret` | a credential-shaped key in an `options` block (§5.2) |
-| `station_no_instance` | `sdk(name)` for an undeclared name; message lists the declared ones |
+| `station_no_instance` | `sdk(ref)` for an undeclared ref; message lists the declared ones |
+| `station_instance_api` | `connect(SDK, {as})` given a full ref whose name is not the SDK's api slug (§6.1) |
 | `station_instance_inactive` | the instance is declared with `active: false` |
 | `station_sdk_load` | `package` could not be imported, `export` is absent from it, or it is ESM-only and `station.load()` was not awaited (§6.3) |
 | `station_secret_collision` | two instances derive the same secret name (§5.1) |
 | `station_feature_unknown` | a configured feature the SDK does not have; message lists what it does (§8.5) |
 | `station_feature_option` | an option key the feature does not declare, or the wrong type (§8.5) |
-| `station_feature_order` | an `order` that misplaces a base or the station wrap, or is not a list of strings (§8.4) |
+| `station_feature_order` | a constraint cycle, a `base` feature resolved anywhere but innermost, or an ordering that would move the pinned station wrap (§8.4) |
 | `station_feature_reserved` | a `feature.station` key, or `options.feature` in a declarative config (§8.4, §8.6) |
 | `station_no_factory` | no factory for the api; message names both remedies |
 | `station_factory_conflict` | two different factories registered for one api |
@@ -1162,7 +1334,7 @@ moves to that key.
 
 ### 7.2 Placeholder
 
-`placeholderFor(instanceName)` → `[station:stripe-test]`. Two live
+`placeholderFor(instanceName)` → `[station:stripe$test]`. Two live
 instances of one api **must** have distinct placeholders or the
 injection seam cannot tell which credential a header wants. This is a
 corpus change (`placeholder` section) and a required change in every
@@ -1310,8 +1482,8 @@ runtime mechanism at all.
       },
 
       "sdk": {
-        "stripe":      { "api": "stripe" },
-        "stripe-test": { "api": "stripe",
+        "stripe":      { },
+        "stripe$test": {
                          "feature": { "netsim": { "active": true, "latency": 50 } } }
       }
     },
@@ -1379,10 +1551,41 @@ each retry attempt consults the cache. Today that nesting is decided by
 is right is a per-project question, and there is currently no way to
 answer it. So:
 
-- **`order`** — an optional list at profile level naming the wrap order
-  explicitly. Absent, the default is exactly today's rule (test first,
-  station immediately after, then alphabetical), so a project that does
-  not care sees no change.
+- **Ordering is per feature, by constraints and bands** — plugin's §7
+  model, adopted whole (`station-and-plugin.md` §1). A feature entry
+  gains a reserved `order` key beside its reserved `active`:
+
+  ```json
+  "feature": {
+    "retry": { "active": true, "retries": 3 },
+    "cache": { "active": true, "order": { "after": "retry" } }
+  }
+  ```
+
+  `before` and `after` take a feature name or a list of them and are
+  **satisfied vacuously** when the named feature is absent — `after:
+  "test"` loads fine in a project with no test feature, which is
+  sdkgen's `__after__` behaviour kept rather than reinvented. `band` is
+  an integer, default 0, and higher is further *in*; bands break ties
+  that no constraint decides. Constraints beat bands, and remaining
+  ties break by the feature's position in the merged map, so the result
+  is a stable topological sort with no alphabetical accident in it.
+
+  **The profile-level `order: string[]` list is removed, not
+  supplemented.** A total list and a constraint set are two grammars
+  for one decision, and the list's failure mode is that adding a
+  feature silently changes where every later one sits. What the list
+  bought — "I want cache inside retry" — is one constraint, written on
+  the feature that cares.
+
+  **The default is today's behaviour, expressed in the new model rather
+  than as a special case.** `test`, when active, substitutes the base
+  transport, so it takes the innermost band; `station` sits immediately
+  outside it, pinned (below); everything else is band 0, outside
+  station. A project that writes no `order` anywhere sees exactly
+  today's nesting, and the two `makeOptions` special cases sdkgen grew
+  (`test`, then `station`) become two band values rather than two
+  branches.
 - **Features declare their transport role.** A feature model gains
   `transport: 'base' | 'wrap' | 'none'`. **`test` alone is `base`** —
   it *replaces* the slot (`ctx.utility.fetcher = testFetcher`) —
@@ -1396,16 +1599,48 @@ answer it. So:
   The roles cannot be inferred: the obvious signal, an empty
   `hook: {}`, is wrong for station, which both wraps *and* dispatches
   hooks. It is a listed sdkgen change (§11).
-- With the role declared, station **validates an explicit `order`** —
-  a `base` feature anywhere but first is `station_feature_order`, and a
-  recording feature placed inside station's wrap gets the warning
-  `station.md` §3.3 already demands — and **explains the resulting
-  onion** in `instances()` and `check()`, so the nesting is inspectable
-  rather than folklore.
+
+  **Staged by the reconciliation** (§16,
+  `station-and-plugin.md` §2.10). The `transport` field **stays for the
+  native phase and is deleted when features become bindings**, not
+  now. Under plugin's ordering *which point a feature binds to* carries
+  the role structurally — a `chain` binding is in the wrap chain, a
+  `hook` binding is not — and a feature that *replaces* the transport,
+  `test` assigning `ctx.utility.fetcher`, is the innermost chain link
+  declining to call `next`. But that only reads a role off a binding
+  once features *are* bindings. Through Stage 3b they are an ordered
+  array composed from `FEATURE_CLASS`, with no point to read, and the
+  paragraph above is explicit that the roles cannot be inferred. So the
+  field is carried until plugin's P3 bridge or sdkgen adoption supplies
+  the binding points, and the seventeen-model sdkgen change is deferred
+  to that point rather than cancelled.
+- With the role declared, station **validates the resolved order** —
+  a `base` feature anywhere but innermost, or a constraint cycle, is
+  `station_feature_order`; a recording feature placed inside station's
+  wrap gets the warning `station.md` §3.3 already demands — and
+  **explains the resulting onion** in `instances()` and `check()`, so
+  the nesting is inspectable rather than folklore. Note the dependency:
+  role validation needs `transport`, which arrives with §11 items 6–7,
+  so through early Stage 3b the order is composed and honoured but the
+  role checks degrade to nothing (§13).
 
 Station's own position stays pinned by `station.md` §3.3 and is not
 orderable: an `order` that moves `station` away from immediately-after-
-base is rejected, not honoured.
+base is rejected, not honoured. Under plugin this is a **host pin**
+(`host.point(name, {pin})`, `plugin_order_pinned`) rather than a
+station-specific validation rule — station's need is what put the
+mechanism in plugin, because position *verification* only tells a
+binding it was misplaced after the fact, where a pin makes the
+misplacement inexpressible (`station-and-plugin.md` §2.9).
+
+**The pin is `innermost`, and the spelling matters.** Plugin composes a
+chain with the *first* binding outermost, so a pin written in sort
+terms — "station first" — would place every other wrapper between the
+adapter and the base: the exact inversion of S§3.3's
+immediately-outside-the-base invariant, and one that would leave
+station's wire-truth events observing the wrong boundary while still
+looking ordered. Plugin's pin vocabulary is positional for that reason
+(`outermost`/`innermost` for a chain), and station pins `innermost`.
 
 **And `feature.station` is reserved outright.** Station's adapter is a
 feature like any other, so the generic surface would otherwise let a
@@ -1619,24 +1854,54 @@ library exists.**
 - **`config` (new)** — normalize-then-validate over the §4.5 table: each
   case is a raw config in, and either the normalized output or the
   expected error set out. This is the section that makes the grammar
-  identical in 22 languages.
+  identical in 22 languages. It carries §5.2's `secret`-key rule as
+  four cases that a character-class check alone would get wrong: a real
+  name accepted (`voxgig_solardemo.apikey`), a multi-word name accepted
+  (`acme_internal_billing_service.apikey` — the false positive a naive
+  length bound would produce), a hyphenated credential rejected by
+  `validname()`, and a lowercase 32-character token rejected by the run
+  bound *after* passing `validname()`. The fourth is the one that
+  proves the bound is doing work.
 - **`instance` (new)** — the merge of §3.3: api ⊕ sdk across base ⊕
-  overlay, the `api`-defaults-to-key rule, `active: false`, and the
-  shallow-merge-replaces-`policy` consequence. Two cases are
-  regression guards rather than examples, because both are defects
-  this design had before review: **defaults applied after the merge**
-  (a one-key overlay block must not overwrite the base's `api` or
-  `active`) and **the api resolved before its defaults are looked
-  up**.
+  overlay, ref parsing (`stripe$test` → api `stripe`, tag `test`, and
+  the untagged case), `active: false`, and the
+  shallow-merge-replaces-`policy` consequence. Two regression guards
+  rather than examples: **defaults applied after the merge** — a
+  one-key overlay block must not overwrite the base's `active`, which
+  is still live and still the defect worth guarding — and **a name and
+  an untagged ref are the same key string**, so an `api` block and an
+  `sdk` block may both exist for one name and are told apart by the map
+  they are in, never lexically.
+
+  The section previously also guarded *the api resolved before its
+  defaults are looked up*. That case is **deleted rather than moved**:
+  the api is now the ref's own prefix, so no merge order can produce
+  the wrong one, and a guard against an impossible state is a test that
+  can only rot.
 - **`secretname` collisions (new cases)** — two instances deriving one
-  name is `station_secret_collision`; two instances *naming* one
-  secret explicitly is legal.
+  name is `station_secret_collision`; two instances *naming* one secret
+  explicitly is legal. The derivation cases carry the `$`-versus-`-`
+  pair specifically (`stripe$test` against a `stripe-test` api), since
+  that is the collision refs make likely rather than theoretical, and
+  the migration case that depends on the same insensitivity — an
+  instance renamed from `stripe-test` to `stripe$test` keeps its
+  environment variable (§3.4).
 - **`feature` (new)** — the three-level merge of §8.3 (profile ⊕ api ⊕
-  instance, across base ⊕ overlay), per-name and then per-option-key;
+  instance, across base ⊕ overlay), per-name and then per-option-key,
+  **including the depth boundary**: a map-valued feature option
+  replaces wholesale rather than merging key-by-key with the level
+  below it, which is what `{"$MERGE": {"deep": 2}}` on `feature` states
+  and what a port defaulting to a deep merge would silently get wrong;
   the defaults-after-merge guard one level down (a tuning-only entry
   must not synthesize `active` and switch on a feature a broader level
-  turned off); the §8.4 default order and an explicit `order`, including
-  the rejections. Feature *option* checking is descriptor-dependent, so
+  turned off); and the §8.4 **order resolution** — the default nesting
+  with no constraints written, `before`/`after` honoured, a constraint
+  naming an absent feature satisfied vacuously, bands breaking a tie no
+  constraint decides, constraints beating bands where both apply, a
+  cycle rejected, and an ordering that would move the pinned station
+  wrap rejected. That set is deliberately the same shape as plugin's
+  `order` corpus section, because it is the one station holds itself to
+  under C4 (`station-and-plugin-plan.md` §3). Feature *option* checking is descriptor-dependent, so
   it lives in the integration suites (§10.2) with a small
   descriptor-shaped fixture, not in the JSON corpus. Three rules that
   *are* pure data go in: `feature.station` reserved, `options.feature`
@@ -1689,8 +1954,9 @@ checkable:
   `station_feature_option` naming the declared keys — the case the SDK's
   own `` `$OPEN` `` spec cannot catch;
 - an unknown feature name fails with the SDK's real feature list;
-- an explicit `order` produces that wrap nesting, and one that displaces
-  the station wrap is rejected;
+- an `after` constraint on one feature produces that wrap nesting, a
+  constraint naming an absent feature is satisfied vacuously, and one
+  that would displace the pinned station wrap is rejected;
 - a `proxy.url` with userinfo fails validation at `open()`, while
   `feature.station.secret` holding a valid sekreto name does not (§5.2);
 - `check()` validates every instance's feature config **without
@@ -1774,6 +2040,16 @@ the `extend` tolerance — is unchanged and still required.
 Five stages. Each ends in a state where `make test` is green and the
 repo is coherent; nothing here is a long-lived branch.
 
+> **Cross-repo sequencing lives in
+> [`station-and-plugin-plan.md`](./station-and-plugin-plan.md).** The
+> stages below stay authoritative for their own contents; what they
+> cannot state from inside this repo is where they sit against
+> voxgig/plugin's P0–P6, what plugin owes this repo and when, and the
+> two conclusions neither per-repo plan reaches — that **Stage 5 should
+> stop after ts and js until plugin's P4 has settled the canonical**,
+> and that Stage 5's `py`/`go` ports should be paired with plugin's P4
+> rather than run independently.
+
 ### Stage 1 — the grammar, as data (no behaviour change)
 
 - `spec/config-shape.json` — §4.3, verbatim.
@@ -1783,10 +2059,16 @@ repo is coherent; nothing here is a long-lived branch.
   (§4.2): `normalizeConfig` producing the **validation form**, and
   `validateConfig` (struct `validate` with `errs`, plus the recursive
   `options` scan of §5.2), raising `station_config_invalid` /
-  `station_config_secret`.
+  `station_config_secret`. The `secret`-key rule is two checks, not
+  one: sekreto's `validname()` **and** §5.2's 24-character unbroken-run
+  bound. A port implementing only the first inherits the gap the bound
+  exists to close, so both live in the same three lines and the corpus
+  pins each independently.
 - `typescript/src/profile.ts` — the §3.3 merge over **raw** blocks with
-  defaults applied to the merged instance and the api resolved before
-  its block is read; `ResolvedProfile` becomes
+  defaults applied to the merged instance, and the api read from the
+  ref's own prefix rather than from a merged field — the phasing that
+  used to be required here is *removed* by the ref re-key, not
+  reordered; `ResolvedProfile` becomes
   `{ name, providers, api, sdk }`; `validname` per instance; the
   derived-secret-name collision check.
 - `selectProfile` — no change; §3.3 documents what it already does.
@@ -1825,7 +2107,7 @@ suites are green with no behaviour change for single-instance projects.
   `await station.load()` ESM preload, repo-scoped-only rule, `export`
   fallback and its default, `station_sdk_load` (§6.3).
 - `Station.ts` — the instance table built at `open()`; `sdk()`,
-  `create()` with its `name#<n>` registry identity (§6.1),
+  `create()` with its auto-tagged registry identity (§6.1),
   `instances()`, `check()`, `warm()` over active instances only;
   `options(instanceName, extra)`; the deferred-availability errors.
 - `index.ts` exports.
@@ -1839,12 +2121,18 @@ Sequenced after Stage 3 because it needs the instance table and the
 construction path, and before Stage 4 because the generator work in
 §11 items 6–7 is what unblocks ordering and checking.
 
-- `typescript/src/feature.ts` — the §8.3 three-level merge, the §8.4
-  order composition into the array form, and the descriptor-derived
-  checker of §8.5 (`station_feature_unknown` / `station_feature_option`
-  / `station_feature_order`).
-- `shape.ts` — the `feature`/`order` shape additions, the feature-level
-  `active` default, and the URL-userinfo rule of §8.6.
+- `typescript/src/feature.ts` — the §8.3 three-level merge; the §8.4
+  **constraint-and-band resolver** (topological sort, vacuous
+  satisfaction, bands as tie-break, the station pin) composing into the
+  array form; and the descriptor-derived checker of §8.5
+  (`station_feature_unknown` / `station_feature_option` /
+  `station_feature_order`). The resolver is written to plugin's §7
+  semantics so plugin can extract it — this is one of the pieces
+  `station-and-plugin-plan.md` §0 means by "builds natively to plugin's
+  semantics".
+- `shape.ts` — the `feature` shape additions including the per-feature
+  `order` object, the feature-level `active` default, and the
+  URL-userinfo rule of §8.6.
 - `descriptor.ts` — carry each feature's declared `options` and
   `transport` instead of discarding them (§7.4).
 - `factory.ts` — the entry becomes `{construct, config}` and the
@@ -1929,11 +2217,20 @@ land.
   today's default when `order` is absent, by validating against the
   declared `transport` roles, and by `instances()` printing the
   resulting onion rather than leaving it to be inferred.
-- **The feature checker depends on a descriptor field that does not
-  exist yet.** Until §11 items 6–7 land, station knows feature *names* but not
-  their option schemas, so §8.5 degrades to name-checking only. That is
-  a strictly-better-than-today state, not a broken one, and the plan
-  sequences it explicitly (Stage 3b before Stage 4).
+- **Two Stage 3b features depend on descriptor fields that do not
+  exist yet.** Until §11 items 6–7 land, station knows feature *names*
+  but neither their option schemas nor their `transport` roles. So §8.5
+  degrades to name-checking, **and §8.4's order validation degrades
+  with it** — an explicit `order` is still honoured and still composed,
+  but the base-must-be-first and station-wrap-position checks cannot
+  run until the roles arrive. Both are strictly-better-than-today
+  states rather than broken ones, and both lift at the same moment.
+
+  This is the reason items 6–7 are **not** deferred to the plugin
+  bridge (§16): the native phase is precisely what consumes them, so
+  deferring their arrival while retaining the field would leave Stage
+  3b with a role it requires and no source for it. Only their *removal*
+  waits on features becoming bindings.
 - **A 22-port change of this size drifts.** The corpus is the control,
   and CI already runs every port against it.
 
@@ -1961,6 +2258,10 @@ Everything in `station.md` §19 still holds. Added:
   `"instances": ["eu","us"]` shorthand would shorten a fleet where
   instances differ only by name. Deferred: the explicit `sdk` map is
   more readable at 26 entries and there is exactly one place to look.
+  The reconciliation sharpens the reason — an `api` block is plugin's
+  `default` map and **declares nothing** (§3.1), so letting it declare
+  instances would give one key two jobs, which is what the `default`
+  map was introduced to stop.
 - **Per-instance `resolve: proxy` grant scoping.** `station.md` §5.3's
   grant is plugin-scoped; with instances, is the grant per instance or
   per api? Per instance is the obvious answer and costs the proxy a
@@ -1970,13 +2271,13 @@ Everything in `station.md` §19 still holds. Added:
   want each service to contribute its own instances. Composition rules
   (precedence, conflict) are a real design, not an afterthought;
   deferred until someone has the problem.
-- **Adopting voxgig/plugin as the instance model.** Reviewed in
-  `station-and-plugin.md`: the model is right and better than this
-  document in four places, but the library has no ports and station has
-  sixteen. The recommendation is to take the semantics now and the
-  dependency when plugin reaches its tier 3 — which makes the `name$tag`
-  re-key a Stage 2 decision that wants making before Stage 2 is written,
-  not after.
+- ~~**Adopting voxgig/plugin as the instance model.**~~ *Settled* —
+  `station-and-plugin.md` is now the reconciled position between the
+  two designs: take the semantics now, take the dependency when plugin
+  reaches tier 3. The `name$tag` re-key lands in Stage 2, and the five
+  amendments this implies are listed in §16. What remains open is not
+  station's: whether **sdkgen** adopts plugin (plugin's §17.2), which
+  everything nested-host waits on.
 - **Runtime feature toggling.** §8.8 makes feature config
   construction-time, which is what the shipped pipeline supports. A
   live toggle needs the `client.extend()` late-attach seam
@@ -2009,8 +2310,22 @@ Applied in the same change as Stage 3, so the documents never disagree:
 | §5.2 | `station.json`'s `plugin` map becomes `sdk` + `api`; providers validated as a list only |
 | §5.3 | broker keying corrected: overrides by instance, resolution cache by secret name |
 | §6 | events carry `plugin` = instance name and a new `api` field |
-| §9 | two items listed as pending are already shipped (the `makeOptions` station featureorder case, the three `configDefinition` fields); feature models gain `transport`, and `configDefinition` carries it (§11 items 6–7) |
+| §9 | two items listed as pending are already shipped (the `makeOptions` station featureorder case, the three `configDefinition` fields); feature models gain `transport` and `configDefinition` carries it — retained for the native phase, and removed once features are bindings and position carries the role (§8.4, §11 items 6–7) |
 | §11 | the declarative quickstart leads; the two-line imperative form stays as the retrofit path; features are configured in `station.json` rather than per call site (§8) |
 | §13 | the `config`, `instance` and `feature` corpus sections; `profile`, `secretname`, `placeholder` amended |
 | §14 | eleven new error codes (§6.4); `station_bound_twice` re-keyed to the instance, and explicitly not a cap on clients per instance (§6.1) |
 | §17 | Phase 1 gains Stages 1–4 of §12; Phase 2's `station.json` schema item is satisfied by the struct shape |
+
+**Amendments to this document, from the voxgig/plugin reconciliation**
+(`station-and-plugin.md`), applied in the same change as Stage 2:
+
+| section | amendment |
+|---|---|
+| §2, §3.1 | `sdk` keys become `name$tag` refs; `sdk.<n>.api` is deleted, the name before `$` being the api |
+| §3.1 | the `api` block is retained and redefined as plugin's name-keyed `default` map — inherited by every instance of the api, declaring none itself |
+| §3.3 | the shallow-per-key rule is preserved by declaring `policy` and `options` as `$MERGE: replace` in the SDK definition shape, rather than as a global merge rule |
+| §6.1 | `create()` uses plugin's `tag: '?'` auto-tagging in place of the `name#<n>` convention |
+| §8.4 | the profile-level `order` list is removed and replaced by per-feature `order: {before, after, band}`, resolved by topological sort with vacuous satisfaction; station's wrap position becomes a host pin; the `transport` field is **deferred** until features are bindings, not dropped |
+| §4.3, §4.4 | the shape carries the per-feature `order` object instead of the profile-level array, and the first-element workaround narrows to `policy.hosts` |
+| §11 | items 6–7 (`transport` on every feature model, `configDefinition` carrying it) **still land** — the native phase is what consumes them; what defers to plugin's P3 bridge or sdkgen adoption is their **removal**, once position carries the role |
+| §15 | the per-definition-defaults question is settled by the `default` map; the `feature.station` question stays settled as reserved, now by plugin's `reserved` mechanism |
