@@ -43,8 +43,8 @@ The one-sentence answer:
 > returns one, constructed lazily and cached; the registry is keyed by
 > instance rather than by API; the config is normalized to its
 > documented defaults and then validated against a struct shape that
-> is closed by construction — so a credential cannot be expressed in
-> it, and a typo cannot survive `open()`.**
+> is closed by construction — so the grammar cannot express a
+> credential, and a typo cannot survive `open()`.**
 
 
 ## 1. Why today's design does not do this yet
@@ -108,11 +108,25 @@ and not the use of it — and one descriptor is shared by every instance
 of its api (§7.4).
 
 The degenerate case is the important one: **an instance whose name
-equals its api slug, and which is the only instance of that api, behaves
-exactly as today.** Every existing config, every existing binding call,
-and the §11 two-line quickstart keep working with identical secret
-names, identical env vars and identical events. Multi-instance is what
-you get when you ask for it.
+equals its api slug, and which is the only instance of that api, has
+exactly today's behaviour** — the same resolved secret name, the same
+env var, the same base URL, the same binding calls, and the §11
+two-line quickstart unchanged. Multi-instance is what you get when you
+ask for it.
+
+Two changes cross that line and are called out rather than buried,
+because "unchanged" has to mean it:
+
+- **the config key is renamed.** `profiles.<p>.plugin` becomes `sdk`
+  and the old key is rejected by name (§3.4). Every block *means* what
+  it meant; the key it sits under changes, and that is a one-line
+  migration per file.
+- **events gain an `api` field** (§7.3). Additive, so a consumer
+  reading `plugin` is unaffected, but a byte-exact snapshot of the
+  event stream is not.
+
+Nothing else. No behavioural difference reaches a single-instance
+project.
 
 
 ## 3. The config
@@ -177,7 +191,8 @@ asserts it (§9.1), because they are one concept written twice as data.
         "solardemo":    { "api": "voxgig-solardemo" },
         "stripe":       { "api": "stripe" },
         "stripe-test":  { "api": "stripe", "base": "https://api.stripe.test",
-                          "secret": "stripe_test.apikey" },
+                          "secret": "stripe_test.apikey",
+                          "policy": { "hosts": ["api.stripe.test"] } },
         "github":       { "api": "github" },
         "github-ent":   { "api": "github", "base": "https://ghe.acme.internal",
                           "secret": "github_ent.apikey" },
@@ -204,9 +219,16 @@ Four things to read out of that, because they are the requirements:
 - **`stripe`, `stripe-test`, `github`, `github-ent`, `slack-ops`,
   `slack-alerts`** — six instances over three apis, each with its own
   base, secret and policy, all in JSON.
-- **`api.stripe.policy.hosts`** is written once and applies to both
-  stripe instances. At 20 apis this is what stops the file being
-  repetitive.
+- **`api.stripe.policy.hosts`** is written once and applies to every
+  stripe instance that does not say otherwise. At 20 apis this is what
+  stops the file being repetitive — and `stripe-test`, which moves its
+  `base` off the api's host, has to carry its own `policy` or the
+  fail-closed host check in `station.md` §16 denies every request it
+  makes. **An instance that overrides `base` away from the api's
+  allowlist must override `policy` too.** That is the shallow-merge
+  rule of §3.3 doing exactly what an allowlist wants — an inherited
+  allowlist is never silently widened by a base URL — and it is the
+  first thing `station.check()` should report on (§6.6).
 - **The `prod` overlay is short**, because a profile overlays instances
   rather than redeclaring them. `stripe-test` is switched off in prod
   by one key; `station.sdk('stripe-test')` then fails loudly rather
@@ -229,13 +251,46 @@ Lowest to highest precedence:
 8. `Station.open(opts)`
 9. per-call overrides — `connect`/`adopt` opts, `create(name, overrides)`
 
-Steps 3–6 are one ordered four-way merge, which is the whole point of
-writing them in that order: **profile specificity outranks block
-specificity.** A `prod` api-level `base` beats a `default`
-instance-level `base`, because that is what an environment overlay is
-for; within one profile, the instance beats the api default, because
-that is what an instance is for. One loop, one rule, and it degenerates
-to today's `base.plugin ⊕ overlay.plugin` when no `api` blocks exist.
+Steps 3–6 are one ordered merge, which is the whole point of writing
+them in that order: **profile specificity outranks block specificity.**
+A `prod` api-level `base` beats a `default` instance-level `base`,
+because that is what an environment overlay is for; within one profile,
+the instance beats the api default, because that is what an instance is
+for. It degenerates to today's `base.plugin ⊕ overlay.plugin` when no
+`api` blocks exist.
+
+**Two mechanism rules make that order safe, and a port that skips
+either reintroduces a real defect.**
+
+*The api is resolved before its defaults are looked up.* An api block is
+keyed by api slug, and which api an instance uses is itself a merged
+value, so the merge is not a flat four-way pass over both maps:
+
+1. merge the **instance** blocks — base ⊕ overlay (steps 4, 6);
+2. read `api` from the result, defaulting to the instance name;
+3. merge the **api** blocks for *that* api — base ⊕ overlay (steps 3, 5);
+4. compose: api defaults under the instance block.
+
+*Absent keys stay absent through the merge, and block defaults are
+applied once, to the fully merged instance.* This is the rule §4.2's
+normalization must not be confused with, and it is worth showing why
+rather than asserting it. Take a base that declares an instance
+properly and an overlay that only moves its base URL:
+
+```json
+"default": { "sdk": { "pad-a": { "api": "taskpad", "active": false } } },
+"prod":    { "sdk": { "pad-a": { "base": "https://prod.example" } } }
+```
+
+If the overlay block had defaults filled in before merging, it would
+carry a synthesized `api: "pad-a"` and `active: true` — and those would
+overwrite the base's real values. The merged instance would name a
+**different api** and would be **live in production despite being
+declared inactive**. A one-key environment override, silently
+selecting the wrong SDK and re-enabling a disabled integration. So:
+merge the blocks as authored, then apply `api` → instance name and
+`active` → `true` to the result. The `instance` corpus section carries
+exactly this case.
 
 Two rules survive unchanged from `station.md` and one is corrected:
 
@@ -251,8 +306,13 @@ Two rules survive unchanged from `station.md` and one is corrected:
   consequence: an overlay's `policy` replaces the base's `policy`
   entirely rather than merging `hosts` into it. That is also the safer
   reading for an allowlist.
-- Profile selection is unchanged: `VOXGIG_STATION_PROFILE`, else
-  `Station.open({profile})`, else `default`.
+- Profile selection is unchanged, and follows the same precedence as
+  everything else: `Station.open({profile})`, else
+  `VOXGIG_STATION_PROFILE`, else `default` — the explicit option
+  outranks the environment, as steps 7 and 8 above require and as every
+  shipped `selectProfile` already implements
+  (`typescript/src/profile.ts`). `station.md` §3.5 states only the env
+  var and the default; it is completed here rather than changed (§15).
 
 ### 3.4 Migration from `plugin`
 
@@ -329,15 +389,30 @@ message:
 - per block: `active` → `true`;
 - per `sdk` block: `api` → the instance name.
 
-Every one of those is a default the resolver needs anyway, so the
-normalizer is not validation scaffolding — it is the defaults, written
-once, in the place both steps read. It is roughly 30 lines and pure
-data-in/data-out, which is what makes it portable to 22 languages and
-expressible in the corpus.
-
 After normalization every container is present, so the shape can
 require them, so unexpected-key detection is live at every level and
 every error names its path.
+
+**The normalized form is an input to validation and to nothing else.**
+The two block-level defaults — `active` and `api` — must *not* be
+materialized before the profile merge, because a default synthesized
+into an overlay block overwrites the base's real value and produces the
+wrong-api / silently-reactivated failure worked through in §3.3. So the
+two consumers read the same defaults table at different moments:
+
+| consumer | when defaults are applied | why |
+|---|---|---|
+| `validateConfig` | before, to every block | a block with no present keys is an open map (above) |
+| the resolver | after, to the merged instance | an absent key must stay absent through the merge (§3.3) |
+
+Written as one defaults table and two callers, not as two lists that
+drift. The profile-level containers (`secrets.providers`, `api`, `sdk`)
+are safe to materialize early either way — they are containers, and a
+missing one merges as empty regardless — so only the two block keys
+carry the timing rule.
+
+The normalizer is roughly 30 lines and pure data-in/data-out, which is
+what makes it portable to 22 languages and expressible in the corpus.
 
 ### 4.3 The shape
 
@@ -480,30 +555,70 @@ they chose. Where that is not wanted — several instances sharing one key
 — `secret` at the **api** level names it once for all of them (§3.3),
 which is the case the api block exists for.
 
+**`envtoken` is lossy, so derived names can collide, and a collision
+here is two integrations quietly sharing one credential.** `stripe-test`
+and `stripe_test` are different instance names that both derive
+`stripe_test.apikey` — and since §5.3 keys the resolution cache by
+secret name, the second instance would silently receive the first's
+value while this section claims each has its own. So the derived names
+are checked for uniqueness at `open()`: **two instances whose
+*resolved* secret names are equal, where at least one of them was
+derived rather than written, is `station_secret_collision`**, naming
+both instances and the shared name. Two instances that *explicitly*
+name the same secret are not a collision — that is the shared-key case
+the api-level `secret` exists for, and saying so out loud is how you
+ask for it.
+
 The `secretname` corpus section extends to cover instance names in both
-directions, because this is still the point where three independently
-maintained grammars meet.
+directions and the collision case, because this is still the point where
+three independently maintained grammars meet.
 
-### 5.2 The config cannot express a credential
+### 5.2 The grammar cannot express a credential
 
-Not "should not" — cannot. Maps are closed (§4.1) and no block key
-holds a value: `secret` holds a *name*, further checked by sekreto's
-`validname()` at profile-resolution time as today. `apikey`, `token`,
-`password`, `key`, `credential` are not in the grammar, so writing one
-is `station_config_invalid` naming the key and the path (§4.5).
+Scoped precisely, because this is a security claim and the wrong
+version of it is worse than none.
 
-The one hole is deliberate and is closed by hand. `options` is an
-arbitrary map — it has to be, it is passthrough to a generated
-constructor — so it is the one place a value could hide.
-**`validateConfig` scans every `options` block and rejects credential
-keys** with `station_config_secret`. The deny-list is:
+**What is structural.** Every block map is closed (§4.1) and not one
+block key holds a value: `secret` holds a *name*, further checked by
+sekreto's `validname()` at profile-resolution time as today. `apikey`,
+`token`, `password`, `key`, `credential` are not in the grammar, so
+writing one is `station_config_invalid` naming the key and the path
+(§4.5). For the eight-key grammar this is a proof, not a policy.
 
-- `apikey` — the generated SDK's own credential option, so this is not
-  a guess about naming but the actual key that would work;
-- `auth`, `authorization`, `token`, `secret`, `password`, `credential`,
-  `bearer`, and any key ending `_key`/`-key`/`key` in a
-  case-and-separator-insensitive comparison built on the same
-  `envtoken` normalization the rest of station uses.
+**Where it stops being structural.** `options` is an arbitrary map — it
+has to be, it is passthrough to a generated constructor — so it is the
+one place a value can hide. Three defences, in decreasing strength, and
+then the residual:
+
+1. **`validateConfig` scans `options` recursively** — every nested map
+   and list, not just the top level — and rejects credential-shaped
+   keys with `station_config_secret`. The list: `apikey` (the generated
+   SDK's actual credential option, so this one is not a guess);
+   `auth`, `authorization`, `token`, `secret`, `password`,
+   `credential`, `bearer`; and any key whose `envtoken` normalization
+   ends `_KEY`, `_TOKEN`, `_SECRET` or `_PASSWORD` — which is what
+   catches `access_key`, `X-Api-Token` and friends in one rule rather
+   than a growing list of spellings.
+2. **At construction, station knows the descriptor**, and the
+   descriptor names this API's auth prefix and header. So the
+   *instance-specific* check that validation cannot do — "does this
+   `options` map set anything this SDK would actually send as a
+   credential?" — happens where the answer is knowable: at bind time,
+   and eagerly for every instance under `station.check()` (§6.6).
+3. **The value never survives anyway.** An `options.apikey` that got
+   past both is hoisted into the broker and replaced by the placeholder
+   before construction completes — that is `adopt()`'s existing
+   behaviour (`station.md` §3.1), and it emits a warning event.
+
+**The residual, stated.** A determined author can still put a working
+credential in `options` under a key none of the above recognises and
+that the SDK forwards — a custom header the descriptor does not model,
+say. Nothing short of validating `options` against a per-SDK schema
+closes that, and station has no descriptor at validation time. So the
+honest claim is the one this section is now titled with: **the grammar
+cannot express a credential, and `options` is scanned rather than
+proven.** A project that wants the proof restricts `options` to the
+empty map and passes everything in code.
 
 A project that genuinely needs a non-credential option matching one of
 those names sets it in code (`create(name, {options})`, precedence step
@@ -556,13 +671,22 @@ Four rules:
 3. **The name is the bridge.** `envkey(secretname) == envName(slug)` for
    the default single-instance case, pinned in the corpus in both
    directions. A project migrating from R0 to R1 changes no environment.
-4. **Batch on demand.** `station.warm()` resolves every declared
-   instance's secret in one `sekreto.all(names)` call. At 20 instances
-   against a remote vault, lazy per-first-request resolution is 20
-   sequential round-trips spread over the first minute of process life;
-   `warm()` makes it one, at a moment the application chooses. It is
-   opt-in — `open()` does no I/O (§6.5) — and it is the mechanism
-   `station.md` §5.3 already reserved for multi-credential plugins.
+4. **Batch on demand.** `station.warm()` resolves secrets in one
+   `sekreto.all(names)` call. At 20 instances against a remote vault,
+   lazy per-first-request resolution is 20 sequential round-trips
+   spread over the first minute of process life; `warm()` makes it one,
+   at a moment the application chooses. It is opt-in — `open()` does no
+   I/O (§6.5) — and it is the mechanism `station.md` §5.3 already
+   reserved for multi-credential plugins.
+
+   **The no-argument form warms *active* instances only.** In the §3.2
+   prod profile `stripe-test` is deliberately inactive; warming it would
+   ask the production provider chain for `stripe_test.apikey` — a secret
+   that deployment has no business holding, and whose absence would turn
+   a convenience call into a startup failure. Reaching for a credential
+   belonging to a disabled integration is the wrong default in both
+   directions. `warm(names)` warms exactly what it is given, inactive
+   included, because an explicit name is an explicit request.
 
 
 ## 6. Getting an SDK
@@ -582,7 +706,8 @@ const test    = station.sdk('stripe-test')
 | `station.instances()` | every **declared** instance: name, api, active, live, rung |
 | `station.plugins()` | every **live** plugin — as today, now one entry per instance |
 | `station.check()` | eagerly resolve and construct every active instance; for CI (§6.6) |
-| `station.warm(names?)` | batch-resolve secrets (§5.5) |
+| `station.warm(names?)` | batch-resolve secrets for active instances (§5.5) |
+| `await station.load()` | ts/js only: preload ESM packages into the factory table (§6.3) |
 | `Station.provide(api, factory)` | register a constructor for an api (§6.2) |
 
 Retained unchanged in kind, because the imperative path is still the
@@ -603,6 +728,31 @@ exists for the case that genuinely wants a distinct client (a
 per-request credential scope, a test double) and is deliberately the
 longer name.
 
+**`create()` needs its own registry identity**, or it cannot do what it
+says. §7.5 registers every constructed adapter under its instance name
+and §6.4 keeps `station_bound_twice` for a second binding of one name,
+so a second `create('stripe')` — or the first one after `sdk('stripe')`
+— would throw, which is exactly the per-request case the row above
+promises. So a client from `create(name)` registers under a **derived
+identity**, `name#<n>` with `n` a per-name counter, carrying `instance:
+name` as the declared instance it came from:
+
+- the registry key is unique, so `station_bound_twice` keeps meaning
+  what it means: one *binding* per identity, never a cap on clients;
+- `plugins()` and the event stream distinguish the clients, which is
+  what you want when one of them is misbehaving;
+- the placeholder follows the identity (§7.2), so injection is never
+  ambiguous;
+- the **secret name does not** — it is resolved from the declared
+  instance, so every client of one instance shares one broker cache
+  entry (§5.3) rather than re-resolving per request.
+
+`instances()` reports declared instances; `plugins()` reports live
+identities. At 20 SDKs with a per-request `create()` somewhere, that
+distinction is the difference between a readable status page and an
+unbounded one — so `plugins()` collapses `name#<n>` entries to a count
+by default and lists them on request.
+
 Static languages need one accommodation: `sdk()` returns the language's
 dynamic form, and each port ships the idiomatic typed accessor over it —
 `station.Get[T](st, "stripe")` in Go, `st.sdk("stripe",
@@ -618,13 +768,25 @@ holding no configuration, only "here is how to construct this api".
 
 It is filled three ways, in this order of preference:
 
-1. **The generated adapter self-registers.** The station feature that
-   sdkgen already generates into the SDK gains a module-init
-   registration: Go `func init()`, TypeScript module side-effect, Java
-   static initializer, Python module import, and the equivalent
-   elsewhere. Then *linking the SDK package is the whole bootstrap* —
-   `import '@acme-sdk/stripe-sdk'` in TS, the ordinary blank import in
-   Go — and the config's `api` map needs no `package` key at all.
+1. **The generated adapter self-registers**, where the language has a
+   module-init hook that actually runs: Go `func init()` on a blank
+   import, a TypeScript/JavaScript module side-effect, a Python module
+   import, a Ruby `require`. There, *linking the SDK package is the
+   whole bootstrap* and the config's `api` map needs no `package` key.
+
+   **Java, C# and Swift are not in that list, and saying they were
+   would be a bug.** A Java `import` is a compile-time name alias: it
+   loads nothing and runs no static initializer, so an adapter relying
+   on one would leave the factory table empty and every
+   `station.sdk(name)` failing `station_no_factory`. Those targets need
+   an executable bootstrap, and the idiomatic one is a **service
+   loader** — `ServiceLoader<StationFactory>` over a
+   `META-INF/services` entry in Java, `[assembly:]`-attribute discovery
+   or an explicit registrar in C#. sdkgen generates the service file
+   alongside the adapter, so it stays one line of build output rather
+   than one line of application code. Where a port has no service
+   mechanism worth the weight, it uses path 2 and its README says so
+   plainly instead of implying an import is enough.
 2. **`Station.provide(api, factory)`.** One line per api, for SDKs
    generated before this lands and for anything hand-rolled. In Go
    that is a 20-line `sdks.go`, and every other line of configuration
@@ -655,7 +817,30 @@ required key.
 Compiled targets (go, java, csharp, rust, swift, dart, kotlin, c, cpp,
 zig) ignore `package`/`export` — a warning event at open, not an error,
 so one config file serves a polyglot fleet. Those targets use paths 1
-and 2, which is one import line each.
+and 2 from §6.2.
+
+**`sdk()` is synchronous, and in ts/js that bounds what the loader can
+import.** A CommonJS package loads synchronously through `require`; an
+ESM-only package, or one with top-level `await`, only loads through
+`import()`, which is a promise. Making `sdk()` async to cover that
+would put an `await` in front of every call site in every language for
+a cost only two of them pay — the wrong trade, and it would break the
+chained call in §9.2's test. So the rule is explicit rather than
+discovered at runtime:
+
+- **the synchronous loader handles CommonJS.** That covers every SDK
+  sdkgen generates — the ts target is `"type": "commonjs"` — which is
+  the case the loader exists for;
+- **ESM packages load through an explicit preload**, `await
+  station.load()`, which imports every declared `package` and fills the
+  same factory table §6.2 describes. After it resolves, `sdk()` is
+  synchronous again for everything. An application with ESM SDKs adds
+  one `await` at startup rather than one per call site;
+- **a package that only `import()` can load, reached through `sdk()`
+  without a preload, is `station_sdk_load`** with a message naming
+  `station.load()`. It fails at first use with the remedy in the error,
+  which is the §6.4 split working as intended — never a silent
+  half-loaded client.
 
 **The loader is a code-loading surface driven by a config file, so it
 has rules:**
@@ -675,8 +860,11 @@ has rules:**
 
 ### 6.4 Failure, split by when it can be known
 
-- **Shape errors are fatal at `open()`.** The file is malformed, and it
-  is the file that decides which credential reaches which host.
+- **Shape errors are fatal at `open()`**, and so are the two
+  whole-file checks that only `open()` can make: a derived secret-name
+  collision (§5.1) and a `secret` name sekreto would reject. The file
+  is malformed, and it is the file that decides which credential
+  reaches which host.
 - **Availability errors are fatal at first use.** A package that will not
   import, an api with no factory, an instance marked inactive — these
   fail at `station.sdk(name)`, not at `open()`. At 20 SDKs a process
@@ -691,7 +879,8 @@ New error codes for `station.md` §14's catalog:
 | `station_config_secret` | a credential-shaped key in an `options` block (§5.2) |
 | `station_no_instance` | `sdk(name)` for an undeclared name; message lists the declared ones |
 | `station_instance_inactive` | the instance is declared with `active: false` |
-| `station_sdk_load` | `package` could not be imported, or `export` is absent from it |
+| `station_sdk_load` | `package` could not be imported, `export` is absent from it, or it is ESM-only and `station.load()` was not awaited (§6.3) |
+| `station_secret_collision` | two instances derive the same secret name (§5.1) |
 | `station_no_factory` | no factory for the api; message names both remedies |
 | `station_factory_conflict` | two different factories registered for one api |
 
@@ -752,12 +941,35 @@ per-instance, with api available for grouping.
 
 ### 7.4 Descriptor
 
-Unchanged in shape, and explicitly **shared**: it describes the api, so
-`normalizeDescriptor` runs once per api and every instance of that api
-holds a reference to the same object. At 26 instances over 20 apis that
-is 20 normalizations, not 26, and the canonical serialization the proxy
-dedupes registrations by is computed once per api. `descriptorOf()`
-accepts an instance name and returns its api's descriptor.
+**Shared**: it describes the api, so `normalizeDescriptor` runs once per
+api and every instance of that api holds a reference to the same object.
+At 26 instances over 20 apis that is 20 normalizations, not 26, and the
+canonical serialization the proxy dedupes registrations by is computed
+once per api. `descriptorOf()` accepts an instance name and returns its
+api's descriptor.
+
+**One field has to move, and it is the one §5.1 touches.** The
+descriptor carries `auth.secretname` — `station.md` §4 calls it
+`secretname-default` — derived today from the slug. A single descriptor
+shared by `pad-a` and `pad-b` cannot hold two different instance-derived
+names, so whichever instance built the cached copy would report the
+other's secret metadata wrongly. The split:
+
+- **the descriptor keeps the api-level default**, slug-derived, exactly
+  as `normalizeDescriptor` computes it today. It is a property of the
+  API — the conventional env var its README documents — and it is
+  correct for every instance to share it, because it describes the API
+  rather than any use of it;
+- **the instance's effective secret name lives in `Binding.secretname`**,
+  which is already per-registration (`typescript/src/types.ts`) and is
+  already what `_transport` resolves through. That is the authority; the
+  descriptor field is documentation.
+
+So `descriptorOf(instance)` reports the api's conventional name and
+`plugins()` reports each instance's effective one, and neither is a
+guess about the other. The `descriptor` corpus section gains a case
+asserting the shared descriptor is byte-identical across two instances
+of one api.
 
 ### 7.5 Registration is now driven by station
 
@@ -797,14 +1009,15 @@ corpus. A port implements the mechanism; it never restates the rules.
 | piece | size | notes |
 |---|---|---|
 | `normalizeConfig` | ~30 lines | pure data-in/data-out |
-| `validateConfig` | ~20 lines | calls the port's struct `validate`, plus the `options` deny-list scan |
-| four-way block merge | ~25 lines | replaces the existing two-way plugin merge |
+| `validateConfig` | ~20 lines | calls the port's struct `validate`, plus the recursive `options` scan |
+| the §3.3 block merge | ~30 lines | replaces the two-way plugin merge; api resolved first, defaults applied last |
+| derived secret-name collision check | ~10 lines | §5.1 |
 | instance table + lazy cache | ~60 lines | plus the port's concurrency idiom |
 | factory table + `provide` | ~30 lines | process-global |
 | loader | ~30 lines | dynamic-import languages only |
 | re-keying to instance | — | registry, placeholder, broker, events |
 
-Call it 150–200 lines added per port against `station.md` §10.1's
+Call it 175–225 lines added per port against `station.md` §10.1's
 1–2k budget for a tier A library. It fits, and it is mostly the same
 shape in every language because it is mostly map manipulation.
 
@@ -841,9 +1054,17 @@ library exists.**
   case is a raw config in, and either the normalized output or the
   expected error set out. This is the section that makes the grammar
   identical in 22 languages.
-- **`instance` (new)** — the four-way merge of §3.3: api ⊕ sdk across
-  base ⊕ overlay, the `api`-defaults-to-key rule, `active: false`, and
-  the shallow-merge-replaces-`policy` consequence.
+- **`instance` (new)** — the merge of §3.3: api ⊕ sdk across base ⊕
+  overlay, the `api`-defaults-to-key rule, `active: false`, and the
+  shallow-merge-replaces-`policy` consequence. Two cases are
+  regression guards rather than examples, because both are defects
+  this design had before review: **defaults applied after the merge**
+  (a one-key overlay block must not overwrite the base's `api` or
+  `active`) and **the api resolved before its defaults are looked
+  up**.
+- **`secretname` collisions (new cases)** — two instances deriving one
+  name is `station_secret_collision`; two instances *naming* one
+  secret explicitly is legal.
 - **`profile` (rewritten)** — `plugin` → `sdk`, and the existing cases
   restated in the new grammar.
 - **`secretname` (extended)** — instance-name derivation and the
@@ -931,17 +1152,23 @@ repo is coherent; nothing here is a long-lived branch.
 - `spec/config-shape.json` — §4.3, verbatim.
 - `spec/station.json`: add the `config` section from §4.5; rewrite
   `profile` for `sdk`/`api`.
-- `typescript/src/shape.ts` — `normalizeConfig` + `validateConfig`
-  (struct `validate` with `errs`, plus the `options` deny-list),
-  `station_config_invalid` / `station_config_secret`.
-- `typescript/src/profile.ts` — the four-way merge; `ResolvedProfile`
-  becomes `{ name, providers, api, sdk }`; `validname` check per
-  instance.
+- `typescript/src/shape.ts` — one defaults table with two callers
+  (§4.2): `normalizeConfig` producing the **validation form**, and
+  `validateConfig` (struct `validate` with `errs`, plus the recursive
+  `options` scan of §5.2), raising `station_config_invalid` /
+  `station_config_secret`.
+- `typescript/src/profile.ts` — the §3.3 merge over **raw** blocks with
+  defaults applied to the merged instance and the api resolved before
+  its block is read; `ResolvedProfile` becomes
+  `{ name, providers, api, sdk }`; `validname` per instance; the
+  derived-secret-name collision check.
+- `selectProfile` — no change; §3.3 documents what it already does.
 - `@voxgig/struct` added to `typescript/package.json`.
 - Guard test for the two block specs.
 
-*Exit:* the corpus `config` and `instance` sections pass in ts; a
-malformed `station.json` fails `open()` with every error at once.
+*Exit:* the corpus `config` and `instance` sections pass in ts,
+including both defaults-after-merge regression guards; a malformed
+`station.json` fails `open()` with every error at once.
 
 ### Stage 2 — instances (the identity change)
 
@@ -950,7 +1177,9 @@ malformed `station.json` fails `open()` with every error at once.
 - `Station.ts` — registry keyed by instance; `_register` takes the
   instance name; `_transport` and `_opEvent` take it; placeholder and
   profile lookup follow.
-- `descriptor.ts` — `secretnameDefault(instanceName)`; descriptor cache
+- `descriptor.ts` — `secretnameDefault(instanceName)` for the
+  instance default; the descriptor keeps the **api** default and the
+  effective name moves to `Binding.secretname` (§7.4); descriptor cache
   per api.
 - `secrets.ts` — overrides by instance, resolution cache by secret name.
 - `adapter.ts` — read `fopts.instance`, fall back to the slug.
@@ -964,11 +1193,13 @@ suites are green with no behaviour change for single-instance projects.
 
 - `typescript/src/factory.ts` — the process-global table, `provide`,
   `station_factory_conflict`.
-- `typescript/src/loader.ts` — import-by-name, repo-scoped-only rule,
-  `export` fallback and its default, `station_sdk_load`.
+- `typescript/src/loader.ts` — synchronous `require` for CommonJS, the
+  `await station.load()` ESM preload, repo-scoped-only rule, `export`
+  fallback and its default, `station_sdk_load` (§6.3).
 - `Station.ts` — the instance table built at `open()`; `sdk()`,
-  `create()`, `instances()`, `check()`, `warm()`; `options(instanceName,
-  extra)`; the deferred-availability errors.
+  `create()` with its `name#<n>` registry identity (§6.1),
+  `instances()`, `check()`, `warm()` over active instances only;
+  `options(instanceName, extra)`; the deferred-availability errors.
 - `index.ts` exports.
 
 *Exit:* §9.2's two-instance integration test is green, and §6.5's
@@ -977,7 +1208,9 @@ suites are green with no behaviour change for single-instance projects.
 ### Stage 4 — the generator side
 
 - sdkgen-station: `instance` feature option; adapter self-registration
-  for ts and js; ReadmeStation and AgentGuide copy.
+  for ts and js (module side-effect); ReadmeStation and AgentGuide copy.
+  The generated service-loader entries for java and csharp (§6.2) land
+  with those ports in Stage 5, not here.
 - sdkgen: `docs/how-to/use-station.md` leads with the declarative flow.
 - The package-side CI fixture flow (`station.md` §9.5) covers the ts/js
   adapters.
@@ -1019,6 +1252,14 @@ land.
   explicitly, api-level `secret` covers the shared-key case, and
   `station_secret_no_value` already names the env var that would have
   answered.
+- **The defaults-timing rule (§3.3, §4.2) is invisible until it
+  bites.** A port that materializes block defaults before merging looks
+  correct on every single-profile test and silently picks the wrong api
+  under an overlay. Mitigation: it is a named regression guard in the
+  `instance` corpus section, not a prose warning.
+- **`options` is scanned, not proven** (§5.2). The residual is stated
+  in the doc and in the error message; a project that needs the proof
+  empties `options`.
 - **A 22-port change of this size drifts.** The corpus is the control,
   and CI already runs every port against it.
 
@@ -1070,13 +1311,13 @@ Applied in the same change as Stage 3, so the documents never disagree:
 |---|---|
 | §3.1 | binding forms gain `sdk()`/`create()`; `connect` gains `as`; `options()` gains an instance name |
 | §3.2 | the registry is keyed by instance; `plugins()` returns one entry per instance |
-| §3.5 | the resolution order becomes §3.3 of this document; "deep-merge per plugin" corrected to **shallow**, matching every port |
-| §4 | the descriptor is shared per api and looked up by instance name |
+| §3.5 | the resolution order becomes §3.3 of this document; "deep-merge per plugin" corrected to **shallow**, matching every port; profile selection completed to `open({profile})` > env > `default`, matching every shipped `selectProfile` |
+| §4 | the descriptor is shared per api and looked up by instance name; `secretname-default` stays the **api** default and the instance's effective name moves to `Binding.secretname` (§7.4) |
 | §5.1 | secret names derive from the **instance** name; the degenerate case is unchanged |
 | §5.2 | `station.json`'s `plugin` map becomes `sdk` + `api`; providers validated as a list only |
 | §5.3 | broker keying corrected: overrides by instance, resolution cache by secret name |
 | §6 | events carry `plugin` = instance name and a new `api` field |
 | §11 | the declarative quickstart leads; the two-line imperative form stays as the retrofit path |
 | §13 | the `config` and `instance` corpus sections; `profile`, `secretname`, `placeholder` amended |
-| §14 | seven new error codes (§6.4); `station_bound_twice` re-keyed to the instance |
+| §14 | eight new error codes (§6.4); `station_bound_twice` re-keyed to the instance, and explicitly not a cap on clients per instance (§6.1) |
 | §17 | Phase 1 gains Stages 1–4 of §11; Phase 2's `station.json` schema item is satisfied by the struct shape |

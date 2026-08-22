@@ -53,7 +53,7 @@ points), and everything proxy-side.
   declares named SDK instances, `station.sdk(name)` returns one, the
   registry is keyed by instance rather than by API, and the config is
   validated with [voxgig/struct](https://github.com/voxgig/struct) so
-  that a credential cannot be expressed in it. Proposal; amends the
+  that the grammar cannot express a credential. Proposal; amends the
   full design (its §15).
 - [`sdkgen-station/`](./sdkgen-station/) — the sdkgen feature package
   (design §9 item 5): the feature model, per-target adapter overlays,
