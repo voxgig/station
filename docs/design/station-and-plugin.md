@@ -11,7 +11,7 @@ they disagreed, and which side moved.
 
 References of the form **P§n** are to plugin's design **as reconciled
 in [voxgig/plugin#3](https://github.com/voxgig/plugin/pull/3), commit
-[`f001b9f`](https://github.com/voxgig/plugin/blob/f001b9f8530611089ca32e9c7bfa31806595ebe4/docs/design/plugin.md)**
+[`d9d35c0`](https://github.com/voxgig/plugin/blob/d9d35c0a2f8320947f751443379483fd0509985f/docs/design/plugin.md)**
 — pinned rather than tracking
 [the branch](https://github.com/voxgig/plugin/blob/claude/voxgig-plugin-architecture-h6cly0/docs/design/plugin.md),
 because an agreement whose references move is not reproducible: every
