@@ -48,6 +48,13 @@ points), and everything proxy-side.
   the plugin contract, the descriptor, secret placement, observability
   and debugging, the MCP agent surface, the wire protocol and companion
   proxy, the sdkgen integration, and delivery phasing.
+- [`docs/design/station-declarative-config.md`](./docs/design/station-declarative-config.md)
+  — declarative config and dynamic SDK instances: `station.json`
+  declares named SDK instances, `station.sdk(name)` returns one, the
+  registry is keyed by instance rather than by API, and the config is
+  validated with [voxgig/struct](https://github.com/voxgig/struct) so
+  that a credential cannot be expressed in it. Proposal; amends the
+  full design (its §15).
 - [`sdkgen-station/`](./sdkgen-station/) — the sdkgen feature package
   (design §9 item 5): the feature model, per-target adapter overlays,
   and the deps that flow each target's station library into generated
