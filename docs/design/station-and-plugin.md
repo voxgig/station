@@ -9,13 +9,30 @@ targets. [station](./station.md) is its first host, and this document
 is the agreed position between the two designs: what they share, where
 they disagreed, and which side moved.
 
-References of the form **P§n** are to plugin's design **as merged by
-[voxgig/plugin#3](https://github.com/voxgig/plugin/pull/3), commit
-[`0ea4c4f`](https://github.com/voxgig/plugin/blob/0ea4c4f493f3870cb55f7178ca4381f6c874fbb0/docs/design/plugin.md)**
-— a merge commit rather than a branch head, because an agreement whose
+References of the form **P§n** are to plugin's design at commit
+[`c433238`](https://github.com/voxgig/plugin/blob/c4332389b63865728e38e3802b072623277371d1/docs/design/plugin.md)
+— [voxgig/plugin#6](https://github.com/voxgig/plugin/pull/6), which
+renames the lifecycle status to `live` (§2.10). An agreement whose
 references move is not reproducible: every section number and every
-"plugin adopted this" claim below is against that revision. Earlier
-drafts of this line tracked
+"plugin adopted this" claim below is against that revision.
+
+**That is a PR head rather than a merge commit, deliberately and
+temporarily.** The previous pin — `0ea4c4f`, voxgig/plugin#3 — predates
+the status rename, so leaving it would have this document asserting
+`live` while the revision it points at says `active`: precisely the
+failure the pin exists to prevent, and caught in review rather than by
+the discipline that was supposed to prevent it. plugin#6 is not merged,
+so its merge commit does not exist yet. What matters is that a commit
+SHA does not move, which `c433238` satisfies; and plugin merges with
+merge commits, so it becomes an ancestor of plugin's `main` when #6
+lands. **Re-pin to that merge commit then.**
+
+The claims were re-checked rather than assumed, as below requires: the
+rename is purely lexical — no section was added, removed or renumbered
+— so all sixteen P§ references still resolve, and the only substantive
+claim it touches is §2.10's, which this change rewrites.
+
+Earlier drafts of this line tracked
 [the branch](https://github.com/voxgig/plugin/blob/claude/voxgig-plugin-architecture-h6cly0/docs/design/plugin.md)
 and went stale three times in a day, which is the argument for pinning
 rather than a theory about it. Re-pin when plugin's design advances
