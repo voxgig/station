@@ -96,11 +96,11 @@ branch `main` had never seen.
    plugin's merge commit.~~ Done, and **already advanced once**: Step 0
    pinned `0ea4c4f` (an ancestor of plugin's `main`, replacing a
    branch-head placeholder that went stale within one commit of being
-   written), and the `live` rename moved it to `c433238`
-   (voxgig/plugin#6). The pin is not a one-time step — the instruction
-   in `station-and-plugin.md` is to advance it whenever plugin's design
-   does, and the first time that came due it was caught in review
-   rather than remembered.
+   written), and the `live` rename moved it to `56f48e1`
+   (voxgig/plugin#6's merge commit). The pin is not a one-time step —
+   the instruction in `station-and-plugin.md` is to advance it whenever
+   plugin's design does, and the first time that came due it was caught
+   in review rather than remembered.
 
 *Exit, met:* both designs on `main` in their own repos, and the
 reconciliation pinned to a commit that will not move.
