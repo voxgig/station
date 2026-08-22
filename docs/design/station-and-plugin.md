@@ -47,7 +47,7 @@ design (voxgig/plugin#2, #3 and the reconciliation pass):
 |---|---|
 | add the sixteen-port constraint to P§17.1, and make "station builds natively, plugin extracts" the primary plan | done |
 | drop or qualify "closed by construction" — a generic library cannot supply station's credential guarantee | done; stated in both documents as the host's to keep |
-| mark the nested-host row contingent on P§17.2 (sdkgen adopting) | done; P§6.5 now carries the caveat inline rather than asserting a current fit |
+| mark the nested-host row contingent on P§17.2 (sdkgen adopting) | done, and sharpened — P§6.5 now separates *native* host-shape (needs sdkgen) from reachability over P3's bridge (does not); see §2.3 |
 | add a name-keyed `default` map beside the ref-keyed `instance` map | **settled** — P§9.1, P§9.3; see §3.1 |
 
 Four mechanisms plugin has that station's design lacked, and station
@@ -112,7 +112,7 @@ every instance's `options` and `feature`, layered over plugin's option
 shapes, and both documents now say so, so neither repo assumes the
 other is providing it.
 
-### 2.3 Nested hosts are a future fit
+### 2.3 Nested hosts — reachable over the bridge, native only after sdkgen
 
 P§6.5 justified nested hosts by station's fleet-wide feature
 management, and that mapping holds only once **sdkgen adopts plugin** —
@@ -123,8 +123,18 @@ table, and station configures features by composing that array (§8).
 non-host.
 
 **Resolved:** the model stays — it is far cheaper to carry from the
-start than to retrofit onto a shipped lifecycle — but P§6.5 now says it
-is a future fit, and §8 as written is the present plan.
+start than to retrofit onto a shipped lifecycle — and P§6.5 now
+distinguishes two things it previously ran together. A generated SDK is
+not *natively* a host and will not be unless sdkgen adopts. But plugin's
+own P3 deliverable is a `FeatureHost` **bridge** that runs an unmodified
+sdkgen feature class as a plugin, and the inner host can be the bridge
+rather than the SDK — so fleet-wide feature management over a nested
+host is reachable at P3 with generated code untouched.
+
+For station that means §8 as written is the present plan and the
+nested-host form is a P3 option rather than a post-adoption one. Station
+should not build against it until plugin's P3 bridge exists, and should
+not assume sdkgen adoption is a precondition for it either.
 
 ### 2.4 Per-definition defaults
 
