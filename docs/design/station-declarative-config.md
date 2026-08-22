@@ -884,7 +884,7 @@ const test    = station.sdk('stripe-test')
 | `station.check()` | eagerly resolve and construct every active instance; for CI (§6.6) |
 | `station.warm(names?)` | batch-resolve secrets for active instances (§5.5) |
 | `await station.load()` | ts/js only: preload ESM packages into the factory table (§6.3) |
-| `Station.provide(api, factory)` | register a constructor for an api (§6.2) |
+| `Station.provide(api, factory)` | register an api's `{construct, config}` pair (§6.2) |
 
 Retained unchanged in kind, because the imperative path is still the
 retrofit path and still how a project with no config file starts:
@@ -1011,14 +1011,22 @@ imported by name at runtime, so `api.<slug>.package` closes the loop:
 station imports the package (which triggers self-registration, path 1)
 and then looks up the factory. `export` is the fallback for a package
 whose SDK predates the station feature and therefore self-registers
-nothing — station reads the named export and builds a factory from it.
-Its default is sdkgen's own class-naming rule, `camelify(slug) + 'SDK'`
-(`voxgig-solardemo` → `VoxgigSolardemoSDK`), which is a fixed rule in
-the generator. `package` has **no** default: sdkgen's published name is
-derivable *most* of the time but a target may override it outright
-(`publish.registry.package`, `ts/src/helpers/packageMeta.ts`), and a
-guessed package name that resolves to the wrong thing is worse than a
-required key.
+nothing — station reads the module and builds the `{construct, config}`
+pair of §6.2 from it. Both halves are there: a generated main module
+exports its constructor **and** the `config` singleton beside it
+(`Main.fragment.ts` exports `ProjectNameSDK`, the fixed alias `SDK`, and
+`config`), and that config is the module-level constant the descriptor
+normalizes from. So the retrofit path is not descriptor-blind.
+
+`export` therefore defaults to the fixed **`SDK`** alias rather than to
+a derived class name — it is the same identifier in every generated
+package, where `camelify(slug) + 'SDK'` is a rule that has to be
+recomputed and can be wrong. The derived name is the second attempt,
+and an explicit `export` the third. `package` has **no** default:
+sdkgen's published name is derivable *most* of the time but a target
+may override it outright (`publish.registry.package`,
+`ts/src/helpers/packageMeta.ts`), and a guessed package name that
+resolves to the wrong thing is worse than a required key.
 
 Compiled targets (go, java, csharp, rust, swift, dart, kotlin, c, cpp,
 zig) ignore `package`/`export` — a warning event at open, not an error,
@@ -1117,8 +1125,10 @@ asks for it. The proxy probe stays deferred exactly as today
 Deferring availability errors to first use is right for production and
 wrong for CI, so it is a verb: `station.check()` (and
 `voxgig-station check`) walks every active instance, resolves its
-factory, constructs it and reports per-instance status without sending
-a request. It is what a project runs in CI to learn that
+factory, checks its feature config against the api's declared schema —
+which needs no construction at all, since the config arrives with the
+factory (§6.2) — then constructs it and reports per-instance status,
+all without sending a request. It is what a project runs in CI to learn that
 `@acme-sdk/stripe-sdk` was never added to `package.json` — at build
 time, rather than at 3am from the one code path that uses it.
 
@@ -1548,7 +1558,7 @@ corpus. A port implements the mechanism; it never restates the rules.
 | feature merge + order composition | ~50 lines | §8.3, §8.4; emits the array form the constructor already accepts |
 | descriptor-derived feature checker | ~40 lines | §8.5; a struct spec built from the descriptor, then the port's own `validate` |
 | instance table + lazy cache | ~60 lines | plus the port's concurrency idiom |
-| factory table + `provide` | ~30 lines | process-global |
+| factory table + `provide` | ~45 lines | process-global; entries are `{construct, config}` and the descriptor is normalized at provide time (§6.2) |
 | loader | ~30 lines | dynamic-import languages only |
 | re-keying to instance | — | registry, placeholder, broker, events |
 
@@ -1696,7 +1706,7 @@ Small, because the plugin contract does not move.
 1. **`feature.station.config.options` gains `instance: ''`** — how the
    instance name reaches the adapter (§7.5). One key in
    `model/feature/station.aontu`.
-2. **The adapter self-registers its factory at module init** (§6.2) in
+2. **The adapter self-registers its `{construct, config}` pair at module init** (§6.2) in
    every target where that is expressible — the one genuinely new
    per-target code in the sdkgen-station overlay, and it is a handful of
    lines each.
