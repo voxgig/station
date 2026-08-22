@@ -218,9 +218,18 @@ A **block** — the same eight keys in both positions:
 
 `active` here means **barred from running** — a declaration that stays
 in the file and in `instances()` while being refused a client. It is
-not a runtime state. That distinction matters beyond this document:
-voxgig/plugin has an `active` lifecycle *status* meaning "bindings live,
-resources held", and the two share a spelling and not a meaning
+not a runtime state, and the two are no longer spelled alike:
+**voxgig/plugin's lifecycle status is `live`**, not `active`, precisely
+so that this key can keep the name it already has in every port and
+every `station.json` in the field. The key is the same predicate in
+both repos — plugin's document `active` means *may this run*, which is
+this one in the opposite polarity — so there is one config vocabulary
+across the two designs and one runtime one.
+
+This is also why `instances()` reports both `active` and `live`
+(§6.1): they answer different questions, and the answers differ
+routinely — a lazily-started instance is `active: true` and not yet
+live. Station's boolean `live` is exactly plugin's `status == "live"`
 (`station-and-plugin.md` §1).
 
 **The two block positions differ in what they key, not in what they

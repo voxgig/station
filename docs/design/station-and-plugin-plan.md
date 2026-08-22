@@ -27,13 +27,14 @@ a floor under it and only one does.
 
 | | state |
 |---|---|
-| **voxgig/plugin** | **Three files** — `LICENSE`, `README.md`, `docs/design/plugin.md`. No code, no `Makefile`, no `spec/`, no ports. P0 has not started. |
-| plugin's design | **Not on `main`.** It lives on `claude/voxgig-plugin-architecture-h6cly0`, which has never merged; voxgig/plugin#3 targets that branch, not `main`. |
+| **voxgig/plugin** | **P0 landed** (voxgig/plugin#5). `Makefile`, `spec/` with the empty corpus and its format shape, `tools/`, CI. No code in any language and no ports — P1 is next. |
+| plugin's design | On `main` (voxgig/plugin#4). |
 | **voxgig/station** | **Sixteen written ports**, thirteen green in CI, `spec/station.json` in place. Stage 1 has not started; everything before it has. |
-| station's design | On `main`. voxgig/station#6 adds the reconciliation and the ref migration. |
+| station's design | On `main` (voxgig/station#6), with the reconciliation and the ref migration. |
 
-So the asymmetry driving the whole reconciliation is also the starting
-condition: **station is a working system and plugin is a document.**
+So the asymmetry driving the whole reconciliation is still the starting
+condition, if less starkly than when this was written: **station is a
+working system and plugin is a document with a build around it.**
 
 
 ## 1. Shape: two tracks, four meeting points
@@ -81,22 +82,27 @@ Track P's corpus to stay honest, and it hands Track P a real host at M2.
 
 ## 2. Step 0 — land the designs
 
-Neither track can start cleanly while the agreement is unmerged, and
-plugin's cannot start at all while its design is on a branch that `main`
-has never seen.
+**Complete.** Neither track could start cleanly while the agreement was
+unmerged, and plugin's could not start at all while its design sat on a
+branch `main` had never seen.
 
-1. **voxgig/plugin#3** merges into
-   `claude/voxgig-plugin-architecture-h6cly0`.
-2. **That branch merges into plugin's `main`.** This is the missing
-   step, and it is a prerequisite for P0 rather than a tidy-up: P0
-   creates a repository skeleton around a design document that is not
-   yet in the repository's mainline.
-3. **voxgig/station#6** merges into station's `main`.
-4. **Re-pin** `station-and-plugin.md`'s revision reference to plugin's
-   merge commit. The branch-head pin it carries now is a placeholder
-   that went stale within one commit of being written.
+1. ~~**voxgig/plugin#3** merges into
+   `claude/voxgig-plugin-architecture-h6cly0`.~~ Done.
+2. ~~**That branch merges into plugin's `main`.**~~ Done, as
+   voxgig/plugin#4 — the step that was missing, and a prerequisite for
+   P0 rather than a tidy-up.
+3. ~~**voxgig/station#6** merges into station's `main`.~~ Done.
+4. ~~**Re-pin** `station-and-plugin.md`'s revision reference to
+   plugin's merge commit.~~ Done, and **already advanced once**: Step 0
+   pinned `0ea4c4f` (an ancestor of plugin's `main`, replacing a
+   branch-head placeholder that went stale within one commit of being
+   written), and the `live` rename moved it to `56f48e1`
+   (voxgig/plugin#6's merge commit). The pin is not a one-time step —
+   the instruction in `station-and-plugin.md` is to advance it whenever
+   plugin's design does, and the first time that came due it was caught
+   in review rather than remembered.
 
-*Exit:* both designs on `main` in their own repos, and the
+*Exit, met:* both designs on `main` in their own repos, and the
 reconciliation pinned to a commit that will not move.
 
 
@@ -227,21 +233,33 @@ synchronisation point rather than a coincidence of ordering.
 |---|---|---|---|
 | Does **sdkgen** adopt plugin? (P§17.2) | sdkgen | nested hosts *natively*; deletion of `transport`; the seventeen-model change | **open** — explicitly uncommitted; carries a propagation cost across 23 template trees |
 | Does **station take the library as a dependency**? | station | **not** the native port rollout — that resumes after P4 (§5.1). This decides only whether ports later *replace* their native implementation with the library, and the +800-lines-per-port trade | **deferred to plugin tier 3 (P5)**, by design, and explicitly **non-blocking** for native ports |
-| Is **`active`** renamed? | plugin | P1's public API and its corpus fixtures | **open, and undated** — see below |
+| Is **`active`** renamed? | plugin | P1's public API and its corpus fixtures | **settled** — the status is `live`, the key stays `active`; see below |
 | Does **P3b move earlier**? | plugin | only if P3 turns up a station requirement needing capabilities | conditional on a finding, not a plan |
 
-**`active` needs a date and does not have one.** It is overloaded three
-ways: station's `active: false` (*barred from running*), plugin's
-`active` lifecycle **status** (*bindings live, resources held*), and
-plugin's own document key `active` (*may this run*). Both documents
-record the collision; neither schedules a fix. It is an API name in
-P1's surface and in the `config` and `lifecycle` corpus sections, so
-renaming after P1 costs fixtures in every port that exists by then.
+**`active` is settled — and it was two concepts, not the three both
+documents recorded.** Station's `active: false` (*barred from running*)
+and plugin's document key `active` (*may this run*) are one predicate
+in two polarities. Counting them separately made the problem look
+harder than it was and obscured which way the fix runs.
 
-**Recommendation: settle it inside P1, or close it explicitly as
-won't-fix.** An open naming question with no deadline attached to a
-name that appears in two corpus sections is the shape of a decision that
-gets made by default.
+The genuine clash was between that key and plugin's lifecycle
+**status**, and it was real rather than cosmetic: `active: true` with
+`start: "lazy"` sits at `declared` indefinitely, so one word answered
+two questions whose answers routinely differ.
+
+**Resolution: plugin's lifecycle status is `live`; the document key
+stays `active` in both repos.** Decided on cost — `active`-as-key was
+already shipped across station's 17 ports, its `station.json`
+documents, and sdkgen's `options.feature.<name>.active` in ~23 language
+template trees, while the status was unshipped: no code, and no
+`lifecycle` corpus section. The verbs `activate()`/`deactivate()` are
+unchanged. Station's `instances()` already reported `{active, live}`
+for exactly this split, so its boolean `live` is now precisely plugin's
+`status == "live"`.
+
+Landed in plugin's design, `README.md` and `AGENTS.md`, and in
+station's `station-declarative-config.md`, **before P1 wrote a
+fixture** — which was the whole point of dating it.
 
 
 ## 7. Risks
@@ -249,9 +267,9 @@ gets made by default.
 | risk | why it is real | mitigation |
 |---|---|---|
 | **Silent drift** between station's native implementation and plugin's canonical | Nothing fails when a team stops running another repo's corpus. C4 has no enforcement. | Make plugin's `ref`/`config`/`lifecycle`/`order` corpus part of station's own CI from Stage 2, so drift is red rather than unnoticed |
-| **C1 arrives late** | It is plugin's first deliverable and plugin has not started P0 | Treat C1 as P0's exit criterion rather than P1's, if P0 slips |
+| **C1 arrives late** | It is plugin's first deliverable, and P1 has not started | P0 has landed, so the fallback of folding C1 into P0 is spent; the guard now is that C1 leads P1 rather than trailing it |
 | **P4 changes the model after station has ported** | §5.1 | Hold Stage 5 after ts/js, or budget the migration explicitly |
-| **Plugin is a document and station is a system** | Every estimate on Track P is an estimate about work that has not begun | Do not sequence station work behind Track P except where §3's contracts require it |
+| **Plugin is a document and station is a system** | P0 narrowed this but did not close it: plugin still has no code in any language, so every estimate past P1 is about work that has not begun | Do not sequence station work behind Track P except where §3's contracts require it |
 | **The second consumer never appears** | The +800-lines-per-port trade only pays with more than one consumer, and sdkgen's adoption is uncommitted | The dependency decision is already deferred to P5; keep it deferred rather than assuming |
 
 The last one deserves its own sentence, because it is the risk that

@@ -10,12 +10,26 @@ is the agreed position between the two designs: what they share, where
 they disagreed, and which side moved.
 
 References of the form **P§n** are to plugin's design **as merged by
-[voxgig/plugin#3](https://github.com/voxgig/plugin/pull/3), commit
-[`0ea4c4f`](https://github.com/voxgig/plugin/blob/0ea4c4f493f3870cb55f7178ca4381f6c874fbb0/docs/design/plugin.md)**
-— a merge commit rather than a branch head, because an agreement whose
+[voxgig/plugin#6](https://github.com/voxgig/plugin/pull/6), commit
+[`56f48e1`](https://github.com/voxgig/plugin/blob/56f48e1e3d14956cb26f9282a1c3438408cc33bf/docs/design/plugin.md)**
+— the revision that renames the lifecycle status to `live` (§2.10). A
+merge commit rather than a branch head, because an agreement whose
 references move is not reproducible: every section number and every
-"plugin adopted this" claim below is against that revision. Earlier
-drafts of this line tracked
+"plugin adopted this" claim below is against that revision.
+
+This pin has now advanced twice, and the second time is the instructive
+one. Step 0 set it to `0ea4c4f` (voxgig/plugin#3). The status rename
+then made this document assert `live` while the pinned revision still
+said `active` — precisely the failure the pin exists to prevent, caught
+in review rather than by the discipline meant to prevent it. **The
+obligation below is standing, not a step that was completed once.**
+
+The claims were re-checked rather than assumed, as that obligation
+requires: the rename is purely lexical — no section was added, removed
+or renumbered — so all sixteen P§ references still resolve, and the only
+substantive claim it touches is §2.10's, which this change rewrites.
+
+Earlier drafts of this line tracked
 [the branch](https://github.com/voxgig/plugin/blob/claude/voxgig-plugin-architecture-h6cly0/docs/design/plugin.md)
 and went stale three times in a day, which is the argument for pinning
 rather than a theory about it. Re-pin when plugin's design advances
@@ -339,14 +353,26 @@ its own architecture, and must not lose a tie to a document.
   after sdkgen adopts. The seventeen-model sdkgen change is deferred to
   that point, not cancelled, and §8.4 is amended to say so rather than
   to strike the field.
-- **`active` is overloaded, in both directions.** Station's `active:
-  false` means *barred from running*; plugin's `active` is a lifecycle
-  **status** meaning *bindings live, resources held*. Both documents
-  already note the collision. Less noticed: plugin uses `active` for
-  its document key *and* its status name, so the collision exists
-  inside plugin too. Left as-is — renaming either costs more churn than
-  the ambiguity does, given both documents state it — but a port that
-  conflates them will produce a config that looks like it works.
+- **`active` was overloaded. Now fixed: plugin's lifecycle status is
+  `live`.** The framing here was itself part of the problem — calling
+  it "overloaded in both directions" counted station's `active: false`
+  (*barred from running*) and plugin's document key `active` (*may this
+  run*) as two collisions when they are **one predicate in two
+  polarities**. The real clash was the key against plugin's runtime
+  **status**, and it was substantive: `active: true` with
+  `start: "lazy"` sits at `declared` indefinitely.
+
+  The earlier conclusion — left as-is, because renaming costs more
+  churn than the ambiguity — was reversed once the two sides were
+  costed separately. `active`-as-key is shipped across station's 17
+  ports, its `station.json` documents, and ~23 sdkgen template trees;
+  the status was shipped nowhere. So the status is `live`
+  (`declared → loaded → pending → live`), the key keeps `active` in
+  both repos, and `activate()`/`deactivate()` are unchanged. Station's
+  `instances()` already reported `{active, live}` for this split, so
+  its boolean `live` is now exactly plugin's `status == "live"` — which
+  also removes the failure mode this entry warned about, a port
+  conflating them into a config that looks like it works.
 
 
 ## 3. The joint model
@@ -464,4 +490,4 @@ stay station's:
   used by more than one library. sdkgen features are the candidate and
   the bet is probably right, but station should not carry the cost of
   proving it in sixteen languages before the second consumer exists.
-- **`active` overloading** (§2.10) — recorded, not fixed.
+- **`active` overloading** (§2.10) — **fixed**: the status is `live`, the config key stays `active`.
