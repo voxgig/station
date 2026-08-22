@@ -431,6 +431,17 @@ A project that wants a second instance of an api adds a tag —
 no rename of the existing key and no `api` field to add, which is the
 property the ref form was chosen for.
 
+**Multi-instance projects keep their environment variables too, and
+that is worth stating because it is the migration's real cost
+question.** Secret names derive through `envtoken`, which maps `-` and
+`$` alike to `_` (§5.1), so an instance renamed from `stripe-test` to
+`stripe$test` derives the *same* `stripe_test.apikey` and therefore the
+same `STRIPE_TEST_APIKEY`. Nobody has to re-issue a credential or edit
+a deployment to adopt refs. The one thing to check on the way through is
+§5.1's collision rule: the same insensitivity that preserves the
+variable is what makes `stripe$test` and a `stripe-test` api collide,
+and `open()` reports that rather than resolving it.
+
 Station is pre-1.0 and unreleased. `plugin` is **removed**, not
 aliased, and validation rejects it by name with a message that says
 what to rename — a deprecated alias would be a second grammar for one
@@ -818,9 +829,14 @@ they chose. Where that is not wanted — several instances sharing one key
 which is the case the api block exists for.
 
 **`envtoken` is lossy, so derived names can collide, and a collision
-here is two integrations quietly sharing one credential.** `stripe$test`
-and `stripe_test` are different instance names that both derive
-`stripe_test.apikey` — and since §5.3 keys the resolution cache by
+here is two integrations quietly sharing one credential.** It collapses
+*any* run of non-alphanumerics to `_`, so `$` and `-` are
+indistinguishable downstream: the ref `stripe$test` and an untagged
+instance of an api slugged `stripe-test` both derive
+`stripe_test.apikey`. That pairing is the realistic one rather than a
+contrived one, because api slugs are hyphenated by construction (§2) —
+so a fleet that has both a `stripe-test` api and a `test` instance of
+`stripe` collides by default. Since §5.3 keys the resolution cache by
 secret name, the second instance would silently receive the first's
 value while this section claims each has its own. So the derived names
 are checked for uniqueness at `open()`: **two instances whose
@@ -872,11 +888,49 @@ then the residual:
    (`config.options.secret`, `station.md` §9). A blanket key deny-list
    would reject the very mechanism that keeps values out of the file.
    The rule: **a `secret`-named key whose value passes sekreto's
-   `validname()` is a name and is allowed; anything else under that key
-   is `station_config_secret`.** `voxgig_solardemo.apikey` passes;
-   `sk-live-abc123` does not, because it is not a valid sekreto name.
-   The grammar's own naming rule does the discriminating, which is
-   better than a heuristic about what a credential looks like.
+   `validname()` *and* the run bound below is a name and is allowed;
+   anything else under that key is `station_config_secret`.**
+
+   **What `validname()` actually excludes, stated precisely, because
+   this is the load-bearing check and it was designed as a name grammar
+   rather than as a credential filter.** It is
+   `^[a-z0-9_]+$` per dot-separated part, so it rejects anything
+   carrying uppercase, hyphens, `+`, `/` or `=` — which is most real
+   credential formats: Stripe's `sk_test_`/`sk_live_` keys and GitHub's
+   `ghp_` tokens each carry a mixed-case random suffix, and base64
+   payloads and JWTs carry `+`, `/` or `=`.
+
+   *Their literal forms are deliberately not reproduced here.* A
+   section arguing that credentials do not belong in files should not
+   carry credential-shaped strings, and this is not a stylistic point:
+   an earlier draft of this paragraph pasted a real-format Stripe test
+   key as an illustration, and GitHub's push protection rejected the
+   commit. The tooling was right, and the incident is the shortest
+   available argument for §6.6 running `check()` in CI.
+
+   It does **not** exclude a lowercase token:
+   `550e8400e29b41d4a716446655440000` (a UUID with its hyphens stripped)
+   and any lowercase hex secret pass it cleanly. A character class
+   cannot tell a name from a secret, and pretending otherwise would be
+   the wrong version of a security claim.
+
+   So one bound is added, and it targets exactly that gap: **a `secret`
+   value containing an unbroken alphanumeric run of 24 characters or
+   more is `station_config_secret`.** Derived names break on every
+   separator — `voxgig_solardemo.apikey` runs 6/9/6 — and a hand-written
+   name for a human to read does too; a 32-character unbroken run is not
+   a name anybody writes. It is a backstop rather than a grammar, and it
+   is stated as one.
+
+   **The residual, precisely.** A short lowercase secret with a
+   separator in it still passes both checks. What saves that case is not
+   the grammar but the consequence: station hands the value to sekreto
+   as a *name*, the lookup finds nothing, and the request fails —
+   loudly, at bind time, and before anything reaches the wire. So the
+   accurate claim is that **a credential under `secret` cannot be used,
+   not that it cannot be written.** It would still be sitting in a
+   committed file, which is why the bound exists at all and why
+   `check()` running in CI (§6.6) is the thing that actually finds it.
 2. **At construction, station knows the descriptor**, and the
    descriptor names this API's auth prefix and header. So the
    *instance-specific* check that validation cannot do — "does this
@@ -1800,7 +1854,14 @@ library exists.**
 - **`config` (new)** — normalize-then-validate over the §4.5 table: each
   case is a raw config in, and either the normalized output or the
   expected error set out. This is the section that makes the grammar
-  identical in 22 languages.
+  identical in 22 languages. It carries §5.2's `secret`-key rule as
+  four cases that a character-class check alone would get wrong: a real
+  name accepted (`voxgig_solardemo.apikey`), a multi-word name accepted
+  (`acme_internal_billing_service.apikey` — the false positive a naive
+  length bound would produce), a hyphenated credential rejected by
+  `validname()`, and a lowercase 32-character token rejected by the run
+  bound *after* passing `validname()`. The fourth is the one that
+  proves the bound is doing work.
 - **`instance` (new)** — the merge of §3.3: api ⊕ sdk across base ⊕
   overlay, ref parsing (`stripe$test` → api `stripe`, tag `test`, and
   the untagged case), `active: false`, and the
@@ -1818,8 +1879,13 @@ library exists.**
   the wrong one, and a guard against an impossible state is a test that
   can only rot.
 - **`secretname` collisions (new cases)** — two instances deriving one
-  name is `station_secret_collision`; two instances *naming* one
-  secret explicitly is legal.
+  name is `station_secret_collision`; two instances *naming* one secret
+  explicitly is legal. The derivation cases carry the `$`-versus-`-`
+  pair specifically (`stripe$test` against a `stripe-test` api), since
+  that is the collision refs make likely rather than theoretical, and
+  the migration case that depends on the same insensitivity — an
+  instance renamed from `stripe-test` to `stripe$test` keeps its
+  environment variable (§3.4).
 - **`feature` (new)** — the three-level merge of §8.3 (profile ⊕ api ⊕
   instance, across base ⊕ overlay), per-name and then per-option-key,
   **including the depth boundary**: a map-valued feature option
@@ -1993,7 +2059,11 @@ repo is coherent; nothing here is a long-lived branch.
   (§4.2): `normalizeConfig` producing the **validation form**, and
   `validateConfig` (struct `validate` with `errs`, plus the recursive
   `options` scan of §5.2), raising `station_config_invalid` /
-  `station_config_secret`.
+  `station_config_secret`. The `secret`-key rule is two checks, not
+  one: sekreto's `validname()` **and** §5.2's 24-character unbroken-run
+  bound. A port implementing only the first inherits the gap the bound
+  exists to close, so both live in the same three lines and the corpus
+  pins each independently.
 - `typescript/src/profile.ts` — the §3.3 merge over **raw** blocks with
   defaults applied to the merged instance, and the api read from the
   ref's own prefix rather than from a merged field — the phasing that
