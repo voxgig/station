@@ -430,6 +430,75 @@ describe('auto-tagged clients keep the declared instance s identity', () => {
     st.close()
   })
 
+  test('an auto-tagged client keeps its declared instance s POLICY', () => {
+    // THE REGRESSION MY OWN FIRST FIX INTRODUCED. Carrying the declared
+    // `secret` through the feature options left every other key behind,
+    // so `blockFor('stripe$1')` could not find `stripe$prod` and fell
+    // back to the wider api-level block — silently dropping the
+    // declared instance's hosts allowlist for a live client.
+    //
+    // Recording what the tag STANDS FOR fixes secret, policy and base
+    // together, which is why it is the right shape.
+    const stripe = fakeSDK('stripe')
+    provide('stripe', { construct: (o) => new stripe.SDK(o), config: stripe.config })
+
+    const st = new Station({
+      config: {
+        station: 1,
+        profiles: {
+          default: {
+            api: { stripe: { policy: { hosts: ['wide.stripe.com'] } } },
+            sdk: {
+              'stripe$prod': {
+                secret: 'prod.key',
+                policy: { hosts: ['narrow.stripe.com'] },
+              },
+            },
+          },
+        },
+      },
+    })
+    st.create('stripe$prod')
+
+    const alias = st.plugins()[0].name
+    equal('stripe$1', alias)
+
+    // The NARROW allowlist, not the api-level one it would otherwise
+    // have inherited.
+    deepStrictEqual(
+      (st as any).blockFor(alias)?.policy?.hosts, ['narrow.stripe.com'])
+    equal('prod.key', st.plugins()[0].secretname)
+
+    st.close()
+  })
+
+  test('warm() misses a name nobody declared, rather than inventing one', () => {
+    // Widening `warm`'s fallback to cover imperative instances also let
+    // a typo derive a secret name and call the provider — so a
+    // nonexistent instance could be reported `warmed` off a shared
+    // api-level credential.
+    const stripe = fakeSDK('stripe')
+    provide('stripe', { construct: (o) => new stripe.SDK(o), config: stripe.config })
+
+    const st = station({ 'stripe$test': {} })
+    const asked: string[] = []
+    ;(st as any).broker = {
+      value: async (_s: string, n: string) => { asked.push(n); return 'sk' },
+      hoist: () => undefined,
+      scrub: (t: string) => t,
+      refresh: () => undefined,
+    }
+
+    return st.warm(['stripe$prodd']).then((out: any) => {
+      deepStrictEqual(out.warmed, [])
+      deepStrictEqual(out.missed, ['stripe$prodd'])
+      // ...and the provider was never asked, so no shared credential
+      // was touched on a typo's behalf.
+      deepStrictEqual(asked, [])
+      st.close()
+    })
+  })
+
   test('a DECLARED numeric ref is not stolen by auto-tagging', () => {
     // `registry.has('stripe$1')` is false until something constructs
     // it, so the tag was handed to a client built from a different

@@ -91,6 +91,12 @@ export class Station {
   private raw: any = null
   private repoScoped = true
   private requireProxy: boolean
+  /** An auto-assigned tag to the DECLARED instance it stands for
+   * (§5.3). Kept beside the registry rather than inside it because the
+   * mapping exists before construction, and `blockFor` needs it during
+   * registration. */
+  private aliasOf = new Map<string, string>()
+
   private closed = false
 
   // Ambient instance (design §10.2): open() is the idempotent
@@ -275,7 +281,16 @@ export class Station {
    * here, because they disagreeing is how the credential and the
    * allowlist came apart in the first place. */
   private blockFor(name: string): SdkBlock | undefined {
-    return this.profile.sdk[name] ?? this.profile.api[refapi(name)]
+    return this.profile.sdk[this.declaredRef(name)] ??
+      this.profile.api[refapi(name)]
+  }
+
+  /** The DECLARED instance an assigned tag stands for, or the name
+   * itself. `create('stripe$prod')` registers under `stripe$1`, and
+   * every question about that client's configuration — its secret, its
+   * base, its egress policy — is a question about `stripe$prod`. */
+  private declaredRef(name: string): string {
+    return this.aliasOf.get(name) ?? name
   }
 
   _register(client: any, config: any, options: any, _calleropts: any,
@@ -319,8 +334,12 @@ export class Station {
     // names, so whichever instance built the cached copy would report
     // the other's secret metadata wrongly. This is the authority; that
     // field is documentation.
+    // ...and the DEFAULT takes the declared name too, not the assigned
+    // tag: `stripe$1` created from `stripe$test` derives
+    // `stripe_test.apikey`, so every per-request client of one instance
+    // shares one broker cache entry (§5.3).
     const secretname = firstNonEmpty(fopts?.secret, profilePlugin?.secret) ||
-      secretnameDefault(name)
+      secretnameDefault(this.declaredRef(name))
 
     const rung = descriptor.auth.active ? 'R1' : 'none'
     const binding: Binding = {
@@ -679,26 +698,20 @@ export class Station {
 
     // §5.3, and `create`'s own doc comment: "the SECRET NAME does not
     // follow the assigned tag: it resolves from the DECLARED instance
-    // the tag was assigned under". It was stated and not implemented —
-    // only the generated identity reached registration, which then
-    // looked up `profile.sdk['stripe$1']`, lost the declared block's
-    // explicit `secret`, and otherwise derived `stripe_1.apikey` where
-    // the declared instance promises `stripe_test.apikey`. Every
-    // per-request client resolved a different or missing credential,
-    // and each one cost its own store round-trip — the opposite of the
-    // shared cache entry §5.3 asks for.
+    // the tag was assigned under."
     //
-    // Carried through the feature-option slot, which already has the
-    // precedence this needs (in-code beats profile, §9), and only when
-    // the tag was ASSIGNED — a caller naming its own is naming an
-    // instance, not aliasing one.
-    if (null != as && as !== name && null == opts.feature?.station?.secret) {
-      const declared = firstNonEmpty(block.secret) || secretnameDefault(name)
-      opts.feature = {
-        ...opts.feature,
-        station: { ...(opts.feature?.station || {}), secret: declared },
-      }
-    }
+    // THE ALIAS IS RECORDED, NOT THE FIELDS. The first fix for this
+    // carried the declared `secret` through the feature options and
+    // stopped there — which left `policy`, `base` and everything else
+    // behind, so an auto-tagged client silently lost its declared
+    // instance's HOSTS ALLOWLIST and fell back to the wider api-level
+    // one. Carrying configuration a field at a time is how that
+    // happens; recording what the tag STANDS FOR is one rule that every
+    // lookup already goes through.
+    //
+    // Only when the tag was ASSIGNED — a caller naming its own is
+    // naming an instance, not aliasing one.
+    if (null != as && as !== name) { this.aliasOf.set(as, name) }
 
     // ...AND THE CARRIED ADAPTER RIDES EXTEND, exactly as it does on
     // `connect`. §3.1's retrofit case — an SDK generated before the
@@ -890,9 +903,20 @@ export class Station {
       // and the re-derivation dropped the in-code `secret` feature
       // option, which beats the profile (§9). A registered instance
       // already carries the resolved name.
+      // A NAME NOBODY DECLARED OR REGISTERED IS A MISS, not a lookup.
+      // Widening the fallback to cover imperative instances also let a
+      // typo — `stripe$prodd` — derive a secret name and call the
+      // provider, so a nonexistent instance could be reported `warmed`
+      // off a shared api-level credential. Registered OR declared, and
+      // nothing else.
       const entry = this.registry.get(name)
+      if (null == entry && null == this.profile.sdk[name]) {
+        missed.push(name)
+        continue
+      }
       const secretname = entry?.secretname ??
-        (this.blockFor(name)?.secret || secretnameDefault(name))
+        (this.blockFor(name)?.secret ||
+          secretnameDefault(this.declaredRef(name)))
       try { await this.broker.value(name, secretname); warmed.push(name) }
       catch (_e) { missed.push(name) }
     }
