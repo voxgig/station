@@ -1,18 +1,70 @@
 import { adapterFeature } from './adapter'
 import { StationError } from './error'
 import { EventBuffer } from './events'
-import { canonicalSerialize, normalizeDescriptor } from './descriptor'
-import { loadConfig, resolveProfile, selectProfile, ResolvedProfile } from './profile'
+import { canonicalSerialize, normalizeDescriptor, secretnameDefault } from './descriptor'
+import { loadConfig, refapi, resolveProfile, selectProfile, ResolvedProfile } from './profile'
 import { normalizeConfig, validateConfig } from './shape'
 import { SecretBroker, placeholderFor } from './secrets'
 import {
-  Binding, PluginEntry, SdkBlock, StationEvent, StationOptions,
+  Binding, PluginEntry, ResolvedInstance, SdkBlock, StationEvent,
+  StationOptions,
 } from './types'
 
 // The station library core, solo mode (design D1): fully functional
 // in-process with no other component running. The proxy (D2) is a
 // deferred amplifier - `require` therefore fails on the operation path
 // (design §2.1/§14), and `auto` degrades to solo with one warning event.
+
+/** §6.1: `as` IS A TAG, NOT A FREE NAME.
+ *
+ * The api comes from the SDK being passed, so the resulting ref is
+ * `<api>$<tag>` and multi-instance works imperatively too. A full ref is
+ * also accepted and is VALIDATED: its name must equal the SDK's api
+ * slug, or it is `station_instance_api`.
+ *
+ * Both forms are needed because the imperative path is where the api is
+ * implicit in an argument rather than written in a key. An `as` that
+ * took an arbitrary name would reintroduce exactly the second-identity
+ * problem the ref re-key removed: under the ref invariant
+ * `as: 'solar-eu'` would denote the untagged `solar-eu` DEFINITION, not
+ * an instance of the SDK just handed in, and registry grouping, api
+ * defaults and every ref consumer would disagree about what it is.
+ *
+ * A bare connect(SDK) with no name falls back to the descriptor slug,
+ * which is today's behaviour and why the single-instance case is
+ * unchanged to the byte. */
+export function instanceRef(api: string, fopts?: any): string {
+  const explicit = firstNonEmpty(fopts?.instance)
+  if (null != explicit) { return checkapi(api, explicit) }
+
+  const as = firstNonEmpty(fopts?.as)
+  if (null == as) { return api }
+
+  // A full ref is validated against the api; a `$`-less string is a TAG
+  // and is joined to it.
+  //
+  // §6.1 gives both branches and does not say how to disambiguate a
+  // `$`-less string, which is a real ambiguity because a bare name is
+  // itself a valid (untagged) ref: `as: 'stripe'` on api `stripe` could
+  // read as the untagged ref `stripe` or as tag `stripe`. It is read as
+  // a TAG, giving `stripe$stripe`, because §6.1 says twice and
+  // emphatically that `as` is a tag rather than a free name, and a rule
+  // with no exceptions is the one that ports the same way twenty times.
+  // The alternative - collapsing when the tag happens to equal the api -
+  // is a special case that would make `as` mean different things at
+  // different values. Someone who wants the untagged instance passes no
+  // `as` at all, which is the documented spelling for it.
+  return -1 === as.indexOf('$') ? api + '$' + as : checkapi(api, as)
+}
+
+function checkapi(api: string, ref: string): string {
+  if (refapi(ref) !== api) {
+    throw new StationError('station_instance_api',
+      'instance "' + ref + '" names api "' + refapi(ref) + '", but the SDK ' +
+      'passed is api "' + api + '"; `as` is a tag, not a free name (§6.1)')
+  }
+  return ref
+}
 
 export class Station {
   private static ambient: Station | null = null
@@ -124,6 +176,11 @@ export class Station {
     fmap['station'] = {
       ...(fmap['station'] || {}),
       active: true, station: this, calleropts: opts,
+      // §6.1: `as` is a TAG, resolved against the api in _register -
+      // the api comes from the SDK being passed and is not knowable
+      // here until that SDK's config has been normalized.
+      ...(null == opts.as ? {} : { as: opts.as }),
+      ...(null == opts.instance ? {} : { instance: opts.instance }),
     }
     const options = {
       ...opts,
@@ -141,12 +198,19 @@ export class Station {
   // generated constructor already accepts - the handle, the activation
   // entry, and the profile's per-plugin base (applied here, at
   // options-build time, so caller opts passed in `extra` still win).
-  options(extra?: any): any {
-    extra = extra || {}
+  // §6.1: `options(instanceName?, extra?)`. The name is optional and
+  // leading, so every existing `options({...})` call is unchanged - the
+  // inverted binding is the static languages' path and they need to say
+  // which instance they are building without a second method.
+  options(a?: any, b?: any): any {
+    const named = 'string' === typeof a
+    const instance: string | undefined = named ? a : undefined
+    const extra = (named ? b : a) || {}
     const fmap = { ...(extra.feature || {}) }
     fmap['station'] = {
       ...(fmap['station'] || {}),
       active: true, station: this, calleropts: extra,
+      ...(null == instance ? {} : { instance }),
     }
     return { ...extra, feature: fmap }
   }
@@ -171,50 +235,108 @@ export class Station {
     fopts?: any):
     { binding: Binding, profilePlugin?: SdkBlock } {
 
-    const { descriptor, warnings } = normalizeDescriptor(config, options.feature)
-    const slug = descriptor.slug
+    const { descriptor, warnings } = this.describe(config, options.feature)
+    const api = descriptor.slug
 
-    if (this.registry.has(slug)) {
+    // §7.5: station knows the instance name before construction begins
+    // and passes it through the feature options. A bare connect(SDK)
+    // with no name falls back to the descriptor slug, which is today's
+    // behaviour and why the single-instance case is unchanged.
+    const name = instanceRef(api, fopts)
+
+    // §7.1: the check moves to the instance key. Two clients of one api
+    // is the NORMAL case now; two bindings of one instance is still the
+    // error it was.
+    if (this.registry.has(name)) {
       throw new StationError('station_bound_twice',
-        'plugin "' + slug + '" is already registered; binding one client ' +
+        'instance "' + name + '" is already registered; binding one client ' +
         'twice is an error (§10.2)')
     }
 
-    const profilePlugin = this.profile.sdk[slug]
+    const profilePlugin = this.profile.sdk[name]
     // Secret name precedence: the feature option (in-code, design §9
     // config.options.secret) beats the profile, which beats the
-    // descriptor default.
+    // INSTANCE-derived default.
+    //
+    // §5.1: `secretnameDefault` takes the instance name, not the slug.
+    // For an untagged instance the two are the same string, so the
+    // single-instance case is unchanged to the byte - `voxgig-solardemo`
+    // still derives `voxgig_solardemo.apikey` and still reads
+    // VOXGIG_SOLARDEMO_APIKEY. `stripe$test` derives
+    // `stripe_test.apikey`, because each instance IS a separate
+    // credentialed use of the API.
+    //
+    // The descriptor's own `auth.secretname` stays the API-level
+    // default and is NOT used here (§7.4): one descriptor is shared by
+    // every instance of an api and cannot hold two instance-derived
+    // names, so whichever instance built the cached copy would report
+    // the other's secret metadata wrongly. This is the authority; that
+    // field is documentation.
     const secretname = firstNonEmpty(fopts?.secret, profilePlugin?.secret) ||
-      descriptor.auth.secretname
+      secretnameDefault(name)
     if (null != fopts?.secret && '' !== fopts.secret) {
-      this.secretOverride.set(slug, fopts.secret)
+      this.secretOverride.set(name, fopts.secret)
     }
 
     const rung = descriptor.auth.active ? 'R1' : 'none'
     const binding: Binding = {
-      plugin: slug,
-      placeholder: descriptor.auth.active ? placeholderFor(slug) : undefined,
+      plugin: name,
+      instance: api,
+      // §7.2: two live instances of one api MUST have distinct
+      // placeholders or the injection seam cannot tell which credential
+      // a header wants.
+      placeholder: descriptor.auth.active ? placeholderFor(name) : undefined,
       secretname: descriptor.auth.active ? secretname : undefined,
       rung,
     }
 
-    this.registry.set(slug, { slug, descriptor, rung, client, warnings })
+    this.registry.set(name, {
+      name, api, descriptor, rung, client, warnings,
+      secretname: descriptor.auth.active ? secretname : undefined,
+    })
 
     for (const w of warnings) {
-      this.emit({ t: Date.now(), kind: 'station', plugin: slug, meta: { warn: w } })
+      this.emit({
+        t: Date.now(), kind: 'station', plugin: name, api,
+        meta: { warn: w },
+      })
     }
     this.emit({
-      t: Date.now(), kind: 'construct', plugin: slug,
+      t: Date.now(), kind: 'construct', plugin: name, api,
       meta: { name: descriptor.name, version: descriptor.version, rung },
     })
 
     return { binding, profilePlugin }
   }
 
-  _hoist(slug: string, value: string): void {
-    this.broker.hoist(slug, value)
+  // §7.4: THE DESCRIPTOR IS SHARED, because it describes the api rather
+  // than any use of it. `normalizeDescriptor` runs once per api and
+  // every instance of that api holds a reference to the same object - at
+  // 26 instances over 20 apis that is 20 normalizations, not 26, and the
+  // canonical serialization the proxy dedupes registrations by is
+  // computed once per api too.
+  //
+  // Keyed by the slug the config carries, which is available before
+  // normalization only from the config itself, so the miss path
+  // normalizes and then keys on the result.
+  private descriptorCache = new Map<string, { descriptor: any, warnings: string[] }>()
+
+  private describe(config: any, feature: any):
+    { descriptor: any, warnings: string[] } {
+    const slug = String(config?.main?.slug ?? '')
+    if ('' !== slug) {
+      const hit = this.descriptorCache.get(slug)
+      if (null != hit) { return hit }
+    }
+    const out = normalizeDescriptor(config, feature)
+    this.descriptorCache.set(out.descriptor.slug, out)
+    return out
+  }
+
+  _hoist(name: string, value: string): void {
+    this.broker.hoist(name, value)
     this.emit({
-      t: Date.now(), kind: 'station', plugin: slug,
+      t: Date.now(), kind: 'station', plugin: name,
       meta: {
         warn: 'a resident credential was hoisted into the broker and ' +
           'replaced by the placeholder; prefer configuring the secret ' +
@@ -225,7 +347,7 @@ export class Station {
 
   // --- the transport middleware (design §3.3, §5.3) ---
 
-  async _transport(slug: string, inner: any, fctx: any, fullurl: string,
+  async _transport(name: string, inner: any, fctx: any, fullurl: string,
     fetchdef: any): Promise<any> {
 
     // Fail-closed means traffic (§2.1): with the proxy deferred,
@@ -234,14 +356,14 @@ export class Station {
     if (this.requireProxy) {
       const err = new StationError('station_no_proxy',
         'proxy: "require" is set and no proxy is attached')
-      this.emitErr(slug, fctx, err)
+      this.emitErr(name, fctx, err)
       return err
     }
 
-    const entry = this.registry.get(slug)
-    const placeholder = placeholderFor(slug)
+    const entry = this.registry.get(name)
+    const placeholder = placeholderFor(name)
     const live = 'live' === fctx.client._mode
-    const profilePlugin = this.profile.sdk[slug]
+    const profilePlugin = this.profile.sdk[name]
 
     // Egress policy (design §16), solo half: the hosts allowlist is
     // enforced at the seam every request crosses. When a policy is
@@ -256,8 +378,8 @@ export class Station {
       if (!hosts.includes(hostname)) {
         const err = new StationError('station_host_allow',
           'egress to "' + hostname + '" denied by the hosts policy of ' +
-          'plugin "' + slug + '"')
-        this.emitErr(slug, fctx, err)
+          'plugin "' + name + '"')
+        this.emitErr(name, fctx, err)
         return err
       }
     }
@@ -273,15 +395,15 @@ export class Station {
     // enter in-memory mock stores. Copy-on-inject: the object graph
     // reachable from ctx/spec/ctrl keeps the placeholder, ever (§5.3).
     if (live && null != entry && 'R1' === entry.rung) {
-      const secretname = firstNonEmpty(this.secretOverride.get(slug),
+      const secretname = firstNonEmpty(this.secretOverride.get(name),
         profilePlugin?.secret) || entry.descriptor.auth.secretname
 
       let value: string
       try {
-        value = await this.broker.value(slug, secretname)
+        value = await this.broker.value(name, secretname)
       }
       catch (e: any) {
-        this.emitErr(slug, fctx, e)
+        this.emitErr(name, fctx, e)
         return e instanceof Error ? e : new Error(String(e))
       }
 
@@ -302,21 +424,21 @@ export class Station {
       res = await inner(fctx, fullurl, senddef)
     }
     catch (e: any) {
-      this.emitHttp(slug, corr, fullurl, senddef, 0, started, 0)
-      this.emitErr(slug, fctx, e)
+      this.emitHttp(name, corr, fullurl, senddef, 0, started, 0)
+      this.emitErr(name, fctx, e)
       throw e
     }
 
     if (res instanceof Error) {
-      this.emitHttp(slug, corr, fullurl, senddef, 0, started, 0)
-      this.emitErr(slug, fctx, res)
+      this.emitHttp(name, corr, fullurl, senddef, 0, started, 0)
+      this.emitErr(name, fctx, res)
       return res
     }
 
     let bytes = 0
     const cl = res?.headers?.get?.('content-length')
     if (null != cl) { bytes = parseInt(cl, 10) || 0 }
-    this.emitHttp(slug, corr, fullurl, senddef, res?.status || 0, started, bytes)
+    this.emitHttp(name, corr, fullurl, senddef, res?.status || 0, started, bytes)
 
     return res
   }
@@ -338,9 +460,9 @@ export class Station {
     })
   }
 
-  private emitErr(slug: string, fctx: any, err: any): void {
+  private emitErr(name: string, fctx: any, err: any): void {
     this.emit({
-      t: Date.now(), kind: 'error', plugin: slug, corr: fctx?.station$?.corr,
+      t: Date.now(), kind: 'error', plugin: name, corr: fctx?.station$?.corr,
       err: {
         code: err?.code,
         // The scrub keeps an upstream echo of a credential out of the
@@ -351,10 +473,10 @@ export class Station {
   }
 
   // Op events from the hook bridge (design §3 item 3).
-  _opEvent(slug: string, ctx: any, outcome: string): void {
+  _opEvent(name: string, ctx: any, outcome: string): void {
     const st = ctx.station$ || {}
     this.emit({
-      t: Date.now(), kind: 'op', plugin: slug, corr: st.corr,
+      t: Date.now(), kind: 'op', plugin: name, corr: st.corr,
       // ctx.op is the SDK's resolved Operation: name + entity, in the
       // descriptor's lowercase spelling.
       op: {
@@ -368,15 +490,51 @@ export class Station {
 
   // --- the query/observe surface (design §3.2, §6) ---
 
-  plugins(): { slug: string, descriptor: any, rung: string, warnings: string[] }[] {
+  // One entry per LIVE INSTANCE (§6.1), and exhaustive: auto-tagged
+  // entries are not collapsed here, because inspection, health
+  // reporting and cleanup all need to enumerate the clients `create()`
+  // produced, which is exactly when you most want them. Truncation is a
+  // presentation decision and belongs to `status()`.
+  plugins(): {
+    name: string, api: string, slug: string, descriptor: any,
+    rung: string, secretname?: string, warnings: string[]
+  }[] {
     return Array.from(this.registry.values()).map((e) => ({
-      slug: e.slug,
+      name: e.name,
+      api: e.api,
+      // Retained: it is the api, which is what `slug` always meant here,
+      // and dropping it would break every consumer for no gain while
+      // the two are equal for untagged instances.
+      slug: e.api,
       descriptor: e.descriptor,
       rung: e.rung,
+      secretname: e.secretname,
       warnings: e.warnings.slice(),
     }))
   }
 
+  // Every DECLARED instance (§6.1) - a different question from
+  // `plugins()`, and the answers differ routinely: a lazily-started
+  // instance is `active: true` and not yet live.
+  instances(): ResolvedInstance[] {
+    const sdk = this.profile.sdk
+    return Object.keys(sdk).sort().map((name) => {
+      const entry = this.registry.get(name)
+      return {
+        name,
+        api: refapi(name),
+        // `active: false` means BARRED FROM RUNNING - a declaration that
+        // stays in the file and here while being refused a client.
+        active: false !== sdk[name].active,
+        live: null != entry,
+        rung: entry?.rung ?? 'none',
+        block: sdk[name],
+      }
+    })
+  }
+
+  // §7.4: accepts an INSTANCE name and returns its api's descriptor -
+  // one object shared by every instance of that api.
   descriptorOf(slug: string): any {
     const entry = this.registry.get(slug)
     if (null == entry) {

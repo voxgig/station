@@ -15,6 +15,9 @@ import { Station } from './Station'
 let corrSeq = 0
 
 export type FeatureBinding = {
+  // The INSTANCE name (§7.1). Keeps the field name so the generated
+  // adapter contract is unchanged; for a single-instance project it is
+  // the api slug, exactly as before.
   slug: string
   PrePoint(ctx: any): void
   PreDone(ctx: any): void
@@ -55,9 +58,16 @@ export function featureBinding(ctx: any, fopts: any): FeatureBinding | null {
       'feature order is [' + names.join(', ') + ']')
   }
 
+  // §7.5: registration is driven by station now. `fopts.instance` is
+  // where station puts the instance name it knew before construction
+  // began; `_register` reads it and falls back to the descriptor slug,
+  // which is today's behaviour for a bare connect(SDK).
   const reg = station._register(client, ctx.config, options, calleropts, fopts)
   const { binding, profilePlugin } = reg
-  const slug = binding.plugin
+  // The INSTANCE name, not the api slug. Everything below keys on it -
+  // the placeholder, the transport seam, the op events - because two
+  // live instances of one api must be distinguishable at each.
+  const name = binding.plugin
 
   // Base URL precedence (design §3.5): caller opts (7) beat the
   // profile (4), which beats the SDK's config default (1) already in
@@ -77,7 +87,7 @@ export function featureBinding(ctx: any, fopts: any): FeatureBinding | null {
     // prepare() output become placeholder-safe from here on.
     const resident = options.apikey
     if ('string' === typeof resident && '' !== resident && placeholder !== resident) {
-      station._hoist(slug, resident)
+      station._hoist(name, resident)
     }
     options.apikey = placeholder
   }
@@ -88,16 +98,16 @@ export function featureBinding(ctx: any, fopts: any): FeatureBinding | null {
   const inner = utility.fetcher
   if (true === (inner as any).__station__) {
     throw new StationError('station_bound_twice',
-      'plugin "' + slug + '" already carries a station wrap')
+      'plugin "' + name + '" already carries a station wrap')
   }
   const wrapped = async (fctx: any, fullurl: string, fetchdef: any) => {
-    return station._transport(slug, inner, fctx, fullurl, fetchdef)
+    return station._transport(name, inner, fctx, fullurl, fetchdef)
   }
   ;(wrapped as any).__station__ = true
   utility.fetcher = wrapped
 
   return {
-    slug,
+    slug: name,
 
     // Hook bridge (design §3 item 3): operation semantics correlated
     // with the HTTP events via a per-operation id on the SDK's own ctx.
@@ -105,10 +115,10 @@ export function featureBinding(ctx: any, fopts: any): FeatureBinding | null {
       opctx.station$ = { corr: 'c' + (++corrSeq), start: Date.now() }
     },
     PreDone(opctx: any): void {
-      station._opEvent(slug, opctx, resultOutcome(opctx))
+      station._opEvent(name, opctx, resultOutcome(opctx))
     },
     PreUnexpected(opctx: any): void {
-      station._opEvent(slug, opctx, 'unexpected')
+      station._opEvent(name, opctx, 'unexpected')
     },
   }
 }

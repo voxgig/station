@@ -1,6 +1,6 @@
 // @voxgig/station - one control surface for outbound integrations.
 
-export { Station } from './Station'
+export { Station, instanceRef } from './Station'
 export { adapterFeature, featureBinding } from './adapter'
 export type { FeatureBinding } from './adapter'
 export { StationError } from './error'

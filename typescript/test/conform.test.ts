@@ -21,6 +21,7 @@ import { isKnownCode } from '../src/error'
 import { placeholderFor } from '../src/secrets'
 import { resolveProfile } from '../src/profile'
 import { normalizeConfig, validateConfig } from '../src/shape'
+import { instanceRef } from '../src/Station'
 import { omnihome, specfile } from '../src/omnihome'
 
 // omni is a sibling checkout, not a published package (yet).
@@ -96,6 +97,13 @@ describe('station-conform', () => {
   test('instance', async () => {
     await R.runset(R.spec.instance, (vin: any) =>
       resolveProfile(denull(vin.config), vin.profile))
+  })
+
+  // §6.1's `as` rule: pure over (api, opts), so it is corpus-shaped
+  // rather than driver-shaped even though it decides a registry key.
+  test('instanceref', async () => {
+    await R.runset(R.spec.instanceref, (vin: any) =>
+      instanceRef(vin.api, vin.opts))
   })
 
   test('errors', async () => {

@@ -29,6 +29,10 @@ const CODES = [
   'station_config_secret',
   'station_secret_collision',
   'station_feature_reserved',
+
+  // Instances (design §6.4). `as` is a tag, not a free name: a full ref
+  // whose name is not the SDK's api slug is this.
+  'station_instance_api',
 ] as const
 
 export type StationErrorCode = typeof CODES[number]

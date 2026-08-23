@@ -6,7 +6,7 @@ run by every station port through [voxgig/omni](https://github.com/voxgig/omni)
 
 Sections here are the pure-contract half: `secretname`, `placeholder`,
 `descriptor`, `descriptorwarnings`, `canonical`, `config`, `instance`,
-`profile`, `errors`.
+`instanceref`, `profile`, `errors`.
 
 ## Two grammars, for as long as the rename is in flight
 

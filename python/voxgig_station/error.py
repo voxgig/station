@@ -29,6 +29,9 @@ CODES = (
     'station_config_secret',
     'station_secret_collision',
     'station_feature_reserved',
+
+    # Instances (design 6.4). `as` is a tag, not a free name.
+    'station_instance_api',
 )
 
 
