@@ -130,7 +130,7 @@ subtest 'close resets ambient and warns unmatched plugin keys' => sub {
                 station  => 1,
                 profiles => {
                     default =>
-                      { plugin => { 'typo-slug' => { base => 'http://x' } } }
+                      { sdk => { 'typo-slug' => { base => 'http://x' } } }
                 },
             }
         }
@@ -255,7 +255,7 @@ subtest 'profile base applied unless caller base wins' => sub {
         station  => 1,
         profiles => {
             default =>
-              { plugin => { 'gnarly-pets' => { base => 'http://profile:9' } } }
+              { sdk => { 'gnarly-pets' => { base => 'http://profile:9' } } }
         },
     };
     my $st = Voxgig::Station->new( { config => $config } );
@@ -405,7 +405,7 @@ subtest 'hosts policy denies off-list egress and forces manual redirects' => sub
                 station  => 1,
                 profiles => {
                     default => {
-                        plugin => {
+                        sdk => {
                             'gnarly-pets' => {
                                 policy =>
                                   { hosts => [ 'localhost', 'api.other.example' ] }

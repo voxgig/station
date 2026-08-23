@@ -14,6 +14,8 @@ use File::Basename ();
 use File::Spec ();
 use JSON::PP ();
 
+use Voxgig::Station::Descriptor ();
+
 use Voxgig::Station::Error ();
 
 use Exporter 'import';
@@ -87,6 +89,63 @@ sub _providers_of {
 # station.md 3.5, 5.2 - chain order decides which store wins, so a
 # positional merge would be actively dangerous). The `profile` corpus
 # section pins this.
+# The one block key carrying the timing rule: applied AFTER the merge,
+# never before (design 3.3, 4.2).
+our @MERGE_SENSITIVE = ('active');
+
+# `active` must be a real JSON boolean, not a truthy scalar: the corpus
+# compares the resolved instance by value, and perl's 1 serializes as a
+# number where every other port emits `true`.
+sub _block_defaults { return ( active => JSON::PP::true, feature => {} ); }
+
+# The api half of a ref is the substring before the first `$`, and an
+# untagged ref IS an api slug (design 3.4). LEXICAL, and that is the
+# point: under the old free-form identity which api an instance used was
+# itself a merged value, so a port that got the phasing wrong silently
+# picked another api's defaults.
+sub refapi {
+    my ($ref) = @_;
+    $ref = defined $ref ? "$ref" : '';
+    my $at = index( $ref, '$' );
+    return -1 == $at ? $ref : substr( $ref, 0, $at );
+}
+
+# Shallow merge, per key, left to right - each source over the one before
+# it. An overlay's `policy` REPLACES the base's entirely rather than
+# merging `hosts` into it; an allowlist that widens because two
+# precedence levels merged is the failure this rule prevents.
+sub _shallow {
+    my %out;
+    for my $src (@_) {
+        next unless _ismap($src);
+        %out = ( %out, %$src );
+    }
+    return \%out;
+}
+
+sub _sortedkeys {
+    my %keys;
+    for my $m (@_) {
+        next unless _ismap($m);
+        $keys{$_} = 1 for keys %$m;
+    }
+    return sort keys %keys;
+}
+
+# Merge the base profile ('default') with the selected overlay.
+#
+# Design 3.3's total order for the two block levels, lowest first:
+#
+#   base.api[<api>] + base.sdk[<ref>] + overlay.api[<api>] + overlay.sdk[<ref>]
+#
+# PROFILE SPECIFICITY OUTRANKS BLOCK SPECIFICITY, and this is ONE FLAT
+# LEFT-TO-RIGHT MERGE. It must not be reorganized into "collapse each
+# namespace, then put instance over api" - that lets every instance value
+# beat every api value, so a production `api.stripe.policy` would fail to
+# override a default profile's `sdk.stripe$test.policy`, silently keeping
+# the wider allowlist in production.
+#
+# `secrets.providers` replaces wholesale, never merges (3.5, 5.2).
 sub resolve_profile {
     my ( $config, $profile_name ) = @_;
 
@@ -103,30 +162,89 @@ sub resolve_profile {
     $providers = _providers_of($base) unless defined $providers;
     $providers = [ { kind => 'env' } ] unless defined $providers;
 
-    my %plugin;
-    for my $src ( $base->{plugin}, $overlay->{plugin} ) {
-        next unless _ismap($src);
-        for my $slug ( keys %$src ) {
-            next unless _ismap( $src->{$slug} );
-            $plugin{$slug} =
-              { %{ $plugin{$slug} || {} }, %{ $src->{$slug} } };
-        }
+    my $base_api = _ismap( $base->{api} )    ? $base->{api}    : {};
+    my $over_api = _ismap( $overlay->{api} ) ? $overlay->{api} : {};
+    my $base_sdk = _ismap( $base->{sdk} )    ? $base->{sdk}    : {};
+    my $over_sdk = _ismap( $overlay->{sdk} ) ? $overlay->{sdk} : {};
+
+    # The api-level defaults in effect for this profile. A REPORT, not an
+    # input to the instance merge below.
+    my %api;
+    for my $slug ( _sortedkeys( $base_api, $over_api ) ) {
+        $api{$slug} = _shallow( $base_api->{$slug}, $over_api->{$slug} );
     }
 
-    # A configured secret name sekreto would reject is caught at profile
-    # load, not first request (design station.md 14 station_secret_name).
-    for my $slug ( sort keys %plugin ) {
-        my $name = $plugin{$slug}{secret};
+    # An api block declares no instance of its own (3.1), so the ref set
+    # comes from the two `sdk` maps alone.
+    my %sdk;
+    for my $ref ( _sortedkeys( $base_sdk, $over_sdk ) ) {
+        my $a = refapi($ref);
+        my $merged = _shallow(
+            $base_api->{$a}, $base_sdk->{$ref},
+            $over_api->{$a}, $over_sdk->{$ref}
+        );
+
+        # Defaults are applied ONCE, to the fully merged instance. Had the
+        # overlay block carried a synthesized `active` into the merge, a
+        # one-key environment override would silently re-enable an
+        # integration the base declared inactive.
+        my %defaults = _block_defaults();
+        for my $k ( keys %defaults ) {
+            $merged->{$k} = $defaults{$k} unless exists $merged->{$k};
+        }
+
+        $sdk{$ref} = $merged;
+    }
+
+    _checksecrets( \%sdk, $profile_name );
+
+    return {
+        name => $profile_name, providers => $providers,
+        api  => \%api,        sdk       => \%sdk,
+    };
+}
+
+# A configured secret name sekreto would reject is caught at profile
+# load, not first request (14 station_secret_name) - and then the DERIVED
+# names are checked for uniqueness, because envtoken is lossy: it
+# collapses any run of non-alphanumerics to `_`, so `stripe$test` and an
+# untagged instance of a `stripe-test` api both derive
+# `stripe_test.apikey` and would silently share one credential.
+#
+# Two instances that EXPLICITLY name one secret are not a collision -
+# that is the shared-key case the api-level `secret` exists for.
+sub _checksecrets {
+    my ( $sdk, $profile_name ) = @_;
+    my @refs = sort keys %$sdk;
+
+    for my $ref (@refs) {
+        my $name = $sdk->{$ref}{secret};
         next if !defined $name;
         next if Voxgig::Sekreto::validname($name);
 
         Voxgig::Station::Error::fail( 'station_secret_name',
-            'profile "' . $profile_name . '" plugin "' . $slug
+            'profile "' . $profile_name . '" sdk "' . $ref
               . '": secret name rejected by sekreto: '
               . ( ref $name ? '(ref)' : '"' . $name . '"' ) );
     }
 
-    return { name => $profile_name, providers => $providers, plugin => \%plugin };
+    my %seen;
+    for my $ref (@refs) {
+        my $written = $sdk->{$ref}{secret};
+        my $derived = !defined $written || '' eq $written;
+        my $name =
+          $derived ? Voxgig::Station::Descriptor::secretname_default($ref) : $written;
+
+        if ( exists $seen{$name} && ( $derived || $seen{$name}[1] ) ) {
+            Voxgig::Station::Error::fail( 'station_secret_collision',
+                'profile "' . $profile_name . '": instances "' . $seen{$name}[0]
+                  . '" and "' . $ref . '" both resolve to secret name "' . $name
+                  . '", so they would share one credential; name it explicitly '
+                  . 'on each, or at the api level to share it deliberately (5.1)' );
+        }
+        $seen{$name} = [ $ref, $derived ] unless exists $seen{$name};
+    }
+    return;
 }
 
 1;

@@ -114,7 +114,13 @@ var (
 		return station.CanonicalSerialize(denull(args[0])), nil
 	})
 
-	PROFILE = omni.Subject(func(args ...any) (any, error) {
+	// The §3.3 merge, and the whole of this port's profile contract.
+	//
+	// The `profile` section is NOT run: it pins the pre-Stage-1 `plugin`
+	// grammar, which this port no longer speaks. It stays in the corpus
+	// for the ports that have not crossed the rename yet and is deleted
+	// when the last one does - see spec/README.md.
+	INSTANCE = omni.Subject(func(args ...any) (any, error) {
 		entry := entrymap(args[0])
 		// A NULLMARK config (spec null) is no config at all.
 		config := entrymap(entry["config"])
@@ -123,14 +129,19 @@ var (
 		if nil != err {
 			return nil, err
 		}
-		plugin := map[string]any{}
-		for slug, one := range resolved.Plugin {
-			plugin[slug] = one
+		api := map[string]any{}
+		for slug, one := range resolved.Api {
+			api[slug] = one
+		}
+		sdk := map[string]any{}
+		for ref, one := range resolved.Sdk {
+			sdk[ref] = one
 		}
 		return map[string]any{
 			"name":      resolved.Name,
 			"providers": resolved.Providers,
-			"plugin":    plugin,
+			"api":       api,
+			"sdk":       sdk,
 		}, nil
 	})
 
@@ -160,7 +171,7 @@ func TestStation(t *testing.T) {
 		{"descriptor", DESCRIPTOR},
 		{"descriptorwarnings", DESCRIPTORWARNINGS},
 		{"canonical", CANONICAL},
-		{"profile", PROFILE},
+		{"instance", INSTANCE},
 		{"errors", ERRORS},
 	}
 

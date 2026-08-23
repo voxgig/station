@@ -186,7 +186,13 @@ testcase('descriptorwarnings', fn() => $runset($spec['descriptorwarnings'],
 testcase('canonical', fn() => $runset($spec['canonical'],
     fn($vin) => canonical_serialize(denull($vin))));
 
-testcase('profile', fn() => $runset($spec['profile'],
+// The 3.3 merge, and the whole of this port's profile contract.
+//
+// The `profile` section is NOT run here: it pins the pre-Stage-1
+// `plugin` grammar, which this port no longer speaks. It stays in the
+// corpus for the ports that have not crossed the rename yet and is
+// deleted when the last one does - see spec/README.md.
+testcase('instance', fn() => $runset($spec['instance'],
     fn($vin) => resolve_profile(denull($vin['config']), $vin['profile'])));
 
 testcase('errors', fn() => $runset($spec['errors'], fn($code) => known_code($code)));
@@ -330,7 +336,7 @@ testcase('open_is_idempotent_and_conflicts_error', function () {
 testcase('close_resets_ambient_and_warns_unmatched_plugin_keys', function () {
     $st = Station::open(['config' => [
         'station' => 1,
-        'profiles' => ['default' => ['plugin' => ['typo-slug' => ['base' => 'http://x']]]],
+        'profiles' => ['default' => ['sdk' => ['typo-slug' => ['base' => 'http://x']]]],
     ]]);
     $st->close();
     $warns = array_values(array_filter($st->events(), fn($e) =>
@@ -416,7 +422,7 @@ testcase('profile_base_applied_unless_caller_base_wins', function () {
     $config = [
         'station' => 1,
         'profiles' => ['default' => [
-            'plugin' => ['gnarly-pets' => ['base' => 'http://profile:9']],
+            'sdk' => ['gnarly-pets' => ['base' => 'http://profile:9']],
         ]],
     ];
     $st = new Station(['config' => $config]);
@@ -521,7 +527,7 @@ testcase('hosts_policy_denies_off_list_egress', function () {
     putenv('GNARLY_PETS_APIKEY=k');
     $st = new Station(['config' => [
         'station' => 1,
-        'profiles' => ['default' => ['plugin' => [
+        'profiles' => ['default' => ['sdk' => [
             'gnarly-pets' => ['policy' => ['hosts' => ['api.other.example']]],
         ]]],
     ]]);
@@ -543,7 +549,7 @@ testcase('hosts_policy_marks_redirects_manual', function () {
     putenv('GNARLY_PETS_APIKEY=k');
     $st = new Station(['config' => [
         'station' => 1,
-        'profiles' => ['default' => ['plugin' => [
+        'profiles' => ['default' => ['sdk' => [
             'gnarly-pets' => ['policy' => ['hosts' => ['localhost']]],
         ]]],
     ]]);

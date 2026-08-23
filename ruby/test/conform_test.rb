@@ -67,8 +67,14 @@ class TestStationConform < Minitest::Test
     })
   end
 
-  def test_profile
-    RUNSET.call(SPEC['profile'], lambda { |vin|
+  # The 3.3 merge, and the whole of this port's profile contract.
+  #
+  # The `profile` section is NOT run here: it pins the pre-Stage-1
+  # `plugin` grammar, which this port no longer speaks. It stays in the
+  # corpus for the ports that have not crossed the rename yet and is
+  # deleted when the last one does - see spec/README.md.
+  def test_instance
+    RUNSET.call(SPEC['instance'], lambda { |vin|
       VoxgigStation.resolve_profile(denull(vin['config']), vin['profile'])
     })
   end
