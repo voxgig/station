@@ -77,11 +77,6 @@ describe('station-conform', () => {
     await R.runset(R.spec.canonical, (vin: any) => canonicalSerialize(denull(vin)))
   })
 
-  test('profile', async () => {
-    await R.runset(R.spec.profile, (vin: any) =>
-      resolveProfile(denull(vin.config), vin.profile))
-  })
-
   // Normalize, then validate (design §4.2). The entry is a RAW config
   // in, and either the normalized output or the expected error out -
   // the two steps are one pipeline and a port that splits them is free
@@ -91,9 +86,13 @@ describe('station-conform', () => {
       validateConfig(normalizeConfig(denull(vin))))
   })
 
-  // The §3.3 merge. Same entry point as `profile`; the section is
-  // separate because it pins the BLOCK levels rather than the profile
-  // ones, and its two regression guards are the reason it exists.
+  // The §3.3 merge, and the whole of this port's profile contract.
+  //
+  // The `profile` section is NOT run here: it pins the pre-Stage-1
+  // `plugin` grammar, which this port no longer speaks. It stays in the
+  // corpus for the ports that have not crossed the rename yet and is
+  // deleted when the last one does - see spec/README.md. Everything it
+  // pins is restated below in the sdk/api grammar.
   test('instance', async () => {
     await R.runset(R.spec.instance, (vin: any) =>
       resolveProfile(denull(vin.config), vin.profile))

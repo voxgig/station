@@ -203,7 +203,7 @@ class Station:
                     'plugin "' + slug + '" is already registered; binding one '
                     'client twice is an error (10.2)')
 
-            profile_plugin = self._profile['plugin'].get(slug)
+            profile_plugin = self._profile['sdk'].get(slug)
             # Secret name precedence: the feature option (in-code, design
             # station.md 9 config.options.secret) beats the profile, which
             # beats the descriptor default.
@@ -274,7 +274,7 @@ class Station:
         # (design station.md 3.3 - never inject into mock transports).
         client = getattr(fctx, 'client', None)
         live = 'live' == getattr(client, 'mode', None)
-        profile_plugin = self._profile['plugin'].get(slug) or {}
+        profile_plugin = self._profile['sdk'].get(slug) or {}
 
         # Egress policy (design station.md 16), solo half: the hosts
         # allowlist is enforced at the seam every request crosses. When a
@@ -479,7 +479,7 @@ class Station:
             return
         with self._lock:
             registered = set(self._registry.keys())
-        for slug in self._profile['plugin'].keys():
+        for slug in self._profile['sdk'].keys():
             if slug not in registered:
                 self._emit({
                     't': _now_ms(), 'kind': 'station',

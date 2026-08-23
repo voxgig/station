@@ -31,6 +31,14 @@ my @CODES = qw(
   station_replay_lossy
   station_open_conflict
   station_bound_twice
+
+  # Declarative config (design 6.4). Only the reference ports raise
+  # the config-validation codes so far (Stage 1); the catalog is
+  # repo-wide, so every port knows them.
+  station_config_invalid
+  station_config_secret
+  station_secret_collision
+  station_feature_reserved
 );
 
 my %KNOWN = map { $_ => 1 } @CODES;

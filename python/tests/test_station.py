@@ -297,7 +297,7 @@ class TestBinding(unittest.TestCase):
     def test_hosts_policy_denies_off_list_egress(self):
         st = Station({'config': {
             'station': 1,
-            'profiles': {'default': {'plugin': {
+            'profiles': {'default': {'sdk': {
                 'gnarly-pets': {'policy': {'hosts': ['api.other.example']}},
             }}},
         }})
@@ -311,7 +311,7 @@ class TestBinding(unittest.TestCase):
     def test_hosts_policy_sends_manual_redirects(self):
         st = Station({'config': {
             'station': 1,
-            'profiles': {'default': {'plugin': {
+            'profiles': {'default': {'sdk': {
                 'gnarly-pets': {'policy': {'hosts': ['localhost']}},
             }}},
         }})
