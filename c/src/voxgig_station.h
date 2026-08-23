@@ -413,7 +413,7 @@ void vxstn_refresh_secrets(vxstn_station* st);
 /* The resolved profile's plugin entry for a slug (borrowed; NULL when
  * none). The adapter reads policy through vxstn_host_allowed; this is
  * for tests and status surfaces. */
-const vxstn_val* vxstn_profile_plugin(vxstn_station* st, const char* slug);
+const vxstn_val* vxstn_profile_sdk(vxstn_station* st, const char* slug);
 
 /* Milliseconds since the epoch (event timestamps). */
 int64_t vxstn_now_ms(void);

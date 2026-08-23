@@ -743,17 +743,31 @@ chain is a list; sekreto checks what is in it.
   defects.
 
   Until the upstream fix lands, **`validateConfig` carries an explicit
-  first-element check for `policy.hosts`** — three lines, applied where
-  the shape cannot reach, raising the same `station_config_invalid` the
-  shape would, and pinned in the corpus so the workaround is removed
-  deliberately rather than forgotten.
+  first-element check for every string list the shape reaches** —
+  `policy.hosts`, and §8.4's per-feature `order.before` and
+  `order.after` — applied where the shape cannot, raising the same
+  `station_config_invalid` the shape would, and pinned in the corpus so
+  the workaround is removed deliberately rather than forgotten.
 
-  This check used to cover a second list, the profile-level `order`.
-  That list is gone (§8.4): ordering is per-feature constraints and
-  bands, so there is no string array left to mis-type. The `hosts`
-  failure was always closed rather than open — a non-string host
-  matches no request, so traffic is denied — which is why one narrow
-  check now suffices where two were needed.
+  **An earlier draft of this paragraph said the reach was `hosts`
+  alone.** Its reasoning was that the check "used to cover a second
+  list, the profile-level `order`", and that list is indeed gone (§8.4)
+  — but ordering did not stop using string arrays when it moved to
+  constraints, it acquired two of them per feature. §4.5's own
+  `order: [7]` row assumes the check, and §4.3's shape carries
+  `before`/`after` as `` `$CHILD` `` lists. So the count went from two
+  to three while the prose recorded it going to one, which is the same
+  class of error the paragraph above already warns about: a documented
+  defect becoming two defects because a rewrite was not revisited.
+
+  The `hosts` failure is closed rather than open — a non-string host
+  matches no request, so traffic is denied — while a non-string first
+  constraint is simply ignored, so the `order` pair fails open. That
+  asymmetry is the argument for checking all three rather than the
+  loudest one.
+
+  Filed upstream as voxgig/struct#113, with the reproduction: element 0
+  is skipped at **any** list length, so `[1, "b"]` validates clean.
 
 ### 4.5 What the shape catches
 
@@ -781,7 +795,7 @@ section of the conformance corpus (§10.1).
 | the §8.2 three-level feature config | passes |
 | `profiles.default.features` (typo for `feature`) | `Unexpected keys at field profiles.default: features` |
 | `feature.retry.active: "yes"` | `Expected field ... .active to be boolean, but found string: yes` |
-| `order: ["test", 7]` | `to be one of nil, [child,string]` |
+| `order: ["test", 7]` | `to be one of nil, string, [child,string]` |
 | `feature: []` | `Expected field profiles.default.feature to be object, but found list` |
 | `feature.retry.retires: 5` | **passes statically** — caught at registration by §8.5, with the declared key list |
 | `order: [7]` | **passes the shape** (the §4.4 element-0 gap) — caught by `validateConfig`'s explicit first-element check |
@@ -1862,7 +1876,13 @@ library exists.**
 
 - **`config` (new)** — normalize-then-validate over the §4.5 table: each
   case is a raw config in, and either the normalized output or the
-  expected error set out. This is the section that makes the grammar
+  expected error set out. **The whole of §4.5's table lives here**,
+  including the three rows this section once assigned to `feature`
+  (`feature.station`, `options.feature`, and the first-element checks).
+  They are `validateConfig`'s behaviour, they need no feature merge to
+  evaluate, and Stage 1's exit cannot be met without them; `feature`
+  re-pins the feature-side halves against the three-level merge, which
+  is a different assertion about the same rules. This is the section that makes the grammar
   identical in 22 languages. It carries §5.2's `secret`-key rule as
   four cases that a character-class check alone would get wrong: a real
   name accepted (`voxgig_solardemo.apikey`), a multi-word name accepted
@@ -1913,7 +1933,9 @@ library exists.**
   under C4 (`station-and-plugin-plan.md` §3). Feature *option* checking is descriptor-dependent, so
   it lives in the integration suites (§10.2) with a small
   descriptor-shaped fixture, not in the JSON corpus. Three rules that
-  *are* pure data go in: `feature.station` reserved, `options.feature`
+  *are* pure data are pinned by the **`config`** section rather than
+  here, because they are `validateConfig`'s behaviour and Stage 1's exit
+  criterion binds them: `feature.station` reserved, `options.feature`
   reserved, and the explicit first-element checks for `order` and
   `policy.hosts` — the last pinned so the §4.4 workaround is removed
   deliberately when struct is fixed, not forgotten.
@@ -1924,8 +1946,8 @@ library exists.**
   multi-instance cases.
 - **`placeholder` (amended)** — keyed by instance.
 
-A guard test asserts the two block specs in `config-shape.json` differ
-only by the `api` key (§3.1) — the sdkgen discipline for data that must
+A guard test asserts the two block specs in `config-shape.json` are
+**identical** (§3.1) — the sdkgen discipline for data that must
 be duplicated.
 
 ### 10.2 The integration test that is the requirement

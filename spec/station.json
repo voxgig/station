@@ -1307,6 +1307,42 @@
      {
       "in": "station_feature_reserved",
       "out": true
+     },
+     {
+      "in": "station_instance_api",
+      "out": true
+     },
+     {
+      "in": "station_no_instance",
+      "out": true
+     },
+     {
+      "in": "station_instance_inactive",
+      "out": true
+     },
+     {
+      "in": "station_sdk_load",
+      "out": true
+     },
+     {
+      "in": "station_no_factory",
+      "out": true
+     },
+     {
+      "in": "station_factory_conflict",
+      "out": true
+     },
+     {
+      "in": "station_feature_unknown",
+      "out": true
+     },
+     {
+      "in": "station_feature_option",
+      "out": true
+     },
+     {
+      "in": "station_feature_order",
+      "out": true
      }
     ]
    },
@@ -1910,6 +1946,84 @@
      }
     ]
    },
+   "instanceref": {
+    "set": [
+     {
+      "doc": true,
+      "id": "instanceref#bare-connect-is-the-slug",
+      "in": {
+       "api": "stripe",
+       "opts": {}
+      },
+      "out": "stripe"
+     },
+     {
+      "doc": true,
+      "id": "instanceref#as-is-a-tag",
+      "in": {
+       "api": "stripe",
+       "opts": {
+        "as": "test"
+       }
+      },
+      "out": "stripe$test"
+     },
+     {
+      "doc": true,
+      "id": "instanceref#full-ref-accepted",
+      "in": {
+       "api": "stripe",
+       "opts": {
+        "as": "stripe$test"
+       }
+      },
+      "out": "stripe$test"
+     },
+     {
+      "doc": true,
+      "err": "station_instance_api",
+      "id": "instanceref#wrong-api-is-refused",
+      "in": {
+       "api": "stripe",
+       "opts": {
+        "as": "other$test"
+       }
+      }
+     },
+     {
+      "id": "instanceref#declarative-instance-wins",
+      "in": {
+       "api": "stripe",
+       "opts": {
+        "as": "test",
+        "instance": "stripe$eu"
+       }
+      },
+      "out": "stripe$eu"
+     },
+     {
+      "err": "station_instance_api",
+      "id": "instanceref#declarative-instance-is-validated-too",
+      "in": {
+       "api": "stripe",
+       "opts": {
+        "instance": "nope$eu"
+       }
+      }
+     },
+     {
+      "doc": true,
+      "id": "instanceref#a-dollarless-string-is-always-a-tag",
+      "in": {
+       "api": "stripe",
+       "opts": {
+        "as": "stripe"
+       }
+      },
+      "out": "stripe$stripe"
+     }
+    ]
+   },
    "placeholder": {
     "set": [
      {
@@ -1919,6 +2033,17 @@
      {
       "in": "solardemo",
       "out": "[station:solardemo]"
+     },
+     {
+      "doc": true,
+      "id": "placeholder#instance-keyed",
+      "in": "stripe$test",
+      "out": "[station:stripe$test]"
+     },
+     {
+      "id": "placeholder#sibling-instance-differs",
+      "in": "stripe$live",
+      "out": "[station:stripe$live]"
      }
     ]
    },

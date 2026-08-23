@@ -110,7 +110,7 @@ public final class StationTest {
   static final Subject CANONICAL = args ->
       Descriptor.canonicalSerialize(denull(args[0]));
 
-  static final Subject PROFILE = args -> {
+  static final Subject INSTANCE = args -> {
     Map<?, ?> vin = (Map<?, ?>) args[0];
     return Profile.resolveProfile(vin.get("config"), String.valueOf(vin.get("profile")));
   };
@@ -159,7 +159,7 @@ public final class StationTest {
     Map<String, Object> profile = map(
         "secrets", map("providers", List.of(map("kind", "memory", "values", values))));
     if (null != plugin) {
-      profile.put("plugin", plugin);
+      profile.put("sdk", plugin);
     }
     Map<String, Object> config = map(
         "station", 1, "profiles", map("default", profile));
@@ -210,7 +210,11 @@ public final class StationTest {
     testcase("descriptor", () -> R.runset(R.set("descriptor"), DESCRIPTOR));
     testcase("descriptorwarnings", () -> R.runset(R.set("descriptorwarnings"), DESCWARN));
     testcase("canonical", () -> R.runset(R.set("canonical"), CANONICAL));
-    testcase("profile", () -> R.runset(R.set("profile"), PROFILE));
+    // The 3.3 merge, and the whole of this port's profile contract. The
+    // `profile` section is NOT run: it pins the pre-Stage-1 `plugin`
+    // grammar, which this port no longer speaks. It stays in the corpus
+    // for the ports that have not crossed yet - see spec/README.md.
+    testcase("instance", () -> R.runset(R.set("instance"), INSTANCE));
     testcase("errors", () -> R.runset(R.set("errors"), ERRORS));
 
     // Focused unit cases: the mechanics the corpus cannot reach.

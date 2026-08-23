@@ -6,7 +6,7 @@ run by every station port through [voxgig/omni](https://github.com/voxgig/omni)
 
 Sections here are the pure-contract half: `secretname`, `placeholder`,
 `descriptor`, `descriptorwarnings`, `canonical`, `config`, `instance`,
-`profile`, `errors`.
+`instanceref`, `profile`, `errors`.
 
 ## Two grammars, for as long as the rename is in flight
 
@@ -17,8 +17,8 @@ one it implements:
 
 | section | grammar | run by |
 |---|---|---|
-| `instance` | `sdk` / `api` refs, the §3.3 four-source merge | ports on Stage 1 |
-| `profile` | the pre-Stage-1 `plugin` key | ports not yet moved |
+| `instance` | `sdk` / `api` refs, the §3.3 four-source merge | **all eleven CI ports** |
+| `profile` | the pre-Stage-1 `plugin` key | the five toolchain-gated ports |
 
 `instance` is a superset: everything `profile` pins is restated there in
 the new grammar, alongside the two regression guards that are the reason
@@ -26,12 +26,23 @@ the section exists - **defaults applied after the merge** (a one-key
 overlay must not overwrite the base's `active: false`) and **a name and
 an untagged ref are the same key string**.
 
-**`profile` is deleted when the last port crosses**, not before. A port
-that has not been ported should keep the coverage it has rather than
-skip a section and quietly test nothing - which is the failure mode this
-table exists to avoid. `config` is TypeScript-only for now because
-`validateConfig` is ported in Stage 5; sections are opt-in per port, so
-that costs the others nothing.
+**What is left, precisely.** `lua`, `dart`, `elixir`, `csharp` and
+`swift` are not in the Makefile's `RUNNABLE` list and do not run in CI,
+so a change to them cannot be verified here or there. They keep the
+`plugin` grammar and keep running `profile`. **`profile` is deleted when
+those five cross**, together with this table.
+
+That is a deliberate stopping point rather than an oversight: porting a
+language whose toolchain is absent means shipping an implementation
+nobody has executed, and the corpus is the whole reason this repo does
+not do that. Whoever has those toolchains should port them the way the
+eleven were ported - the `instance` section is the specification, and it
+is executable.
+
+`config`, `instanceref` and the feature sections are TypeScript-only for
+now because `validateConfig`, `instanceRef` and `feature.ts` are ported
+in Stage 5's later tranches; sections are opt-in per port, so that costs
+the others nothing.
 
 The sections that need live SDK machinery - `inject` (copy-on-inject,
 placeholder-safe `ctrl.explain`), `order` (wrap position, retry

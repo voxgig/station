@@ -159,11 +159,17 @@ group(
     }
 );
 
+# The 3.3 merge, and the whole of this port's profile contract.
+#
+# The `profile` section is NOT run here: it pins the pre-Stage-1 `plugin`
+# grammar, which this port no longer speaks. It stays in the corpus for
+# the ports that have not crossed the rename yet and is deleted when the
+# last one does - see spec/README.md.
 group(
-    'profile',
+    'instance',
     sub {
         $runset->(
-            $spec->{profile},
+            $spec->{instance},
             sub {
                 my ($vin) = @_;
                 return resolve_profile( denull( $vin->{config} ), $vin->{profile} );

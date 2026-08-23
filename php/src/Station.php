@@ -233,7 +233,7 @@ class Station
         }
 
         $fopts = is_array($fopts) ? $fopts : [];
-        $profile_plugin = $this->profile['plugin'][$slug] ?? null;
+        $profile_plugin = $this->profile['sdk'][$slug] ?? null;
 
         // Secret name precedence: the feature option (in-code, design
         // station.md 9 config.options.secret) beats the profile, which
@@ -315,7 +315,7 @@ class Station
         $entry = $this->registry[$slug] ?? null;
         $placeholder = placeholder_for($slug);
         $live = 'live' === ($fctx->client->mode ?? null);
-        $profile_plugin = $this->profile['plugin'][$slug] ?? null;
+        $profile_plugin = $this->profile['sdk'][$slug] ?? null;
 
         // Egress policy (design station.md 16), solo half: the hosts
         // allowlist is enforced at the seam every request crosses. When
@@ -534,7 +534,7 @@ class Station
         if ($this->closed) {
             return;
         }
-        foreach (array_keys($this->profile['plugin']) as $slug) {
+        foreach (array_keys($this->profile['sdk']) as $slug) {
             if (!isset($this->registry[$slug])) {
                 $this->emit([
                     't' => now_ms(), 'kind' => 'station',

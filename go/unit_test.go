@@ -404,7 +404,7 @@ func TestHostsPolicy(t *testing.T) {
 						map[string]any{"kind": "memory",
 							"values": map[string]string{"FAKEPAD_APIKEY": "k"}},
 					}},
-					"plugin": map[string]any{
+					"sdk": map[string]any{
 						"fakepad": map[string]any{
 							"policy": map[string]any{"hosts": []any{"localhost"}},
 						},
@@ -550,7 +550,7 @@ func TestCloseWarnsOnUnmatchedProfilePluginKeys(t *testing.T) {
 			"station": 1,
 			"profiles": map[string]any{
 				"default": map[string]any{
-					"plugin": map[string]any{"typod": map[string]any{"base": "http://x"}},
+					"sdk": map[string]any{"typod": map[string]any{"base": "http://x"}},
 				},
 			},
 		},
@@ -610,7 +610,7 @@ func TestProfileBaseAppliesWhenCallerSetsNone(t *testing.T) {
 				"station": 1,
 				"profiles": map[string]any{
 					"default": map[string]any{
-						"plugin": map[string]any{
+						"sdk": map[string]any{
 							"fakepad": map[string]any{"base": "http://profile:9"},
 						},
 					},

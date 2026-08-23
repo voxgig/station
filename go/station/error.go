@@ -30,6 +30,22 @@ var codes = []string{
 	"station_config_secret",
 	"station_secret_collision",
 	"station_feature_reserved",
+
+	// Instances (design §6.4). `as` is a tag, not a free name.
+	"station_instance_api",
+
+	// The declarative front door (design §6.4). Availability errors are
+	// fatal at first use, not at open().
+	"station_no_instance",
+	"station_instance_inactive",
+	"station_sdk_load",
+	"station_no_factory",
+	"station_factory_conflict",
+
+	// Features (design §8.4, §8.5).
+	"station_feature_unknown",
+	"station_feature_option",
+	"station_feature_order",
 }
 
 // Error is anything station refuses to do, carrying its catalog code.

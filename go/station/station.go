@@ -292,7 +292,7 @@ func (st *Station) register(client any, config map[string]any,
 				"twice is an error (§10.2)"))
 	}
 
-	profilePlugin := st.profile.Plugin[slug]
+	profilePlugin := st.profile.Sdk[slug]
 
 	// Secret name precedence: the feature option (in-code, design §9
 	// config.options.secret) beats the profile, which beats the
@@ -369,7 +369,7 @@ func (st *Station) transport(entry *PluginEntry, mode func() string,
 	live := "live" == mode()
 
 	st.mu.Lock()
-	profilePlugin := st.profile.Plugin[slug]
+	profilePlugin := st.profile.Sdk[slug]
 	override := st.secretOverride[slug]
 	st.mu.Unlock()
 
@@ -723,7 +723,7 @@ func (st *Station) Close() {
 		return
 	}
 	unmatched := []string{}
-	for slug := range st.profile.Plugin {
+	for slug := range st.profile.Sdk {
 		if _, has := st.registry[slug]; !has {
 			unmatched = append(unmatched, slug)
 		}

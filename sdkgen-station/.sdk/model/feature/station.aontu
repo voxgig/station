@@ -7,6 +7,18 @@ main: kit: feature: station: {
   active: true
   base: 'BASE'
 
+  # The transport ROLE (station design §8.4). `station` WRAPS: it takes
+  # `const inner = utility.fetcher` and calls through. Only `test` is
+  # `base` - it replaces the slot outright - and the hook-only features
+  # are `none`.
+  #
+  # The roles CANNOT BE INFERRED: the obvious signal, an empty `hook: {}`,
+  # is wrong for exactly this feature, which both wraps AND dispatches
+  # hooks. Station reads it from the descriptor to validate the resolved
+  # order, and degrades to composing without role checks where it is
+  # absent, so declaring it here is what turns those checks on.
+  transport: 'wrap'
+
   config: {
     options: {
       # Binding is opt-in per client; connect()/adopt()/st.options()
@@ -20,6 +32,15 @@ main: kit: feature: station: {
       profile: ''
       # secret name override ('' = the descriptor default)
       secret: ''
+      # The INSTANCE name this client registers under (station design
+      # §7.5). Station knows it before construction begins and passes it
+      # here; '' falls back to the descriptor slug, which is what a bare
+      # connect(SDK) does and why the single-instance case is unchanged.
+      #
+      # Declared rather than left to the `$OPEN` feature spec so that
+      # station's own §8.5 checker, which reads this option list from the
+      # descriptor, recognises it instead of reporting it unknown.
+      instance: ''
       # register the descriptor with the station at construction
       register: true
       # event capture level: meta | headers | body

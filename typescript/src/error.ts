@@ -29,6 +29,22 @@ const CODES = [
   'station_config_secret',
   'station_secret_collision',
   'station_feature_reserved',
+
+  // Instances (design §6.4). `as` is a tag, not a free name: a full ref
+  // whose name is not the SDK's api slug is this.
+  'station_instance_api',
+  'station_no_instance',
+  'station_instance_inactive',
+  'station_sdk_load',
+  'station_no_factory',
+  'station_factory_conflict',
+
+  // Features (design §8.4, §8.5). The checker is derived from the SDK's
+  // own declaration, so a feature typo is a CI failure rather than a
+  // setting that quietly did nothing in production.
+  'station_feature_unknown',
+  'station_feature_option',
+  'station_feature_order',
 ] as const
 
 export type StationErrorCode = typeof CODES[number]

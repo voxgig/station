@@ -288,7 +288,7 @@ impl Station {
 
     /// The profile's entry for one plugin, or None.
     pub(crate) fn profile_plugin(&self, slug: &str) -> Option<&Json> {
-        self.profile.plugin.get(slug)
+        self.profile.sdk.get(slug)
     }
 
     pub(crate) fn require_proxy(&self) -> bool {
@@ -431,7 +431,7 @@ impl Station {
         if self.closed.get() {
             return;
         }
-        for slug in self.profile.plugin.keys() {
+        for slug in self.profile.sdk.keys() {
             if !self.registry.borrow().contains_key(slug) {
                 self.emit(StationEvent {
                     t: now_ms(),

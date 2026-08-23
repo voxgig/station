@@ -150,7 +150,7 @@ class TestStation < Minitest::Test
   def test_close_resets_ambient_and_warns_unmatched_plugin_keys
     st = VoxgigStation::Station.open('config' => {
       'station' => 1,
-      'profiles' => { 'default' => { 'plugin' => { 'typo-slug' => { 'base' => 'http://x' } } } },
+      'profiles' => { 'default' => { 'sdk' => { 'typo-slug' => { 'base' => 'http://x' } } } },
     })
     st.close
     warns = st.events.select do |e|
@@ -246,7 +246,7 @@ class TestStation < Minitest::Test
     config = {
       'station' => 1,
       'profiles' => { 'default' => {
-        'plugin' => { 'gnarly-pets' => { 'base' => 'http://profile:9' } },
+        'sdk' => { 'gnarly-pets' => { 'base' => 'http://profile:9' } },
       } },
     }
     st = VoxgigStation::Station.new('config' => config)
@@ -349,7 +349,7 @@ class TestStation < Minitest::Test
     ENV['GNARLY_PETS_APIKEY'] = 'k'
     st = VoxgigStation::Station.new('config' => {
       'station' => 1,
-      'profiles' => { 'default' => { 'plugin' => {
+      'profiles' => { 'default' => { 'sdk' => {
         'gnarly-pets' => { 'policy' => { 'hosts' => ['api.other.example'] } },
       } } },
     })

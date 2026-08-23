@@ -6,6 +6,10 @@ import { StationError } from './error'
 // broker holds resolved values privately - they never enter options,
 // events, or captures; the SDK sees only the placeholder.
 
+// §7.2: keyed by INSTANCE. Two live instances of one api must have
+// distinct placeholders or the injection seam cannot tell which
+// credential a header wants. For an untagged instance this is the api
+// slug, so the single-instance case is unchanged.
 export function placeholderFor(slug: string): string {
   return '[station:' + slug + ']'
 }
@@ -32,11 +36,21 @@ export class SecretBroker {
   // station_secret_no_value, a store that could not answer is
   // station_secret_error with sekreto's message intact - and never a
   // retry against a weaker store (sekreto owns the chain).
+  // OVERRIDES ARE KEYED BY INSTANCE; THE RESOLUTION CACHE IS KEYED BY
+  // SECRET NAME (§5.3). A hoisted credential belongs to the one instance
+  // it was resident in, but a resolved VALUE belongs to the name it was
+  // resolved for - so several instances sharing one api-level `secret`
+  // cost one lookup rather than one each, and every client an
+  // auto-tagged `create()` produces shares the declared instance's entry
+  // instead of re-resolving per request.
+  //
+  // Keying the cache by instance instead is the defect this replaces: at
+  // 26 instances over 20 apis it turns one store round-trip into 26.
   async value(slug: string, name: string): Promise<string> {
     const override = this.overrides.get(slug)
     if (null != override) { return override }
 
-    const cached = this.cache.get(slug)
+    const cached = this.cache.get(name)
     if (null != cached) { return cached }
 
     let value: string
@@ -51,7 +65,7 @@ export class SecretBroker {
       throw new StationError('station_secret_error', String(e?.message || e))
     }
 
-    this.cache.set(slug, value)
+    this.cache.set(name, value)
     this.held.push(value)
     return value
   }

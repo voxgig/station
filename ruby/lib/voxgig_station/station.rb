@@ -177,7 +177,7 @@ module VoxgigStation
             'client twice is an error (10.2)')
         end
 
-        profile_plugin = @profile['plugin'][slug]
+        profile_plugin = @profile['sdk'][slug]
 
         # Secret name precedence: the feature option (in-code, design
         # station.md 9 config.options.secret) beats the profile, which
@@ -246,7 +246,7 @@ module VoxgigStation
       entry = @registry_mutex.synchronize { @registry[slug] }
       placeholder = VoxgigStation.placeholder_for(slug)
       live = 'live' == fctx.client.mode
-      profile_plugin = @profile['plugin'][slug]
+      profile_plugin = @profile['sdk'][slug]
 
       # Egress policy (design station.md 16), solo half: the hosts
       # allowlist is enforced at the seam every request crosses. The
@@ -431,7 +431,7 @@ module VoxgigStation
       return if @closed
 
       registered = @registry_mutex.synchronize { @registry.keys }
-      @profile['plugin'].each_key do |slug|
+      @profile['sdk'].each_key do |slug|
         next if registered.include?(slug)
 
         emit('t' => now_ms, 'kind' => 'station',

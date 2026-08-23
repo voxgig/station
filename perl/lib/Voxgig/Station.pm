@@ -285,7 +285,7 @@ sub _register {
               . 'client twice is an error (10.2)' );
     }
 
-    my $profile_plugin = $self->{profile}{plugin}{$slug};
+    my $profile_plugin = $self->{profile}{sdk}{$slug};
 
     # Secret name precedence: the feature option (in-code, design
     # station.md 9 config.options.secret) beats the profile, which beats
@@ -384,7 +384,7 @@ sub _transport {
       ? $fctx->{client}{mode}
       : '';
     my $live           = ( 'live' eq $mode ) ? 1 : 0;
-    my $profile_plugin = $self->{profile}{plugin}{$slug};
+    my $profile_plugin = $self->{profile}{sdk}{$slug};
 
     # Egress policy (design station.md 16), solo half: the hosts
     # allowlist is enforced at the seam every request crosses. When a
@@ -620,7 +620,7 @@ sub close {
     my ($self) = @_;
     return if $self->{closed};
 
-    for my $slug ( sort keys %{ $self->{profile}{plugin} } ) {
+    for my $slug ( sort keys %{ $self->{profile}{sdk} } ) {
         next if exists $self->{registry}{$slug};
         $self->_emit(
             {
