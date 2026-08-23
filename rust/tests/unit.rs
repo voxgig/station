@@ -342,7 +342,7 @@ fn prepare_missing_secret_fails_the_op_path() {
 #[test]
 fn prepare_enforces_hosts_policy_and_pins_redirects() {
     let station = open_station(station_config(
-        r#", "plugin": { "taskpad": { "policy": { "hosts": ["api.test"] } } }"#,
+        r#", "sdk": { "taskpad": { "policy": { "hosts": ["api.test"] } } }"#,
     ));
     let client: Rc<dyn Any> = Rc::new(());
     let bound = bind(spec(client, &["test", "station"])).expect("bound");
@@ -401,7 +401,7 @@ fn feature_secret_option_beats_profile_beats_default() {
                "TASKPAD_APIKEY": "from-default",
                "PROFILE_NAMED": "from-profile",
                "CODE_NAMED": "from-code" } } ] },
-             "plugin": { "taskpad": { "secret": "profile.named" } } } } }"#,
+             "sdk": { "taskpad": { "secret": "profile.named" } } } } }"#,
     ));
     let client: Rc<dyn Any> = Rc::new(());
 
@@ -459,7 +459,7 @@ fn open_is_idempotent_and_conflicts_loudly() {
 #[test]
 fn close_warns_on_unmatched_profile_plugin_keys() {
     let station = open_station(station_config(
-        r#", "plugin": { "typod-slug": { "base": "http://x" } }"#,
+        r#", "sdk": { "typod-slug": { "base": "http://x" } }"#,
     ));
     station.close();
     let warned = events_of(&station, "station")

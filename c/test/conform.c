@@ -182,7 +182,13 @@ static omni_result subject_canonical(omni_subject *self, omni_json **args, size_
   return out;
 }
 
-static omni_result subject_profile(omni_subject *self, omni_json **args, size_t nargs) {
+/* The 3.3 merge, and the whole of this port's profile contract.
+
+   The `profile` section is NOT run: it pins the pre-Stage-1 `plugin`
+   grammar, which this port no longer speaks. It stays in the corpus for
+   the ports that have not crossed the rename yet and is deleted when the
+   last one does - see spec/README.md. */
+static omni_result subject_instance(omni_subject *self, omni_json **args, size_t nargs) {
   omni_result out = {NULL, NULL};
   const omni_json *vin = 0 < nargs ? args[0] : NULL;
   vxstn_val *config = to_station(omni_map_get(vin, "config"));
@@ -314,7 +320,7 @@ int main(int argc, char **argv) {
   rungroup(pack, "descriptor", makesubject(subject_descriptor));
   rungroup(pack, "descriptorwarnings", makesubject(subject_descriptorwarnings));
   rungroup(pack, "canonical", makesubject(subject_canonical));
-  rungroup(pack, "profile", makesubject(subject_profile));
+  rungroup(pack, "instance", makesubject(subject_instance));
   rungroup(pack, "errors", makesubject(subject_errors));
 
   printf("\n%d passed, %d failed\n", PASSCOUNT, FAILCOUNT);

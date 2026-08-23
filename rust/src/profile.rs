@@ -85,14 +85,83 @@ pub struct ResolvedProfile {
     pub name: String,
     /// sekreto ProviderSpec forms, verbatim from station.json (§5.2).
     pub providers: Vec<Json>,
-    /// Per-plugin config, deep-merged base-then-overlay.
-    pub plugin: BTreeMap<String, Json>,
+    /// The api-level defaults in effect for this profile, keyed by api
+    /// slug. A REPORT, not an input to the instance merge - collapsing
+    /// each namespace first and composing at the end is the exact
+    /// algorithm §3.3 forbids.
+    pub api: BTreeMap<String, Json>,
+    /// Resolved instances, keyed by REF (`api$tag`, or a bare `api` for
+    /// the untagged one). An api block declares no instance of its own
+    /// (§3.1), so it never creates an entry here.
+    pub sdk: BTreeMap<String, Json>,
 }
 
-/// Merge the base profile ('default') with the selected overlay:
-/// deep-merge per plugin, EXCEPT secrets.providers which replaces
-/// wholesale. A configured secret name sekreto would reject is caught at
-/// profile load, not first request (design §14 station_secret_name).
+/// The one block key carrying the timing rule: applied AFTER the merge,
+/// never before (§3.3, §4.2).
+pub const MERGE_SENSITIVE: [&str; 1] = ["active"];
+
+fn block_defaults() -> Vec<(&'static str, Json)> {
+    vec![
+        ("active", Json::Bool(true)),
+        ("feature", Json::Map(BTreeMap::new())),
+    ]
+}
+
+/// The api half of a ref: the substring before the first `$`. An
+/// untagged ref IS an api slug (§3.4).
+///
+/// LEXICAL, and that is the point: under the old free-form identity
+/// which api an instance used was itself a merged value, so a port that
+/// got the phasing wrong silently picked another api's defaults.
+pub fn refapi(reference: &str) -> String {
+    match reference.find('$') {
+        Some(at) => reference[..at].to_string(),
+        None => reference.to_string(),
+    }
+}
+
+/// Shallow merge, per key, left to right - each source over the one
+/// before it. An overlay's `policy` REPLACES the base's entirely rather
+/// than merging `hosts` into it; an allowlist that widens because two
+/// precedence levels merged is the failure this rule prevents.
+fn shallow(sources: &[Option<&Json>]) -> Json {
+    let mut out: BTreeMap<String, Json> = BTreeMap::new();
+    for src in sources.iter().flatten() {
+        if let Json::Map(entries) = src {
+            for (k, v) in entries.iter() {
+                out.insert(k.clone(), v.clone());
+            }
+        }
+    }
+    Json::Map(out)
+}
+
+fn merged_keys(maps: &[Option<&BTreeMap<String, Json>>]) -> Vec<String> {
+    let mut keys: BTreeMap<String, ()> = BTreeMap::new();
+    for m in maps.iter().flatten() {
+        for k in m.keys() {
+            keys.insert(k.clone(), ());
+        }
+    }
+    keys.into_keys().collect()
+}
+
+/// Merge the base profile ('default') with the selected overlay.
+///
+/// §3.3's total order for the two block levels, lowest precedence first:
+///
+/// ```text
+/// base.api[<api>] + base.sdk[<ref>] + overlay.api[<api>] + overlay.sdk[<ref>]
+/// ```
+///
+/// PROFILE SPECIFICITY OUTRANKS BLOCK SPECIFICITY, and this is ONE FLAT
+/// LEFT-TO-RIGHT MERGE. It must not be reorganized into "collapse each
+/// namespace, then put instance over api" - that lets every instance
+/// value beat every api value, so a production `api.stripe.policy` would
+/// fail to override a default profile's `sdk.stripe$test.policy`,
+/// silently keeping the wider allowlist in production.
+///
+/// `secrets.providers` replaces wholesale, never merges (§3.5, §5.2).
 pub fn resolve_profile(
     config: Option<&Json>,
     profile_name: &str,
@@ -111,44 +180,115 @@ pub fn resolve_profile(
         .or_else(|| jget(base, "secrets").and_then(|s| jlist_of(s, "providers")))
         .unwrap_or_else(|| vec![crate::jsonx::jobj(vec![("kind", Json::Str("env".to_string()))])]);
 
-    let mut plugin: BTreeMap<String, Json> = BTreeMap::new();
-    for src in [base, overlay] {
-        if let Some(entries) = jmap(src, "plugin") {
-            for (slug, val) in entries.iter() {
-                let merged = match (plugin.get(slug), val) {
-                    (Some(Json::Map(have)), Json::Map(add)) => {
-                        let mut out = have.clone();
-                        for (key, entry) in add.iter() {
-                            out.insert(key.clone(), entry.clone());
-                        }
-                        Json::Map(out)
-                    }
-                    _ => val.clone(),
-                };
-                plugin.insert(slug.clone(), merged);
-            }
-        }
+    let base_api = jmap(base, "api");
+    let over_api = jmap(overlay, "api");
+    let base_sdk = jmap(base, "sdk");
+    let over_sdk = jmap(overlay, "sdk");
+
+    let mut api: BTreeMap<String, Json> = BTreeMap::new();
+    for slug in merged_keys(&[base_api, over_api]) {
+        api.insert(
+            slug.clone(),
+            shallow(&[
+                base_api.and_then(|m| m.get(&slug)),
+                over_api.and_then(|m| m.get(&slug)),
+            ]),
+        );
     }
 
-    for (slug, val) in plugin.iter() {
+    let mut sdk: BTreeMap<String, Json> = BTreeMap::new();
+    for reference in merged_keys(&[base_sdk, over_sdk]) {
+        let a = refapi(&reference);
+        let merged = shallow(&[
+            base_api.and_then(|m| m.get(&a)),
+            base_sdk.and_then(|m| m.get(&reference)),
+            over_api.and_then(|m| m.get(&a)),
+            over_sdk.and_then(|m| m.get(&reference)),
+        ]);
+
+        // Defaults are applied ONCE, to the fully merged instance. Had
+        // the overlay block carried a synthesized `active` into the
+        // merge, a one-key environment override would silently re-enable
+        // an integration the base declared inactive.
+        let merged = match merged {
+            Json::Map(mut entries) => {
+                for (k, v) in block_defaults() {
+                    entries.entry(k.to_string()).or_insert(v);
+                }
+                Json::Map(entries)
+            }
+            other => other,
+        };
+
+        sdk.insert(reference, merged);
+    }
+
+    checksecrets(&sdk, profile_name)?;
+
+    Ok(ResolvedProfile {
+        name: profile_name.to_string(),
+        providers,
+        api,
+        sdk,
+    })
+}
+
+/// A configured secret name sekreto would reject is caught at profile
+/// load, not first request (§14 station_secret_name) - and then the
+/// DERIVED names are checked for uniqueness, because envtoken is LOSSY.
+///
+/// It collapses any run of non-alphanumerics to `_`, so `stripe$test` and
+/// an untagged instance of a `stripe-test` api both derive
+/// `stripe_test.apikey` and would silently share one credential.
+///
+/// Two instances that EXPLICITLY name one secret are not a collision -
+/// that is the shared-key case the api-level `secret` exists for.
+fn checksecrets(
+    sdk: &BTreeMap<String, Json>,
+    profile_name: &str,
+) -> Result<(), StationError> {
+    for (reference, val) in sdk.iter() {
         let name = jstr(val, "secret");
         let has_secret = matches!(jget(val, "secret"), Some(Json::Str(_)));
         if has_secret && !validname(&name) {
             return Err(StationError::new(
                 "station_secret_name",
                 format!(
-                    "profile \"{}\" plugin \"{}\": secret name rejected by sekreto: \"{}\"",
-                    profile_name, slug, name
+                    "profile \"{}\" sdk \"{}\": secret name rejected by sekreto: \"{}\"",
+                    profile_name, reference, name
                 ),
             ));
         }
     }
 
-    Ok(ResolvedProfile {
-        name: profile_name.to_string(),
-        providers,
-        plugin,
-    })
+    let mut seen: BTreeMap<String, (String, bool)> = BTreeMap::new();
+    for (reference, val) in sdk.iter() {
+        let written = jstr(val, "secret");
+        let derived = written.is_empty();
+        let name = if derived {
+            crate::descriptor::secretname_default(reference)
+        } else {
+            written
+        };
+
+        if let Some((prior, prior_derived)) = seen.get(&name) {
+            if derived || *prior_derived {
+                return Err(StationError::new(
+                    "station_secret_collision",
+                    format!(
+                        "profile \"{}\": instances \"{}\" and \"{}\" both resolve to \
+                         secret name \"{}\", so they would share one credential; name it \
+                         explicitly on each, or at the api level to share it \
+                         deliberately (§5.1)",
+                        profile_name, prior, reference, name
+                    ),
+                ));
+            }
+        } else {
+            seen.insert(name, (reference.clone(), derived));
+        }
+    }
+    Ok(())
 }
 
 fn jlist_of(val: &Json, key: &str) -> Option<Vec<Json>> {

@@ -16,9 +16,11 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeSet;
 
 @SuppressWarnings({"unchecked"})
 public final class Profile {
@@ -90,6 +92,68 @@ public final class Profile {
    * name sekreto would reject fails here (station_secret_name), at
    * profile load rather than first request (design 14).
    */
+  /** The one block key carrying the timing rule: applied AFTER the merge,
+   * never before (design 3.3, 4.2). */
+  public static final List<String> MERGE_SENSITIVE = List.of("active");
+
+  private static Map<String, Object> blockDefaults() {
+    Map<String, Object> out = new LinkedHashMap<>();
+    out.put("active", Boolean.TRUE);
+    out.put("feature", new LinkedHashMap<String, Object>());
+    return out;
+  }
+
+  /** The api half of a ref is the substring before the first `$`, and an
+   * untagged ref IS an api slug (design 3.4).
+   *
+   * LEXICAL, and that is the point: under the old free-form identity
+   * which api an instance used was itself a merged value, so a port that
+   * got the phasing wrong silently picked another api's defaults. */
+  public static String refapi(String ref) {
+    int at = ref.indexOf('$');
+    return -1 == at ? ref : ref.substring(0, at);
+  }
+
+  /** Shallow merge, per key, left to right - each source over the one
+   * before it. An overlay's `policy` REPLACES the base's entirely rather
+   * than merging `hosts` into it; an allowlist that widens because two
+   * precedence levels merged is the failure this rule prevents. */
+  @SafeVarargs
+  private static Map<String, Object> shallow(Map<String, Object>... sources) {
+    Map<String, Object> out = new LinkedHashMap<>();
+    for (Map<String, Object> src : sources) {
+      if (null != src) {
+        out.putAll(src);
+      }
+    }
+    return out;
+  }
+
+  @SafeVarargs
+  private static List<String> mergedKeys(Map<String, Object>... maps) {
+    TreeSet<String> keys = new TreeSet<>();
+    for (Map<String, Object> m : maps) {
+      if (null != m) {
+        keys.addAll(m.keySet());
+      }
+    }
+    return new ArrayList<>(keys);
+  }
+
+  /** Merge the base profile ('default') with the selected overlay.
+   *
+   * Design 3.3's total order for the two block levels, lowest first:
+   *
+   *   base.api[api] + base.sdk[ref] + overlay.api[api] + overlay.sdk[ref]
+   *
+   * PROFILE SPECIFICITY OUTRANKS BLOCK SPECIFICITY, and this is ONE FLAT
+   * LEFT-TO-RIGHT MERGE. It must not be reorganized into "collapse each
+   * namespace, then put instance over api" - that lets every instance
+   * value beat every api value, so a production `api.stripe.policy` would
+   * fail to override a default profile's `sdk.stripe$test.policy`,
+   * silently keeping the wider allowlist in production.
+   *
+   * `secrets.providers` replaces wholesale, never merges (3.5, 5.2). */
   public static Map<String, Object> resolveProfile(Object config, String profileName) {
     Map<String, Object> profiles = Descriptor.asmap(Descriptor.getprop(config, "profiles"));
     Map<String, Object> base = Descriptor.asmap(profiles.get("default"));
@@ -106,31 +170,90 @@ public final class Profile {
       providers = List.of(env);
     }
 
-    Map<String, Object> plugin = new LinkedHashMap<>();
-    for (Map<String, Object> src : List.of(
-        Descriptor.asmap(base.get("plugin")),
-        Descriptor.asmap(overlay.get("plugin")))) {
-      for (Map.Entry<String, Object> entry : src.entrySet()) {
-        Map<String, Object> merged = new LinkedHashMap<>(
-            Descriptor.asmap(plugin.get(entry.getKey())));
-        merged.putAll(Descriptor.asmap(entry.getValue()));
-        plugin.put(entry.getKey(), merged);
-      }
+    Map<String, Object> baseApi = Descriptor.asmap(base.get("api"));
+    Map<String, Object> overApi = Descriptor.asmap(overlay.get("api"));
+    Map<String, Object> baseSdk = Descriptor.asmap(base.get("sdk"));
+    Map<String, Object> overSdk = Descriptor.asmap(overlay.get("sdk"));
+
+    // The api-level defaults in effect for this profile. A REPORT, not
+    // an input to the instance merge below.
+    Map<String, Object> api = new LinkedHashMap<>();
+    for (String slug : mergedKeys(baseApi, overApi)) {
+      api.put(slug, shallow(
+          Descriptor.asmap(baseApi.get(slug)), Descriptor.asmap(overApi.get(slug))));
     }
 
-    for (Map.Entry<String, Object> entry : plugin.entrySet()) {
-      Object name = Descriptor.getprop(entry.getValue(), "secret");
-      if (null != name && !Sekreto.validname(name)) {
-        throw new StationError("station_secret_name",
-            "profile \"" + profileName + "\" plugin \"" + entry.getKey()
-                + "\": secret name rejected by sekreto: \"" + name + "\"");
+    // An api block declares no instance of its own (3.1), so the ref set
+    // comes from the two `sdk` maps alone.
+    Map<String, Object> sdk = new LinkedHashMap<>();
+    for (String ref : mergedKeys(baseSdk, overSdk)) {
+      String a = refapi(ref);
+      Map<String, Object> merged = shallow(
+          Descriptor.asmap(baseApi.get(a)), Descriptor.asmap(baseSdk.get(ref)),
+          Descriptor.asmap(overApi.get(a)), Descriptor.asmap(overSdk.get(ref)));
+
+      // Defaults are applied ONCE, to the fully merged instance. Had the
+      // overlay block carried a synthesized `active` into the merge, a
+      // one-key environment override would silently re-enable an
+      // integration the base declared inactive.
+      for (Map.Entry<String, Object> d : blockDefaults().entrySet()) {
+        if (!merged.containsKey(d.getKey())) {
+          merged.put(d.getKey(), d.getValue());
+        }
       }
+
+      sdk.put(ref, merged);
     }
+
+    checksecrets(sdk, profileName);
 
     Map<String, Object> out = new LinkedHashMap<>();
     out.put("name", profileName);
     out.put("providers", providers);
-    out.put("plugin", plugin);
+    out.put("api", api);
+    out.put("sdk", sdk);
     return out;
+  }
+
+  /** A configured secret name sekreto would reject is caught at profile
+   * load, not first request (14 station_secret_name) - and then the
+   * DERIVED names are checked for uniqueness, because envtoken is lossy:
+   * it collapses any run of non-alphanumerics to `_`, so `stripe$test`
+   * and an untagged instance of a `stripe-test` api both derive
+   * `stripe_test.apikey` and would silently share one credential.
+   *
+   * Two instances that EXPLICITLY name one secret are not a collision -
+   * that is the shared-key case the api-level `secret` exists for. */
+  private static void checksecrets(Map<String, Object> sdk, String profileName) {
+    List<String> refs = new ArrayList<>(new TreeSet<>(sdk.keySet()));
+
+    for (String ref : refs) {
+      Object name = Descriptor.getprop(sdk.get(ref), "secret");
+      if (null != name && !Sekreto.validname(name)) {
+        throw new StationError("station_secret_name",
+            "profile \"" + profileName + "\" sdk \"" + ref
+                + "\": secret name rejected by sekreto: \"" + name + "\"");
+      }
+    }
+
+    Map<String, String[]> seen = new LinkedHashMap<>();
+    for (String ref : refs) {
+      Object written = Descriptor.getprop(sdk.get(ref), "secret");
+      boolean derived = null == written || "".equals(written);
+      String name = derived
+          ? Descriptor.secretnameDefault(ref) : String.valueOf(written);
+
+      String[] prior = seen.get(name);
+      if (null != prior && (derived || "1".equals(prior[1]))) {
+        throw new StationError("station_secret_collision",
+            "profile \"" + profileName + "\": instances \"" + prior[0]
+                + "\" and \"" + ref + "\" both resolve to secret name \"" + name
+                + "\", so they would share one credential; name it explicitly "
+                + "on each, or at the api level to share it deliberately (5.1)");
+      }
+      if (null == prior) {
+        seen.put(name, new String[] { ref, derived ? "1" : "0" });
+      }
+    }
   }
 }

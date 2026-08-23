@@ -116,7 +116,13 @@ fn station_conformance() {
         Ok(OJson::Str(canonical_serialize(&o2s(&args[0]))))
     });
 
-    let profile: Subject = Rc::new(|args: &[OJson]| {
+    // The §3.3 merge, and the whole of this port's profile contract.
+    //
+    // The `profile` section is NOT run: it pins the pre-Stage-1 `plugin`
+    // grammar, which this port no longer speaks. It stays in the corpus
+    // for the ports that have not crossed the rename yet and is deleted
+    // when the last one does - see spec/README.md.
+    let instance: Subject = Rc::new(|args: &[OJson]| {
         let config_in = args[0].get("config");
         let config = match &config_in {
             OJson::Absent | OJson::Null => None,
@@ -127,9 +133,13 @@ fn station_conformance() {
         match resolve_profile(config.as_ref(), &name) {
             Err(err) => Err(err.to_string()),
             Ok(resolved) => {
-                let mut plugin = std::collections::BTreeMap::new();
-                for (slug, val) in resolved.plugin.iter() {
-                    plugin.insert(slug.clone(), s2o(val));
+                let mut api = std::collections::BTreeMap::new();
+                for (slug, val) in resolved.api.iter() {
+                    api.insert(slug.clone(), s2o(val));
+                }
+                let mut sdk = std::collections::BTreeMap::new();
+                for (reference, val) in resolved.sdk.iter() {
+                    sdk.insert(reference.clone(), s2o(val));
                 }
                 Ok(OJson::map(vec![
                     ("name", OJson::Str(resolved.name)),
@@ -137,7 +147,8 @@ fn station_conformance() {
                         "providers",
                         OJson::List(resolved.providers.iter().map(s2o).collect()),
                     ),
-                    ("plugin", OJson::Map(plugin)),
+                    ("api", OJson::Map(api)),
+                    ("sdk", OJson::Map(sdk)),
                 ]))
             }
         }
@@ -153,7 +164,7 @@ fn station_conformance() {
         ("descriptor", &descriptor),
         ("descriptorwarnings", &descriptorwarnings),
         ("canonical", &canonical),
-        ("profile", &profile),
+        ("instance", &instance),
         ("errors", &errors),
     ];
 

@@ -1287,6 +1287,196 @@ char* vxstn_select_profile(const char* opt_profile) {
   return sdup("default");
 }
 
+/* The api half of a ref is the substring before the first `$`, and an
+   untagged ref IS an api slug (design 3.4). LEXICAL, and that is the
+   point: under the old free-form identity which api an instance used was
+   itself a merged value, so a port that got the phasing wrong silently
+   picked another api's defaults. Caller frees. */
+char* vxstn_refapi(const char* ref) {
+  const char* at;
+  size_t n;
+  char* out;
+  if (NULL == ref) {
+    ref = "";
+  }
+  at = strchr(ref, '$');
+  n = (NULL == at) ? strlen(ref) : (size_t)(at - ref);
+  out = (char*)malloc(n + 1);
+  memcpy(out, ref, n);
+  out[n] = '\0';
+  return out;
+}
+
+/* Shallow merge, per key, left to right - each source over the one
+   before it. An overlay's `policy` REPLACES the base's entirely rather
+   than merging `hosts` into it; an allowlist that widens because two
+   precedence levels merged is the failure this rule prevents. */
+static void merge_into(vxstn_val* out, const vxstn_val* src) {
+  size_t j;
+  if (!vxstn_is_map(src)) {
+    return;
+  }
+  for (j = 0; j < src->mlen; j++) {
+    vxstn_map_set(out, src->keys[j], vxstn_clone(src->vals[j]));
+  }
+}
+
+/* Defaults are applied ONCE, to the fully merged instance (3.3, 4.2).
+   Had the overlay block carried a synthesized `active` into the merge, a
+   one-key environment override would silently re-enable an integration
+   the base declared inactive. */
+static void apply_block_defaults(vxstn_val* merged) {
+  if (NULL == vxstn_map_get(merged, "active")) {
+    vxstn_map_set(merged, "active", vxstn_bool(1));
+  }
+  if (NULL == vxstn_map_get(merged, "feature")) {
+    vxstn_map_set(merged, "feature", vxstn_map());
+  }
+}
+
+/* Collect the sorted union of two maps' keys. Caller frees the array and
+   each entry. */
+static char** merged_keys(const vxstn_val* a, const vxstn_val* b,
+                          size_t* count_out) {
+  char** keys = NULL;
+  size_t n = 0, i, j;
+  const vxstn_val* srcs[2];
+  srcs[0] = a;
+  srcs[1] = b;
+  for (j = 0; j < 2; j++) {
+    const vxstn_val* m = srcs[j];
+    if (!vxstn_is_map(m)) {
+      continue;
+    }
+    for (i = 0; i < m->mlen; i++) {
+      size_t k;
+      int seen = 0;
+      for (k = 0; k < n; k++) {
+        if (0 == strcmp(keys[k], m->keys[i])) {
+          seen = 1;
+          break;
+        }
+      }
+      if (!seen) {
+        keys = (char**)realloc(keys, (n + 1) * sizeof(char*));
+        keys[n] = sdup(m->keys[i]);
+        n++;
+      }
+    }
+  }
+  /* Insertion sort: the counts here are instance counts, not data. */
+  for (i = 1; i < n; i++) {
+    char* cur = keys[i];
+    size_t k = i;
+    while (0 < k && 0 < strcmp(keys[k - 1], cur)) {
+      keys[k] = keys[k - 1];
+      k--;
+    }
+    keys[k] = cur;
+  }
+  *count_out = n;
+  return keys;
+}
+
+static void free_keys(char** keys, size_t n) {
+  size_t i;
+  for (i = 0; i < n; i++) {
+    free(keys[i]);
+  }
+  free(keys);
+}
+
+/* A configured secret name sekreto would reject is caught at profile
+   load, not first request (14 station_secret_name) - and then the DERIVED
+   names are checked for uniqueness, because envtoken is LOSSY: it
+   collapses any run of non-alphanumerics to `_`, so `stripe$test` and an
+   untagged instance of a `stripe-test` api both derive
+   `stripe_test.apikey` and would silently share one credential.
+
+   Two instances that EXPLICITLY name one secret are not a collision -
+   that is the shared-key case the api-level `secret` exists for. */
+static int checksecrets(const vxstn_val* sdk, const char* profile_name,
+                        vxstn_error** err) {
+  size_t i, j;
+  char** names = NULL;
+  int* derivedf = NULL;
+
+  for (i = 0; i < sdk->mlen; i++) {
+    const vxstn_val* namev = getk(sdk->vals[i], "secret");
+    if (NULL != namev) {
+      const char* name = vxstn_is_str(namev) ? namev->str : "";
+      if (!vxstn_validname(name)) {
+        vxstn_sb msg;
+        vxstn_val* asval = vxstn_str(name);
+        char* shown = vxstn_canonical(asval);
+        vxstn_val_free(asval);
+        sb_init(&msg);
+        sb_put(&msg, "profile \"");
+        sb_put(&msg, profile_name);
+        sb_put(&msg, "\" sdk \"");
+        sb_put(&msg, sdk->keys[i]);
+        sb_put(&msg, "\": secret name rejected by sekreto: ");
+        sb_put(&msg, shown);
+        seterr(err, "station_secret_name", msg.buf);
+        free(msg.buf);
+        free(shown);
+        return 0;
+      }
+    }
+  }
+
+  names = (char**)calloc(sdk->mlen ? sdk->mlen : 1, sizeof(char*));
+  derivedf = (int*)calloc(sdk->mlen ? sdk->mlen : 1, sizeof(int));
+  for (i = 0; i < sdk->mlen; i++) {
+    const vxstn_val* namev = getk(sdk->vals[i], "secret");
+    const char* written = (NULL != namev && vxstn_is_str(namev)) ? namev->str : "";
+    derivedf[i] = ('\0' == written[0]) ? 1 : 0;
+    names[i] = derivedf[i] ? vxstn_secretname_default(sdk->keys[i])
+                           : sdup(written);
+  }
+
+  for (i = 0; i < sdk->mlen; i++) {
+    for (j = 0; j < i; j++) {
+      if (0 == strcmp(names[i], names[j]) && (derivedf[i] || derivedf[j])) {
+        vxstn_sb msg;
+        sb_init(&msg);
+        sb_put(&msg, "profile \"");
+        sb_put(&msg, profile_name);
+        sb_put(&msg, "\": instances \"");
+        sb_put(&msg, sdk->keys[j]);
+        sb_put(&msg, "\" and \"");
+        sb_put(&msg, sdk->keys[i]);
+        sb_put(&msg, "\" both resolve to secret name \"");
+        sb_put(&msg, names[i]);
+        sb_put(&msg,
+               "\", so they would share one credential; name it explicitly "
+               "on each, or at the api level to share it deliberately (5.1)");
+        seterr(err, "station_secret_collision", msg.buf);
+        free(msg.buf);
+        free_keys(names, sdk->mlen);
+        free(derivedf);
+        return 0;
+      }
+    }
+  }
+
+  free_keys(names, sdk->mlen);
+  free(derivedf);
+  return 1;
+}
+
+/* Merge the base profile ('default') with the selected overlay.
+
+   Design 3.3's total order for the two block levels, lowest first:
+
+     base.api[<api>] + base.sdk[<ref>] + overlay.api[<api>] + overlay.sdk[<ref>]
+
+   PROFILE SPECIFICITY OUTRANKS BLOCK SPECIFICITY, and this is ONE FLAT
+   LEFT-TO-RIGHT MERGE. It must not be reorganized into "collapse each
+   namespace, then put instance over api" - that lets every instance
+   value beat every api value, so a production `api.stripe.policy` would
+   fail to override a default profile's `sdk.stripe$test.policy`,
+   silently keeping the wider allowlist in production. */
 vxstn_val* vxstn_resolve_profile(const vxstn_val* config,
                                  const char* profile_name,
                                  vxstn_error** err) {
@@ -1294,10 +1484,12 @@ vxstn_val* vxstn_resolve_profile(const vxstn_val* config,
   const vxstn_val* base;
   const vxstn_val* overlay = NULL;
   const vxstn_val* providers;
-  vxstn_val* plugin;
+  const vxstn_val *base_api, *over_api, *base_sdk, *over_sdk;
+  vxstn_val* api;
+  vxstn_val* sdk;
   vxstn_val* out;
-  const vxstn_val* srcs[2];
-  size_t si;
+  char** keys;
+  size_t nkeys, i;
 
   if (NULL != err) {
     *err = NULL;
@@ -1319,60 +1511,44 @@ vxstn_val* vxstn_resolve_profile(const vxstn_val* config,
     providers = getk(getk(base, "secrets"), "providers");
   }
 
-  plugin = vxstn_map();
-  srcs[0] = getk(base, "plugin");
-  srcs[1] = getk(overlay, "plugin");
-  for (si = 0; si < 2; si++) {
-    const vxstn_val* src = srcs[si];
-    size_t i;
-    if (!vxstn_is_map(src)) {
-      continue;
-    }
-    for (i = 0; i < src->mlen; i++) {
-      const char* slug = src->keys[i];
-      const vxstn_val* add = src->vals[i];
-      vxstn_val* merged = vxstn_map_get(plugin, slug);
-      if (NULL == merged) {
-        merged = vxstn_map();
-        vxstn_map_set(plugin, slug, merged);
-      }
-      if (vxstn_is_map(add)) {
-        size_t j;
-        for (j = 0; j < add->mlen; j++) {
-          vxstn_map_set(merged, add->keys[j], vxstn_clone(add->vals[j]));
-        }
-      }
-    }
-  }
+  base_api = getk(base, "api");
+  over_api = getk(overlay, "api");
+  base_sdk = getk(base, "sdk");
+  over_sdk = getk(overlay, "sdk");
 
-  /* A configured secret name sekreto would reject is caught at profile
-   * load, not first request (design 14 station_secret_name). */
-  {
-    size_t i;
-    for (i = 0; i < plugin->mlen; i++) {
-      const vxstn_val* namev = getk(plugin->vals[i], "secret");
-      if (NULL != namev) {
-        const char* name = vxstn_is_str(namev) ? namev->str : "";
-        if (!vxstn_validname(name)) {
-          vxstn_sb msg;
-          vxstn_val* asval = vxstn_str(name);
-          char* shown = vxstn_canonical(asval);
-          vxstn_val_free(asval);
-          sb_init(&msg);
-          sb_put(&msg, "profile \"");
-          sb_put(&msg, profile_name);
-          sb_put(&msg, "\" plugin \"");
-          sb_put(&msg, plugin->keys[i]);
-          sb_put(&msg, "\": secret name rejected by sekreto: ");
-          sb_put(&msg, shown);
-          seterr(err, "station_secret_name", msg.buf);
-          free(msg.buf);
-          free(shown);
-          vxstn_val_free(plugin);
-          return NULL;
-        }
-      }
-    }
+  /* The api-level defaults in effect for this profile. A REPORT, not an
+     input to the instance merge below. */
+  api = vxstn_map();
+  keys = merged_keys(base_api, over_api, &nkeys);
+  for (i = 0; i < nkeys; i++) {
+    vxstn_val* merged = vxstn_map();
+    merge_into(merged, vxstn_map_get((vxstn_val*)base_api, keys[i]));
+    merge_into(merged, vxstn_map_get((vxstn_val*)over_api, keys[i]));
+    vxstn_map_set(api, keys[i], merged);
+  }
+  free_keys(keys, nkeys);
+
+  /* An api block declares no instance of its own (3.1), so the ref set
+     comes from the two `sdk` maps alone. */
+  sdk = vxstn_map();
+  keys = merged_keys(base_sdk, over_sdk, &nkeys);
+  for (i = 0; i < nkeys; i++) {
+    char* a = vxstn_refapi(keys[i]);
+    vxstn_val* merged = vxstn_map();
+    merge_into(merged, vxstn_map_get((vxstn_val*)base_api, a));
+    merge_into(merged, vxstn_map_get((vxstn_val*)base_sdk, keys[i]));
+    merge_into(merged, vxstn_map_get((vxstn_val*)over_api, a));
+    merge_into(merged, vxstn_map_get((vxstn_val*)over_sdk, keys[i]));
+    apply_block_defaults(merged);
+    vxstn_map_set(sdk, keys[i], merged);
+    free(a);
+  }
+  free_keys(keys, nkeys);
+
+  if (!checksecrets(sdk, profile_name, err)) {
+    vxstn_val_free(api);
+    vxstn_val_free(sdk);
+    return NULL;
   }
 
   out = vxstn_map();
@@ -1386,7 +1562,8 @@ vxstn_val* vxstn_resolve_profile(const vxstn_val* config,
     vxstn_list_push(defaults, env_provider);
     vxstn_map_set(out, "providers", defaults);
   }
-  vxstn_map_set(out, "plugin", plugin);
+  vxstn_map_set(out, "api", api);
+  vxstn_map_set(out, "sdk", sdk);
   return out;
 }
 
@@ -1967,7 +2144,7 @@ void vxstn_close(vxstn_station* st) {
   /* Warn on profile plugin keys that matched no registered plugin - a
    * typo'd key silently configuring nothing is the worst outcome for a
    * secrets-and-policy file (design 11). */
-  plugin = vxstn_map_get(st->profile, "plugin");
+  plugin = vxstn_map_get(st->profile, "sdk");
   keys = sortedkeys(plugin, &n);
   for (i = 0; i < n; i++) {
     size_t j;
@@ -2104,7 +2281,7 @@ vxstn_binding* vxstn_register(vxstn_station* st, void* client,
    * config.options.secret) beats the profile, which beats the
    * descriptor default. */
   {
-    const vxstn_val* pp = getk(vxstn_map_get(st->profile, "plugin"), slug);
+    const vxstn_val* pp = getk(vxstn_map_get(st->profile, "sdk"), slug);
     const vxstn_val* ps = getk(pp, "secret");
     if (vxstn_is_str(ps) && '\0' != ps->str[0]) {
       profile_secret = ps->str;
@@ -2161,16 +2338,16 @@ bool vxstn_require_proxy(vxstn_station* st) {
   return NULL != st && st->require_proxy;
 }
 
-const vxstn_val* vxstn_profile_plugin(vxstn_station* st, const char* slug) {
+const vxstn_val* vxstn_profile_sdk(vxstn_station* st, const char* slug) {
   if (NULL == st || NULL == slug) {
     return NULL;
   }
-  return getk(vxstn_map_get(st->profile, "plugin"), slug);
+  return getk(vxstn_map_get(st->profile, "sdk"), slug);
 }
 
 bool vxstn_host_allowed(vxstn_station* st, const char* slug,
                         const char* fullurl, bool* has_policy) {
-  const vxstn_val* pp = vxstn_profile_plugin(st, slug);
+  const vxstn_val* pp = vxstn_profile_sdk(st, slug);
   const vxstn_val* hosts = getk(getk(pp, "policy"), "hosts");
   char* host;
   char* hostname;

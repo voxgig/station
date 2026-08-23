@@ -240,7 +240,7 @@ public class Station {
     }
 
     Map<String, Object> profilePlugin = Descriptor.asmap(
-        Descriptor.getprop(profile.get("plugin"), slug));
+        Descriptor.getprop(profile.get("sdk"), slug));
 
     // Secret name precedence: the feature option (in-code, design 9
     // config.options.secret) beats the profile, which beats the
@@ -377,7 +377,7 @@ public class Station {
     }
     String placeholder = SecretBroker.placeholderFor(slug);
     Map<String, Object> profilePlugin = Descriptor.asmap(
-        Descriptor.getprop(profile.get("plugin"), slug));
+        Descriptor.getprop(profile.get("sdk"), slug));
 
     // Egress policy (design 16), solo half: the hosts allowlist is
     // enforced at the seam every request crosses. When a policy is
@@ -613,7 +613,7 @@ public class Station {
     if (closed) {
       return;
     }
-    for (String slug : Descriptor.asmap(profile.get("plugin")).keySet()) {
+    for (String slug : Descriptor.asmap(profile.get("sdk")).keySet()) {
       if (!registry.containsKey(slug)) {
         warn(null, "profile plugin key \"" + slug
             + "\" matched no registered plugin");

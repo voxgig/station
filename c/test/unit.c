@@ -334,7 +334,7 @@ static void test_secret_precedence(void) {
   memset(&opts, 0, sizeof(opts));
   opts.proxy = "off";
   opts.config_json =
-      "{\"station\":1,\"profiles\":{\"default\":{\"plugin\":"
+      "{\"station\":1,\"profiles\":{\"default\":{\"sdk\":"
       "{\"taskpad\":{\"secret\":\"custom.name\"}}}}}";
 
   st = vxstn_station_new(&opts, NULL);
@@ -360,7 +360,7 @@ static void test_host_policy(void) {
   memset(&opts, 0, sizeof(opts));
   opts.proxy = "off";
   opts.config_json =
-      "{\"station\":1,\"profiles\":{\"default\":{\"plugin\":"
+      "{\"station\":1,\"profiles\":{\"default\":{\"sdk\":"
       "{\"taskpad\":{\"policy\":{\"hosts\":[\"api.good.example\"]}}}}}}";
   st = vxstn_station_new(&opts, NULL);
 
@@ -450,7 +450,7 @@ static void test_close_warns(void) {
   memset(&opts, 0, sizeof(opts));
   opts.proxy = "off";
   opts.config_json =
-      "{\"station\":1,\"profiles\":{\"default\":{\"plugin\":"
+      "{\"station\":1,\"profiles\":{\"default\":{\"sdk\":"
       "{\"typod\":{\"base\":\"http://x\"}}}}}";
   st = vxstn_station_new(&opts, NULL);
   vxstn_close(st);

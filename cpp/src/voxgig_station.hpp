@@ -914,9 +914,108 @@ inline std::string select_profile(const std::string& opt_profile = "") {
 struct ResolvedProfile {
   std::string name;
   Jval providers = Jval::list();  // sekreto ProviderSpec list, verbatim
-  Jval plugin = Jval::map();      // slug -> per-plugin profile map
+  // The api-level defaults in effect for this profile, keyed by api
+  // slug. A REPORT, not an input to the instance merge below - collapsing
+  // each namespace first and composing at the end is the exact algorithm
+  // 3.3 forbids.
+  Jval api = Jval::map();
+  // Resolved instances, keyed by REF (`api$tag`, or a bare `api` for the
+  // untagged one). An api block declares no instance of its own (3.1),
+  // so it never creates an entry here.
+  Jval sdk = Jval::map();
 };
 
+// The api half of a ref is the substring before the first `$`, and an
+// untagged ref IS an api slug (design 3.4). LEXICAL, and that is the
+// point: under the old free-form identity which api an instance used was
+// itself a merged value, so a port that got the phasing wrong silently
+// picked another api's defaults.
+inline std::string refapi(const std::string& ref) {
+  std::string::size_type at = ref.find('$');
+  return std::string::npos == at ? ref : ref.substr(0, at);
+}
+
+// Shallow merge, per key, left to right - each source over the one
+// before it. An overlay's `policy` REPLACES the base's entirely rather
+// than merging `hosts` into it; an allowlist that widens because two
+// precedence levels merged is the failure this rule prevents.
+inline void merge_into(Jval& out, const Jval& src) {
+  if (!src.ismap()) {
+    return;
+  }
+  for (const auto& kv : src.mval) {
+    out.set(kv.first, kv.second);
+  }
+}
+
+inline std::vector<std::string> merged_keys(const Jval& a, const Jval& b) {
+  std::set<std::string> keys;
+  for (const Jval* m : {&a, &b}) {
+    if (m->ismap()) {
+      for (const auto& kv : m->mval) {
+        keys.insert(kv.first);
+      }
+    }
+  }
+  return std::vector<std::string>(keys.begin(), keys.end());
+}
+
+// A configured secret name sekreto would reject is caught at profile
+// load, not first request (14 station_secret_name) - and then the
+// DERIVED names are checked for uniqueness, because envtoken is LOSSY.
+//
+// It collapses any run of non-alphanumerics to `_`, so `stripe$test` and
+// an untagged instance of a `stripe-test` api both derive
+// `stripe_test.apikey` and would silently share one credential.
+//
+// Two instances that EXPLICITLY name one secret are not a collision -
+// that is the shared-key case the api-level `secret` exists for.
+inline void checksecrets(const Jval& sdk, const std::string& profile_name) {
+  for (const auto& entry : sdk.mval) {
+    Jval namev = entry.second.get("secret");
+    if (!namev.isnone() && !namev.isabsent()) {
+      if (!namev.isstr() || !validname(namev.sval)) {
+        throw StationError("station_secret_name",
+                           "profile \"" + profile_name + "\" sdk \"" + entry.first +
+                               "\": secret name rejected by sekreto: " +
+                               canonical_serialize(namev));
+      }
+    }
+  }
+
+  std::map<std::string, std::pair<std::string, bool>> seen;
+  for (const auto& entry : sdk.mval) {
+    Jval namev = entry.second.get("secret");
+    bool derived = !namev.isstr() || namev.sval.empty();
+    std::string name = derived ? secretname_default(entry.first) : namev.sval;
+
+    auto found = seen.find(name);
+    if (seen.end() != found && (derived || found->second.second)) {
+      throw StationError(
+          "station_secret_collision",
+          "profile \"" + profile_name + "\": instances \"" + found->second.first +
+              "\" and \"" + entry.first + "\" both resolve to secret name \"" + name +
+              "\", so they would share one credential; name it explicitly on "
+              "each, or at the api level to share it deliberately (5.1)");
+    }
+    if (seen.end() == found) {
+      seen[name] = std::make_pair(entry.first, derived);
+    }
+  }
+}
+
+// Merge the base profile ('default') with the selected overlay.
+//
+// Design 3.3's total order for the two block levels, lowest first:
+//
+//   base.api[<api>] + base.sdk[<ref>] + overlay.api[<api>] + overlay.sdk[<ref>]
+//
+// PROFILE SPECIFICITY OUTRANKS BLOCK SPECIFICITY, and this is ONE FLAT
+// LEFT-TO-RIGHT MERGE. It must not be reorganized into "collapse each
+// namespace, then put instance over api" - that lets every instance
+// value beat every api value, so a production `api.stripe.policy` would
+// fail to override a default profile's `sdk.stripe$test.policy`,
+// silently keeping the wider allowlist in production.
 inline ResolvedProfile resolve_profile(const Jval& config, const std::string& profile_name) {
   Jval profiles = config.get("profiles");
   Jval base = profiles.get("default");
@@ -934,45 +1033,49 @@ inline ResolvedProfile resolve_profile(const Jval& config, const std::string& pr
     providers.push(env);
   }
 
-  // Per-plugin: base then overlay, shallow-merged per plugin key.
-  Jval plugin = Jval::map();
-  for (const Jval* src : {&base, &overlay}) {
-    Jval srcplugin = src->get("plugin");
-    if (!srcplugin.ismap()) {
-      continue;
-    }
-    for (const auto& entry : srcplugin.mval) {
-      Jval merged = plugin.get(entry.first);
-      if (!merged.ismap()) {
-        merged = Jval::map();
-      }
-      if (entry.second.ismap()) {
-        for (const auto& kv : entry.second.mval) {
-          merged.set(kv.first, kv.second);
-        }
-      }
-      plugin.set(entry.first, merged);
-    }
+  Jval base_api = base.get("api");
+  Jval over_api = overlay.get("api");
+  Jval base_sdk = base.get("sdk");
+  Jval over_sdk = overlay.get("sdk");
+
+  Jval api = Jval::map();
+  for (const std::string& slug : merged_keys(base_api, over_api)) {
+    Jval merged = Jval::map();
+    merge_into(merged, base_api.get(slug));
+    merge_into(merged, over_api.get(slug));
+    api.set(slug, merged);
   }
 
-  // A configured secret name sekreto would reject is caught at profile
-  // load, not first request (design station.md 14 station_secret_name).
-  for (const auto& entry : plugin.mval) {
-    Jval namev = entry.second.get("secret");
-    if (!namev.isnone() && !namev.isabsent()) {
-      if (!namev.isstr() || !validname(namev.sval)) {
-        throw StationError("station_secret_name",
-                           "profile \"" + profile_name + "\" plugin \"" + entry.first +
-                               "\": secret name rejected by sekreto: " +
-                               canonical_serialize(namev));
-      }
+  Jval sdk = Jval::map();
+  for (const std::string& ref : merged_keys(base_sdk, over_sdk)) {
+    std::string a = refapi(ref);
+    Jval merged = Jval::map();
+    merge_into(merged, base_api.get(a));
+    merge_into(merged, base_sdk.get(ref));
+    merge_into(merged, over_api.get(a));
+    merge_into(merged, over_sdk.get(ref));
+
+    // Defaults are applied ONCE, to the fully merged instance. Had the
+    // overlay block carried a synthesized `active` into the merge, a
+    // one-key environment override would silently re-enable an
+    // integration the base declared inactive.
+    if (merged.get("active").isabsent()) {
+      merged.set("active", Jval::boolean(true));
     }
+    if (merged.get("feature").isabsent()) {
+      merged.set("feature", Jval::map());
+    }
+
+    sdk.set(ref, merged);
   }
+
+  checksecrets(sdk, profile_name);
 
   ResolvedProfile out;
   out.name = profile_name;
   out.providers = providers;
-  out.plugin = plugin;
+  out.api = api;
+  out.sdk = sdk;
   return out;
 }
 
@@ -1339,7 +1442,7 @@ class Station {
       }
     }
 
-    Jval profile_plugin = profile_.plugin.get(slug);
+    Jval profile_plugin = profile_.sdk.get(slug);
 
     // Secret name precedence: the feature option (in-code, design
     // station.md 9 config.options.secret) beats the profile, which
@@ -1505,7 +1608,7 @@ class Station {
       closed_ = true;
     }
     std::vector<std::string> keys;
-    for (const auto& entry : profile_.plugin.mval) {
+    for (const auto& entry : profile_.sdk.mval) {
       keys.push_back(entry.first);
     }
     std::sort(keys.begin(), keys.end());
@@ -1762,7 +1865,7 @@ class Station {
 
     std::string placeholder = placeholder_for(slug);
     bool live = nullptr != fctx->client && "live" == fctx->client->mode;
-    Jval profile_plugin = profile_.plugin.get(slug);
+    Jval profile_plugin = profile_.sdk.get(slug);
 
     // Egress policy (design station.md 16), solo half: the hosts
     // allowlist is enforced at the seam every request crosses. When a

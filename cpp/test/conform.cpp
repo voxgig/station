@@ -172,13 +172,20 @@ const omni::Subject CANONICAL = [](const std::vector<omni::Json>& args) {
   return omni::Json::str(vs::canonical_serialize(to_station(args[0], true)));
 };
 
-const omni::Subject PROFILE = [](const std::vector<omni::Json>& args) {
+// The 3.3 merge, and the whole of this port's profile contract.
+//
+// The `profile` section is NOT run: it pins the pre-Stage-1 `plugin`
+// grammar, which this port no longer speaks. It stays in the corpus for
+// the ports that have not crossed the rename yet and is deleted when the
+// last one does - see spec/README.md.
+const omni::Subject INSTANCE = [](const std::vector<omni::Json>& args) {
   vs::Jval config = to_station(args[0].get("config"), false);
   std::string profile = args[0].get("profile").strval;
   vs::ResolvedProfile resolved = vs::resolve_profile(config, profile);
   omni::Json out = omni::Json::map();
   out.set("name", omni::Json::str(resolved.name));
-  out.set("plugin", to_omni(resolved.plugin));
+  out.set("api", to_omni(resolved.api));
+  out.set("sdk", to_omni(resolved.sdk));
   out.set("providers", to_omni(resolved.providers));
   return out;
 };
@@ -202,7 +209,7 @@ int main(int argc, char** argv) {
   testcase("descriptorwarnings",
            [&R] { R.runset(R.set("descriptorwarnings"), DESCRIPTORWARNINGS); });
   testcase("canonical", [&R] { R.runset(R.set("canonical"), CANONICAL); });
-  testcase("profile", [&R] { R.runset(R.set("profile"), PROFILE); });
+  testcase("instance", [&R] { R.runset(R.set("instance"), INSTANCE); });
   testcase("errors", [&R] { R.runset(R.set("errors"), ERRORS); });
 
   std::cout << "\n" << PASSCOUNT << " passed, " << FAILCOUNT << " failed\n";

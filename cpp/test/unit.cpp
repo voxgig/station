@@ -222,7 +222,7 @@ int main(int argc, char** argv) {
     o1.has_config = true;
     o1.config = vs::parse_json(
         R"({ "station": 1, "profiles": { "default": {
-             "plugin": { "gnarly-pets": { "secret": "profile.name" } } } } })");
+             "sdk": { "gnarly-pets": { "secret": "profile.name" } } } } })");
     vs::Station st(o1);
     int c1 = 0;
     auto reg1 = st._register(&c1, petconfig(), vs::Jval::absent(), "code.name");
@@ -238,7 +238,7 @@ int main(int argc, char** argv) {
     vs::StationOptions opts;
     opts.has_config = true;
     opts.config = vs::parse_json(R"({ "station": 1, "profiles": { "default": {
-      "plugin": { "a": { "secret": "Not A Name" } } } } })");
+      "sdk": { "a": { "secret": "Not A Name" } } } } })");
     checkeq(thrown_code([&opts] { vs::Station st(opts); }), "station_secret_name",
             "malformed secret name caught at profile load");
   });
@@ -247,7 +247,7 @@ int main(int argc, char** argv) {
     vs::StationOptions opts;
     opts.has_config = true;
     opts.config = vs::parse_json(R"({ "station": 1, "profiles": { "default": {
-      "plugin": { "typo-plugin": { "base": "http://x" } } } } })");
+      "sdk": { "typo-plugin": { "base": "http://x" } } } } })");
     opts.proxy = "off";
     vs::Station st(opts);
     st.close();
@@ -271,8 +271,8 @@ int main(int argc, char** argv) {
     {
       std::ofstream out(root / "station.json");
       out << R"({ "station": 1, "profiles": {
-        "default": { "plugin": { "pets": { "base": "http://file:1" } } },
-        "prod": { "plugin": { "pets": { "base": "http://file:2" } } } } })";
+        "default": { "sdk": { "pets": { "base": "http://file:1" } } },
+        "prod": { "sdk": { "pets": { "base": "http://file:2" } } } } })";
     }
     checkeq(vs::find_config_file((root / "sub" / "deeper").string()),
             (root / "station.json").string(), "upward walk finds station.json");
@@ -281,7 +281,7 @@ int main(int argc, char** argv) {
     opts.folder = (root / "sub" / "deeper").string();
     opts.profile = "prod";
     vs::Station st(opts);
-    checkeq(st.profile().plugin.get("pets").get("base").str_or(""), "http://file:2",
+    checkeq(st.profile().sdk.get("pets").get("base").str_or(""), "http://file:2",
             "profile overlay from the file wins");
     fs::remove_all(root);
   });
