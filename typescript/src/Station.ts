@@ -2,7 +2,12 @@ import { adapterFeature } from './adapter'
 import { StationError } from './error'
 import { EventBuffer } from './events'
 import { canonicalSerialize, normalizeDescriptor, secretnameDefault } from './descriptor'
-import { loadConfig, refapi, resolveProfile, selectProfile, ResolvedProfile } from './profile'
+import {
+  configScope, loadConfig, refapi, resolveProfile, selectProfile,
+  ResolvedProfile,
+} from './profile'
+import { FactoryEntry, factoryFor } from './factory'
+import { loadAsync, loadSync } from './loader'
 import { normalizeConfig, validateConfig } from './shape'
 import { SecretBroker, placeholderFor } from './secrets'
 import {
@@ -75,6 +80,9 @@ export class Station {
   private broker: SecretBroker
   private buffer: EventBuffer
   private registry = new Map<string, PluginEntry>()
+  // §6.1: `sdk(name)` caches; `create()` deliberately does not.
+  private clients = new Map<string, any>()
+  private repoScoped = true
   private secretOverride = new Map<string, string>()
   private requireProxy: boolean
   private closed = false
@@ -118,6 +126,19 @@ export class Station {
     const config = undefined !== this.opts.config
       ? this.opts.config
       : loadConfig(this.opts.folder)
+
+    // §6.3: an in-code config is repo-scoped by construction - the
+    // application wrote it. A file is repo-scoped unless it came from
+    // ~/.voxgig/station.json.
+    // Explicit wins, then an in-code config (the application wrote it,
+    // so it is repo-scoped by construction), then where the file was
+    // found. Inferring BEFORE reading the explicit option was a real
+    // precedence bug: it made `repoScoped: false` unsettable for any
+    // caller passing a config in code, which is every test of the rule.
+    this.repoScoped = this.opts.repoScoped
+      ?? (undefined !== this.opts.config
+        ? true
+        : 'user' !== configScope(this.opts.folder))
 
     // Normalize, then validate (design §4.2). A malformed station.json
     // fails open() with EVERY error at once - an eighteen-instance
@@ -511,6 +532,183 @@ export class Station {
       secretname: e.secretname,
       warnings: e.warnings.slice(),
     }))
+  }
+
+  // --- the declarative front door (design §6) ---
+
+  /** The instance, constructed on first call and CACHED: same name ->
+   * same object. That caching is what makes "get it where you need it"
+   * a real instruction - call it in a request handler, in a worker, in
+   * a test, and the first call pays construction while the rest are a
+   * map lookup.
+   *
+   * SYNCHRONOUS (§6.3), which is what bounds the loader to CommonJS. */
+  sdk(name: string): any {
+    const cached = this.clients.get(name)
+    if (null != cached) { return cached }
+    const client = this.build(name, undefined)
+    this.clients.set(name, client)
+    return client
+  }
+
+  /** An UNCACHED client from the same resolved config plus overrides,
+   * for the case that genuinely wants a distinct one - a per-request
+   * credential scope, a test double. Deliberately the longer name.
+   *
+   * It registers under an AUTO-ASSIGNED TAG, because §7.5 registers
+   * every constructed adapter under its instance name and
+   * `station_bound_twice` fires on a second binding of one name: a
+   * second `create('stripe')` would otherwise throw, which is exactly
+   * the per-request case this exists for. The tag is the lowest unused
+   * positive integer, so an auto-tagged instance is an ORDINARY
+   * instance rather than a parallel identity scheme - `plugins()`, the
+   * placeholder, the event stream and `station_bound_twice` all keep
+   * working on one identity model.
+   *
+   * The SECRET NAME does not follow the assigned tag: it resolves from
+   * the DECLARED instance the tag was assigned under, so every client
+   * of one instance shares one broker cache entry rather than
+   * re-resolving per request (§5.3). */
+  create(name: string, overrides?: any): any {
+    return this.build(name, this.autotag(name), overrides)
+  }
+
+  /** The lowest unused positive integer tag for a declared instance. */
+  private autotag(name: string): string {
+    const api = refapi(name)
+    for (let n = 1; ; n++) {
+      const ref = api + '$' + n
+      if (!this.registry.has(ref)) { return ref }
+    }
+  }
+
+  private build(name: string, as?: string, overrides?: any): any {
+    if (this.closed) {
+      throw new StationError('station_no_plugin', 'station is closed')
+    }
+
+    const block = this.profile.sdk[name]
+    if (null == block) {
+      throw new StationError('station_no_instance',
+        'no declared instance "' + name + '"; declared: [' +
+        Object.keys(this.profile.sdk).sort().join(', ') + ']')
+    }
+    if (false === block.active) {
+      throw new StationError('station_instance_inactive',
+        'instance "' + name + '" is declared with `active: false`, which ' +
+        'bars it from running while keeping it visible in instances()')
+    }
+
+    const api = refapi(name)
+    const entry = this.resolveFactory(api, block)
+
+    const opts = {
+      ...(block.options || {}),
+      ...(null == block.base ? {} : { base: block.base }),
+      ...(overrides || {}),
+    }
+    // The instance name reaches the adapter the same way it does on the
+    // imperative path, so registration has one spelling (§7.5).
+    return entry.construct(this.options(as ?? name, opts))
+  }
+
+  /** §6.2's three paths, in order of preference: self-registration,
+   * `Station.provide`, then the loader. */
+  private resolveFactory(api: string, block: SdkBlock): FactoryEntry {
+    const direct = factoryFor(api)
+    if (null != direct) { return direct }
+
+    const pkg = this.loaderPackage(api, block)
+    if (null != pkg) {
+      loadSync(api, pkg, block.export)
+      const loaded = factoryFor(api)
+      if (null != loaded) { return loaded }
+    }
+
+    throw new StationError('station_no_factory',
+      'no factory for api "' + api + '"; either link a generated package ' +
+      'that self-registers, call Station.provide("' + api + '", ...), or ' +
+      'set `api.' + api + '.package` so the loader can import it')
+  }
+
+  /** `package` is honoured only from repo-scoped config (§6.3), and a
+   * user-level one is IGNORED WITH A WARNING rather than imported - it
+   * names code to load and sits outside the repo's review boundary. */
+  private loaderPackage(api: string, block: SdkBlock): string | undefined {
+    const pkg = block.package
+    if (null == pkg || '' === pkg) { return undefined }
+    if (false === this.opts.load) { return undefined }
+
+    if (!this.repoScoped) {
+      this.emit({
+        t: Date.now(), kind: 'station', plugin: api, api,
+        meta: {
+          warn: 'ignoring `package` for api "' + api + '": it came from a ' +
+            'user-level station.json, which is outside the repo\'s review ' +
+            'boundary; everything else in that config still applies',
+        },
+      })
+      return undefined
+    }
+    return pkg
+  }
+
+  /** ts/js only: preload ESM packages into the factory table, after
+   * which `sdk()` is synchronous again for everything (§6.3). One
+   * `await` at startup rather than one per call site. */
+  async load(): Promise<void> {
+    if (false === this.opts.load) { return }
+    for (const name of Object.keys(this.profile.sdk).sort()) {
+      const block = this.profile.sdk[name]
+      if (false === block.active) { continue }
+      const api = refapi(name)
+      if (null != factoryFor(api)) { continue }
+      const pkg = this.loaderPackage(api, block)
+      if (null == pkg) { continue }
+      await loadAsync(api, pkg, block.export)
+    }
+  }
+
+  /** Eagerly resolve and construct every ACTIVE instance - for CI
+   * (§6.6). The point is to turn availability errors, which are
+   * deliberately deferred to first use, into one failure at a moment
+   * somebody is watching. */
+  check(): { ok: string[], failed: { name: string, code?: string, message: string }[] } {
+    const ok: string[] = []
+    const failed: { name: string, code?: string, message: string }[] = []
+    for (const row of this.instances()) {
+      if (!row.active) { continue }
+      try { this.sdk(row.name); ok.push(row.name) }
+      catch (e: any) {
+        failed.push({
+          name: row.name, code: e?.code, message: String(e?.message || e),
+        })
+      }
+    }
+    return { ok, failed }
+  }
+
+  /** Batch-resolve secrets for ACTIVE instances (§5.5).
+   *
+   * With no argument it warms the active ones only, because reaching
+   * for a credential belonging to a disabled integration is the wrong
+   * default. `warm(names)` warms exactly what it is given, inactive
+   * included, because an explicit name is an explicit request. */
+  async warm(names?: string[]): Promise<{ warmed: string[], missed: string[] }> {
+    const wanted = null != names
+      ? names
+      : this.instances().filter((r) => r.active).map((r) => r.name)
+
+    const warmed: string[] = []
+    const missed: string[] = []
+    for (const name of wanted) {
+      const block = this.profile.sdk[name]
+      if (null == block) { missed.push(name); continue }
+      const secretname = block.secret || secretnameDefault(name)
+      try { await this.broker.value(name, secretname); warmed.push(name) }
+      catch (_e) { missed.push(name) }
+    }
+    return { warmed, missed }
   }
 
   // Every DECLARED instance (§6.1) - a different question from

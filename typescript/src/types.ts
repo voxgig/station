@@ -6,6 +6,15 @@ export type StationOptions = {
   proxy?: 'auto' | 'off' | 'require' | string
   folder?: string
   config?: StationConfig | null
+  // §6.3: disables the loader outright. Only self-registered and
+  // explicitly provided factories are used.
+  load?: boolean
+  // Set when the config came from ~/.voxgig/station.json rather than
+  // from inside the repo. A user-level file is outside the repo's
+  // review boundary, so a `package` key arriving from it is IGNORED
+  // WITH A WARNING rather than imported - everything else in it still
+  // applies.
+  repoScoped?: boolean
 }
 
 // station.json shape (profiles carry sekreto ProviderSpecs verbatim).

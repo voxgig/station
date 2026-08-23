@@ -1,6 +1,11 @@
 // @voxgig/station - one control surface for outbound integrations.
 
 export { Station, instanceRef } from './Station'
+export { provide, factoryFor, provided, resetFactories } from './factory'
+export type { Factory, FactoryEntry } from './factory'
+export {
+  DEFAULT_EXPORT, camelify, checkPackage, factoryFromModule, loadAsync, loadSync,
+} from './loader'
 export { adapterFeature, featureBinding } from './adapter'
 export type { FeatureBinding } from './adapter'
 export { StationError } from './error'
@@ -12,7 +17,8 @@ export {
 } from './descriptor'
 export { placeholderFor } from './secrets'
 export {
-  findConfigFile, loadConfig, refapi, resolveProfile, selectProfile,
+  configScope, findConfigFile, loadConfig, refapi, resolveProfile,
+  selectProfile,
 } from './profile'
 export type { ResolvedProfile } from './profile'
 export {
@@ -23,6 +29,7 @@ export type {
   Binding,
   Descriptor,
   Profile,
+  ResolvedInstance,
   SdkBlock,
   StationConfig,
   StationEvent,

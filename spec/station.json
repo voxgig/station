@@ -1311,6 +1311,26 @@
      {
       "in": "station_instance_api",
       "out": true
+     },
+     {
+      "in": "station_no_instance",
+      "out": true
+     },
+     {
+      "in": "station_instance_inactive",
+      "out": true
+     },
+     {
+      "in": "station_sdk_load",
+      "out": true
+     },
+     {
+      "in": "station_no_factory",
+      "out": true
+     },
+     {
+      "in": "station_factory_conflict",
+      "out": true
      }
     ]
    },

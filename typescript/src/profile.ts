@@ -33,6 +33,20 @@ export function loadConfig(from?: string): StationConfig | null {
   return JSON.parse(text)
 }
 
+// Which side of the review boundary the config came from (§6.3).
+//
+// `package` and `export` are honoured only from REPO-SCOPED config,
+// because a user-level file is outside the repo's review boundary and a
+// `package` key arriving from it names code to import. Everything else
+// in a user-level config still applies - this narrows one key rather
+// than distrusting the file.
+export function configScope(from?: string): 'repo' | 'user' | 'none' {
+  const file = findConfigFile(from)
+  if (null == file) { return 'none' }
+  const home = Path.join(Os.homedir(), '.voxgig', 'station.json')
+  return file === home ? 'user' : 'repo'
+}
+
 // Profile selection: VOXGIG_STATION_PROFILE, else the open() option,
 // else 'default' (design §3.5 - env vars rank above station.json but
 // below open() opts; profile NAME selection follows the same order with
