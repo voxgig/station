@@ -90,7 +90,6 @@ export class Station {
   // has already collapsed the levels that provenance has to name.
   private raw: any = null
   private repoScoped = true
-  private secretOverride = new Map<string, string>()
   private requireProxy: boolean
   private closed = false
 
@@ -260,6 +259,25 @@ export class Station {
     return null
   }
 
+  /** The profile block that governs an instance — its own if the
+   * profile declares it, otherwise its **api's**.
+   *
+   * `resolveProfile` builds `profile.sdk` from the declared refs alone
+   * ("an api block declares no instance, so the ref set comes from the
+   * two `sdk` maps"), shallow-merging `profile.api[a]` into each. That
+   * is right for a declared instance and leaves an IMPERATIVE one —
+   * `connect(SDK, { as: 'test' })`, named but never written into
+   * config — with no block at all. The api-level `secret`, `base` and
+   * most seriously `policy.hosts` then did not reach it, so a profile
+   * that denies egress everywhere denied nothing for a tagged client.
+   *
+   * ONE RULE, ONE PLACE: registration and the transport seam both ask
+   * here, because they disagreeing is how the credential and the
+   * allowlist came apart in the first place. */
+  private blockFor(name: string): SdkBlock | undefined {
+    return this.profile.sdk[name] ?? this.profile.api[refapi(name)]
+  }
+
   _register(client: any, config: any, options: any, _calleropts: any,
     fopts?: any):
     { binding: Binding, profilePlugin?: SdkBlock } {
@@ -282,7 +300,7 @@ export class Station {
         'twice is an error (§10.2)')
     }
 
-    const profilePlugin = this.profile.sdk[name]
+    const profilePlugin = this.blockFor(name)
     // Secret name precedence: the feature option (in-code, design §9
     // config.options.secret) beats the profile, which beats the
     // INSTANCE-derived default.
@@ -303,9 +321,6 @@ export class Station {
     // field is documentation.
     const secretname = firstNonEmpty(fopts?.secret, profilePlugin?.secret) ||
       secretnameDefault(name)
-    if (null != fopts?.secret && '' !== fopts.secret) {
-      this.secretOverride.set(name, fopts.secret)
-    }
 
     const rung = descriptor.auth.active ? 'R1' : 'none'
     const binding: Binding = {
@@ -392,7 +407,7 @@ export class Station {
     const entry = this.registry.get(name)
     const placeholder = placeholderFor(name)
     const live = 'live' === fctx.client._mode
-    const profilePlugin = this.profile.sdk[name]
+    const profilePlugin = this.blockFor(name)
 
     // Egress policy (design §16), solo half: the hosts allowlist is
     // enforced at the seam every request crosses. When a policy is
@@ -424,8 +439,21 @@ export class Station {
     // enter in-memory mock stores. Copy-on-inject: the object graph
     // reachable from ctx/spec/ctrl keeps the placeholder, ever (§5.3).
     if (live && null != entry && 'R1' === entry.rung) {
-      const secretname = firstNonEmpty(this.secretOverride.get(name),
-        profilePlugin?.secret) || entry.descriptor.auth.secretname
+      // §7.4: THE EFFECTIVE NAME, resolved once at registration and
+      // stored on the entry. Re-deriving it here got the precedence
+      // right and the FALLBACK wrong: `descriptor.auth.secretname` is
+      // the API-level default, and one descriptor is shared by every
+      // instance of an api — so a tagged instance with no explicit
+      // `secret` read `stripe.apikey` where registration had recorded
+      // `stripe_test.apikey`. Either the request fails despite the
+      // credential being configured, or it succeeds with a sibling's.
+      //
+      // No fallback, and the `!` is the invariant rather than a shrug:
+      // this branch is guarded by `'R1' === entry.rung`, which is set
+      // only when `descriptor.auth.active` — the same condition under
+      // which `entry.secretname` is populated. Substituting a different
+      // name when it is absent is the bug above, written again.
+      const secretname = entry.secretname!
 
       let value: string
       try {
@@ -801,9 +829,15 @@ export class Station {
     const warmed: string[] = []
     const missed: string[] = []
     for (const name of wanted) {
-      const block = this.profile.sdk[name]
-      if (null == block) { missed.push(name); continue }
-      const secretname = block.secret || secretnameDefault(name)
+      // THE REGISTRY IS THE AUTHORITY, and asking the profile instead
+      // was wrong twice: an IMPERATIVE instance has no `profile.sdk`
+      // block, so it was pushed to `missed` and never warmed at all —
+      // and the re-derivation dropped the in-code `secret` feature
+      // option, which beats the profile (§9). A registered instance
+      // already carries the resolved name.
+      const entry = this.registry.get(name)
+      const secretname = entry?.secretname ??
+        (this.blockFor(name)?.secret || secretnameDefault(name))
       try { await this.broker.value(name, secretname); warmed.push(name) }
       catch (_e) { missed.push(name) }
     }
