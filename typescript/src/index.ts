@@ -11,12 +11,19 @@ export {
   secretnameDefault,
 } from './descriptor'
 export { placeholderFor } from './secrets'
-export { findConfigFile, loadConfig, resolveProfile, selectProfile } from './profile'
+export {
+  findConfigFile, loadConfig, refapi, resolveProfile, selectProfile,
+} from './profile'
+export type { ResolvedProfile } from './profile'
+export {
+  BLOCK_DEFAULTS, MERGE_SENSITIVE, PROFILE_DEFAULTS,
+  configShape, normalizeConfig, validateConfig,
+} from './shape'
 export type {
   Binding,
   Descriptor,
-  PluginProfile,
   Profile,
+  SdkBlock,
   StationConfig,
   StationEvent,
   StationOptions,

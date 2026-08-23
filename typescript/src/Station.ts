@@ -3,9 +3,10 @@ import { StationError } from './error'
 import { EventBuffer } from './events'
 import { canonicalSerialize, normalizeDescriptor } from './descriptor'
 import { loadConfig, resolveProfile, selectProfile, ResolvedProfile } from './profile'
+import { normalizeConfig, validateConfig } from './shape'
 import { SecretBroker, placeholderFor } from './secrets'
 import {
-  Binding, PluginEntry, PluginProfile, StationEvent, StationOptions,
+  Binding, PluginEntry, SdkBlock, StationEvent, StationOptions,
 } from './types'
 
 // The station library core, solo mode (design D1): fully functional
@@ -65,6 +66,20 @@ export class Station {
     const config = undefined !== this.opts.config
       ? this.opts.config
       : loadConfig(this.opts.folder)
+
+    // Normalize, then validate (design §4.2). A malformed station.json
+    // fails open() with EVERY error at once - an eighteen-instance
+    // config must not die because the eighteenth has a typo'd package
+    // name.
+    //
+    // resolveProfile then reads the RAW config, NOT the normalized one.
+    // The normalized form is an input to validation and to nothing
+    // else: block defaults synthesized before the profile merge would
+    // let a one-key overlay overwrite the base's `active: false` and
+    // silently re-enable a barred integration (§3.3, §4.2).
+    if (null != config) {
+      validateConfig(normalizeConfig(config))
+    }
 
     this.profile = resolveProfile(config ?? null, selectProfile(this.opts.profile))
     this.broker = new SecretBroker(this.profile.providers)
@@ -154,7 +169,7 @@ export class Station {
 
   _register(client: any, config: any, options: any, _calleropts: any,
     fopts?: any):
-    { binding: Binding, profilePlugin?: PluginProfile } {
+    { binding: Binding, profilePlugin?: SdkBlock } {
 
     const { descriptor, warnings } = normalizeDescriptor(config, options.feature)
     const slug = descriptor.slug
@@ -165,7 +180,7 @@ export class Station {
         'twice is an error (§10.2)')
     }
 
-    const profilePlugin = this.profile.plugin[slug]
+    const profilePlugin = this.profile.sdk[slug]
     // Secret name precedence: the feature option (in-code, design §9
     // config.options.secret) beats the profile, which beats the
     // descriptor default.
@@ -226,7 +241,7 @@ export class Station {
     const entry = this.registry.get(slug)
     const placeholder = placeholderFor(slug)
     const live = 'live' === fctx.client._mode
-    const profilePlugin = this.profile.plugin[slug]
+    const profilePlugin = this.profile.sdk[slug]
 
     // Egress policy (design §16), solo half: the hosts allowlist is
     // enforced at the seam every request crosses. When a policy is
@@ -406,7 +421,7 @@ export class Station {
   // secrets-and-policy file (design §11).
   close(): void {
     if (this.closed) { return }
-    for (const slug of Object.keys(this.profile.plugin)) {
+    for (const slug of Object.keys(this.profile.sdk)) {
       if (!this.registry.has(slug)) {
         this.emit({
           t: Date.now(), kind: 'station',

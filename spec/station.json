@@ -29,9 +29,9 @@
      {
       "in": {
        "e": 2,
-       "é": 1
+       "\u00e9": 1
       },
-      "out": "{\"e\":2,\"é\":1}"
+      "out": "{\"e\":2,\"\u00e9\":1}"
      },
      {
       "in": {
@@ -46,6 +46,842 @@
      {
       "in": [],
       "out": "[]"
+     }
+    ]
+   },
+   "config": {
+    "set": [
+     {
+      "doc": true,
+      "id": "config#empty-is-legal",
+      "in": {
+       "station": 1
+      },
+      "out": {
+       "profiles": {},
+       "station": 1
+      }
+     },
+     {
+      "id": "config#untagged-ref-is-an-api-slug",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {}
+         }
+        }
+       },
+       "station": 1
+      },
+      "out": {
+       "profiles": {
+        "default": {
+         "api": {},
+         "feature": {},
+         "sdk": {
+          "solar": {
+           "active": true,
+           "feature": {}
+          }
+         },
+         "secrets": {
+          "providers": [
+           {
+            "kind": "env"
+           }
+          ]
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "id": "config#twenty-sdk-fleet",
+      "in": {
+       "profiles": {
+        "default": {
+         "api": {
+          "github": {
+           "package": "@acme-sdk/github-sdk"
+          },
+          "slack": {
+           "package": "@acme-sdk/slack-sdk"
+          },
+          "stripe": {
+           "package": "@acme-sdk/stripe-sdk",
+           "policy": {
+            "hosts": [
+             "api.stripe.com"
+            ]
+           }
+          },
+          "voxgig-solardemo": {
+           "package": "@voxgig-sdk/voxgig-solardemo-sdk"
+          }
+         },
+         "sdk": {
+          "github": {},
+          "github$ent": {
+           "base": "https://ghe.acme.internal",
+           "secret": "github_ent.apikey"
+          },
+          "slack$alerts": {
+           "secret": "slack_alerts.apikey"
+          },
+          "slack$ops": {
+           "secret": "slack_ops.apikey"
+          },
+          "stripe": {},
+          "stripe$test": {
+           "base": "https://api.stripe.test",
+           "policy": {
+            "hosts": [
+             "api.stripe.test"
+            ]
+           },
+           "secret": "stripe_test.apikey"
+          },
+          "voxgig-solardemo": {}
+         },
+         "secrets": {
+          "providers": [
+           {
+            "kind": "env"
+           }
+          ]
+         }
+        },
+        "prod": {
+         "sdk": {
+          "stripe": {
+           "resolve": "proxy"
+          },
+          "stripe$test": {
+           "active": false
+          }
+         },
+         "secrets": {
+          "providers": [
+           {
+            "addr": "https://vault.example.com",
+            "auth": {
+             "method": "kubernetes",
+             "role": "acme"
+            },
+            "kind": "hashicorp"
+           }
+          ]
+         }
+        }
+       },
+       "station": 1
+      },
+      "match": {
+       "out": {
+        "profiles": {
+         "default": {
+          "secrets": {
+           "providers": [
+            {
+             "kind": "env"
+            }
+           ]
+          }
+         }
+        }
+       }
+      }
+     },
+     {
+      "id": "config#three-level-feature-config",
+      "in": {
+       "profiles": {
+        "default": {
+         "api": {
+          "stripe": {
+           "feature": {
+            "idempotency": {
+             "active": true
+            }
+           }
+          }
+         },
+         "feature": {
+          "retry": {
+           "active": true,
+           "retries": 3
+          }
+         },
+         "sdk": {
+          "stripe": {},
+          "stripe$test": {
+           "feature": {
+            "netsim": {
+             "active": true,
+             "latency": 50
+            }
+           }
+          }
+         }
+        },
+        "staging": {
+         "feature": {
+          "debug": {
+           "active": true,
+           "max": 500
+          }
+         }
+        }
+       },
+       "station": 1
+      },
+      "match": {
+       "out": {
+        "station": 1
+       }
+      }
+     },
+     {
+      "id": "config#feature-active-defaults-true",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "feature": {
+            "retry": {
+             "retries": 3
+            }
+           }
+          }
+         }
+        }
+       },
+       "station": 1
+      },
+      "out": {
+       "profiles": {
+        "default": {
+         "api": {},
+         "feature": {},
+         "sdk": {
+          "solar": {
+           "active": true,
+           "feature": {
+            "retry": {
+             "active": true,
+             "retries": 3
+            }
+           }
+          }
+         },
+         "secrets": {
+          "providers": [
+           {
+            "kind": "env"
+           }
+          ]
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "id": "config#secrets-written-without-providers-gets-the-chain",
+      "in": {
+       "profiles": {
+        "default": {
+         "secrets": {}
+        }
+       },
+       "station": 1
+      },
+      "out": {
+       "profiles": {
+        "default": {
+         "api": {},
+         "feature": {},
+         "sdk": {},
+         "secrets": {
+          "providers": [
+           {
+            "kind": "env"
+           }
+          ]
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "doc": true,
+      "err": "Unexpected keys at field profiles.default.sdk.solar: bass",
+      "id": "config#unexpected-block-key",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "bass": 1
+          }
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "err": "Unexpected keys at field profiles.default.sdk.solar: apikey",
+      "id": "config#credential-shaped-key-is-not-in-the-grammar",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "apikey": "x"
+          }
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "err": "Unexpected keys at field profiles.default.sdk.s: token",
+      "id": "config#unexpected-key-short-ref",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "s": {
+           "token": "x"
+          }
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "err": "Unexpected keys at field <root>: profile",
+      "id": "config#unexpected-root-key",
+      "in": {
+       "profile": {},
+       "station": 1
+      }
+     },
+     {
+      "err": "Unexpected keys at field profiles.default: sdks",
+      "id": "config#unexpected-profile-key",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdks": {}
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "err": "Unexpected keys at field profiles.default.secrets: provider",
+      "id": "config#unexpected-secrets-key",
+      "in": {
+       "profiles": {
+        "default": {
+         "secrets": {
+          "provider": []
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "err": "Unexpected keys at field profiles.default.api.x: packag",
+      "id": "config#unexpected-api-key",
+      "in": {
+       "profiles": {
+        "default": {
+         "api": {
+          "x": {
+           "packag": "p"
+          }
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "doc": true,
+      "err": "Unexpected keys at field profiles.default.api.x: api",
+      "id": "config#api-field-is-gone",
+      "in": {
+       "profiles": {
+        "default": {
+         "api": {
+          "x": {
+           "api": "p"
+          }
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "err": "Unexpected keys at field profiles.default: features",
+      "id": "config#feature-typo-at-profile-level",
+      "in": {
+       "profiles": {
+        "default": {
+         "features": {}
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "err": "Expected field station to be exactly equal to 1",
+      "id": "config#station-version-is-exact",
+      "in": {
+       "station": 2
+      }
+     },
+     {
+      "err": "to be one of nil, [exact,library], [exact,proxy]",
+      "id": "config#resolve-is-an-enum",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "resolve": "vault"
+          }
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "err": "to be one of nil, string, but found integer: 8080",
+      "id": "config#base-is-a-string",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "base": 8080
+          }
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "doc": true,
+      "err": "to be one of nil, {hosts:[child,string]}",
+      "id": "config#policy-typo-is-the-generic-one-form",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "policy": {
+            "host": [
+             "a"
+            ]
+           }
+          }
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "err": "Expected field profiles to be object, but found list",
+      "id": "config#profiles-must-be-a-map",
+      "in": {
+       "profiles": [],
+       "station": 1
+      }
+     },
+     {
+      "err": "Expected field profiles.default.feature to be object, but found list",
+      "id": "config#feature-must-be-a-map",
+      "in": {
+       "profiles": {
+        "default": {
+         "feature": []
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "err": "feature.retry.active to be boolean, but found string: yes",
+      "id": "config#feature-active-is-a-boolean",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "feature": {
+            "retry": {
+             "active": "yes"
+            }
+           }
+          }
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "err": "order.before to be one of nil, string, [child,string]",
+      "id": "config#order-list-element-type",
+      "in": {
+       "profiles": {
+        "default": {
+         "feature": {
+          "retry": {
+           "order": {
+            "before": [
+             "test",
+             7
+            ]
+           }
+          }
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "doc": true,
+      "id": "config#unknown-feature-option-passes-statically",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "feature": {
+            "retry": {
+             "retires": 5
+            }
+           }
+          }
+         }
+        }
+       },
+       "station": 1
+      },
+      "match": {
+       "out": {
+        "station": 1
+       }
+      }
+     },
+     {
+      "doc": true,
+      "err": "order.before.0 to be string, but found integer: 7",
+      "id": "config#order-first-element-gap",
+      "in": {
+       "profiles": {
+        "default": {
+         "feature": {
+          "retry": {
+           "order": {
+            "before": [
+             7
+            ]
+           }
+          }
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "err": "policy.hosts.0 to be string, but found integer: 1",
+      "id": "config#hosts-first-element-gap",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "policy": {
+            "hosts": [
+             1
+            ]
+           }
+          }
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "err": "station_feature_reserved",
+      "id": "config#feature-station-is-reserved",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "feature": {
+            "station": {
+             "active": false
+            }
+           }
+          }
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "err": "station_feature_reserved",
+      "id": "config#options-feature-is-reserved",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "options": {
+            "feature": {
+             "retry": {}
+            }
+           }
+          }
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "doc": true,
+      "id": "config#secret-holds-a-real-name",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "secret": "voxgig_solardemo.apikey"
+          }
+         }
+        }
+       },
+       "station": 1
+      },
+      "out": {
+       "profiles": {
+        "default": {
+         "api": {},
+         "feature": {},
+         "sdk": {
+          "solar": {
+           "active": true,
+           "feature": {},
+           "secret": "voxgig_solardemo.apikey"
+          }
+         },
+         "secrets": {
+          "providers": [
+           {
+            "kind": "env"
+           }
+          ]
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "doc": true,
+      "id": "config#secret-multiword-name-is-not-a-credential",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "secret": "acme_internal_billing_service.apikey"
+          }
+         }
+        }
+       },
+       "station": 1
+      },
+      "out": {
+       "profiles": {
+        "default": {
+         "api": {},
+         "feature": {},
+         "sdk": {
+          "solar": {
+           "active": true,
+           "feature": {},
+           "secret": "acme_internal_billing_service.apikey"
+          }
+         },
+         "secrets": {
+          "providers": [
+           {
+            "kind": "env"
+           }
+          ]
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "doc": true,
+      "err": "station_config_secret",
+      "id": "config#secret-hyphenated-fails-validname",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "secret": "sk-live-abc123"
+          }
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "doc": true,
+      "err": "unbroken alphanumeric run of 24",
+      "id": "config#secret-run-bound-catches-what-validname-cannot",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "secret": "550e8400e29b41d4a716446655440000"
+          }
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "doc": true,
+      "err": "options.deep.list.0.apikey",
+      "id": "config#options-scan-is-recursive",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "options": {
+            "deep": {
+             "list": [
+              {
+               "apikey": "v"
+              }
+             ]
+            }
+           }
+          }
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "err": "station_config_secret",
+      "id": "config#options-suffix-rule",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "options": {
+            "access_key": "v"
+           }
+          }
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "err": "URL carrying userinfo",
+      "id": "config#options-url-userinfo",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "options": {
+            "proxy": "http://user:pass@proxy.internal:8080"
+           }
+          }
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "doc": true,
+      "err": "/sdk\\.a: bass.*sdk\\.b: tuba.*sdk\\.c: oboe/",
+      "id": "config#every-error-at-once",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "a": {
+           "bass": 1
+          },
+          "b": {
+           "tuba": 2
+          },
+          "c": {
+           "oboe": 3
+          }
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "doc": true,
+      "err": "rename `plugin` to `sdk`",
+      "id": "config#plugin-key-names-the-rename",
+      "in": {
+       "profiles": {
+        "default": {
+         "plugin": {
+          "solar": {}
+         }
+        }
+       },
+       "station": 1
+      }
      }
     ]
    },
@@ -455,6 +1291,472 @@
      {
       "in": "no_such_code",
       "out": false
+     },
+     {
+      "in": "station_config_invalid",
+      "out": true
+     },
+     {
+      "in": "station_config_secret",
+      "out": true
+     },
+     {
+      "in": "station_secret_collision",
+      "out": true
+     },
+     {
+      "in": "station_feature_reserved",
+      "out": true
+     }
+    ]
+   },
+   "instance": {
+    "set": [
+     {
+      "doc": true,
+      "id": "instance#api-then-sdk",
+      "in": {
+       "config": {
+        "profiles": {
+         "default": {
+          "api": {
+           "stripe": {
+            "base": "https://api.example",
+            "resolve": "library"
+           }
+          },
+          "sdk": {
+           "stripe$test": {
+            "base": "https://test.example"
+           }
+          }
+         }
+        },
+        "station": 1
+       },
+       "profile": "default"
+      },
+      "out": {
+       "api": {
+        "stripe": {
+         "base": "https://api.example",
+         "resolve": "library"
+        }
+       },
+       "name": "default",
+       "providers": [
+        {
+         "kind": "env"
+        }
+       ],
+       "sdk": {
+        "stripe$test": {
+         "active": true,
+         "base": "https://test.example",
+         "feature": {},
+         "resolve": "library"
+        }
+       }
+      }
+     },
+     {
+      "doc": true,
+      "id": "instance#profile-specificity-outranks-block",
+      "in": {
+       "config": {
+        "profiles": {
+         "default": {
+          "sdk": {
+           "stripe$test": {
+            "policy": {
+             "hosts": [
+              "wide.example",
+              "other.example"
+             ]
+            }
+           }
+          }
+         },
+         "prod": {
+          "api": {
+           "stripe": {
+            "policy": {
+             "hosts": [
+              "narrow.example"
+             ]
+            }
+           }
+          }
+         }
+        },
+        "station": 1
+       },
+       "profile": "prod"
+      },
+      "out": {
+       "api": {
+        "stripe": {
+         "policy": {
+          "hosts": [
+           "narrow.example"
+          ]
+         }
+        }
+       },
+       "name": "prod",
+       "providers": [
+        {
+         "kind": "env"
+        }
+       ],
+       "sdk": {
+        "stripe$test": {
+         "active": true,
+         "feature": {},
+         "policy": {
+          "hosts": [
+           "narrow.example"
+          ]
+         }
+        }
+       }
+      }
+     },
+     {
+      "doc": true,
+      "id": "instance#ref-prefix-selects-the-api-block",
+      "in": {
+       "config": {
+        "profiles": {
+         "default": {
+          "api": {
+           "stripe": {
+            "package": "@acme/stripe-sdk"
+           }
+          },
+          "sdk": {
+           "stripe": {},
+           "stripe$test": {
+            "base": "https://test.example"
+           }
+          }
+         }
+        },
+        "station": 1
+       },
+       "profile": "default"
+      },
+      "out": {
+       "api": {
+        "stripe": {
+         "package": "@acme/stripe-sdk"
+        }
+       },
+       "name": "default",
+       "providers": [
+        {
+         "kind": "env"
+        }
+       ],
+       "sdk": {
+        "stripe": {
+         "active": true,
+         "feature": {},
+         "package": "@acme/stripe-sdk"
+        },
+        "stripe$test": {
+         "active": true,
+         "base": "https://test.example",
+         "feature": {},
+         "package": "@acme/stripe-sdk"
+        }
+       }
+      }
+     },
+     {
+      "doc": true,
+      "id": "instance#api-block-declares-no-instance",
+      "in": {
+       "config": {
+        "profiles": {
+         "default": {
+          "api": {
+           "stripe": {
+            "base": "https://api.example"
+           }
+          }
+         }
+        },
+        "station": 1
+       },
+       "profile": "default"
+      },
+      "out": {
+       "api": {
+        "stripe": {
+         "base": "https://api.example"
+        }
+       },
+       "name": "default",
+       "providers": [
+        {
+         "kind": "env"
+        }
+       ],
+       "sdk": {}
+      }
+     },
+     {
+      "doc": true,
+      "id": "instance#defaults-applied-after-the-merge",
+      "in": {
+       "config": {
+        "profiles": {
+         "default": {
+          "sdk": {
+           "taskpad$a": {
+            "active": false
+           }
+          }
+         },
+         "prod": {
+          "sdk": {
+           "taskpad$a": {
+            "base": "https://prod.example"
+           }
+          }
+         }
+        },
+        "station": 1
+       },
+       "profile": "prod"
+      },
+      "out": {
+       "api": {},
+       "name": "prod",
+       "providers": [
+        {
+         "kind": "env"
+        }
+       ],
+       "sdk": {
+        "taskpad$a": {
+         "active": false,
+         "base": "https://prod.example",
+         "feature": {}
+        }
+       }
+      }
+     },
+     {
+      "doc": true,
+      "id": "instance#name-and-untagged-ref-are-one-string",
+      "in": {
+       "config": {
+        "profiles": {
+         "default": {
+          "api": {
+           "pad": {
+            "base": "https://api.example",
+            "resolve": "library"
+           }
+          },
+          "sdk": {
+           "pad": {
+            "base": "https://one.example"
+           }
+          }
+         }
+        },
+        "station": 1
+       },
+       "profile": "default"
+      },
+      "out": {
+       "api": {
+        "pad": {
+         "base": "https://api.example",
+         "resolve": "library"
+        }
+       },
+       "name": "default",
+       "providers": [
+        {
+         "kind": "env"
+        }
+       ],
+       "sdk": {
+        "pad": {
+         "active": true,
+         "base": "https://one.example",
+         "feature": {},
+         "resolve": "library"
+        }
+       }
+      }
+     },
+     {
+      "doc": true,
+      "id": "instance#shallow-merge-replaces-policy",
+      "in": {
+       "config": {
+        "profiles": {
+         "default": {
+          "sdk": {
+           "solar": {
+            "base": "https://d",
+            "policy": {
+             "hosts": [
+              "a.example",
+              "b.example"
+             ]
+            }
+           }
+          }
+         },
+         "prod": {
+          "sdk": {
+           "solar": {
+            "policy": {
+             "hosts": [
+              "c.example"
+             ]
+            }
+           }
+          }
+         }
+        },
+        "station": 1
+       },
+       "profile": "prod"
+      },
+      "out": {
+       "api": {},
+       "name": "prod",
+       "providers": [
+        {
+         "kind": "env"
+        }
+       ],
+       "sdk": {
+        "solar": {
+         "active": true,
+         "base": "https://d",
+         "feature": {},
+         "policy": {
+          "hosts": [
+           "c.example"
+          ]
+         }
+        }
+       }
+      }
+     },
+     {
+      "doc": true,
+      "err": "station_secret_collision",
+      "id": "instance#derived-secret-names-collide",
+      "in": {
+       "config": {
+        "profiles": {
+         "default": {
+          "sdk": {
+           "stripe$test": {},
+           "stripe-test": {}
+          }
+         }
+        },
+        "station": 1
+       },
+       "profile": "default"
+      }
+     },
+     {
+      "doc": true,
+      "id": "instance#explicitly-shared-secret-is-legal",
+      "in": {
+       "config": {
+        "profiles": {
+         "default": {
+          "api": {
+           "stripe": {
+            "secret": "stripe_shared.apikey"
+           }
+          },
+          "sdk": {
+           "stripe$one": {},
+           "stripe$two": {}
+          }
+         }
+        },
+        "station": 1
+       },
+       "profile": "default"
+      },
+      "out": {
+       "api": {
+        "stripe": {
+         "secret": "stripe_shared.apikey"
+        }
+       },
+       "name": "default",
+       "providers": [
+        {
+         "kind": "env"
+        }
+       ],
+       "sdk": {
+        "stripe$one": {
+         "active": true,
+         "feature": {},
+         "secret": "stripe_shared.apikey"
+        },
+        "stripe$two": {
+         "active": true,
+         "feature": {},
+         "secret": "stripe_shared.apikey"
+        }
+       }
+      }
+     },
+     {
+      "err": "station_secret_collision",
+      "id": "instance#written-name-colliding-with-a-derived-one",
+      "in": {
+       "config": {
+        "profiles": {
+         "default": {
+          "sdk": {
+           "other": {
+            "secret": "stripe_test.apikey"
+           },
+           "stripe$test": {}
+          }
+         }
+        },
+        "station": 1
+       },
+       "profile": "default"
+      }
+     },
+     {
+      "err": "station_secret_name",
+      "id": "instance#bad-secret-name-is-caught-at-load",
+      "in": {
+       "config": {
+        "profiles": {
+         "default": {
+          "sdk": {
+           "a": {
+            "secret": "Not A Name"
+           }
+          }
+         }
+        },
+        "station": 1
+       },
+       "profile": "default"
+      }
      }
     ]
    },
@@ -479,7 +1781,7 @@
        "config": {
         "profiles": {
          "default": {
-          "plugin": {
+          "sdk": {
            "solardemo": {
             "base": "http://dev:1",
             "resolve": "library"
@@ -498,7 +1800,7 @@
           }
          },
          "prod": {
-          "plugin": {
+          "sdk": {
            "solardemo": {
             "base": "http://prod:2"
            }
@@ -518,19 +1820,22 @@
        "profile": "prod"
       },
       "out": {
+       "api": {},
        "name": "prod",
-       "plugin": {
-        "solardemo": {
-         "base": "http://prod:2",
-         "resolve": "library"
-        }
-       },
        "providers": [
         {
          "addr": "https://v",
          "kind": "hashicorp"
         }
-       ]
+       ],
+       "sdk": {
+        "solardemo": {
+         "active": true,
+         "base": "http://prod:2",
+         "feature": {},
+         "resolve": "library"
+        }
+       }
       }
      },
      {
@@ -540,22 +1845,23 @@
        "profile": "default"
       },
       "out": {
+       "api": {},
        "name": "default",
-       "plugin": {},
        "providers": [
         {
          "kind": "env"
         }
-       ]
+       ],
+       "sdk": {}
       }
      },
      {
-      "id": "profile#overlay-merges-per-plugin",
+      "id": "profile#overlay-merges-per-instance",
       "in": {
        "config": {
         "profiles": {
          "default": {
-          "plugin": {
+          "sdk": {
            "a": {
             "base": "http://a"
            },
@@ -565,7 +1871,7 @@
           }
          },
          "stage": {
-          "plugin": {
+          "sdk": {
            "a": {
             "secret": "custom.name"
            }
@@ -577,21 +1883,26 @@
        "profile": "stage"
       },
       "out": {
+       "api": {},
        "name": "stage",
-       "plugin": {
-        "a": {
-         "base": "http://a",
-         "secret": "custom.name"
-        },
-        "b": {
-         "base": "http://b"
-        }
-       },
        "providers": [
         {
          "kind": "env"
         }
-       ]
+       ],
+       "sdk": {
+        "a": {
+         "active": true,
+         "base": "http://a",
+         "feature": {},
+         "secret": "custom.name"
+        },
+        "b": {
+         "active": true,
+         "base": "http://b",
+         "feature": {}
+        }
+       }
       }
      },
      {
@@ -601,7 +1912,7 @@
        "config": {
         "profiles": {
          "default": {
-          "plugin": {
+          "sdk": {
            "a": {
             "secret": "Not A Name"
            }
@@ -667,6 +1978,41 @@
        "envkey": "LEAD_TRAIL_APIKEY",
        "envtoken": "LEAD_TRAIL",
        "secretname": "lead_trail.apikey"
+      }
+     },
+     {
+      "doc": true,
+      "id": "secretname#instance-ref",
+      "in": {
+       "slug": "stripe$test"
+      },
+      "out": {
+       "envkey": "STRIPE_TEST_APIKEY",
+       "envtoken": "STRIPE_TEST",
+       "secretname": "stripe_test.apikey"
+      }
+     },
+     {
+      "doc": true,
+      "id": "secretname#renaming-keeps-the-env-var",
+      "in": {
+       "slug": "stripe-test"
+      },
+      "out": {
+       "envkey": "STRIPE_TEST_APIKEY",
+       "envtoken": "STRIPE_TEST",
+       "secretname": "stripe_test.apikey"
+      }
+     },
+     {
+      "id": "secretname#untagged-ref-is-the-slug",
+      "in": {
+       "slug": "voxgig-solardemo"
+      },
+      "out": {
+       "envkey": "VOXGIG_SOLARDEMO_APIKEY",
+       "envtoken": "VOXGIG_SOLARDEMO",
+       "secretname": "voxgig_solardemo.apikey"
       }
      }
     ]

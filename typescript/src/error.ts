@@ -19,6 +19,16 @@ const CODES = [
   'station_replay_lossy',
   'station_open_conflict',
   'station_bound_twice',
+
+  // Declarative config (station-declarative-config.md §6.4). Stage 1
+  // raises the first three; `station_feature_reserved` is the pure-data
+  // half of §8.4/§8.6, checkable before feature.ts exists because both
+  // rules are lexical - a `station` key in a feature map, a `feature`
+  // key inside `options`.
+  'station_config_invalid',
+  'station_config_secret',
+  'station_secret_collision',
+  'station_feature_reserved',
 ] as const
 
 export type StationErrorCode = typeof CODES[number]

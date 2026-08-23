@@ -87,7 +87,7 @@ describe('gnarly-pets', { skip: !HAVE_SDKS }, () => {
           station: 1,
           profiles: {
             default: {
-              plugin: {
+              sdk: {
                 'gnarly-pets': { policy: { hosts: ['api.other.example'] } },
               },
             },
@@ -120,7 +120,7 @@ describe('gnarly-pets', { skip: !HAVE_SDKS }, () => {
           station: 1,
           profiles: {
             default: {
-              plugin: { 'gnarly-pets': { policy: { hosts: ['localhost'] } } },
+              sdk: { 'gnarly-pets': { policy: { hosts: ['localhost'] } } },
             },
           },
         },

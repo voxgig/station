@@ -20,11 +20,25 @@ import {
 import { isKnownCode } from '../src/error'
 import { placeholderFor } from '../src/secrets'
 import { resolveProfile } from '../src/profile'
+import { normalizeConfig, validateConfig } from '../src/shape'
 import { omnihome, specfile } from '../src/omnihome'
 
 // omni is a sibling checkout, not a published package (yet).
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const omni = require(omnihome() + '/typescript/dist/src')
+
+// Spec nulls arrive as omni's NULLMARK sentinel; restore them so each
+// driver sees what the spec means.
+const denull = (v: any): any => {
+  if (omni.NULLMARK === v) { return null }
+  if (Array.isArray(v)) { return v.map(denull) }
+  if (null != v && 'object' === typeof v) {
+    const out: any = {}
+    for (const k of Object.keys(v)) { out[k] = denull(v[k]) }
+    return out
+  }
+  return v
+}
 
 describe('station-conform', () => {
   let R: any
@@ -60,24 +74,29 @@ describe('station-conform', () => {
   })
 
   test('canonical', async () => {
-    // Spec nulls arrive as omni's NULLMARK sentinel; restore them so
-    // the serializer sees what the spec means.
-    const denull = (v: any): any => {
-      if (omni.NULLMARK === v) { return null }
-      if (Array.isArray(v)) { return v.map(denull) }
-      if (null != v && 'object' === typeof v) {
-        const out: any = {}
-        for (const k of Object.keys(v)) { out[k] = denull(v[k]) }
-        return out
-      }
-      return v
-    }
     await R.runset(R.spec.canonical, (vin: any) => canonicalSerialize(denull(vin)))
   })
 
   test('profile', async () => {
     await R.runset(R.spec.profile, (vin: any) =>
-      resolveProfile(vin.config, vin.profile))
+      resolveProfile(denull(vin.config), vin.profile))
+  })
+
+  // Normalize, then validate (design §4.2). The entry is a RAW config
+  // in, and either the normalized output or the expected error out -
+  // the two steps are one pipeline and a port that splits them is free
+  // to validate the wrong form.
+  test('config', async () => {
+    await R.runset(R.spec.config, (vin: any) =>
+      validateConfig(normalizeConfig(denull(vin))))
+  })
+
+  // The §3.3 merge. Same entry point as `profile`; the section is
+  // separate because it pins the BLOCK levels rather than the profile
+  // ones, and its two regression guards are the reason it exists.
+  test('instance', async () => {
+    await R.runset(R.spec.instance, (vin: any) =>
+      resolveProfile(denull(vin.config), vin.profile))
   })
 
   test('errors', async () => {
