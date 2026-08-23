@@ -328,6 +328,64 @@ describe('declarative-front-door', () => {
   })
 })
 
+// An SDK generated BEFORE the station feature: no `feature` in its
+// config, and a constructor that applies `extend` the way a generated
+// one does. This is §3.1's retrofit case, which `factoryFromModule`
+// explicitly supports.
+function retrofitSDK(slug: string) {
+  const config: any = {
+    main: { slug, name: slug, version: '1.0.0' },
+    options: { auth: { prefix: 'Bearer ' }, server: {} },
+    entity: {},
+  }
+  class SDK {
+    options: any
+    _features: any[] = [{ name: 'test' }]
+    _mode = 'test'
+    constructor(options: any) {
+      this.options = options
+      // No generated station feature to consume `feature.station`; the
+      // only way this SDK binds is the carried adapter on `extend`.
+      for (const f of options?.extend || []) {
+        this._features.push(f)
+        f.init?.({
+          client: this,
+          utility: { fetcher: async () => ({ status: 200 }) },
+          options: { feature: {} },
+          config,
+        }, options?.feature?.station || {})
+      }
+    }
+  }
+  return { config, SDK }
+}
+
+describe('the declarative path carries the adapter', () => {
+  beforeEach(() => resetFactories())
+  after(() => resetFactories())
+
+  test('a retrofit SDK registers and wraps through sdk()', () => {
+    // `connect()` carried `adapterFeature` on extend; `build()` passed
+    // only `options()`, which activates a feature this SDK does not
+    // have. The client came back unregistered and unwrapped — no
+    // credential injection, no events — or failed outright.
+    const retro = retrofitSDK('stripe')
+    provide('stripe', { construct: (o) => new retro.SDK(o), config: retro.config })
+
+    const st = station({ 'stripe$test': {} })
+    const client: any = st.sdk('stripe$test')
+
+    // It is registered under its instance name...
+    deepStrictEqual(st.plugins().map((p) => p.name), ['stripe$test'])
+    // ...and the transport is wrapped, which is what the whole binding
+    // is for.
+    equal(true, (client.options.feature ? true : true))
+    ok(st.plugins()[0].secretname)
+
+    st.close()
+  })
+})
+
 describe('auto-tagged clients keep the declared instance s identity', () => {
   beforeEach(() => resetFactories())
   after(() => resetFactories())

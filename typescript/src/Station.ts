@@ -700,9 +700,28 @@ export class Station {
       }
     }
 
+    // ...AND THE CARRIED ADAPTER RIDES EXTEND, exactly as it does on
+    // `connect`. §3.1's retrofit case — an SDK generated before the
+    // station feature, which `factoryFromModule` explicitly supports —
+    // has no generated feature to consume the `feature.station`
+    // activation this path sets, so declarative `sdk()` either failed
+    // on an unknown feature or returned an unregistered, unwrapped
+    // client with no credential injection and no events. The imperative
+    // path carried it and the declarative one did not, which is the
+    // whole defect.
+    //
+    // Safe on a REGENERATED SDK too: the constructor uses its own
+    // station feature and skips the extend copy by name, and both
+    // delegate to `featureBinding`, whose `_boundEntry` check no-ops a
+    // second arrival for the same client.
+    const withAdapter = {
+      ...opts,
+      extend: [...((opts as any).extend || []), adapterFeature(this, opts)],
+    }
+
     // The instance name reaches the adapter the same way it does on the
     // imperative path, so registration has one spelling (§7.5).
-    return entry.construct(this.options(as ?? name, opts))
+    return entry.construct(this.options(as ?? name, withAdapter))
   }
 
   /** §6.2's three paths, in order of preference: self-registration,

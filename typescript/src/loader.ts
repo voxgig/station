@@ -138,6 +138,24 @@ export function loadSync(api: string, pkg: string, exportName?: string): boolean
 
 /** The ESM preload behind `await station.load()`. Imports the package
  * and fills the SAME table the synchronous path fills. */
+/** A dynamic `import()` that SURVIVES THE COMMONJS EMIT.
+ *
+ * This package compiles with `module: "commonjs"`, and TypeScript
+ * rewrites a literal `import(pkg)` into a promise around `require(pkg)`
+ * — so `await station.load()` threw `ERR_REQUIRE_ESM` for exactly the
+ * ESM-only packages it exists to preload, leaving no working path to
+ * those SDKs at all. Verified against the emitted `dist/src/loader.js`,
+ * which read `mod = require(pkg)`.
+ *
+ * `new Function` is the seam the compiler does not look inside. It is
+ * deliberately the only one in this file, and it takes no caller input:
+ * `pkg` has already been through `checkPackage`, and the body is a
+ * constant. Changing the package to `module: "node16"` would fix it
+ * more cleanly and is a whole-package decision rather than a defect
+ * fix. */
+export const nativeImport: (p: string) => Promise<any> =
+  new Function('p', 'return import(p)') as any
+
 export async function loadAsync(
   api: string, pkg: string, exportName?: string
 ): Promise<boolean> {
@@ -145,7 +163,7 @@ export async function loadAsync(
   if (null != factoryFor(api)) { return true }
 
   let mod: any
-  try { mod = await import(pkg) }
+  try { mod = await nativeImport(pkg) }
   catch (e: any) {
     throw new StationError('station_sdk_load',
       'api "' + api + '": package "' + pkg + '" could not be imported: ' +
