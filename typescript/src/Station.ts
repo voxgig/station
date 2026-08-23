@@ -8,6 +8,10 @@ import {
 } from './profile'
 import { FactoryEntry, factoryFor } from './factory'
 import { loadAsync, loadSync } from './loader'
+import {
+  checkfeatures, checkpin, composefeatures, featuresources, mergefeatures,
+  resolveorder,
+} from './feature'
 import { normalizeConfig, validateConfig } from './shape'
 import { SecretBroker, placeholderFor } from './secrets'
 import {
@@ -82,6 +86,9 @@ export class Station {
   private registry = new Map<string, PluginEntry>()
   // §6.1: `sdk(name)` caches; `create()` deliberately does not.
   private clients = new Map<string, any>()
+  // The raw config, kept for §8.7's provenance: the resolved profile
+  // has already collapsed the levels that provenance has to name.
+  private raw: any = null
   private repoScoped = true
   private secretOverride = new Map<string, string>()
   private requireProxy: boolean
@@ -154,6 +161,7 @@ export class Station {
       validateConfig(normalizeConfig(config))
     }
 
+    this.raw = config ?? null
     this.profile = resolveProfile(config ?? null, selectProfile(this.opts.profile))
     this.broker = new SecretBroker(this.profile.providers)
     this.buffer = new EventBuffer()
@@ -602,10 +610,31 @@ export class Station {
     const api = refapi(name)
     const entry = this.resolveFactory(api, block)
 
+    // §8.4: compose the merged feature map into the ORDERED form and
+    // hand it to the constructor. No new seam - it is the same
+    // `options.feature` map `connect()` already uses for station's own
+    // placement, with more in it, and a JS object preserves the
+    // insertion order of string keys so the order rides the map.
+    //
+    // Station's own entry is composed AFTER the user merge and always
+    // wins (§8.4), which is why `station` is dropped here and added by
+    // `options()`: a config file that can switch off the component
+    // reading it is not a surface, it is a trap. `feature.station` is
+    // already `station_feature_reserved` at validation, so this is the
+    // second half of one rule rather than a second rule.
+    const resolved = this.featuresOf(name)
+    const fmap: { [k: string]: any } = {}
+    for (const f of composefeatures(
+      resolveorder(resolved.merged).filter((o) => 'station' !== o.name))) {
+      const { name: fname, ...rest } = f
+      fmap[fname] = rest
+    }
+
     const opts = {
       ...(block.options || {}),
       ...(null == block.base ? {} : { base: block.base }),
       ...(overrides || {}),
+      feature: { ...fmap, ...((overrides || {}).feature || {}) },
     }
     // The instance name reaches the adapter the same way it does on the
     // imperative path, so registration has one spelling (§7.5).
@@ -669,6 +698,58 @@ export class Station {
     }
   }
 
+  /** The merged, ordered feature set for one instance, WITH
+   * PROVENANCE (§8.7): which config level set each value.
+   *
+   * Provenance is the half that makes a fleet view usable rather than
+   * merely correct - at 26 instances "why is retry off here" is the
+   * question, and a merged map alone cannot answer it. */
+  featuresOf(name: string): {
+    ordered: string[]
+    merged: { [k: string]: any }
+    from: { [k: string]: { [k: string]: string } }
+  } {
+    const api = refapi(name)
+    const profiles = (this.raw?.profiles || {}) as any
+    const base = profiles['default'] || {}
+    const overlay = 'default' === this.profile.name
+      ? {} : (profiles[this.profile.name] || {})
+
+    const LEVELS = [
+      'default.feature', 'default.api', 'default.sdk',
+      this.profile.name + '.feature',
+      this.profile.name + '.api',
+      this.profile.name + '.sdk',
+    ]
+    const sources = featuresources(base, overlay, api, name)
+
+    // Last writer per (feature, key) wins, and the level that wrote it
+    // is what `from` records.
+    const from: { [k: string]: { [k: string]: string } } = {}
+    sources.forEach((src, i) => {
+      if (null == src || 'object' !== typeof src) { return }
+      for (const fname of Object.keys(src)) {
+        const entry = src[fname]
+        if (null == entry || 'object' !== typeof entry) { continue }
+        from[fname] = from[fname] || {}
+        for (const k of Object.keys(entry)) { from[fname][k] = LEVELS[i] }
+      }
+    })
+
+    const merged = mergefeatures(sources)
+    const ordered = resolveorder(merged)
+    checkpin(ordered)
+    return { ordered: ordered.map((o) => o.name), merged, from }
+  }
+
+  /** The fleet feature view: instance x feature, effective options, and
+   * which config level set each (§8.7). */
+  features(filter?: string): any[] {
+    return this.instances()
+      .filter((r) => null == filter || r.name === filter || r.api === filter)
+      .map((r) => ({ instance: r.name, api: r.api, ...this.featuresOf(r.name) }))
+  }
+
   /** Eagerly resolve and construct every ACTIVE instance - for CI
    * (§6.6). The point is to turn availability errors, which are
    * deliberately deferred to first use, into one failure at a moment
@@ -678,7 +759,25 @@ export class Station {
     const failed: { name: string, code?: string, message: string }[] = []
     for (const row of this.instances()) {
       if (!row.active) { continue }
-      try { this.sdk(row.name); ok.push(row.name) }
+      try {
+        // §8.5 runs FIRST and needs no construction: the schema arrives
+        // with the factory, not with a live client, so a feature typo
+        // is a CI failure rather than a setting that quietly did
+        // nothing in production.
+        const entry = factoryFor(row.api)
+        if (null != entry) {
+          const faults = checkfeatures(
+            this.featuresOf(row.name).merged, entry.descriptor)
+          if (0 < faults.length) {
+            failed.push({
+              name: row.name, code: faults[0].code,
+              message: faults.map((f) => f.message).join('; '),
+            })
+            continue
+          }
+        }
+        this.sdk(row.name); ok.push(row.name)
+      }
       catch (e: any) {
         failed.push({
           name: row.name, code: e?.code, message: String(e?.message || e),

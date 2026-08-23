@@ -1331,6 +1331,18 @@
      {
       "in": "station_factory_conflict",
       "out": true
+     },
+     {
+      "in": "station_feature_unknown",
+      "out": true
+     },
+     {
+      "in": "station_feature_option",
+      "out": true
+     },
+     {
+      "in": "station_feature_order",
+      "out": true
      }
     ]
    },

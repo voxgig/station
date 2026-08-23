@@ -38,6 +38,13 @@ const CODES = [
   'station_sdk_load',
   'station_no_factory',
   'station_factory_conflict',
+
+  // Features (design §8.4, §8.5). The checker is derived from the SDK's
+  // own declaration, so a feature typo is a CI failure rather than a
+  // setting that quietly did nothing in production.
+  'station_feature_unknown',
+  'station_feature_option',
+  'station_feature_order',
 ] as const
 
 export type StationErrorCode = typeof CODES[number]

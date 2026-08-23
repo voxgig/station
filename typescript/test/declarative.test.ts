@@ -20,11 +20,12 @@ import { provide, provided, resetFactories } from '../src/factory'
 // Enough of a generated SDK for the adapter to bind: the module-level
 // `config` singleton §6.2 relies on, and a constructor that activates
 // the station feature the way a generated one does.
-function fakeSDK(slug: string) {
-  const config = {
+function fakeSDK(slug: string, feature?: Record<string, any>) {
+  const config: any = {
     main: { slug, name: slug, version: '1.0.0' },
     options: { auth: { prefix: 'Bearer ' }, server: {} },
     entity: {},
+    ...(null == feature ? {} : { feature }),
   }
   let built = 0
   class SDK {
@@ -208,6 +209,100 @@ describe('declarative-front-door', () => {
   test('load: false disables the loader outright', () => {
     const st = station({ 'stripe$a': { package: 'nope' } }, { load: false })
     throws(() => st.sdk('stripe$a'), /station_no_factory/)
+    st.close()
+  })
+
+  test('the merged feature set reaches the constructor, in order', () => {
+    const stripe = fakeSDK('stripe')
+    provide('stripe', { construct: (o) => new stripe.SDK(o), config: stripe.config })
+
+    const st = new Station({
+      config: {
+        station: 1,
+        profiles: {
+          default: {
+            // Fleet-wide default...
+            feature: { log: { active: true, level: 'warn' } },
+            // ...an api-level tweak...
+            api: { stripe: { feature: { retry: { active: true, retries: 2 } } } },
+            // ...and a per-instance one, which wins on its own key only.
+            sdk: {
+              'stripe$t': {
+                feature: {
+                  retry: { retries: 5 },
+                  cache: { active: true, order: { after: 'retry' } },
+                },
+              },
+            },
+          },
+        },
+      },
+    })
+
+    const built = st.sdk('stripe$t')
+    const f = built.options.feature
+
+    // A FLEET-WIDE DEFAULT REACHED AN INSTANCE THAT NEVER MENTIONS IT,
+    // and a per-instance tweak composed with the api-level one rather
+    // than replacing it.
+    equal('warn', f.log.level)
+    equal(5, f.retry.retries)
+    equal(true, f.retry.active)
+
+    // Order rides the map: the constraint put cache inside retry, and
+    // alphabet - which would have put cache first - is not consulted.
+    deepStrictEqual(Object.keys(f).filter((k) => 'station' !== k),
+      ['log', 'retry', 'cache'])
+
+    // Reserved keys never reach the SDK as options.
+    equal(undefined, f.cache.order)
+
+    st.close()
+  })
+
+  test('check() catches a feature typo without constructing anything', () => {
+    const stripe = fakeSDK('stripe', { retry: { options: { retries: 2 } } })
+    provide('stripe', { construct: (o) => new stripe.SDK(o), config: stripe.config })
+
+    const st = station({
+      'stripe$t': { feature: { retry: { retires: 5 } } },
+    })
+
+    const res = st.check()
+    deepStrictEqual(res.ok, [])
+    equal('station_feature_option', res.failed[0].code)
+    equal(true, -1 !== res.failed[0].message.indexOf('retires'))
+
+    // Nothing was constructed to find that out: the schema arrives with
+    // the FACTORY, not with a live client.
+    equal(0, stripe.builtCount())
+
+    st.close()
+  })
+
+  test('featuresOf reports which level set each value', () => {
+    const stripe = fakeSDK('stripe')
+    provide('stripe', { construct: (o) => new stripe.SDK(o), config: stripe.config })
+
+    const st = new Station({
+      config: {
+        station: 1,
+        profiles: {
+          default: {
+            feature: { retry: { active: true, retries: 1 } },
+            sdk: { 'stripe$t': { feature: { retry: { retries: 9 } } } },
+          },
+        },
+      },
+    })
+
+    const { merged, from } = st.featuresOf('stripe$t')
+    equal(9, merged.retry.retries)
+    // At 26 instances "why is retry set to 9 here" is the question, and
+    // a merged map alone cannot answer it.
+    equal('default.sdk', from.retry.retries)
+    equal('default.feature', from.retry.active)
+
     st.close()
   })
 

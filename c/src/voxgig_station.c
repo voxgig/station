@@ -156,6 +156,11 @@ static const char* const VXSTN_CODES[] = {
   "station_sdk_load",
   "station_no_factory",
   "station_factory_conflict",
+
+  /* Features (design 8.4, 8.5). */
+  "station_feature_unknown",
+  "station_feature_option",
+  "station_feature_order",
 };
 
 bool vxstn_known_code(const char* code) {
