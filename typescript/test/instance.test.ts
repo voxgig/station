@@ -182,4 +182,156 @@ describe('instance-identity', () => {
 
     st.close()
   })
+
+  // ---- what review found: the api block did not reach an imperative
+  // instance ------------------------------------------------------------
+
+  test('an api block governs an instance the profile never declares', () => {
+    // `resolveProfile` builds `profile.sdk` from the DECLARED refs
+    // alone, shallow-merging `profile.api[a]` into each. Right for a
+    // declared instance, and it left an imperative one — named through
+    // `as`, never written into config — with no block at all. The
+    // api-level `secret` therefore did not reach it, and neither did
+    // `policy.hosts`, which is the serious half.
+    const st = new Station({
+      config: {
+        station: 1,
+        profiles: {
+          default: { api: { stripe: { secret: 'shared.key' } } },
+        },
+      },
+    })
+
+    bind(st, 'stripe', { as: 'test' })
+
+    // The api block's `secret` wins over the instance-derived default,
+    // exactly as it does for a declared instance.
+    equal('shared.key', st.plugins()[0].secretname)
+
+    st.close()
+  })
+
+  test('the api block s hosts policy reaches an imperative instance', () => {
+    // THE ONE THAT MATTERS. A profile whose api block denies egress
+    // everywhere denied nothing for a tagged client, because the
+    // allowlist was read off a block that did not exist.
+    const st = new Station({
+      config: {
+        station: 1,
+        profiles: {
+          default: { api: { stripe: { policy: { hosts: ['api.stripe.com'] } } } },
+        },
+      },
+    })
+
+    const b = bind(st, 'stripe', { as: 'test' })!
+    // The binding carries the api block's policy through to the seam
+    // every request crosses.
+    equal('stripe$test', b.slug)
+    deepStrictEqual(
+      (st as any).blockFor('stripe$test')?.policy?.hosts, ['api.stripe.com'])
+
+    // ...and a declared instance still wins over its api block, which is
+    // the precedence the merge already had and must not lose.
+    const st2 = new Station({
+      config: {
+        station: 1,
+        profiles: {
+          default: {
+            api: { stripe: { policy: { hosts: ['api.stripe.com'] } } },
+            sdk: { 'stripe$test': { policy: { hosts: ['test.stripe.com'] } } },
+          },
+        },
+      },
+    })
+    deepStrictEqual(
+      (st2 as any).blockFor('stripe$test')?.policy?.hosts, ['test.stripe.com'])
+
+    st.close()
+    st2.close()
+  })
+
+  test('the transport seam ASKS for the instance s own secret name', async () => {
+    // THE SEAM IS THE ASSERTION. My first version of this test compared
+    // `plugins()[0].secretname` with `descriptorOf(...).auth.secretname`
+    // and passed with the bug still in — it asserted what the two
+    // values ARE, never which one the request reaches for. The broker
+    // is where that becomes observable.
+    const st = new Station({ config: null })
+    const asked: string[] = []
+    ;(st as any).broker = {
+      value: async (_slug: string, name: string) => { asked.push(name); return 'sk' },
+      hoist: () => undefined,
+      scrub: (t: string) => t,
+      refresh: () => undefined,
+    }
+
+    const { ctx } = fakeClient('stripe')
+    ctx.client._mode = 'live'
+    featureBinding(ctx, { station: st, as: 'test' })
+
+    await ctx.utility.fetcher({ client: ctx.client }, 'https://api.stripe.com/v1',
+      { headers: {} })
+
+    // `stripe_test.apikey`, not the shared descriptor's `stripe.apikey`
+    // — which is the credential a SIBLING instance would use.
+    deepStrictEqual(asked, ['stripe_test.apikey'])
+
+    st.close()
+  })
+
+  test('warm() resolves an imperative instance, by its own name', async () => {
+    // `warm` read `profile.sdk[name]` and skipped anything absent, so an
+    // imperative instance was reported `missed` at startup and its
+    // credential was never batched — the one thing the method exists
+    // for. It also re-derived the name, dropping the in-code `secret`
+    // option that beats the profile (§9).
+    const st = new Station({ config: null })
+    const asked: string[] = []
+    ;(st as any).broker = {
+      value: async (_slug: string, name: string) => { asked.push(name); return 'sk' },
+      hoist: () => undefined,
+      scrub: (t: string) => t,
+      refresh: () => undefined,
+    }
+
+    bind(st, 'stripe', { as: 'test' })
+
+    const out = await st.warm(['stripe$test'])
+    deepStrictEqual(out.warmed, ['stripe$test'])
+    deepStrictEqual(out.missed, [])
+    deepStrictEqual(asked, ['stripe_test.apikey'])
+
+    st.close()
+  })
+
+  test('the registry and the shared descriptor hold different names', () => {
+    // §7.4: one descriptor is shared by every instance of an api and
+    // cannot hold two instance-derived names, so `Binding.secretname`
+    // is the authority. The transport seam re-derived it instead and
+    // fell back to `descriptor.auth.secretname` — the API-level name —
+    // so a tagged instance with no explicit `secret` read
+    // `stripe.apikey` where registration had recorded
+    // `stripe_test.apikey`. Either the request fails despite the
+    // credential being configured, or it succeeds with a sibling's.
+    const st = new Station({ config: null })
+
+    bind(st, 'stripe', { as: 'test' })
+    bind(st, 'stripe', { as: 'live' })
+
+    const [live, testi] = st.plugins()
+      .sort((x, y) => x.name < y.name ? -1 : 1)
+
+    // The registry is the authority, and the two differ...
+    equal('stripe_live.apikey', live.secretname)
+    equal('stripe_test.apikey', testi.secretname)
+
+    // ...while the shared descriptor carries the API-level name for
+    // both, which is precisely why reaching for it hands siblings each
+    // other's credential.
+    equal('stripe.apikey', st.descriptorOf('stripe$test').auth.secretname)
+    equal('stripe.apikey', st.descriptorOf('stripe$live').auth.secretname)
+
+    st.close()
+  })
 })

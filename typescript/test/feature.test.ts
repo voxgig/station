@@ -9,13 +9,14 @@
 // which is the thing the joint plan is trying to prevent.
 
 import { describe, test } from 'node:test'
-import { deepStrictEqual, equal, throws } from 'node:assert'
+import { deepStrictEqual, equal, ok, throws } from 'node:assert'
 
 import {
   checkfeatures, checkpin, composefeatures, defaultband, featuresources,
   mergefeatures, resolveorder,
 } from '../src/feature'
 import { normalizeDescriptor } from '../src/descriptor'
+import { Station } from '../src/Station'
 
 const order = (m: any) => resolveorder(m).map((o) => o.name)
 
@@ -264,5 +265,54 @@ describe('feature-model-contract', () => {
     // ...and a real typo is still caught.
     equal('station_feature_option',
       checkfeatures({ station: { instanse: 'pad$eu' } }, descriptor)[0].code)
+  })
+})
+
+// ---- what review of #9 found ----------------------------------------
+
+describe('the pin check sees the implicit station entry', () => {
+
+  test('a constraint against `station` is REJECTED, not vacuous', () => {
+    // `checkpin` looked for a `station` row in the resolved order and
+    // returned immediately when it found none — and it never could,
+    // because `feature.station` is reserved and rejected at validation
+    // (§8.4), so it is never in the merged map. The check was a
+    // permanent no-op: `retry.order.after: 'station'` would place retry
+    // INSIDE the host feature, which is the one position §8.4 says is
+    // not orderable, and nothing said so.
+    const st = new Station({
+      config: {
+        station: 1,
+        profiles: {
+          default: {
+            sdk: {
+              'stripe$a': {
+                feature: { retry: { order: { after: 'station' } } },
+              },
+            },
+          },
+        },
+      },
+    })
+
+    throws(() => st.featuresOf('stripe$a'), /station_feature_order/)
+    st.close()
+  })
+
+  test('...and the reported order names it', () => {
+    // The other half: an order that omits the feature whose position is
+    // pinned cannot be read to check that position.
+    const st = new Station({
+      config: {
+        station: 1,
+        profiles: { default: { sdk: { 'stripe$a': { feature: { retry: {} } } } } },
+      },
+    })
+
+    const { ordered } = st.featuresOf('stripe$a')
+    ok(-1 !== ordered.indexOf('station'), 'station is part of the wrap order')
+    // ...and it is innermost, which is what the pin means.
+    equal('station', ordered[ordered.length - 1])
+    st.close()
   })
 })

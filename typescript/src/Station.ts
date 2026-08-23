@@ -6,7 +6,7 @@ import {
   configScope, loadConfig, refapi, resolveProfile, selectProfile,
   ResolvedProfile,
 } from './profile'
-import { FactoryEntry, factoryFor } from './factory'
+import { FactoryEntry, factoryFor, provide } from './factory'
 import { loadAsync, loadSync } from './loader'
 import {
   checkfeatures, checkpin, composefeatures, featuresources, mergefeatures,
@@ -79,6 +79,18 @@ export class Station {
   private static ambient: Station | null = null
   private static ambientOpts: string | null = null
 
+  /** §6.2's second path, and the front door the docs name.
+   *
+   * The package exported only the free `provide()` and the class had no
+   * static — so the documented `Station.provide(...)` call failed, and
+   * so did the remediation `station_no_factory` prints, which tells the
+   * user to make exactly that call. Delegates to the same
+   * process-global table the free function fills; there is one
+   * registry, not two. */
+  static provide(api: string, factory: any): void {
+    provide(api, factory)
+  }
+
   private opts: StationOptions
   private profile: ResolvedProfile
   private broker: SecretBroker
@@ -90,8 +102,13 @@ export class Station {
   // has already collapsed the levels that provenance has to name.
   private raw: any = null
   private repoScoped = true
-  private secretOverride = new Map<string, string>()
   private requireProxy: boolean
+  /** An auto-assigned tag to the DECLARED instance it stands for
+   * (§5.3). Kept beside the registry rather than inside it because the
+   * mapping exists before construction, and `blockFor` needs it during
+   * registration. */
+  private aliasOf = new Map<string, string>()
+
   private closed = false
 
   // Ambient instance (design §10.2): open() is the idempotent
@@ -260,6 +277,34 @@ export class Station {
     return null
   }
 
+  /** The profile block that governs an instance — its own if the
+   * profile declares it, otherwise its **api's**.
+   *
+   * `resolveProfile` builds `profile.sdk` from the declared refs alone
+   * ("an api block declares no instance, so the ref set comes from the
+   * two `sdk` maps"), shallow-merging `profile.api[a]` into each. That
+   * is right for a declared instance and leaves an IMPERATIVE one —
+   * `connect(SDK, { as: 'test' })`, named but never written into
+   * config — with no block at all. The api-level `secret`, `base` and
+   * most seriously `policy.hosts` then did not reach it, so a profile
+   * that denies egress everywhere denied nothing for a tagged client.
+   *
+   * ONE RULE, ONE PLACE: registration and the transport seam both ask
+   * here, because they disagreeing is how the credential and the
+   * allowlist came apart in the first place. */
+  private blockFor(name: string): SdkBlock | undefined {
+    return this.profile.sdk[this.declaredRef(name)] ??
+      this.profile.api[refapi(name)]
+  }
+
+  /** The DECLARED instance an assigned tag stands for, or the name
+   * itself. `create('stripe$prod')` registers under `stripe$1`, and
+   * every question about that client's configuration — its secret, its
+   * base, its egress policy — is a question about `stripe$prod`. */
+  private declaredRef(name: string): string {
+    return this.aliasOf.get(name) ?? name
+  }
+
   _register(client: any, config: any, options: any, _calleropts: any,
     fopts?: any):
     { binding: Binding, profilePlugin?: SdkBlock } {
@@ -282,7 +327,7 @@ export class Station {
         'twice is an error (§10.2)')
     }
 
-    const profilePlugin = this.profile.sdk[name]
+    const profilePlugin = this.blockFor(name)
     // Secret name precedence: the feature option (in-code, design §9
     // config.options.secret) beats the profile, which beats the
     // INSTANCE-derived default.
@@ -301,11 +346,12 @@ export class Station {
     // names, so whichever instance built the cached copy would report
     // the other's secret metadata wrongly. This is the authority; that
     // field is documentation.
+    // ...and the DEFAULT takes the declared name too, not the assigned
+    // tag: `stripe$1` created from `stripe$test` derives
+    // `stripe_test.apikey`, so every per-request client of one instance
+    // shares one broker cache entry (§5.3).
     const secretname = firstNonEmpty(fopts?.secret, profilePlugin?.secret) ||
-      secretnameDefault(name)
-    if (null != fopts?.secret && '' !== fopts.secret) {
-      this.secretOverride.set(name, fopts.secret)
-    }
+      secretnameDefault(this.declaredRef(name))
 
     const rung = descriptor.auth.active ? 'R1' : 'none'
     const binding: Binding = {
@@ -350,14 +396,30 @@ export class Station {
   // normalizes and then keys on the result.
   private descriptorCache = new Map<string, { descriptor: any, warnings: string[] }>()
 
-  private describe(config: any, feature: any):
+  /** The descriptor describes the API, and is SHARED by every instance
+   * of it — which is §7.4's own reasoning for why the effective secret
+   * name moved to `Binding` and is not read off the descriptor.
+   *
+   * The same argument applies to feature activation, and this did not
+   * follow it: the cache is keyed by slug alone while
+   * `normalizeDescriptor`'s second argument decides each feature row's
+   * `active`. So two instances of one api constructed with different
+   * feature maps shared the FIRST one's feature state, and
+   * `descriptorOf()` / `canonicalDescriptor()` became
+   * construction-order-dependent.
+   *
+   * Normalized with no per-instance features, so the shared value holds
+   * only API-stable metadata — which is what `factory.ts` already does
+   * when it normalizes at provide time. Per-instance activation is
+   * `featuresOf(name)`'s answer, and always was. */
+  private describe(config: any, _feature: any):
     { descriptor: any, warnings: string[] } {
     const slug = String(config?.main?.slug ?? '')
     if ('' !== slug) {
       const hit = this.descriptorCache.get(slug)
       if (null != hit) { return hit }
     }
-    const out = normalizeDescriptor(config, feature)
+    const out = normalizeDescriptor(config, undefined)
     this.descriptorCache.set(out.descriptor.slug, out)
     return out
   }
@@ -365,7 +427,7 @@ export class Station {
   _hoist(name: string, value: string): void {
     this.broker.hoist(name, value)
     this.emit({
-      t: Date.now(), kind: 'station', plugin: name,
+      t: Date.now(), kind: 'station', plugin: name, api: refapi(name),
       meta: {
         warn: 'a resident credential was hoisted into the broker and ' +
           'replaced by the placeholder; prefer configuring the secret ' +
@@ -392,7 +454,7 @@ export class Station {
     const entry = this.registry.get(name)
     const placeholder = placeholderFor(name)
     const live = 'live' === fctx.client._mode
-    const profilePlugin = this.profile.sdk[name]
+    const profilePlugin = this.blockFor(name)
 
     // Egress policy (design §16), solo half: the hosts allowlist is
     // enforced at the seam every request crosses. When a policy is
@@ -424,8 +486,21 @@ export class Station {
     // enter in-memory mock stores. Copy-on-inject: the object graph
     // reachable from ctx/spec/ctrl keeps the placeholder, ever (§5.3).
     if (live && null != entry && 'R1' === entry.rung) {
-      const secretname = firstNonEmpty(this.secretOverride.get(name),
-        profilePlugin?.secret) || entry.descriptor.auth.secretname
+      // §7.4: THE EFFECTIVE NAME, resolved once at registration and
+      // stored on the entry. Re-deriving it here got the precedence
+      // right and the FALLBACK wrong: `descriptor.auth.secretname` is
+      // the API-level default, and one descriptor is shared by every
+      // instance of an api — so a tagged instance with no explicit
+      // `secret` read `stripe.apikey` where registration had recorded
+      // `stripe_test.apikey`. Either the request fails despite the
+      // credential being configured, or it succeeds with a sibling's.
+      //
+      // No fallback, and the `!` is the invariant rather than a shrug:
+      // this branch is guarded by `'R1' === entry.rung`, which is set
+      // only when `descriptor.auth.active` — the same condition under
+      // which `entry.secretname` is populated. Substituting a different
+      // name when it is absent is the bug above, written again.
+      const secretname = entry.secretname!
 
       let value: string
       try {
@@ -481,7 +556,7 @@ export class Station {
       path = u.pathname
     } catch (_e) { path = fullurl }
     this.emit({
-      t: started, kind: 'http', plugin: slug, corr,
+      t: started, kind: 'http', plugin: slug, api: refapi(slug), corr,
       http: {
         method: fetchdef?.method || 'GET', host, path, status,
         durationMs: Date.now() - started, bytes,
@@ -491,7 +566,14 @@ export class Station {
 
   private emitErr(name: string, fctx: any, err: any): void {
     this.emit({
-      t: Date.now(), kind: 'error', plugin: name, corr: fctx?.station$?.corr,
+      // §7.3's grouping contract: `plugin` is the INSTANCE and `api` is
+      // what groups its siblings. Construction events carried both and
+      // the runtime ones did not, so a consumer could group `construct`
+      // by api and then get `api: undefined` for every request, error
+      // and hoist from the same client — the grouping working exactly
+      // until it was used.
+      t: Date.now(), kind: 'error', plugin: name, api: refapi(name),
+      corr: fctx?.station$?.corr,
       err: {
         code: err?.code,
         // The scrub keeps an upstream echo of a credential out of the
@@ -505,7 +587,7 @@ export class Station {
   _opEvent(name: string, ctx: any, outcome: string): void {
     const st = ctx.station$ || {}
     this.emit({
-      t: Date.now(), kind: 'op', plugin: name, corr: st.corr,
+      t: Date.now(), kind: 'op', plugin: name, api: refapi(name), corr: st.corr,
       // ctx.op is the SDK's resolved Operation: name + entity, in the
       // descriptor's lowercase spelling.
       op: {
@@ -581,12 +663,24 @@ export class Station {
     return this.build(name, this.autotag(name), overrides)
   }
 
-  /** The lowest unused positive integer tag for a declared instance. */
+  /** The lowest positive integer tag not already taken, by a LIVE
+   * instance or a DECLARED one.
+   *
+   * The registry alone was not enough: a profile may declare
+   * `stripe$1`, and until something constructs it `registry.has` says
+   * false — so `create('stripe$prod')` took that identity for a client
+   * built from the `stripe$prod` block. `instances()` then reported the
+   * declared `stripe$1` as live with the wrong client, and a later
+   * `sdk('stripe$1')` failed `station_bound_twice` against a binding
+   * that was never its own. Declaration reserves the name whether or
+   * not it has been built. */
   private autotag(name: string): string {
     const api = refapi(name)
     for (let n = 1; ; n++) {
       const ref = api + '$' + n
-      if (!this.registry.has(ref)) { return ref }
+      if (!this.registry.has(ref) && null == this.profile.sdk[ref]) {
+        return ref
+      }
     }
   }
 
@@ -609,6 +703,26 @@ export class Station {
 
     const api = refapi(name)
     const entry = this.resolveFactory(api, block)
+
+    // §8.5 VALIDATES HERE, not only in `check()`. The schema arrives
+    // with the factory, so the moment a factory is resolved is the
+    // first moment validation is possible — and it was running in
+    // `check()` alone. Two gaps followed: production `sdk()` silently
+    // ignored an unknown option like `retry.retires`, and `check()`
+    // itself missed the case where the factory is discovered by the
+    // LOADER (its pre-check sees no registered factory, then `sdk()`
+    // loads and constructs unvalidated). One call here closes both,
+    // because every path to a constructor comes through this line.
+    const faults = checkfeatures(this.featuresOf(name).merged, entry.descriptor)
+    if (0 < faults.length) {
+      // `Fault.code` is a plain string in `feature.ts`; the two codes it
+      // actually produces are both in the union, and `check()` passes
+      // the same value through untyped. Narrowed here rather than
+      // widening the union, so a new fault code is a compile error at
+      // the place that has to decide what it means.
+      throw new StationError(faults[0].code as any,
+        faults.map((f) => f.message).join('; '))
+    }
 
     // §8.4: compose the merged feature map into the ORDERED form and
     // hand it to the constructor. No new seam - it is the same
@@ -636,9 +750,46 @@ export class Station {
       ...(overrides || {}),
       feature: { ...fmap, ...((overrides || {}).feature || {}) },
     }
+
+    // §5.3, and `create`'s own doc comment: "the SECRET NAME does not
+    // follow the assigned tag: it resolves from the DECLARED instance
+    // the tag was assigned under."
+    //
+    // THE ALIAS IS RECORDED, NOT THE FIELDS. The first fix for this
+    // carried the declared `secret` through the feature options and
+    // stopped there — which left `policy`, `base` and everything else
+    // behind, so an auto-tagged client silently lost its declared
+    // instance's HOSTS ALLOWLIST and fell back to the wider api-level
+    // one. Carrying configuration a field at a time is how that
+    // happens; recording what the tag STANDS FOR is one rule that every
+    // lookup already goes through.
+    //
+    // Only when the tag was ASSIGNED — a caller naming its own is
+    // naming an instance, not aliasing one.
+    if (null != as && as !== name) { this.aliasOf.set(as, name) }
+
+    // ...AND THE CARRIED ADAPTER RIDES EXTEND, exactly as it does on
+    // `connect`. §3.1's retrofit case — an SDK generated before the
+    // station feature, which `factoryFromModule` explicitly supports —
+    // has no generated feature to consume the `feature.station`
+    // activation this path sets, so declarative `sdk()` either failed
+    // on an unknown feature or returned an unregistered, unwrapped
+    // client with no credential injection and no events. The imperative
+    // path carried it and the declarative one did not, which is the
+    // whole defect.
+    //
+    // Safe on a REGENERATED SDK too: the constructor uses its own
+    // station feature and skips the extend copy by name, and both
+    // delegate to `featureBinding`, whose `_boundEntry` check no-ops a
+    // second arrival for the same client.
+    const withAdapter = {
+      ...opts,
+      extend: [...((opts as any).extend || []), adapterFeature(this, opts)],
+    }
+
     // The instance name reaches the adapter the same way it does on the
     // imperative path, so registration has one spelling (§7.5).
-    return entry.construct(this.options(as ?? name, opts))
+    return entry.construct(this.options(as ?? name, withAdapter))
   }
 
   /** §6.2's three paths, in order of preference: self-registration,
@@ -737,17 +888,69 @@ export class Station {
     })
 
     const merged = mergefeatures(sources)
-    const ordered = resolveorder(merged)
+
+    // THE IMPLICIT STATION ENTRY, added for ORDERING ONLY. `station` is
+    // never in `merged` — `feature.station` is reserved and rejected at
+    // validation (§8.4) — so `checkpin` found no station row and
+    // returned immediately, every time. It was a permanent no-op: a
+    // constraint like `retry.order.after: 'station'` was treated as
+    // vacuous rather than rejected, and the reported order omitted the
+    // one feature whose position is supposedly pinned.
+    //
+    // Added here rather than into `merged`, which stays the user's own
+    // merge result. `build` already filters `station` out of the map it
+    // hands the constructor, because §8.4 composes station's entry
+    // after the user merge and always wins.
+    const ordered = resolveorder({ ...merged, station: { active: true } })
     checkpin(ordered)
     return { ordered: ordered.map((o) => o.name), merged, from }
   }
 
   /** The fleet feature view: instance x feature, effective options, and
    * which config level set each (§8.7). */
-  features(filter?: string): any[] {
-    return this.instances()
-      .filter((r) => null == filter || r.name === filter || r.api === filter)
+  features(filter?: string | { instance?: string, api?: string, feature?: string }): any[] {
+    // §8.7's documented shape is an OBJECT, and only the object form
+    // can express the question the view exists for: `{feature: 'debug'}`
+    // — "is debug on anywhere?", the one that is twenty greps today.
+    // The implementation took a bare string and compared it against
+    // both `name` and `api`, so every documented call returned an empty
+    // list, an object never equalling either string.
+    //
+    // The string form is kept as shorthand for "this instance or this
+    // api", because it is what the tests and the imperative path
+    // already use and it costs one line.
+    const f = 'string' === typeof filter
+      ? { instance: filter, api: filter, loose: true }
+      : { ...(filter || {}), loose: false }
+
+    const rows = this.instances()
+      .filter((r) => {
+        if (f.loose) {
+          return null == f.instance || r.name === f.instance || r.api === f.api
+        }
+        if (null != f.instance && r.name !== f.instance && r.api !== f.instance) {
+          return false
+        }
+        return null == f.api || r.api === f.api
+      })
       .map((r) => ({ instance: r.name, api: r.api, ...this.featuresOf(r.name) }))
+
+    // `feature` filters the ROWS, not the instances: an instance that
+    // does not carry the named feature is not part of the answer, and
+    // the rows that remain are narrowed to it so the view answers
+    // "where is debug on, and with what" rather than "here is
+    // everything, go and look".
+    const want = (filter as any)?.feature
+    if (null == want) { return rows }
+    return rows
+      .filter((row: any) => null != row.merged[want])
+      .map((row: any) => ({
+        instance: row.instance,
+        api: row.api,
+        ordered: row.ordered.filter((n: string) => n === want),
+        merged: { [want]: row.merged[want] },
+        from: { [want]: row.from[want] || {} },
+      }))
   }
 
   /** Eagerly resolve and construct every ACTIVE instance - for CI
@@ -798,15 +1001,67 @@ export class Station {
       ? names
       : this.instances().filter((r) => r.active).map((r) => r.name)
 
+    // CONCURRENT, not serial. Awaiting inside the loop made `warm`
+    // cost the SUM of every provider round-trip, which defeats the one
+    // thing the method exists for: resolving the fleet in a batch at
+    // startup rather than paying per first-request. sekreto exposes no
+    // batch `get`, so concurrency is the available shape.
+    //
+    // Names are deduped first: the broker's resolution cache is keyed
+    // by SECRET NAME (§5.3), so several instances sharing one api-level
+    // `secret` should cost one round-trip — and firing them together
+    // would race past the cache and make several.
+    const plan: { name: string, secretname: string }[] = []
     const warmed: string[] = []
     const missed: string[] = []
     for (const name of wanted) {
-      const block = this.profile.sdk[name]
-      if (null == block) { missed.push(name); continue }
-      const secretname = block.secret || secretnameDefault(name)
-      try { await this.broker.value(name, secretname); warmed.push(name) }
-      catch (_e) { missed.push(name) }
+      // THE REGISTRY IS THE AUTHORITY, and asking the profile instead
+      // was wrong twice: an IMPERATIVE instance has no `profile.sdk`
+      // block, so it was pushed to `missed` and never warmed at all —
+      // and the re-derivation dropped the in-code `secret` feature
+      // option, which beats the profile (§9). A registered instance
+      // already carries the resolved name.
+      // A NAME NOBODY DECLARED OR REGISTERED IS A MISS, not a lookup.
+      // Widening the fallback to cover imperative instances also let a
+      // typo — `stripe$prodd` — derive a secret name and call the
+      // provider, so a nonexistent instance could be reported `warmed`
+      // off a shared api-level credential. Registered OR declared, and
+      // nothing else.
+      const entry = this.registry.get(name)
+      if (null == entry && null == this.profile.sdk[name]) {
+        missed.push(name)
+        continue
+      }
+      const secretname = entry?.secretname ??
+        (this.blockFor(name)?.secret ||
+          secretnameDefault(this.declaredRef(name)))
+      plan.push({ name, secretname })
     }
+
+    // One resolution per distinct secret name, awaited together; the
+    // per-instance results are mapped back afterwards so the reported
+    // shape is unchanged.
+    const bysecret = new Map<string, string[]>()
+    for (const p of plan) {
+      const at = bysecret.get(p.secretname)
+      if (null == at) { bysecret.set(p.secretname, [p.name]) }
+      else { at.push(p.name) }
+    }
+
+    const results = await Promise.all(
+      Array.from(bysecret.entries()).map(async ([secretname, names]) => {
+        try {
+          await this.broker.value(names[0], secretname)
+          return { names, ok: true }
+        }
+        catch (_e) { return { names, ok: false } }
+      }))
+
+    for (const r of results) {
+      for (const n of r.names) { (r.ok ? warmed : missed).push(n) }
+    }
+    warmed.sort()
+    missed.sort()
     return { warmed, missed }
   }
 
@@ -857,7 +1112,15 @@ export class Station {
     return {
       mode: 'solo',
       profile: this.profile.name,
-      plugins: this.plugins().map((p) => ({ slug: p.slug, rung: p.rung })),
+      // §7.1: the registry is keyed by INSTANCE, so a status page that
+      // projects only `slug` shows two indistinguishable rows for
+      // `stripe$test` and `stripe$live` and omits the names it is keyed
+      // by — an operator cannot tell which one is unhealthy. `slug`
+      // stays for compatibility; `name` and `api` are what answer the
+      // question.
+      plugins: this.plugins().map((p) => ({
+        name: p.name, api: p.api, slug: p.slug, rung: p.rung,
+      })),
       events: this.buffer.status(),
     }
   }
