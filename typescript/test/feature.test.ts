@@ -15,6 +15,7 @@ import {
   checkfeatures, checkpin, composefeatures, defaultband, featuresources,
   mergefeatures, resolveorder,
 } from '../src/feature'
+import { normalizeDescriptor } from '../src/descriptor'
 
 const order = (m: any) => resolveorder(m).map((o) => o.name)
 
@@ -205,5 +206,63 @@ describe('feature-check', () => {
     deepStrictEqual(
       checkfeatures({ retry: { active: true, order: { band: 1 } } }, descriptor),
       [])
+  })
+})
+
+// Stage 4's half that is checkable here: sdkgen-station's feature model
+// declares `transport` and the `instance` option, and station's own
+// descriptor and checker are what read them. The model file is data, so
+// what it declares can be asserted against the code that consumes it
+// without generating an SDK.
+describe('feature-model-contract', () => {
+  // Mirrors what `.sdk/model/feature/station.aontu` emits into a
+  // generated SDK's config.feature.station.
+  const stationFeature = {
+    transport: 'wrap',
+    options: {
+      active: false, url: '', fromEnv: true, profile: '', secret: '',
+      instance: '', register: true, capture: 'meta',
+    },
+  }
+
+  test('the descriptor carries the declared role and option list', () => {
+    const { descriptor } = normalizeDescriptor(
+      {
+        main: { slug: 'pad', name: 'pad', version: '1.0.0' },
+        options: { auth: { prefix: 'B ' }, server: {} },
+        entity: {},
+        feature: { station: stationFeature },
+      },
+      { station: { active: true } })
+
+    const f = descriptor.features.find((x: any) => 'station' === x.name)!
+    // §8.4: the role cannot be inferred - the obvious signal, an empty
+    // `hook: {}`, is wrong for exactly this feature. It is carried.
+    equal('wrap', f.transport)
+    // §8.5's schema is the SDK's own declared key set with typed
+    // defaults, and it arrives with the factory rather than a client.
+    equal('', f.options!.instance)
+  })
+
+  test('§7.5 s `instance` option is not reported unknown', () => {
+    const { descriptor } = normalizeDescriptor(
+      {
+        main: { slug: 'pad', name: 'pad', version: '1.0.0' },
+        options: { auth: { prefix: 'B ' }, server: {} },
+        entity: {},
+        feature: { station: stationFeature },
+      },
+      { station: { active: true } })
+
+    // Station puts the instance name here before construction. If the
+    // model did not declare it, station's own checker would call the
+    // option station puts there unknown - which is the whole reason the
+    // model has to declare it rather than lean on the `$OPEN` spec.
+    deepStrictEqual(
+      checkfeatures({ station: { instance: 'pad$eu' } }, descriptor), [])
+
+    // ...and a real typo is still caught.
+    equal('station_feature_option',
+      checkfeatures({ station: { instanse: 'pad$eu' } }, descriptor)[0].code)
   })
 })
