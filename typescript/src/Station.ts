@@ -609,12 +609,24 @@ export class Station {
     return this.build(name, this.autotag(name), overrides)
   }
 
-  /** The lowest unused positive integer tag for a declared instance. */
+  /** The lowest positive integer tag not already taken, by a LIVE
+   * instance or a DECLARED one.
+   *
+   * The registry alone was not enough: a profile may declare
+   * `stripe$1`, and until something constructs it `registry.has` says
+   * false — so `create('stripe$prod')` took that identity for a client
+   * built from the `stripe$prod` block. `instances()` then reported the
+   * declared `stripe$1` as live with the wrong client, and a later
+   * `sdk('stripe$1')` failed `station_bound_twice` against a binding
+   * that was never its own. Declaration reserves the name whether or
+   * not it has been built. */
   private autotag(name: string): string {
     const api = refapi(name)
     for (let n = 1; ; n++) {
       const ref = api + '$' + n
-      if (!this.registry.has(ref)) { return ref }
+      if (!this.registry.has(ref) && null == this.profile.sdk[ref]) {
+        return ref
+      }
     }
   }
 
@@ -664,6 +676,30 @@ export class Station {
       ...(overrides || {}),
       feature: { ...fmap, ...((overrides || {}).feature || {}) },
     }
+
+    // §5.3, and `create`'s own doc comment: "the SECRET NAME does not
+    // follow the assigned tag: it resolves from the DECLARED instance
+    // the tag was assigned under". It was stated and not implemented —
+    // only the generated identity reached registration, which then
+    // looked up `profile.sdk['stripe$1']`, lost the declared block's
+    // explicit `secret`, and otherwise derived `stripe_1.apikey` where
+    // the declared instance promises `stripe_test.apikey`. Every
+    // per-request client resolved a different or missing credential,
+    // and each one cost its own store round-trip — the opposite of the
+    // shared cache entry §5.3 asks for.
+    //
+    // Carried through the feature-option slot, which already has the
+    // precedence this needs (in-code beats profile, §9), and only when
+    // the tag was ASSIGNED — a caller naming its own is naming an
+    // instance, not aliasing one.
+    if (null != as && as !== name && null == opts.feature?.station?.secret) {
+      const declared = firstNonEmpty(block.secret) || secretnameDefault(name)
+      opts.feature = {
+        ...opts.feature,
+        station: { ...(opts.feature?.station || {}), secret: declared },
+      }
+    }
+
     // The instance name reaches the adapter the same way it does on the
     // imperative path, so registration has one spelling (§7.5).
     return entry.construct(this.options(as ?? name, opts))

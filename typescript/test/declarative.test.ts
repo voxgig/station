@@ -327,3 +327,77 @@ describe('declarative-front-door', () => {
       /station_sdk_load/)
   })
 })
+
+describe('auto-tagged clients keep the declared instance s identity', () => {
+  beforeEach(() => resetFactories())
+  after(() => resetFactories())
+
+  test('create() resolves the DECLARED instance s secret, not the tag s', () => {
+    // §5.3, and `create`'s own doc comment: "the secret name does not
+    // follow the assigned tag: it resolves from the DECLARED instance
+    // the tag was assigned under". Only the generated identity reached
+    // registration, so `_register` looked up `profile.sdk['stripe$1']`,
+    // lost the declared block's explicit `secret`, and otherwise derived
+    // `stripe_1.apikey` where `stripe$test` promises
+    // `stripe_test.apikey`.
+    const stripe = fakeSDK('stripe')
+    provide('stripe', { construct: (o) => new stripe.SDK(o), config: stripe.config })
+
+    const st = station({ 'stripe$test': { secret: 'declared.key' } })
+    st.create('stripe$test')
+
+    // Registered under the assigned tag — an ordinary instance, one
+    // identity model...
+    const rows = st.plugins()
+    deepStrictEqual(rows.map((p) => p.name), ['stripe$1'])
+
+    // ...while the CREDENTIAL follows the declared instance, so every
+    // per-request client shares one broker cache entry.
+    equal('declared.key', rows[0].secretname)
+
+    st.close()
+  })
+
+  test('...and without an explicit secret, the declared instance s default', () => {
+    const stripe = fakeSDK('stripe')
+    provide('stripe', { construct: (o) => new stripe.SDK(o), config: stripe.config })
+
+    const st = station({ 'stripe$test': {} })
+    st.create('stripe$test')
+
+    // `stripe_test.apikey`, from the declared name — NOT `stripe_1`,
+    // which is the assigned tag and belongs to no configuration.
+    equal('stripe_test.apikey', st.plugins()[0].secretname)
+
+    st.close()
+  })
+
+  test('a DECLARED numeric ref is not stolen by auto-tagging', () => {
+    // `registry.has('stripe$1')` is false until something constructs
+    // it, so the tag was handed to a client built from a different
+    // block. `instances()` then showed the declared `stripe$1` live
+    // with the wrong client.
+    const stripe = fakeSDK('stripe')
+    provide('stripe', { construct: (o) => new stripe.SDK(o), config: stripe.config })
+
+    const st = station({
+      'stripe$1': { secret: 'one.key' },
+      'stripe$prod': { secret: 'prod.key' },
+    })
+    st.create('stripe$prod')
+
+    // $2, because $1 is declared — reserved by declaration whether or
+    // not it has been built.
+    deepStrictEqual(st.plugins().map((p) => p.name), ['stripe$2'])
+    equal('prod.key', st.plugins()[0].secretname)
+
+    // ...so the declared instance is still buildable under its own name.
+    st.sdk('stripe$1')
+    deepStrictEqual(st.plugins().map((p) => p.name).sort(),
+      ['stripe$1', 'stripe$2'])
+    equal('one.key',
+      st.plugins().filter((p) => 'stripe$1' === p.name)[0].secretname)
+
+    st.close()
+  })
+})
