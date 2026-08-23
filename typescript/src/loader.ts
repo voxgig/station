@@ -51,11 +51,20 @@ export function camelify(slug: string): string {
  * name. */
 export function checkPackage(api: string, pkg: string): string {
   const p = String(pkg)
+  // A TRAVERSAL SEGMENT IS NOT A LEADING MARKER, and checking only the
+  // first character missed it: `pkg/../../escape` starts with neither
+  // `.` nor `/`, so it passed — and node resolves it through
+  // `node_modules/pkg/../../escape`, importing application-local code
+  // from outside the named dependency. The whole point of this function
+  // is that a configured package stays inside the dependency graph a
+  // reviewer can see.
+  const seg = p.split('/').some((x) => '.' === x || '..' === x)
   const bad =
     '' === p ||
     p.startsWith('.') ||
     p.startsWith('/') ||
     p.startsWith('~') ||
+    seg ||
     -1 !== p.indexOf('://') ||
     -1 !== p.indexOf('\\')
   if (bad) {

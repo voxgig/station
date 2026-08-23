@@ -6,7 +6,7 @@ import {
   configScope, loadConfig, refapi, resolveProfile, selectProfile,
   ResolvedProfile,
 } from './profile'
-import { FactoryEntry, factoryFor } from './factory'
+import { FactoryEntry, factoryFor, provide } from './factory'
 import { loadAsync, loadSync } from './loader'
 import {
   checkfeatures, checkpin, composefeatures, featuresources, mergefeatures,
@@ -78,6 +78,18 @@ function checkapi(api: string, ref: string): string {
 export class Station {
   private static ambient: Station | null = null
   private static ambientOpts: string | null = null
+
+  /** §6.2's second path, and the front door the docs name.
+   *
+   * The package exported only the free `provide()` and the class had no
+   * static — so the documented `Station.provide(...)` call failed, and
+   * so did the remediation `station_no_factory` prints, which tells the
+   * user to make exactly that call. Delegates to the same
+   * process-global table the free function fills; there is one
+   * registry, not two. */
+  static provide(api: string, factory: any): void {
+    provide(api, factory)
+  }
 
   private opts: StationOptions
   private profile: ResolvedProfile
@@ -384,14 +396,30 @@ export class Station {
   // normalizes and then keys on the result.
   private descriptorCache = new Map<string, { descriptor: any, warnings: string[] }>()
 
-  private describe(config: any, feature: any):
+  /** The descriptor describes the API, and is SHARED by every instance
+   * of it — which is §7.4's own reasoning for why the effective secret
+   * name moved to `Binding` and is not read off the descriptor.
+   *
+   * The same argument applies to feature activation, and this did not
+   * follow it: the cache is keyed by slug alone while
+   * `normalizeDescriptor`'s second argument decides each feature row's
+   * `active`. So two instances of one api constructed with different
+   * feature maps shared the FIRST one's feature state, and
+   * `descriptorOf()` / `canonicalDescriptor()` became
+   * construction-order-dependent.
+   *
+   * Normalized with no per-instance features, so the shared value holds
+   * only API-stable metadata — which is what `factory.ts` already does
+   * when it normalizes at provide time. Per-instance activation is
+   * `featuresOf(name)`'s answer, and always was. */
+  private describe(config: any, _feature: any):
     { descriptor: any, warnings: string[] } {
     const slug = String(config?.main?.slug ?? '')
     if ('' !== slug) {
       const hit = this.descriptorCache.get(slug)
       if (null != hit) { return hit }
     }
-    const out = normalizeDescriptor(config, feature)
+    const out = normalizeDescriptor(config, undefined)
     this.descriptorCache.set(out.descriptor.slug, out)
     return out
   }
@@ -399,7 +427,7 @@ export class Station {
   _hoist(name: string, value: string): void {
     this.broker.hoist(name, value)
     this.emit({
-      t: Date.now(), kind: 'station', plugin: name,
+      t: Date.now(), kind: 'station', plugin: name, api: refapi(name),
       meta: {
         warn: 'a resident credential was hoisted into the broker and ' +
           'replaced by the placeholder; prefer configuring the secret ' +
@@ -528,7 +556,7 @@ export class Station {
       path = u.pathname
     } catch (_e) { path = fullurl }
     this.emit({
-      t: started, kind: 'http', plugin: slug, corr,
+      t: started, kind: 'http', plugin: slug, api: refapi(slug), corr,
       http: {
         method: fetchdef?.method || 'GET', host, path, status,
         durationMs: Date.now() - started, bytes,
@@ -538,7 +566,14 @@ export class Station {
 
   private emitErr(name: string, fctx: any, err: any): void {
     this.emit({
-      t: Date.now(), kind: 'error', plugin: name, corr: fctx?.station$?.corr,
+      // §7.3's grouping contract: `plugin` is the INSTANCE and `api` is
+      // what groups its siblings. Construction events carried both and
+      // the runtime ones did not, so a consumer could group `construct`
+      // by api and then get `api: undefined` for every request, error
+      // and hoist from the same client — the grouping working exactly
+      // until it was used.
+      t: Date.now(), kind: 'error', plugin: name, api: refapi(name),
+      corr: fctx?.station$?.corr,
       err: {
         code: err?.code,
         // The scrub keeps an upstream echo of a credential out of the
@@ -552,7 +587,7 @@ export class Station {
   _opEvent(name: string, ctx: any, outcome: string): void {
     const st = ctx.station$ || {}
     this.emit({
-      t: Date.now(), kind: 'op', plugin: name, corr: st.corr,
+      t: Date.now(), kind: 'op', plugin: name, api: refapi(name), corr: st.corr,
       // ctx.op is the SDK's resolved Operation: name + entity, in the
       // descriptor's lowercase spelling.
       op: {
@@ -668,6 +703,26 @@ export class Station {
 
     const api = refapi(name)
     const entry = this.resolveFactory(api, block)
+
+    // §8.5 VALIDATES HERE, not only in `check()`. The schema arrives
+    // with the factory, so the moment a factory is resolved is the
+    // first moment validation is possible — and it was running in
+    // `check()` alone. Two gaps followed: production `sdk()` silently
+    // ignored an unknown option like `retry.retires`, and `check()`
+    // itself missed the case where the factory is discovered by the
+    // LOADER (its pre-check sees no registered factory, then `sdk()`
+    // loads and constructs unvalidated). One call here closes both,
+    // because every path to a constructor comes through this line.
+    const faults = checkfeatures(this.featuresOf(name).merged, entry.descriptor)
+    if (0 < faults.length) {
+      // `Fault.code` is a plain string in `feature.ts`; the two codes it
+      // actually produces are both in the union, and `check()` passes
+      // the same value through untyped. Narrowed here rather than
+      // widening the union, so a new fault code is a compile error at
+      // the place that has to decide what it means.
+      throw new StationError(faults[0].code as any,
+        faults.map((f) => f.message).join('; '))
+    }
 
     // §8.4: compose the merged feature map into the ORDERED form and
     // hand it to the constructor. No new seam - it is the same
@@ -833,17 +888,69 @@ export class Station {
     })
 
     const merged = mergefeatures(sources)
-    const ordered = resolveorder(merged)
+
+    // THE IMPLICIT STATION ENTRY, added for ORDERING ONLY. `station` is
+    // never in `merged` — `feature.station` is reserved and rejected at
+    // validation (§8.4) — so `checkpin` found no station row and
+    // returned immediately, every time. It was a permanent no-op: a
+    // constraint like `retry.order.after: 'station'` was treated as
+    // vacuous rather than rejected, and the reported order omitted the
+    // one feature whose position is supposedly pinned.
+    //
+    // Added here rather than into `merged`, which stays the user's own
+    // merge result. `build` already filters `station` out of the map it
+    // hands the constructor, because §8.4 composes station's entry
+    // after the user merge and always wins.
+    const ordered = resolveorder({ ...merged, station: { active: true } })
     checkpin(ordered)
     return { ordered: ordered.map((o) => o.name), merged, from }
   }
 
   /** The fleet feature view: instance x feature, effective options, and
    * which config level set each (§8.7). */
-  features(filter?: string): any[] {
-    return this.instances()
-      .filter((r) => null == filter || r.name === filter || r.api === filter)
+  features(filter?: string | { instance?: string, api?: string, feature?: string }): any[] {
+    // §8.7's documented shape is an OBJECT, and only the object form
+    // can express the question the view exists for: `{feature: 'debug'}`
+    // — "is debug on anywhere?", the one that is twenty greps today.
+    // The implementation took a bare string and compared it against
+    // both `name` and `api`, so every documented call returned an empty
+    // list, an object never equalling either string.
+    //
+    // The string form is kept as shorthand for "this instance or this
+    // api", because it is what the tests and the imperative path
+    // already use and it costs one line.
+    const f = 'string' === typeof filter
+      ? { instance: filter, api: filter, loose: true }
+      : { ...(filter || {}), loose: false }
+
+    const rows = this.instances()
+      .filter((r) => {
+        if (f.loose) {
+          return null == f.instance || r.name === f.instance || r.api === f.api
+        }
+        if (null != f.instance && r.name !== f.instance && r.api !== f.instance) {
+          return false
+        }
+        return null == f.api || r.api === f.api
+      })
       .map((r) => ({ instance: r.name, api: r.api, ...this.featuresOf(r.name) }))
+
+    // `feature` filters the ROWS, not the instances: an instance that
+    // does not carry the named feature is not part of the answer, and
+    // the rows that remain are narrowed to it so the view answers
+    // "where is debug on, and with what" rather than "here is
+    // everything, go and look".
+    const want = (filter as any)?.feature
+    if (null == want) { return rows }
+    return rows
+      .filter((row: any) => null != row.merged[want])
+      .map((row: any) => ({
+        instance: row.instance,
+        api: row.api,
+        ordered: row.ordered.filter((n: string) => n === want),
+        merged: { [want]: row.merged[want] },
+        from: { [want]: row.from[want] || {} },
+      }))
   }
 
   /** Eagerly resolve and construct every ACTIVE instance - for CI
@@ -894,6 +1001,17 @@ export class Station {
       ? names
       : this.instances().filter((r) => r.active).map((r) => r.name)
 
+    // CONCURRENT, not serial. Awaiting inside the loop made `warm`
+    // cost the SUM of every provider round-trip, which defeats the one
+    // thing the method exists for: resolving the fleet in a batch at
+    // startup rather than paying per first-request. sekreto exposes no
+    // batch `get`, so concurrency is the available shape.
+    //
+    // Names are deduped first: the broker's resolution cache is keyed
+    // by SECRET NAME (§5.3), so several instances sharing one api-level
+    // `secret` should cost one round-trip — and firing them together
+    // would race past the cache and make several.
+    const plan: { name: string, secretname: string }[] = []
     const warmed: string[] = []
     const missed: string[] = []
     for (const name of wanted) {
@@ -917,9 +1035,33 @@ export class Station {
       const secretname = entry?.secretname ??
         (this.blockFor(name)?.secret ||
           secretnameDefault(this.declaredRef(name)))
-      try { await this.broker.value(name, secretname); warmed.push(name) }
-      catch (_e) { missed.push(name) }
+      plan.push({ name, secretname })
     }
+
+    // One resolution per distinct secret name, awaited together; the
+    // per-instance results are mapped back afterwards so the reported
+    // shape is unchanged.
+    const bysecret = new Map<string, string[]>()
+    for (const p of plan) {
+      const at = bysecret.get(p.secretname)
+      if (null == at) { bysecret.set(p.secretname, [p.name]) }
+      else { at.push(p.name) }
+    }
+
+    const results = await Promise.all(
+      Array.from(bysecret.entries()).map(async ([secretname, names]) => {
+        try {
+          await this.broker.value(names[0], secretname)
+          return { names, ok: true }
+        }
+        catch (_e) { return { names, ok: false } }
+      }))
+
+    for (const r of results) {
+      for (const n of r.names) { (r.ok ? warmed : missed).push(n) }
+    }
+    warmed.sort()
+    missed.sort()
     return { warmed, missed }
   }
 
@@ -970,7 +1112,15 @@ export class Station {
     return {
       mode: 'solo',
       profile: this.profile.name,
-      plugins: this.plugins().map((p) => ({ slug: p.slug, rung: p.rung })),
+      // §7.1: the registry is keyed by INSTANCE, so a status page that
+      // projects only `slug` shows two indistinguishable rows for
+      // `stripe$test` and `stripe$live` and omits the names it is keyed
+      // by — an operator cannot tell which one is unhealthy. `slug`
+      // stays for compatibility; `name` and `api` are what answer the
+      // question.
+      plugins: this.plugins().map((p) => ({
+        name: p.name, api: p.api, slug: p.slug, rung: p.rung,
+      })),
       events: this.buffer.status(),
     }
   }

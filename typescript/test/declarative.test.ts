@@ -181,7 +181,13 @@ describe('declarative-front-door', () => {
   })
 
   test('the loader only accepts module names', () => {
-    for (const bad of ['./local', '/abs/path', '../up', 'https://x/y', '~/home']) {
+    // `pkg/../../escape` starts with neither `.` nor `/`, so a check on
+    // the FIRST CHARACTER passed it — and node resolves it through
+    // `node_modules/pkg/../../escape`, importing application-local code
+    // from outside the named dependency. A traversal segment is not a
+    // leading marker.
+    for (const bad of ['./local', '/abs/path', '../up', 'https://x/y', '~/home',
+      'pkg/../../escape', 'a/./b', 'scope/..']) {
       throws(() => checkPackage('stripe', bad), /station_sdk_load/, bad)
     }
     equal('@acme/stripe-sdk', checkPackage('stripe', '@acme/stripe-sdk'))
@@ -213,7 +219,17 @@ describe('declarative-front-door', () => {
   })
 
   test('the merged feature set reaches the constructor, in order', () => {
-    const stripe = fakeSDK('stripe')
+    // The SDK DECLARES the features this config configures. It did not,
+    // and the test passed anyway — because §8.5's checker only ran in
+    // `check()`, never on the `sdk()` path. Now that resolving a
+    // factory validates, a fixture configuring three features an SDK
+    // does not declare is `station_feature_unknown`, which is the
+    // correct answer and the reason the fixture had to grow up.
+    const stripe = fakeSDK('stripe', {
+      log: { options: { level: 'info' } },
+      retry: { options: { retries: 1 } },
+      cache: {},
+    })
     provide('stripe', { construct: (o) => new stripe.SDK(o), config: stripe.config })
 
     const st = new Station({
@@ -497,6 +513,141 @@ describe('auto-tagged clients keep the declared instance s identity', () => {
       deepStrictEqual(asked, [])
       st.close()
     })
+  })
+
+  test('the shared descriptor does not carry per-instance feature state', () => {
+    // §7.4's own reasoning: one descriptor is shared by every instance
+    // of an api, so it cannot hold two instance-derived values — which
+    // is why the effective secret name moved to `Binding`. The same
+    // applies to feature activation, and the cache did not follow it:
+    // keyed by slug, populated with the FIRST instance's feature map,
+    // so `descriptorOf()` became construction-order-dependent.
+    const stripe = fakeSDK('stripe', { retry: { options: { retries: 1 } } })
+    provide('stripe', { construct: (o) => new stripe.SDK(o), config: stripe.config })
+
+    const st = station({
+      'stripe$on': { feature: { retry: { active: true } } },
+      'stripe$off': { feature: { retry: { active: false } } },
+    })
+    st.sdk('stripe$on')
+    st.sdk('stripe$off')
+
+    // ASSERT THE VALUE, not that the two agree — two reads of one
+    // cached object agree by construction, so my first version proved
+    // nothing. (It proved less than nothing: it used the CONFIG's key
+    // `feature` rather than the descriptor's `features`, so it compared
+    // two `undefined`s.)
+    //
+    // AND THE HONEST LIMIT: this does not discriminate the fix. Passing
+    // the per-instance map back in leaves the suite green, because on
+    // the declarative path that map does not currently carry `active`
+    // at all — the hazard is latent, not live. What the test pins is
+    // the INVARIANT: the shared descriptor carries no per-instance
+    // activation. If a later change makes the feature map carry it,
+    // this fails and points at the slug-keyed cache, which is the guard
+    // worth having.
+    // (`features`, not `feature` — my first version used the config's
+    // key rather than the descriptor's, so it compared two `undefined`s
+    // and passed on nothing at all. Twice in one commit.)
+    deepStrictEqual(
+      st.descriptorOf('stripe$on').features,
+      st.descriptorOf('stripe$off').features)
+    ok(0 < st.descriptorOf('stripe$off').features.length)
+    for (const row of st.descriptorOf('stripe$off').features) {
+      equal(false, row.active,
+        'the shared descriptor carries no per-instance activation')
+    }
+
+    // ...and the per-instance answer is `featuresOf`, which is where it
+    // always belonged.
+    equal(true, st.featuresOf('stripe$on').merged.retry.active)
+    equal(false, st.featuresOf('stripe$off').merged.retry.active)
+
+    st.close()
+  })
+
+  test('features() takes the documented object filter', () => {
+    // §8.7 documents `features({feature: 'debug'})` and
+    // `features({instance: 'stripe'})`. The implementation took a bare
+    // string and compared it against both `name` and `api`, so an
+    // object never equalled either and EVERY documented call returned
+    // an empty list.
+    const stripe = fakeSDK('stripe', { retry: { options: { retries: 1 } } })
+    provide('stripe', { construct: (o) => new stripe.SDK(o), config: stripe.config })
+
+    const st = station({
+      'stripe$a': { feature: { retry: { active: true } } },
+      'stripe$b': {},
+    })
+
+    deepStrictEqual(
+      st.features({ instance: 'stripe$a' }).map((r: any) => r.instance),
+      ['stripe$a'])
+
+    // `{feature}` narrows the ROWS as well as the instances: the
+    // question is "where is retry on, and with what" — so an instance
+    // that never configures it is not part of the answer. `stripe$b`
+    // does not, and my first expectation listed it anyway.
+    const rows = st.features({ feature: 'retry' })
+    deepStrictEqual(rows.map((r: any) => r.instance), ['stripe$a'])
+    deepStrictEqual(Object.keys(rows[0].merged), ['retry'])
+    deepStrictEqual(rows[0].ordered, ['retry'])
+
+    // A feature nobody configures is nowhere.
+    deepStrictEqual(st.features({ feature: 'nope' }), [])
+
+    st.close()
+  })
+
+  test('warm() costs ONE round-trip per distinct secret name', async () => {
+    // Awaiting inside the loop made `warm` cost the sum of every
+    // provider round-trip, defeating the one thing it exists for. And
+    // the broker's cache is keyed by SECRET NAME, so instances sharing
+    // an api-level `secret` must cost one lookup — firing them together
+    // without deduping would race past the cache and make several.
+    const stripe = fakeSDK('stripe')
+    provide('stripe', { construct: (o) => new stripe.SDK(o), config: stripe.config })
+
+    const st = new Station({
+      config: {
+        station: 1,
+        profiles: {
+          default: {
+            api: { stripe: { secret: 'shared.key' } },
+            sdk: { 'stripe$a': {}, 'stripe$b': {}, 'stripe$c': {} },
+          },
+        },
+      },
+    })
+    const asked: string[] = []
+    ;(st as any).broker = {
+      value: async (_s: string, n: string) => { asked.push(n); return 'sk' },
+      hoist: () => undefined,
+      scrub: (t: string) => t,
+      refresh: () => undefined,
+    }
+
+    const out = await st.warm()
+    deepStrictEqual(out.warmed, ['stripe$a', 'stripe$b', 'stripe$c'])
+    // ONE ask for three instances, because all three resolve the same
+    // api-level name.
+    deepStrictEqual(asked, ['shared.key'])
+
+    st.close()
+  })
+
+  test('an unknown feature option fails sdk(), not just check()', () => {
+    // §8.5's checker ran in `check()` alone, so `retry.retires` was
+    // silently ignored in production unless the application separately
+    // called `check()` — and `check()` had its own gap when the factory
+    // came from the loader. Validating where the factory RESOLVES
+    // closes both, because every path to a constructor goes through it.
+    const stripe = fakeSDK('stripe', { retry: { options: { retries: 1 } } })
+    provide('stripe', { construct: (o) => new stripe.SDK(o), config: stripe.config })
+
+    const st = station({ 'stripe$a': { feature: { retry: { retires: 5 } } } })
+    throws(() => st.sdk('stripe$a'), /station_feature_option/)
+    st.close()
   })
 
   test('a DECLARED numeric ref is not stolen by auto-tagging', () => {
