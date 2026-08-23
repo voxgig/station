@@ -25,6 +25,19 @@ const { omnihome, specfile } = require('../src/omnihome')
 // omni is a sibling checkout, not a published package (yet).
 const omni = require(omnihome() + '/javascript/src')
 
+// Spec nulls arrive as omni's NULLMARK sentinel; restore them so each
+// driver sees what the spec means.
+const denull = (v) => {
+  if (omni.NULLMARK === v) { return null }
+  if (Array.isArray(v)) { return v.map(denull) }
+  if (null != v && 'object' === typeof v) {
+    const out = {}
+    for (const k of Object.keys(v)) { out[k] = denull(v[k]) }
+    return out
+  }
+  return v
+}
+
 describe('station-conform', () => {
   let R
 
@@ -59,24 +72,19 @@ describe('station-conform', () => {
   })
 
   test('canonical', async () => {
-    // Spec nulls arrive as omni's NULLMARK sentinel; restore them so
-    // the serializer sees what the spec means.
-    const denull = (v) => {
-      if (omni.NULLMARK === v) { return null }
-      if (Array.isArray(v)) { return v.map(denull) }
-      if (null != v && 'object' === typeof v) {
-        const out = {}
-        for (const k of Object.keys(v)) { out[k] = denull(v[k]) }
-        return out
-      }
-      return v
-    }
     await R.runset(R.spec.canonical, (vin) => canonicalSerialize(denull(vin)))
   })
 
-  test('profile', async () => {
-    await R.runset(R.spec.profile, (vin) =>
-      resolveProfile(vin.config, vin.profile))
+  // The §3.3 merge, and the whole of this port's profile contract.
+  //
+  // The `profile` section is NOT run here: it pins the pre-Stage-1
+  // `plugin` grammar, which this port no longer speaks. It stays in the
+  // corpus for the ports that have not crossed the rename yet and is
+  // deleted when the last one does - see spec/README.md. Everything it
+  // pins is restated below in the sdk/api grammar.
+  test('instance', async () => {
+    await R.runset(R.spec.instance, (vin) =>
+      resolveProfile(denull(vin.config), vin.profile))
   })
 
   test('errors', async () => {

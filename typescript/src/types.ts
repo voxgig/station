@@ -16,14 +16,34 @@ export type StationConfig = {
 
 export type Profile = {
   secrets?: { providers?: any[] }
-  plugin?: Record<string, PluginProfile>
+  feature?: Record<string, any>
+  // Keyed by api slug: defaults inherited by every instance of that
+  // api, declaring no instance of its own (design §3.1).
+  api?: Record<string, SdkBlock>
+  // Keyed by REF (`api$tag`, or bare `api` for the untagged instance).
+  // This replaces `plugin`, which is REMOVED rather than aliased (§3.4)
+  // - a deprecated alias would be a second grammar for one concept in
+  // 17 ports. An untagged ref is an api slug, so every existing block
+  // means exactly what it meant before under the new key.
+  sdk?: Record<string, SdkBlock>
 }
 
-export type PluginProfile = {
+// The same eight keys in both block positions. The two differ in what
+// they KEY, not in what they hold, which is why the two spec objects in
+// config-shape.json are identical and a guard test asserts it (§3.1).
+export type SdkBlock = {
+  package?: string
+  export?: string
   base?: string
   secret?: string
   resolve?: 'library' | 'proxy'
   policy?: { hosts?: string[] }
+  feature?: Record<string, any>
+  options?: Record<string, any>
+  // `active: false` means BARRED FROM RUNNING - a declaration that stays
+  // in the file and in instances() while being refused a client. It is
+  // not a runtime state; voxgig/plugin's lifecycle status is `live`
+  // precisely so this key can keep the name it already has.
   active?: boolean
 }
 

@@ -1,0 +1,160 @@
+{
+  "station": [
+    "`$EXACT`",
+    1
+  ],
+  "profiles": {
+    "`$CHILD`": {
+      "secrets": {
+        "providers": "`$LIST`"
+      },
+      "api": {
+        "`$CHILD`": {
+          "active": "`$BOOLEAN`",
+          "package": [
+            "`$ONE`",
+            "`$NIL`",
+            "`$STRING`"
+          ],
+          "export": [
+            "`$ONE`",
+            "`$NIL`",
+            "`$STRING`"
+          ],
+          "base": [
+            "`$ONE`",
+            "`$NIL`",
+            "`$STRING`"
+          ],
+          "secret": [
+            "`$ONE`",
+            "`$NIL`",
+            "`$STRING`"
+          ],
+          "resolve": [
+            "`$ONE`",
+            "`$NIL`",
+            [
+              "`$EXACT`",
+              "library"
+            ],
+            [
+              "`$EXACT`",
+              "proxy"
+            ]
+          ],
+          "policy": [
+            "`$ONE`",
+            "`$NIL`",
+            {
+              "hosts": [
+                "`$CHILD`",
+                "`$STRING`"
+              ]
+            }
+          ],
+          "options": [
+            "`$ONE`",
+            "`$NIL`",
+            "`$MAP`"
+          ],
+          "feature": {
+            "`$CHILD`": {
+              "active": "`$BOOLEAN`",
+              "`$OPEN`": true
+            }
+          }
+        }
+      },
+      "sdk": {
+        "`$CHILD`": {
+          "active": "`$BOOLEAN`",
+          "package": [
+            "`$ONE`",
+            "`$NIL`",
+            "`$STRING`"
+          ],
+          "export": [
+            "`$ONE`",
+            "`$NIL`",
+            "`$STRING`"
+          ],
+          "base": [
+            "`$ONE`",
+            "`$NIL`",
+            "`$STRING`"
+          ],
+          "secret": [
+            "`$ONE`",
+            "`$NIL`",
+            "`$STRING`"
+          ],
+          "resolve": [
+            "`$ONE`",
+            "`$NIL`",
+            [
+              "`$EXACT`",
+              "library"
+            ],
+            [
+              "`$EXACT`",
+              "proxy"
+            ]
+          ],
+          "policy": [
+            "`$ONE`",
+            "`$NIL`",
+            {
+              "hosts": [
+                "`$CHILD`",
+                "`$STRING`"
+              ]
+            }
+          ],
+          "options": [
+            "`$ONE`",
+            "`$NIL`",
+            "`$MAP`"
+          ],
+          "feature": {
+            "`$CHILD`": {
+              "active": "`$BOOLEAN`",
+              "`$OPEN`": true
+            }
+          }
+        }
+      },
+      "feature": {
+        "`$CHILD`": {
+          "active": "`$BOOLEAN`",
+          "order": {
+            "before": [
+              "`$ONE`",
+              "`$NIL`",
+              "`$STRING`",
+              [
+                "`$CHILD`",
+                "`$STRING`"
+              ]
+            ],
+            "after": [
+              "`$ONE`",
+              "`$NIL`",
+              "`$STRING`",
+              [
+                "`$CHILD`",
+                "`$STRING`"
+              ]
+            ],
+            "band": [
+              "`$ONE`",
+              "`$NIL`",
+              "`$INTEGER`"
+            ]
+          },
+          "`$OPEN`": true
+        }
+      }
+    }
+  }
+}

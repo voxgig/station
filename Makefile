@@ -67,4 +67,11 @@ test-lua:
 build-typescript:
 	cd typescript && npm run build
 
-.PHONY: test build-typescript $(addprefix test-,$(RUNNABLE)) test-csharp test-swift test-dart test-elixir test-lua
+# spec/config-shape.json is the artifact every port reads; the
+# TypeScript port ships a mirror of it because package.json ships
+# dist/src only and validateConfig runs at open(), not just under test.
+# typescript/test/shape.test.ts fails on drift.
+sync-shape:
+	python3 tools/sync-shape.py
+
+.PHONY: test build-typescript sync-shape $(addprefix test-,$(RUNNABLE)) test-csharp test-swift test-dart test-elixir test-lua

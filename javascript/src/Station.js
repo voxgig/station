@@ -161,7 +161,7 @@ class Station {
         'twice is an error (§10.2)')
     }
 
-    const profilePlugin = this.profile.plugin[slug]
+    const profilePlugin = this.profile.sdk[slug]
     // Secret name precedence: the feature option (in-code, design §9
     // config.options.secret) beats the profile, which beats the
     // descriptor default.
@@ -220,7 +220,7 @@ class Station {
     const entry = this.registry.get(slug)
     const placeholder = placeholderFor(slug)
     const live = 'live' === fctx.client._mode
-    const profilePlugin = this.profile.plugin[slug]
+    const profilePlugin = this.profile.sdk[slug]
 
     // Egress policy (design §16), solo half: the hosts allowlist is
     // enforced at the seam every request crosses. When a policy is
@@ -399,7 +399,7 @@ class Station {
   // secrets-and-policy file (design §11).
   close() {
     if (this.closed) { return }
-    for (const slug of Object.keys(this.profile.plugin)) {
+    for (const slug of Object.keys(this.profile.sdk)) {
       if (!this.registry.has(slug)) {
         this.emit({
           t: Date.now(), kind: 'station',

@@ -100,8 +100,14 @@ class TestStationConform(unittest.TestCase):
     def test_canonical(self):
         runset(spec['canonical'], lambda vin: canonical_serialize(denull(vin)))
 
-    def test_profile(self):
-        runset(spec['profile'], lambda vin:
+    def test_instance(self):
+        # The 3.3 merge, and the whole of this port's profile contract.
+        #
+        # The `profile` section is NOT run here: it pins the pre-Stage-1
+        # `plugin` grammar, which this port no longer speaks. It stays in
+        # the corpus for the ports that have not crossed the rename yet
+        # and is deleted when the last one does - see spec/README.md.
+        runset(spec['instance'], lambda vin:
                resolve_profile(denull(vin['config']), vin['profile']))
 
     def test_errors(self):
