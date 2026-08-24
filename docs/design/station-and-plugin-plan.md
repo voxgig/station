@@ -1,6 +1,6 @@
 # Plan: completing voxgig/plugin and voxgig/station
 
-Status: **plan** (2026-08-22). Companion to
+Status: **plan** (2026-08-22; state refreshed 2026-08-24). Companion to
 [`station-and-plugin.md`](./station-and-plugin.md), which settles *what*
 the two designs agree; this settles *when*, and in which repo.
 
@@ -22,19 +22,22 @@ not.
 
 ## 0. Where things actually stand
 
-Worth stating plainly, because both plans read as though their repo has
-a floor under it and only one does.
+Refreshed 2026-08-24. This section originally recorded an asymmetry —
+station a working system, plugin a document with a build around it —
+and that asymmetry has since closed faster than either plan budgeted
+for.
 
 | | state |
 |---|---|
-| **voxgig/plugin** | **P0 landed** (voxgig/plugin#5). `Makefile`, `spec/` with the empty corpus and its format shape, `tools/`, CI. No code in any language and no ports — P1 is next. |
-| plugin's design | On `main` (voxgig/plugin#4). |
-| **voxgig/station** | **Sixteen written ports**, thirteen green in CI, `spec/station.json` in place. Stage 1 has not started; everything before it has. |
-| station's design | On `main` (voxgig/station#6), with the reconciliation and the ref migration. |
+| **voxgig/plugin** | **P0–P4 complete; P5 under way, two of fourteen.** The corpus is 527 entries across all 19 sections P§15.3 names, and five implementations pass every one — `typescript/` (canonical), `go/`, `python/`, `javascript/`, `ruby/` (voxgig/plugin#15; `main` = `153c878`). The one open P3 item is **P3.1**, the extraction proof against station — runnable now that C3 is discharged. |
+| plugin's design | On `main`, pinned by `station-and-plugin.md` at `153c878`. |
+| **voxgig/station** | **Sixteen written ports, eleven green in CI.** Stages 1, 2, 3 and 3b are merged (voxgig/station#8–#10; `main` = `2036cd6`). Stage 4 is **partial** — the feature model declares `transport` and `instance`, while adapter self-registration is blocked on sdkgen's injection machinery. Stage 5's grammar crossing is done for all eleven CI ports; the declarative front door beyond TypeScript, and the five toolchain-gated ports (lua, dart, elixir, csharp, swift) still on the pre-rename grammar, are the remaining tranches. |
+| station's design | On `main`, with `station.md` carrying the §16 amendments (applied 2026-08-24). |
 
-So the asymmetry driving the whole reconciliation is still the starting
-condition, if less starkly than when this was written: **station is a
-working system and plugin is a document with a build around it.**
+So the starting condition has been replaced by the couplings this
+document exists to name: **both tracks are systems now**, and what is
+open between them is P3.1's extraction and the C4 conformance wiring
+(§3).
 
 
 ## 1. Shape: two tracks, four meeting points
@@ -87,7 +90,8 @@ unmerged, and plugin's could not start at all while its design sat on a
 branch `main` had never seen.
 
 1. ~~**voxgig/plugin#3** merges into
-   `claude/voxgig-plugin-architecture-h6cly0`.~~ Done.
+   `claude/voxgig-plugin-architecture-h6cly0`.~~ Done (the working
+   branch is itself gone now; its head survives as `0ea4c4f`).
 2. ~~**That branch merges into plugin's `main`.**~~ Done, as
    voxgig/plugin#4 — the step that was missing, and a prerequisite for
    P0 rather than a tidy-up.
@@ -119,6 +123,16 @@ else in both plans is internal.
 | **C4a** | station | plugin | conformance on the pure sections: station runs C1's `ref` and `config` against its own implementation, and reports divergence as a plugin issue rather than absorbing it | **continuous from Stage 2** |
 | **C4b** | station | plugin | conformance on the driver sections: the same for C2's `lifecycle` and `order` | **continuous from Stage 3b** |
 
+State, 2026-08-24: **C1 and C2 are discharged** — both shipped with
+voxgig/plugin#7, leading P1's exit as required — and **C3 is
+discharged** by station's Stages 2–3b (voxgig/station#9). **C4a and
+C4b are the open pair.** Station's Stages 2 and 3b landed without
+wiring plugin's corpus into their suites, so the conformance harness
+is being added to station's test suite now, in the same change set as
+this refresh — late against "continuous from Stage 2", and said out
+loud rather than papered over, because §7 names this as exactly the
+obligation nothing fails for skipping.
+
 C1 and C2 are the reason plugin's P1 has an obligation that looks
 external to it. C4 is split because the two halves become runnable at
 different moments: `ref` and `config` are exercised by Stage 2's
@@ -138,12 +152,20 @@ grammar and Stage 2 lands the identity change; if plugin's `ref` corpus
 arrives after Stage 2, station has already written ref parsing and the
 corpus becomes a retrofit audit rather than a contract. `ref` and
 `config` are pure data (P§15.3) — the files *are* the deliverable, so
-this is cheap for plugin and only cheap if it is early.
+this is cheap for plugin and only cheap if it is early. (It was: C1
+led P1. The miss moved one obligation down — the *wiring*, C4a, is
+what lagged, and the retrofit-audit cost this paragraph warns about is
+the cost now being paid.)
 
 
 ## 4. The sequence
 
 ### 4.1 Track P — plugin
+
+P0 through P4 are complete and P5 has its first two ports in
+(javascript, ruby); P3.1 — the extraction proof — is the one open P3
+item. The gating below stays as written, because it is dependencies
+rather than dates, and it held:
 
 | phase | gated on | notes |
 |---|---|---|
@@ -158,10 +180,14 @@ this is cheap for plugin and only cheap if it is early.
 
 ### 4.2 Track S — station
 
+Stages 1–3b are merged, Stage 4 is partial (blocked on sdkgen's
+injection machinery), and Stage 5's grammar crossing covers all eleven
+CI ports:
+
 | stage | gated on | notes |
 |---|---|---|
 | **Stage 1** grammar | Step 0 | Independent of plugin entirely. Note the §3.3 rewrite: the api is now the ref's prefix, so the "api resolved before its block is read" phasing is *gone*, not reordered. |
-| **Stage 2** instances | Stage 1, **C1** | The `name$tag` re-key. Runs plugin's `ref` corpus against station's own parser from the first commit. |
+| **Stage 2** instances | Stage 1, **C1** | The `name$tag` re-key. The intent here was to run plugin's `ref` corpus against station's own parser from the first commit; the stage landed without that wiring, and the C4a/C4b harness is being added to station's suite now, in this change set (§3). |
 | **Stage 3** front door | Stage 2 | Factory table with `{construct, config}`, loader, `sdk()`/`create()`/`instances()`/`check()`. |
 | **Stage 3b** features | Stage 3, **C2** | Three-level merge including the `{"deep": 2}` boundary; `transport` **retained** here (§2.10 of the reconciliation) because features are not yet bindings. |
 | **Stage 4** generator | Stage 3b | sdkgen-station: `instance` option, ts/js self-registration. |
@@ -169,17 +195,29 @@ this is cheap for plugin and only cheap if it is early.
 
 ### 4.3 The meeting points
 
-- **M1 (plugin P1 → station Stage 2)** — C1 and C2. Data flowing one way.
+- **M1 (plugin P1 → station Stage 2)** — C1 and C2. Data flowing one
+  way. **Done** (voxgig/plugin#7): both sections shipped as P1's first
+  deliverables, before station's Stage 2 wrote its ref parsing.
 - **M2 (station Stage 3 → plugin P3)** — station becomes plugin's proof
   host. Plugin's P3 bar is station's own integration test: twenty-plus
   declared instances, none constructed at `open()`, two instances of one
   api with distinct placeholders, and a fleet-wide feature default
-  reaching an instance that never mentions it.
+  reaching an instance that never mentions it. **The station half is
+  done** — Stages 2–3b merged as voxgig/station#9, so every element of
+  that bar exists on station's `main` — and **plugin's P3.1 extraction
+  is the pending half**, runnable now.
 - **M3 (plugin P3 → station's nested-host option)** — the bridge makes
   fleet-wide feature management over a nested host reachable with
-  generated code untouched. Station should not build against it before
-  P3, and should not wait for sdkgen adoption either.
+  generated code untouched. The bridge exists (plugin's P3.2 runs an
+  unmodified sdkgen feature class as a plugin), so the nested-host form
+  is available to station when it wants it; sdkgen adoption remains
+  not-a-precondition.
 - **M4 (plugin P4 ↔ station Stage 5)** — the pairing argued in §5.
+  **Its moment has passed**: P4 completed (go and python) in the same
+  window station's Stage 5 crossed the eleven CI ports, so the hold
+  §5.1 argues for is discharged, and P4's findings landed as canonical
+  fixes rather than as changes to sixteen shipped ports — the outcome
+  the pairing existed to buy.
 
 
 ## 5. Two conclusions neither per-repo plan reaches
@@ -211,6 +249,13 @@ today has three files. If that is unacceptable, the honest alternative
 is to accept divergence and budget for a migration pass across sixteen
 ports after P4, and to say so rather than discovering it.
 
+**Outcome (2026-08-24): the hold never had to bind.** P4 completed in
+the same window as station's Stage-5 grammar crossing, so the eleven
+CI ports crossed against a canonical P4 had already shaken out. What
+remains of Stage 5 — the declarative front door beyond TypeScript, and
+the five toolchain-gated ports — proceeds with no P4 finding hanging
+over it.
+
 ### 5.2 Pair plugin's P4 with station's py and go ports
 
 Station's Stage 5 order is `js`, `py`, then `go`, `java`. Plugin's P4 is
@@ -224,7 +269,11 @@ twice, months apart, and having to work out whether the second one is
 the same bug.
 
 This is the strongest single argument for M4 being a genuine
-synchronisation point rather than a coincidence of ordering.
+synchronisation point rather than a coincidence of ordering. In the
+event the two ran in one window — plugin's P4 and station's crossing
+both merged 2026-08-23 — which is the pairing this section asked for,
+delivered by the schedules collapsing together rather than by
+coordination.
 
 
 ## 6. Decisions, and what each one gates
@@ -232,9 +281,9 @@ synchronisation point rather than a coincidence of ordering.
 | decision | owner | gates | current state |
 |---|---|---|---|
 | Does **sdkgen** adopt plugin? (P§17.2) | sdkgen | nested hosts *natively*; deletion of `transport`; the seventeen-model change | **open** — explicitly uncommitted; carries a propagation cost across 23 template trees |
-| Does **station take the library as a dependency**? | station | **not** the native port rollout — that resumes after P4 (§5.1). This decides only whether ports later *replace* their native implementation with the library, and the +800-lines-per-port trade | **deferred to plugin tier 3 (P5)**, by design, and explicitly **non-blocking** for native ports |
+| Does **station take the library as a dependency**? | station | **not** the native port rollout — that resumed after P4 (§5.1). This decides only whether ports later *replace* their native implementation with the library, and the +800-lines-per-port trade | **deferred to plugin tier 3 (P5)**, by design, and explicitly **non-blocking** for native ports. P5 has begun, so the reopening point has arrived — nothing forces the answer, and the second-consumer condition (§7) still governs it |
 | Is **`active`** renamed? | plugin | P1's public API and its corpus fixtures | **settled** — the status is `live`, the key stays `active`; see below |
-| Does **P3b move earlier**? | plugin | only if P3 turns up a station requirement needing capabilities | conditional on a finding, not a plan |
+| Does **P3b move earlier**? | plugin | only if P3 turns up a station requirement needing capabilities | **overtaken** — P3b has landed (plugin's §11 complete) ahead of P3.1's extraction run, so the question closed itself |
 
 **`active` is settled — and it was two concepts, not the three both
 documents recorded.** Station's `active: false` (*barred from running*)
@@ -266,10 +315,10 @@ fixture** — which was the whole point of dating it.
 
 | risk | why it is real | mitigation |
 |---|---|---|
-| **Silent drift** between station's native implementation and plugin's canonical | Nothing fails when a team stops running another repo's corpus. C4 has no enforcement. | Make plugin's `ref`/`config`/`lifecycle`/`order` corpus part of station's own CI from Stage 2, so drift is red rather than unnoticed |
-| **C1 arrives late** | It is plugin's first deliverable, and P1 has not started | P0 has landed, so the fallback of folding C1 into P0 is spent; the guard now is that C1 leads P1 rather than trailing it |
-| **P4 changes the model after station has ported** | §5.1 | Hold Stage 5 after ts/js, or budget the migration explicitly |
-| **Plugin is a document and station is a system** | P0 narrowed this but did not close it: plugin still has no code in any language, so every estimate past P1 is about work that has not begun | Do not sequence station work behind Track P except where §3's contracts require it |
+| **Silent drift** between station's native implementation and plugin's canonical | Nothing fails when a team stops running another repo's corpus. C4 has no enforcement — and Stages 2–3b landing without the wiring proved it. | Make plugin's `ref`/`config`/`lifecycle`/`order` corpus part of station's own CI — the C4 harness being wired now (§3). Until it is green, this is the plan's one live drift risk. |
+| **C1 arrives late** | *Retired*: C1 led P1 (voxgig/plugin#7), as the guard required | — |
+| **P4 changes the model after station has ported** | *Retired*: P4 completed alongside station's grammar crossing (§4.3 M4), and its findings landed in the canonical before Stage 5's later tranches | — |
+| **Plugin is a document and station is a system** | *Closed*: five implementations pass the 527-entry corpus, so estimates past P1 are about work that exists | — |
 | **The second consumer never appears** | The +800-lines-per-port trade only pays with more than one consumer, and sdkgen's adoption is uncommitted | The dependency decision is already deferred to P5; keep it deferred rather than assuming |
 
 The last one deserves its own sentence, because it is the risk that
@@ -288,7 +337,8 @@ same change that lands the work — omni's `doc/plan/` discipline
 (`adoption.md`, `progress.md`, `status.md`, `handover.md`).
 
 Extend it by one file rather than inventing a second system: the
-register gains **`contracts.md`**, carrying §3's four obligations and
+register gains **`contracts.md`** — in place now, as plugin's
+`doc/plan/contracts.md` — carrying §3's four obligations and
 nothing else — what is owed, by whom, its state, and the commit that
 discharged it. Four rows. It exists so that C1 through C4 have somewhere
 to be visibly outstanding, which is the only property that makes a

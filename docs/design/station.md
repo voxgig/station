@@ -13,7 +13,13 @@ credential scrubbing on the agent boundary, per-header upstream
 metadata, a wire home for the proof-of-token challenge,
 bounded-blocking event flush named as such, lossy-capture replay
 refusal, the prod examples' provider order, and `require` failure
-timing aligned to §2.1.
+timing aligned to §2.1. Revised again (2026-08-24), after the
+declarative-config work landed in TypeScript: the amendments collected
+in [`station-declarative-config.md`](./station-declarative-config.md)
+§16 are folded in throughout — the instance-keyed registry and events,
+the shallow four-source config merge, the shared per-api descriptor,
+instance-derived secret names, the `sdk`/`api` config grammar, the
+enlarged error catalog, and §17's phasing updated to what has shipped.
 
 Moved here from `voxgig/sdkgen` (`docs/design/voxgig-station.md`), which
 is where it was drafted; this repo is now its home. Unqualified source
@@ -337,14 +343,27 @@ by the generated station feature and consists of:
 
 ### 3.1 Binding forms
 
-Three, all producing the identical binding (the placeholder is planted
+Four, all producing the identical binding (the placeholder is planted
 at construction in each), because one shape does not fit 20 languages:
 
+- **`station.sdk(name)` / `station.create(name, overrides?)`** — the
+  declarative front door
+  ([`station-declarative-config.md`](./station-declarative-config.md)
+  §6): the instance is declared in `station.json`, station resolves its
+  api's factory and constructs it on the first ask. `sdk()` caches by
+  name — same name, same object — and `create()` returns an uncached
+  client registered under an auto-assigned tag. No import and no class
+  in application code.
 - **`station.connect(SDK, opts?)`** — where passing a
   class/constructor is idiomatic (ts, js, py, rb, …). Station
   constructs the SDK itself: merges the active profile's options,
   activates the station feature with explicit ordering (§3.3), plants
-  the placeholder, returns the client.
+  the placeholder, returns the client. `connect(SDK, { as: 'eu' })`
+  binds a second instance of the same api imperatively — **`as` is a
+  tag, not a free name**: the api comes from the SDK being passed, so
+  the resulting ref is `<api>$<tag>`, and a full ref is accepted only
+  when its name equals the SDK's own slug (`station_instance_api`
+  otherwise).
 - **Inverted binding** — where it is not (go, java, csharp, swift,
   c, zig): the app constructs the SDK through its **existing
   generated constructor** and hands it station-built options —
@@ -352,7 +371,9 @@ at construction in each), because one shape does not fit 20 languages:
   SolardemoSDK(st.options())` in java — where `Options()` is the
   station library merging the handle, the activation entry, and the
   §3.3 feature order into the plain options map every generated
-  constructor already accepts. The generated feature reads the
+  constructor already accepts. `Options()` takes an optional leading
+  instance name — `st.options('stripe$eu', extra)` — so the inverted
+  binding can say which instance it is building too. The generated feature reads the
   handle from its feature options and performs the same registration
   and placement during construction. This is the *primary* binding
   form for static languages, not a fallback. (Sweeter per-language
@@ -403,10 +424,20 @@ ambient instance exists (§10.2), but only `Station.open()` creates it.
 
 ### 3.2 Registry
 
-The registry is explicit and queryable: `station.plugins()` returns
-descriptors + live status + isolation rung. Nothing about the binding
-is ambient magic; `connect`/`With`/`adopt` are sugar over documented
-seams.
+The registry is keyed by **instance** — the `name$tag` ref
+([`station-declarative-config.md`](./station-declarative-config.md)
+§2) — not by API. Two configured uses of one api, `stripe` and
+`stripe$test`, are two entries, each with its own placeholder, secret
+name and policy; binding one *instance* twice is `station_bound_twice`,
+while two instances of one api is the normal case rather than the
+prohibited one. An untagged ref *is* an api slug, so a single-instance
+project sees exactly the registry it always had.
+
+The registry is explicit and queryable: `station.plugins()` returns one
+entry per **live** instance — descriptors + live status + isolation
+rung — and `station.instances()` answers the different question of what
+is *declared*, built or not. Nothing about the binding is ambient
+magic; `sdk`/`connect`/`adopt` are sugar over documented seams.
 
 ### 3.3 Wrap ordering — a pinned mechanism, not an assumption
 
@@ -472,22 +503,51 @@ Birth is §3-items-1-4. Death and duration, equally specified:
 ### 3.5 Config resolution
 
 One total order, lowest to highest precedence, identical in every
-library and pinned by the `profile` corpus section:
+library and pinned by the `instance` corpus section:
 
 1. generated SDK `Config` defaults (including the feature's model
    defaults),
 2. station feature options passed at SDK construction (in-code
    defaults),
-3. `station.json` base (`profiles.default`),
-4. `station.json` selected profile overlay (deep-merge per plugin —
-   **except `secrets.providers`, which replaces wholesale**),
-5. `VOXGIG_STATION_*` env vars,
-6. `Station.open(opts)`,
-7. `connect`/`adopt` per-plugin opts.
+3. `station.json` base (`profiles.default`) — **`api`** block,
+4. `station.json` base — **`sdk`** block,
+5. selected profile overlay — **`api`** block,
+6. selected profile overlay — **`sdk`** block,
+7. `VOXGIG_STATION_*` env vars,
+8. `Station.open(opts)`,
+9. per-call overrides — `connect`/`adopt` opts,
+   `create(name, overrides)`.
+
+Steps 3–6 are **one flat left-to-right merge** —
+
+`base.api[<api>]` ⊕ `base.sdk[<ref>]` ⊕ `overlay.api[<api>]` ⊕ `overlay.sdk[<ref>]`
+
+— interleaved so that **profile specificity outranks block
+specificity**: a `prod` api-level `base` beats a `default`-profile
+instance-level one, because that is what an environment overlay is for,
+and within one profile the instance beats the api default, because that
+is what an instance is for. It must not be reorganized into "collapse
+each namespace, then put instance over api", which inverts that rule
+and silently keeps a wider allowlist in production —
+[`station-declarative-config.md`](./station-declarative-config.md)
+§3.3 works the failure through.
+
+Merging within a block is **shallow, per key** — an overlay's `policy`
+replaces the base's wholesale rather than merging `hosts` into it,
+which is the safer reading for an allowlist (an earlier revision of
+this section said "deep-merge per plugin"; every shipped port
+implements the shallow merge and the shallow rule is the settled one).
+`secrets.providers` replaces wholesale at the profile level, as ever.
+Block defaults (`active` → `true`) are applied **once, to the fully
+merged instance**, never per layer — a synthesized default in an
+overlay block would silently re-enable an integration the base
+declared inactive.
 
 `station.json` is looked up from cwd upward to the repo root, then
-`~/.voxgig/station.json`. The profile is `VOXGIG_STATION_PROFILE`,
-else `default`. All station env vars are namespaced
+`~/.voxgig/station.json`. The profile is `Station.open({profile})`,
+else `VOXGIG_STATION_PROFILE`, else `default` — the explicit option
+outranks the environment, as steps 7 and 8 require and as every
+shipped `selectProfile` implements. All station env vars are namespaced
 `VOXGIG_STATION_*` (`VOXGIG_STATION_URL`, `VOXGIG_STATION_PROFILE`) —
 one prefix, stated as a rule so future vars don't drift.
 
@@ -513,12 +573,36 @@ descriptor v1
 ├─ auth: { active, prefix, secretname-default }
 ├─ entities: { <name>: { fields, ops: { <op>:
 │      { points: [{ method, path, params, select? }] } } } }
-└─ features: [ present features + active state ]
+└─ features: [ name + active state + declared options + transport role ]
 ```
 
-Three small sdkgen changes fall out (all additive, all in
+The descriptor describes the **api**, not any use of it, and with
+instances
+([`station-declarative-config.md`](./station-declarative-config.md)
+§7.4) it is **shared**: `normalizeDescriptor` runs once per api and
+every instance of that api holds a reference to the same object.
+Where a factory has been provided, normalization happens at
+**registration time** rather than at construction — a factory is
+`{construct, config}`, so the descriptor exists before any instance is
+built, which is what lets `station.check()` validate feature config
+with no construction at all — and `descriptorOf()` takes an instance
+name and returns its api's descriptor. Two consequences are
+load-bearing. `auth.secretname-default` stays the **api-level**
+default, slug-derived — the conventional env var the generated README
+documents, correct for every instance to share — while each instance's
+*effective* secret name lives in `Binding.secretname`, which is
+per-registration and is what the transport resolves through: the
+binding is the authority, the descriptor field is documentation. And
+the `features` list carries each feature's declared option keys with
+typed defaults, plus its `transport` role where the model declares one
+— the schema the feature checker validates against and the role order
+validation needs — instead of discarding them. Both are additive, so
+descriptor v1 consumers are unaffected.
+
+Three small sdkgen changes fell out (all additive, all in
 `configDefinition()` in `ts/src/utility.ts`, the single place the
-embedded config is built):
+embedded config is built), and all three have since landed for every
+target station targets first (§9 item 3):
 
 - add `main.version` (the target's `publish.version`), so a running
   plugin can report what it is;
@@ -597,8 +681,20 @@ kind, not in station. That is what having a subcomponent means.
 
 A sekreto name is dot-separated lowercase segments matching
 `[a-z0-9_]+` (`api.token`, `db.pass.main`). Station's default name for
-a plugin is **`envToken(slug)` lowercased, plus `.apikey`** —
-`voxgig_solardemo.apikey`.
+a plugin is **`envToken(instanceName)` lowercased, plus `.apikey`** —
+the *instance* name, not the slug, because each instance is a separate
+credentialed use of the API
+([`station-declarative-config.md`](./station-declarative-config.md)
+§5.1). For an untagged instance the two are the same string, so the
+degenerate case is unchanged to the byte: `voxgig-solardemo` →
+`voxgig_solardemo.apikey`. Multi-instance follows the same rule with no
+special case — `stripe$test` → `stripe_test.apikey` →
+`STRIPE_TEST_APIKEY`, derivable from the name the developer chose.
+Because `envToken` collapses `$` and `-` alike, derived names can
+collide across a fleet; two instances whose *resolved* names are equal,
+at least one of them derived, fail `open()` with
+`station_secret_collision`, while two instances that *explicitly* name
+one secret are the shared-key case the api-level `secret` exists for.
 
 Deriving it from `envToken` rather than by replacing hyphens is the
 load-bearing part. The model's `name` is an unrestricted string, so a
@@ -638,7 +734,9 @@ name, not a location.
 
 A profile carries a sekreto **provider chain** verbatim — the
 declarative `ProviderSpec` form sekreto already accepts in config —
-plus the per-plugin secret name:
+plus each instance's secret name, in its `sdk` block
+([`station-declarative-config.md`](./station-declarative-config.md)
+§3.1; `api` blocks name a secret once for every instance of an api):
 
 ```json
 { "station": 1,
@@ -651,10 +749,16 @@ plus the per-plugin secret name:
       "secrets": { "providers": [
         { "kind": "hashicorp", "addr": "https://vault.example.com",
           "auth": { "method": "kubernetes", "role": "solar" } } ] },
-      "plugin": { "solardemo": {
+      "sdk": { "solardemo": {
         "secret": "voxgig_solardemo.apikey",
         "resolve": "proxy" } } } } }
 ```
+
+Station checks that `providers` is a **list** and nothing more — the
+struct shape carries it as a bare `` `$LIST` `` — because station
+neither extends nor validates sekreto's `ProviderSpec` grammar (§19):
+every provider sekreto gains is available the day it lands, and
+sekreto's own error message is the one the developer sees.
 
 Transparent resolution is the default and the reason sekreto exists:
 the first store that has it wins, and moving a secret from `.env` to a
@@ -715,6 +819,17 @@ Two sekreto semantics station must not paper over, both load-bearing:
   becomes a real boundary on a remote proxy, where registration is
   authenticated per app identity (§8.4).
 
+The broker's internal keying follows the instance split
+([`station-declarative-config.md`](./station-declarative-config.md)
+§5.3): **hoisted overrides are keyed by instance** — `adopt()` lifting
+a resident `options.apikey` is a property of that one client — while
+**the resolution cache is keyed by secret name**, so several instances
+naming one secret share a single resolution, which is the behaviour the
+api-level `secret` key implies. The scrub list is unchanged: every
+value the broker ever held, exact match, no length floor (§7). One
+sekreto instance serves the whole station, so a vault login and a
+provider cache are paid once per process rather than once per instance.
+
 sekreto draws the same R1/R2 line from the other side, and says so in
 its own README: "an app calling `secrets.get()` necessarily *holds*
 the secret. If the caller is untrusted, boru's broker is the better
@@ -765,13 +880,20 @@ a producer into it or a consumer of it.
 evolves additively — unknown fields are ignored):
 
 ```
-{ t, session, plugin, corr,
+{ t, session, plugin, api, corr,
   kind: construct | op | http | error | feature | station,
   op?:   { entity, op, outcome, durationMs },
   http?: { method, host, path, status, durationMs, bytes },
   err?:  { code, status, message },
   meta?: { … } }
 ```
+
+`plugin` carries the **instance** name and `api` the slug, for grouping
+([`station-declarative-config.md`](./station-declarative-config.md)
+§7.3). `api` is additive under §8.6's wire rule, so a consumer that
+only knows `plugin` keeps working — it simply sees instance-grained
+events, which is what it wants at 20 SDKs anyway; the per-plugin views
+below are per-instance, with `api` available for grouping siblings.
 
 Producers: the transport middleware (`http` events — wire truth,
 including `direct()`/`graphql()`, one event per attempt); the hook
@@ -1121,14 +1243,30 @@ generator-side half:
    couples to `package add`. (Their tier-C solo-only scope keeps that
    vendored surface small.)
 3. **Three additive `configDefinition()` fields** (§4:
-   `main.version`, `main.target`, `main.slug`) and **two
-   base-template changes**: the generated `makeOptions` gains a
-   station featureorder special case mirroring test's (inserting
-   station after test in the *merged* order, so map-form activation
-   gets the §3.3 placement without the ordered-array form), and the
-   constructor's featureorder loop learns to skip a name with no
-   registered feature class when an `extend`-supplied instance
-   carries it — the `adopt()` prerequisite (§3.1).
+   `main.version`, `main.target`, `main.slug`) — **shipped**. They are
+   gated on a target passing its own name, which seventeen of the
+   twenty `Config_*` components now do; clojure, ocaml and zig still
+   call `configDefinition(model)`, and those are the targets §9.1/§17
+   defers anyway, so the accurate status is done for every target
+   station targets first. **Two base-template changes**, one shipped
+   and one pending: the generated `makeOptions`' station featureorder
+   special case mirroring test's (inserting station after test in the
+   *merged* order, so map-form activation gets the §3.3 placement
+   without the ordered-array form) is **in the tree, unconditional**;
+   the constructor's featureorder loop learning to skip a name with no
+   registered feature class when an `extend`-supplied instance carries
+   it — the `adopt()` prerequisite (§3.1) — is still required. **And
+   one tranche from the declarative design**
+   ([`station-declarative-config.md`](./station-declarative-config.md)
+   §11 items 6–7): every feature model declares its `transport` role
+   (`'base' | 'wrap' | 'none'`; `test` is the only base) and
+   `configDefinition` carries it beside each feature's `config`. The
+   role is **retained for the native phase and removed once features
+   are bindings** and position carries it
+   ([`station-and-plugin.md`](./station-and-plugin.md) §2.10);
+   station's own feature model already declares `transport: 'wrap'`
+   and the `instance` option
+   (`sdkgen-station/.sdk/model/feature/station.aontu`).
 4. **README, agent-guide, and repo docs.** A `ReadmeStation` section
    (composed by `Readme.ts`, gated on the feature) documenting the
    binding forms, secret names, and the proxy quickstart (pointing at
@@ -1190,11 +1328,17 @@ design *forbids* them from growing. The rule:
 > OTel, no storage, no TLS configuration beyond the platform default,
 > and **no secret store clients**, because that is sekreto's job.
 
-sekreto is the one dependency a station library takes, and it is
-taken rather than reimplemented for the same reason this rule exists.
-In nine of the ten ports it costs nothing against the budget: sekreto
-carries zero third-party dependencies of its own, so `station →
-sekreto` adds one well-tested library and no transitive tree at all.
+sekreto is one of exactly two dependencies a station library takes —
+the other is [voxgig/struct](https://github.com/voxgig/struct), which
+validates `station.json`
+([`station-declarative-config.md`](./station-declarative-config.md)
+§4, §9) — and both are taken rather than reimplemented for the same
+reason this rule exists. In nine of the ten sekreto ports it costs
+nothing against the budget: sekreto carries zero third-party
+dependencies of its own, so `station → sekreto` adds one well-tested
+library and no transitive tree at all, and struct is the same kind of
+addition — a voxgig sibling with a shared corpus and no transitive
+tree.
 Rust is the stated exception — sekreto there takes `rustls` (plus
 `webpki-roots` for trust anchors) for TLS, which brings its own crate
 graph, and hand-rolling TLS in a secrets library would be far worse
@@ -1222,10 +1366,11 @@ merged.
 
 - **Ambient instance:** `Station.open()` returns the process-ambient
   singleton; it is idempotent, and a second `open()` with conflicting
-  options is an error. `new Station(opts)` (or the idiomatic
-  equivalent) creates an isolated instance for tests and multi-tenant
-  hosts. `adopt` and feature-driven binding target the ambient
-  instance; binding one client twice is an error.
+  options is an error (`station_open_conflict`). `new Station(opts)`
+  (or the idiomatic equivalent) creates an isolated instance for tests
+  and multi-tenant hosts. `adopt` and feature-driven binding target the
+  ambient instance; binding one instance twice is an error
+  (`station_bound_twice`, keyed by instance name — §3.2).
 - **Concurrency:** all public station operations are safe to call
   from any thread; registry and buffers are internally synchronized;
   `tap` callbacks are serialized. Each library uses its idiom; the
@@ -1248,7 +1393,36 @@ reference implementation is `ts`, as it is for the SDK targets.
 
 The walkthroughs the design is accountable to:
 
-**Zero to station (existing app, two lines):**
+**Zero to station, declaratively (the leading form —
+[`station-declarative-config.md`](./station-declarative-config.md)):**
+
+```json
+{ "station": 1,
+  "profiles": { "default": {
+    "sdk": { "voxgig-solardemo": {} } } } }
+```
+```ts
+import { Station } from '@voxgig/station'
+
+const station = Station.open()                 // reads + validates station.json
+const solar = station.sdk('voxgig-solardemo')  // built on first ask, cached
+
+const planets = await solar.Planet().list()
+```
+
+`open()` normalizes the config and validates it with voxgig/struct —
+a typo'd key fails there, with every error in the file reported at
+once — and constructs nothing: the instance is built lazily on the
+first `sdk()` call, through the factory table a generated package
+fills by self-registration, `Station.provide()`, or the loader. The
+secret story is identical to the imperative form below, and features
+are configured here too — fleet-wide, per api, or per instance —
+rather than per call site
+([`station-declarative-config.md`](./station-declarative-config.md)
+§8).
+
+**Zero to station, imperatively (existing app, two lines — the
+retrofit path, and still fully supported):**
 
 ```ts
 import { Station } from '@voxgig/station'
@@ -1312,12 +1486,12 @@ values):**
     "dev": {
       "secrets": { "providers": [ { "kind": "env" },
                                   { "kind": "dotenv", "file": ".env.local" } ] },
-      "plugin": { "solardemo": { "base": "http://localhost:8000" } } },
+      "sdk": { "solardemo": { "base": "http://localhost:8000" } } },
     "prod": {
       "secrets": { "providers": [
         { "kind": "hashicorp", "addr": "https://vault.example.com",
           "auth": { "method": "kubernetes", "role": "solar" } } ] },
-      "plugin": { "solardemo": {
+      "sdk": { "solardemo": {
         "secret": "voxgig_solardemo.apikey",
         "resolve": "proxy",
         "policy": { "hosts": ["api.solar.example.com"] } } } } } }
@@ -1344,14 +1518,24 @@ means an `env` entry in front of the vault would let a stale
 variable on the host out-rank the production secret — the exact
 failure this paragraph exists to prevent.
 
-The `plugin` map is keyed by **descriptor slug** (= the model's
-hyphenated `name`), discoverable via `station.plugins()` /
-`voxgig-station status` / `station_integrations`; a key matching no
-registered plugin produces a warning event at register time, because
-a typo'd key silently configuring nothing is the worst outcome for a
-secrets-and-policy file. Lookup path, profile selection, and merge
-order are §3.5; a JSON Schema for `station.json` ships in the
-packages so editors and agents validate as they type.
+The `sdk` map is keyed by **ref** (`api$tag`; an untagged ref *is* the
+descriptor slug, the model's hyphenated `name`), discoverable via
+`station.instances()` / `station.plugins()` / `voxgig-station status`
+/ `station_integrations`. A typo'd key silently configuring nothing is
+the worst outcome for a secrets-and-policy file, and it is now caught
+structurally rather than by a warning: the config is validated at
+`open()`, so an unexpected key fails with `station_config_invalid`
+naming its path, and `station.sdk()` of an undeclared ref is
+`station_no_instance` listing what is declared. The residual
+`close()`-time warning covers what validation cannot — a declared
+instance nothing ever built, and (the remaining free-form-key typo
+case, since api-block keys are unchecked slugs) an `api` block no
+instance references
+([`station-declarative-config.md`](./station-declarative-config.md)
+§7.6). Lookup path, profile selection, and merge order are §3.5; the
+JSON-Schema item this walkthrough once promised is satisfied by the
+struct shape (`spec/config-shape.json`), enforced in-process at
+`open()` in every port rather than shipped for editors to apply.
 `VOXGIG_STATION_PROFILE=prod` or `Station.open({ profile: 'prod' })`
 selects. This is where the ecosystem finally gets named environments
 — the model has none, deliberately; environments are a deployment
@@ -1437,10 +1621,19 @@ that the right *name* was asked for, and that what came back was
 placed correctly.
 
 - **`spec/` conformance corpus** (JSON, language-neutral), sections:
-  `secretname` (slug → sekreto name, hyphens to underscores, and the
+  `secretname` (name → sekreto name, hyphens to underscores, the
   `envkey` round-trip that must equal sdkgen's `envName()` — the one
-  place station's and sekreto's grammars meet), `descriptor`
-  (config-in → descriptor-out, including
+  place station's and sekreto's grammars meet — extended to
+  instance-name derivation and the `station_secret_collision` cases),
+  `placeholder` (keyed by **instance**, so two instances of one api
+  are distinguishable at the injection seam), `config`
+  (normalize-then-validate over the declarative grammar —
+  [`station-declarative-config.md`](./station-declarative-config.md)
+  §4.5 — the section that makes the grammar identical in every port),
+  `instance` (the §3.5 four-source merge, defaults applied after the
+  merge, and a name and an untagged ref being one key string told
+  apart by their map), `instanceref` (`as`-is-a-tag resolution),
+  `descriptor` (config-in → descriptor-out, including
   the legacy-config sentinel case), `canonical-serialize`
   (adversarial: non-ASCII names, large ints), `inject`
   (placeholder/copy-on-inject: `ctrl.explain` still holds the
@@ -1451,9 +1644,17 @@ placed correctly.
   the redacting instance is not the resolving one — §15),
   `envelope` (forward serialization, `Station-Redact` included),
   `event` (StationEvent shapes), `errors` (the §14 catalog: exact
-  code strings and trigger conditions), `profile` (the §3.5 merge
-  order, including wholesale `secrets.providers` replacement),
+  code strings and trigger conditions),
   `degrade` (solo/attached transitions, non-blocking open).
+  The `feature` section pins the pure half of
+  `station-declarative-config.md` §8 — the three-level merge with its
+  depth boundary and the §8.4 order resolution, constraints through
+  the pinned station wrap — while feature *option* checking is
+  descriptor-dependent and stays in the integration suites. The
+  pre-rename `profile` section (the two-level `plugin`-keyed merge)
+  survives for the ports that have not crossed the `sdk` grammar yet
+  and is deleted when they do — `spec/README.md` carries the
+  two-grammar table.
   Section applicability is **tier-scoped**: wire-dependent sections
   (`envelope`, the attached half of `degrade`) apply to tiers A/B
   only. A library declares its tier; an *applicable* section that is
@@ -1531,13 +1732,27 @@ well-behaved:
 | `station_secret_error` | a store could not answer — locked vault, refused login, unreachable host; carries sekreto's message verbatim and is never retried against a weaker store (§5.2) |
 | `station_secret_name` | a configured secret name sekreto rejects as malformed, caught at profile load rather than first request |
 | `station_host_allow` | egress denied by the hosts policy |
-| `station_grant_expired` | grant TTL passed and re-registration failed |
+| `station_grant_expired` | grant TTL passed and re-registration failed *(reserved for the proxy)* |
 | `station_wrap_order` | the §3.3 position guard tripped |
-| `station_protocol` | wire/descriptor version rejected by the proxy |
+| `station_protocol` | wire/descriptor version rejected by the proxy *(reserved for the proxy)* |
 | `station_no_plugin` / `station_no_entity` / `station_no_op` | unknown lookup in `station_call`/`station_describe`; the payload lists the valid candidates (§7) |
-| `station_agent_allow` | `agent.write`/`agent.read` policy denial, on call or replay |
-| `station_body_limit` | `/v1/forward` request body over the configured limit |
-| `station_replay_lossy` | replay refused: the capture's request cannot be reconstructed byte-for-byte (truncated or redaction-damaged body, §8.5) |
+| `station_agent_allow` | `agent.write`/`agent.read` policy denial, on call or replay *(reserved for the proxy)* |
+| `station_body_limit` | `/v1/forward` request body over the configured limit *(reserved for the proxy)* |
+| `station_replay_lossy` | replay refused: the capture's request cannot be reconstructed byte-for-byte (truncated or redaction-damaged body, §8.5) *(reserved for the proxy)* |
+| `station_open_conflict` | a second `Station.open()` with different options — the ambient instance is idempotent per §10.2, and a conflicting reopen must fail rather than silently answer with the first configuration |
+| `station_bound_twice` | a second binding of one **instance** name (§3.2, §10.2). Keyed by instance, not by api: two clients of one api is the normal case, and this is never a cap on clients per instance — `create()` takes an auto-assigned tag precisely so it cannot trip it |
+
+Five of these — `station_grant_expired`, `station_protocol`,
+`station_body_limit`, `station_replay_lossy`, `station_agent_allow` —
+are **reserved for the proxy**: defined and corpus-pinned now, so the
+catalog is stable across ports, and raised by nothing until D2 ships.
+
+The declarative front door adds thirteen more —
+`station_config_invalid` through `station_feature_order` — catalogued
+in [`station-declarative-config.md`](./station-declarative-config.md)
+§6.4. Together the two tables are the complete catalog of 29 codes,
+pinned exactly (known and unknown strings both) by the `errors` corpus
+section.
 
 ## 15. Security posture
 
@@ -1630,31 +1845,47 @@ authoritative copy is proxy-side (§8.3).
 
 ## 17. Delivery phasing
 
-Obeying §9.6's rule — an adapter never precedes its library:
+Obeying §9.6's rule — an adapter never precedes its library. The solo
+halves of the first two phases have landed ahead of the proxy —
+sixteen library ports are written, eleven run the conformance corpus
+in CI, and the declarative front door
+([`station-declarative-config.md`](./station-declarative-config.md)
+§12) is implemented in the canonical — so the phases below carry their
+state rather than pretending to be all future:
 
-- **Phase 1 — prove the loop (narrow and deep):** ts library
-  (browser-safe entry points included, §2.2) over `@voxgig/sekreto` +
-  proxy core (register with proof-of-token, envelope forward, R1 and
-  R2 with the Go sekreto proxy-side, proxy-side policy authority,
-  capture, tap, status) + MCP
+- **Phase 1 — prove the loop (narrow and deep):** ts library over
+  `@voxgig/sekreto` — **landed, solo mode**, and it now includes
+  Stages 1–3b of the declarative plan: the grammar as data with struct
+  validation at `open()`, instance identity (`name$tag` refs,
+  instance-keyed registry, placeholder and events), the
+  `sdk()`/`create()`/`instances()`/`check()`/`warm()` surface with the
+  factory table and loader, and feature merge + constraint-and-band
+  ordering + the descriptor-derived checker. Stage 4 is **partial**:
+  the feature model declares `transport` and `instance`, while adapter
+  self-registration waits on sdkgen's own injection machinery, and the
+  ReadmeStation/AgentGuide copy belongs with that change. Still open
+  in Phase 1 beyond that: proxy core (register with proof-of-token,
+  envelope forward, R2 with the Go sekreto proxy-side, proxy-side
+  policy authority, capture, tap, status) + MCP
   (`station_status`/`integrations`/`describe`/`call`/`traffic`) +
-  `@voxgig/sdkgen-station` with adapters for **ts/js only** + the
-  three `configDefinition` fields and the featureorder change +
-  package-side CI fixture flow + solardemo end-to-end (ts/js). Exit:
-  the §11 two-line quickstart and the §12 agent transcript both
-  real.
-- **Phase 2 — breadth and depth:** go library then go adapter
-  (unblocking go-heavy consumers and dogfooding next to the proxy);
-  py, then the rest of tier A in demand order (java, csharp, kotlin,
-  swift, dart, rb, php — scala and clojure wait for Phase 3 behind
-  their §9.1 adapter prerequisites, JVM transport notwithstanding),
-  each over its own sekreto port where one exists and env-only where
-  it does not (swift, dart, elixir — §2.2); replay/mock/record with
-  the §6
-  per-class semantics; OTLP export; grants hardening + revocation
-  UX; `station.json` schema; ReadmeStation + AgentGuide +
-  `docs/how-to/use-station.md`; conformance corpus enforced in CI
-  for every shipped library.
+  solardemo end-to-end through the proxy; browser-safe entry points
+  (§2.2) ride that work. Exit unchanged: the §11 quickstarts and the
+  §12 agent transcript both real.
+- **Phase 2 — breadth and depth:** the library breadth has largely
+  landed ahead of the proxy half — go, py, rb, php, perl, java, rust,
+  c and cpp beside ts/js, all eleven on the `sdk` grammar and green in
+  CI, with csharp, swift, dart, elixir and lua written but
+  toolchain-gated on the pre-rename grammar (`spec/README.md`; scala
+  and clojure wait for Phase 3 behind their §9.1 adapter
+  prerequisites), each over its own sekreto port where one exists and
+  env-only where it does not (swift, dart, elixir — §2.2). What
+  remains is proxy-flavoured: replay/mock/record with the §6 per-class
+  semantics; OTLP export; grants hardening + revocation UX;
+  ReadmeStation + AgentGuide + `docs/how-to/use-station.md`. The
+  `station.json` schema item is **satisfied by the struct shape**
+  (`spec/config-shape.json`), enforced at `open()` in-process rather
+  than shipped as a JSON Schema; the conformance corpus is enforced in
+  CI for every runnable library.
 - **Phase 3 — long tail and remote:** tier B (rust, lua, haskell,
   ocaml — the latter two gated on §9.1's single-module work), the
   scala and clojure adapters after the zig/scala static-reference
