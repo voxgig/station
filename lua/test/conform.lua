@@ -20,21 +20,29 @@ package.path = 'src/?.lua;test/?.lua;' .. package.path
 -- Locate the voxgig/omni checkout (the convention sekreto and the other
 -- station ports use).
 local function omnihome()
+  -- The env var is APPENDED rather than written as the first element:
+  -- an unset OMNI_HOME is nil, and a nil at index 1 makes `ipairs` stop
+  -- immediately - so every sibling-checkout fallback below it was
+  -- skipped, and the suite could only ever run with OMNI_HOME set. That
+  -- is exactly the CI case (the other ports rely on the fallbacks), and
+  -- it read as a port failure rather than a lookup bug.
   local candidates = {
-    os.getenv('OMNI_HOME'),
     '../omni',
     '../../omni',
     '/workspace/omni',
     '/workspace/voxgig/omni',
     '/home/user/omni',
   }
+  local declared = os.getenv('OMNI_HOME')
+  if declared ~= nil and declared ~= '' then
+    table.insert(candidates, 1, declared)
+  end
+
   for _, candidate in ipairs(candidates) do
-    if candidate ~= nil then
-      local marker = io.open(candidate .. '/spec/fib.json', 'r')
-      if marker ~= nil then
-        marker:close()
-        return candidate
-      end
+    local marker = io.open(candidate .. '/spec/fib.json', 'r')
+    if marker ~= nil then
+      marker:close()
+      return candidate
     end
   end
   error('station: voxgig/omni not found - set OMNI_HOME', 0)
