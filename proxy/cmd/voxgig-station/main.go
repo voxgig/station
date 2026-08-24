@@ -33,10 +33,19 @@ func main() {
 		os.Exit(2)
 	}
 	switch os.Args[1] {
-	case "run":
+	// `run` is the canonical daemon verb (the §11 quickstart:
+	// `voxgig-station run`); `serve` aliases it for operators expecting
+	// the conventional name.
+	case "run", "serve":
 		if err := runCmd(os.Args[2:]); err != nil {
 			log.Fatalf("voxgig-station: %v", err)
 		}
+	case "status":
+		exitOnErr(statusCmd(os.Args[2:]))
+	case "approve":
+		exitOnErr(approveCmd(os.Args[2:]))
+	case "tap":
+		exitOnErr(tapCmd(os.Args[2:]))
 	case "version":
 		fmt.Printf("voxgig-station %s (protocol %d)\n", daemon.Version, daemon.Protocol)
 	case "help", "-h", "--help":
@@ -48,20 +57,58 @@ func main() {
 	}
 }
 
+func exitOnErr(err error) {
+	if err == nil {
+		return
+	}
+	log.Fatalf("voxgig-station: %v", err)
+}
+
 func usage(w *os.File) {
-	fmt.Fprintf(w, `voxgig-station - station companion daemon (control-plane core)
+	fmt.Fprintf(w, `voxgig-station - the station companion proxy (design D2)
 
 Usage:
-  voxgig-station run [flags]   start the daemon
-  voxgig-station version       print version
-  voxgig-station help          this text
+  voxgig-station run [flags]            start the daemon (alias: serve)
+  voxgig-station status [flags]         show plugins, sessions, stores, bounds
+  voxgig-station approve <ref> [flags]  bless an instance's base/hosts/name triple
+  voxgig-station tap [plugin] [flags]   stream live events as NDJSON
+  voxgig-station version                print version
+  voxgig-station help                   this text
 
 Run flags:
-  --listen addr        listen address (default %s; or VOXGIG_STATION_URL)
-  --token-file path    token file (default ~/.voxgig/station/token)
-  --session-ttl dur    session liveness TTL (default %s)
-  --ring n             event ring capacity (default %d)
-`, daemon.DefaultListen, daemon.DefaultSessionTTL, daemon.DefaultRingCapacity)
+  --listen addr          listen address (default %s; or VOXGIG_STATION_URL)
+  --token-file path      token file (default ~/.voxgig/station/token)
+  --config path          proxy-side station.json (default: cwd-up lookup)
+  --profile name         station.json profile (default VOXGIG_STATION_PROFILE, else "default")
+  --state-file path      approval state (default: approvals.json beside the token)
+  --session-ttl dur      session liveness TTL (default %s)
+  --grant-ttl dur        R2 grant TTL (default %s)
+  --ring n               event ring capacity (default %d)
+  --capture-entries n    capture store entry bound (default %d)
+  --capture-bytes n      capture store byte bound (default %d)
+  --capture-body n       capture body truncation point (default %d)
+  --forward-body n       /v1/forward request-body limit (default %d)
+  --events-body n        /v1/events batch limit (default %d)
+  --register-body n      /v1/register body limit (default %d)
+  --event-line n         single event line limit (default %d)
+  --tap-buffer n         per-subscriber tap buffer (default %d)
+  --poll-timeout dur     policy long-poll hold time (default %s)
+  --upstream-timeout dur upstream exchange timeout (default %s)
+
+Verb flags (status / approve / tap):
+  --url u                daemon URL (default: VOXGIG_STATION_URL, else http://%s)
+  --token t              bearer token (default: read the token file)
+  --token-file path      token file (default ~/.voxgig/station/token)
+
+Every verb authenticates the daemon first: a nonce on /v1/health must
+come back with a valid Station-Proof before the bearer token is sent.
+`, daemon.DefaultListen, daemon.DefaultSessionTTL, daemon.DefaultGrantTTL,
+		daemon.DefaultRingCapacity, daemon.DefaultCaptureMaxEntries,
+		daemon.DefaultCaptureMaxBytes, daemon.DefaultCaptureBodyLimit,
+		daemon.DefaultForwardBodyLimit, daemon.DefaultEventsBodyLimit,
+		daemon.DefaultRegisterBodyLimit, daemon.DefaultEventLineLimit,
+		daemon.DefaultTapBuffer, daemon.DefaultPolicyPollTimeout,
+		daemon.DefaultUpstreamTimeout, daemon.DefaultListen)
 }
 
 func runCmd(args []string) error {
@@ -76,6 +123,14 @@ func runCmd(args []string) error {
 	grantTTL := fs.Duration("grant-ttl", daemon.DefaultGrantTTL, "R2 grant TTL")
 	captureEntries := fs.Int("capture-entries", daemon.DefaultCaptureMaxEntries, "capture store entry bound")
 	captureBytes := fs.Int64("capture-bytes", daemon.DefaultCaptureMaxBytes, "capture store byte bound")
+	captureBody := fs.Int("capture-body", daemon.DefaultCaptureBodyLimit, "capture body truncation point (bytes)")
+	forwardBody := fs.Int64("forward-body", daemon.DefaultForwardBodyLimit, "/v1/forward request-body limit (bytes)")
+	eventsBody := fs.Int64("events-body", daemon.DefaultEventsBodyLimit, "/v1/events batch limit (bytes)")
+	upstreamTimeout := fs.Duration("upstream-timeout", daemon.DefaultUpstreamTimeout, "upstream exchange timeout")
+	registerBody := fs.Int64("register-body", daemon.DefaultRegisterBodyLimit, "/v1/register body limit (bytes)")
+	eventLine := fs.Int("event-line", daemon.DefaultEventLineLimit, "single event line limit (bytes)")
+	tapBuffer := fs.Int("tap-buffer", daemon.DefaultTapBuffer, "per-subscriber tap buffer (events)")
+	pollTimeout := fs.Duration("poll-timeout", daemon.DefaultPolicyPollTimeout, "policy long-poll hold time")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -144,6 +199,14 @@ func runCmd(args []string) error {
 		GrantTTL:          *grantTTL,
 		CaptureMaxEntries: *captureEntries,
 		CaptureMaxBytes:   *captureBytes,
+		CaptureBodyLimit:  *captureBody,
+		ForwardBodyLimit:  *forwardBody,
+		EventsBodyLimit:   *eventsBody,
+		UpstreamTimeout:   *upstreamTimeout,
+		RegisterBodyLimit: *registerBody,
+		EventLineLimit:    *eventLine,
+		TapBuffer:         *tapBuffer,
+		PolicyPollTimeout: *pollTimeout,
 	}, token)
 	if err != nil {
 		ln.Close()
