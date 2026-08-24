@@ -312,6 +312,56 @@ class TestBinding(unittest.TestCase):
         self.assertEqual('station_bound_twice', caught.exception.code)
         st.close()
 
+    def test_as_is_a_tag_on_the_imperative_path(self):
+        # design 6.1, imperative half: the api comes from the SDK being
+        # passed, so `as` yields `<api>$<tag>` and multi-instance works
+        # without a config file.
+        st = Station({'config': None})
+        bind(st)
+        client = FakeClient()
+        utility = FakeUtility(base_fetcher([]))
+        ctx = FakeCtx(client, utility, {'apikey': ''})
+        adapter = adapter_feature(st, None)
+        client.features.append(adapter)
+        adapter.init(ctx, {'active': True, 'as': 'test'})
+
+        self.assertEqual(['gnarly-pets', 'gnarly-pets$test'],
+                         sorted(p['name'] for p in st.plugins()))
+        # 7.2: distinct placeholders, or the injection seam cannot tell
+        # which credential a header wants.
+        self.assertEqual('[station:gnarly-pets$test]', ctx.options['apikey'])
+        # 5.1: the derived secret name follows the INSTANCE.
+        tagged = [p for p in st.plugins()
+                  if 'gnarly-pets$test' == p['name']][0]
+        self.assertEqual('gnarly_pets_test.apikey', tagged['secretname'])
+        st.close()
+
+    def test_a_wrong_api_is_refused_on_the_imperative_path(self):
+        st = Station({'config': None})
+        client = FakeClient()
+        utility = FakeUtility(base_fetcher([]))
+        ctx = FakeCtx(client, utility, {'apikey': ''})
+        adapter = adapter_feature(st, None)
+        client.features.append(adapter)
+        with self.assertRaises(StationError) as caught:
+            adapter.init(ctx, {'active': True, 'as': 'other$test'})
+        self.assertEqual('station_instance_api', caught.exception.code)
+        st.close()
+
+    def test_policy_allow_is_enforcement_not_a_default(self):
+        st = Station({'config': {
+            'station': 1,
+            'profiles': {'default': {'sdk': {'gnarly-pets': {'policy': {
+                'allow': {'op': ['find', 'list'], 'method': ['GET']}}}}}},
+        }})
+        # Unlike `base`, which is a default the caller may override, an
+        # allowlist is ENFORCEMENT: policy wins on the keys it sets.
+        ctx, _log = bind(st, options={'apikey': '',
+                                      'allow': {'op': 'everything'}})
+        self.assertEqual({'op': 'find,list', 'method': 'GET'},
+                         ctx.options['allow'])
+        st.close()
+
     def test_hosts_policy_denies_off_list_egress(self):
         st = Station({'config': {
             'station': 1,
