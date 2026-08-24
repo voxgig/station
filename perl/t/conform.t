@@ -7,13 +7,31 @@
 # (inject, order, event correlation) live in t/station.t and the
 # generated-SDK integration flow; the corpus carries what a port can
 # prove with no SDK present.
+#
+# TWO EXPLICIT TABLES, and the tests are REGISTERED FROM THEM:
+#
+#   @DRIVERS  section name -> the subject that runs it. This is the
+#             opt-in surface: a section runs if and only if it is here,
+#             and because registration is derived from the table a
+#             section named here cannot silently fail to execute.
+#   @PENDING  section name -> a written REASON for not running it. An
+#             entry here is a recorded decision, not an omission.
+#
+# `sections-covered` then closes the other direction: it reads
+# spec/station.json DIRECTLY - not through the runner, which resolves and
+# normalizes a named section and would hide one it never resolved - and
+# asserts that (drivers + pending) EXACTLY equals the corpus's own
+# section list. A section added to the corpus and not picked up here
+# fails loudly instead of never running; a section renamed away from
+# under a stale driver or a stale pending pin fails too.
 
 use strict;
 use warnings;
 
 use File::Basename qw(dirname);
 use File::Spec;
-use Test::More tests => 7;
+use JSON::PP ();
+use Test::More;
 
 # Find the shared spec directory by walking up from this file.
 sub specfile {
@@ -53,19 +71,20 @@ use Voxgig::Omni::Runner qw(makeRunner);
 use Voxgig::Omni::Util qw(NULLMARK islist ismap);
 
 # Voxgig::Station's bootstrap locates Voxgig::Sekreto (vendored, @INC,
-# SEKRETO_HOME, or the sibling checkout).
-use Voxgig::Station;
+# SEKRETO_HOME, or the sibling checkout); Voxgig::Station::Struct locates
+# voxgig/struct the same way, lazily.
+use Voxgig::Station qw(instance_ref);
 use Voxgig::Station::Descriptor qw(
   canonical_serialize envtoken normalize_descriptor secretname_default
 );
 use Voxgig::Station::Error qw(is_known_code);
+use Voxgig::Station::Feature qw(
+  checkpin featuresources mergefeatures resolveorder
+);
 use Voxgig::Station::Profile qw(resolve_profile);
 use Voxgig::Station::Secrets qw(placeholder_for);
-
-my $R = makeRunner( specfile('station.json') )->('station');
-
-my $spec   = $R->{spec};
-my $runset = $R->{runset};
+use Voxgig::Station::Shape qw(normalize_config validate_config);
+use Voxgig::Station::Struct qw(struct_parse);
 
 # Spec nulls arrive as omni's NULLMARK sentinel; restore them so a
 # subject sees what the spec means.
@@ -81,106 +100,190 @@ sub denull {
     return $val;
 }
 
-# Run one group, reporting pass or fail through Test::More.
-sub group {
-    my ( $name, $body ) = @_;
-    my $ok = eval { $body->(); 1 };
-    if ($ok) {
-        pass($name);
+# --- declaration order, which a perl hash cannot keep ---
+#
+# 8.4's LAST tie-break is the order the config declared its features in.
+# The canonical library gets that free from a JavaScript object and omni
+# hands this port the entry as JSON::PP parsed it - a plain perl hash,
+# whose key order perl randomises per hash. So the spec file is parsed a
+# SECOND time with struct's own order-preserving reader, and each
+# `feature` entry's authored `merged` map is indexed by the canonical
+# serialization of its `in` value.
+#
+# A MISS IS AN ERROR, not a shrug: the fallback would be sorted keys,
+# which happens to agree with the authored order in every entry of this
+# section and would therefore pass by alphabetical accident while
+# silently never testing the tie-break at all.
+my %MERGED_ORDER;
+
+sub mergedorder {
+    if ( !%MERGED_ORDER ) {
+        my $file = specfile('station.json');
+        open( my $handle, '<', $file ) or die "station: cannot read $file";
+        local $/ = undef;
+        my $text = <$handle>;
+        close($handle);
+
+        my $parsed = struct_parse($text);
+        my $set    = $parsed->{primary}{station}{feature}{set};
+        for my $entry ( @{ ref($set) eq 'ARRAY' ? $set : [] } ) {
+            next unless ref($entry) eq 'HASH' && ref( $entry->{in} ) eq 'HASH';
+            next unless ref( $entry->{in}{merged} ) eq 'HASH';
+            $MERGED_ORDER{ canonical_serialize( $entry->{in} ) } =
+              $entry->{in}{merged};
+        }
     }
-    else {
-        fail($name);
-        diag("$@");
-    }
+    my ($vin) = @_;
+    my $key = canonical_serialize($vin);
+    my $merged = $MERGED_ORDER{$key};
+    die 'station: no authored key order for feature entry: ' . $key
+      unless defined $merged;
+    return $merged;
 }
 
-group(
-    'secretname',
-    sub {
-        $runset->(
-            $spec->{secretname},
-            sub {
-                my ($vin) = @_;
-                my $secretname = secretname_default( $vin->{slug} );
-                return {
-                    envtoken   => envtoken( $vin->{slug} ),
-                    secretname => $secretname,
-                    envkey     => Voxgig::Sekreto::envkey($secretname),
-                };
+# One driver per section this port RUNS, keyed by the corpus section
+# name. A LIST OF PAIRS rather than a hash, because a perl hash has no
+# order and the table is meant to read in the order the sections do.
+my @DRIVERS = (
+    [
+        secretname => sub {
+            my ($vin) = @_;
+            my $secretname = secretname_default( $vin->{slug} );
+            return {
+                envtoken   => envtoken( $vin->{slug} ),
+                secretname => $secretname,
+                envkey     => Voxgig::Sekreto::envkey($secretname),
+            };
+        }
+    ],
+
+    [ placeholder => sub { return placeholder_for( $_[0] ) } ],
+
+    [
+        descriptor => sub {
+            my ($vin) = @_;
+            my ($descriptor) =
+              normalize_descriptor( $vin->{config}, $vin->{feature} );
+            return $descriptor;
+        }
+    ],
+
+    [
+        descriptorwarnings => sub {
+            my ($vin) = @_;
+            my ( undef, $warnings ) =
+              normalize_descriptor( $vin->{config}, $vin->{feature} );
+            return scalar @$warnings;
+        }
+    ],
+
+    [ canonical => sub { return canonical_serialize( denull( $_[0] ) ) } ],
+
+    # Normalize, then validate (design station.md 4.2). The entry is a
+    # RAW config in, and either the normalized output or the expected
+    # error out - the two steps are ONE pipeline, and a port that splits
+    # them is free to validate the wrong form.
+    [
+        config => sub {
+            return validate_config( normalize_config( denull( $_[0] ) ) );
+        }
+    ],
+
+    # The 3.3 merge, and the whole of this port's profile contract.
+    [
+        instance => sub {
+            my ($vin) = @_;
+            return resolve_profile( denull( $vin->{config} ), $vin->{profile} );
+        }
+    ],
+
+    # 6.1's `as` rule: pure over (api, opts), so it is corpus-shaped
+    # rather than driver-shaped even though it decides a registry key.
+    [ instanceref => sub { return instance_ref( $_[0]{api}, $_[0]{opts} ) } ],
+
+    # 8's pure half: the three-level merge with its depth boundary, and
+    # the 8.4 order resolution. ONE driver, TWO entry shapes - `merged`
+    # selects the resolver, anything else the merge - because a port that
+    # guessed from looser cues would run the wrong subject on a mistyped
+    # entry.
+    [
+        feature => sub {
+            my ($vin) = @_;
+            if ( defined $vin->{merged} ) {
+                my $ordered = resolveorder( mergedorder($vin) );
+                checkpin($ordered);
+                return [ map { $_->{name} } @$ordered ];
             }
-        );
-    }
+            return mergefeatures(
+                featuresources(
+                    denull( $vin->{base} ), denull( $vin->{overlay} ),
+                    $vin->{api},            $vin->{ref}
+                )
+            );
+        }
+    ],
+
+    [ errors => sub { return is_known_code( $_[0] ) } ],
 );
 
-group(
-    'placeholder',
-    sub {
-        $runset->( $spec->{placeholder}, sub { placeholder_for( $_[0] ) } );
-    }
+# The sections this port deliberately does NOT run, with the reason - an
+# entry here is a decision, not an omission.
+my @PENDING = (
+    [
+        # Pins the pre-Stage-1 `plugin` grammar, which this port no
+        # longer speaks. It stays in the corpus for the ports that have
+        # not crossed the rename yet and is deleted when the last one
+        # does - see spec/README.md. Everything it pins is restated in
+        # the sdk/api grammar the `instance` section runs.
+        profile => 'pre-rename plugin grammar; superseded by the instance section'
+    ],
 );
 
-group(
-    'descriptor',
-    sub {
-        $runset->(
-            $spec->{descriptor},
-            sub {
-                my ($vin) = @_;
-                my ($descriptor) =
-                  normalize_descriptor( $vin->{config}, $vin->{feature} );
-                return $descriptor;
-            }
-        );
-    }
-);
+plan tests => 1 + scalar(@DRIVERS);
 
-group(
-    'descriptorwarnings',
-    sub {
-        $runset->(
-            $spec->{descriptorwarnings},
-            sub {
-                my ($vin) = @_;
-                my ( undef, $warnings ) =
-                  normalize_descriptor( $vin->{config}, $vin->{feature} );
-                return scalar @$warnings;
-            }
-        );
-    }
-);
+# Section completeness: the sections run plus the explicit PENDING list
+# must EXACTLY cover what spec/station.json carries. Read as raw JSON
+# rather than through the runner, which resolves a named section and
+# would hide one it never resolved.
+subtest 'sections-covered' => sub {
+    plan tests => 1;
 
-group(
-    'canonical',
-    sub {
-        $runset->(
-            $spec->{canonical},
-            sub { canonical_serialize( denull( $_[0] ) ) }
-        );
-    }
-);
+    my $file = specfile('station.json');
+    open( my $handle, '<', $file ) or die "station: cannot read $file";
+    local $/ = undef;
+    my $text = <$handle>;
+    close($handle);
 
-# The 3.3 merge, and the whole of this port's profile contract.
-#
-# The `profile` section is NOT run here: it pins the pre-Stage-1 `plugin`
-# grammar, which this port no longer speaks. It stays in the corpus for
-# the ports that have not crossed the rename yet and is deleted when the
-# last one does - see spec/README.md.
-group(
-    'instance',
-    sub {
-        $runset->(
-            $spec->{instance},
-            sub {
-                my ($vin) = @_;
-                return resolve_profile( denull( $vin->{config} ), $vin->{profile} );
-            }
-        );
-    }
-);
+    my $spec = JSON::PP->new->decode($text);
+    my @present = sort keys %{ $spec->{primary}{station} };
+    my @covered = sort map { $_->[0] } ( @DRIVERS, @PENDING );
 
-group(
-    'errors',
-    sub {
-        $runset->( $spec->{errors}, sub { is_known_code( $_[0] ) } );
-    }
-);
+    is_deeply( \@covered, \@present, 'every corpus section is run or pinned' );
+};
+
+my $R = makeRunner( specfile('station.json') )->('station');
+
+my $spec   = $R->{spec};
+my $runset = $R->{runset};
+
+for my $row (@DRIVERS) {
+    my ( $section, $subject ) = @$row;
+    subtest $section => sub {
+        plan tests => 1;
+
+        # A renamed section would otherwise match nothing and pass.
+        if ( !defined $spec->{$section} ) {
+            fail( 'corpus section missing: ' . $section );
+            return;
+        }
+
+        my $ok = eval { $runset->( $spec->{$section}, $subject ); 1 };
+        if ($ok) {
+            pass($section);
+        }
+        else {
+            fail($section);
+            diag("$@");
+        }
+    };
+}

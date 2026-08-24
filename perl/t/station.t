@@ -19,8 +19,14 @@ use Test::More;
 use Voxgig::Station;
 use Voxgig::Station::Error qw(is_known_code);
 use Voxgig::Station::Adapter qw(adapter_feature feature_binding);
+use Voxgig::Station::Factory qw(factory_for provide provided reset_factories);
+use Voxgig::Station::Feature qw(RESERVED_KEYS checkfeatures);
+use Voxgig::Station::Loader qw(camelify check_package factory_from_module);
 use Voxgig::Station::Secrets qw(placeholder_for);
 use Voxgig::Station::Profile qw(select_profile);
+use Voxgig::Station::Shape qw(
+  BLOCK_DEFAULTS MERGE_SENSITIVE PROFILE_DEFAULTS config_shape normalize_config
+);
 
 my $CONFIG = {
     main => {
@@ -100,9 +106,77 @@ sub events_of {
 
 sub reset_env {
     Voxgig::Station->reset;
+
+    # The factory table is PROCESS-GLOBAL by design (6.2 path 1 is module
+    # self-registration, which happens once per process), so a suite that
+    # registers factories has to be able to put the process back.
+    reset_factories();
     delete $ENV{GNARLY_PETS_APIKEY};
     delete $ENV{VOXGIG_STATION_PROFILE};
     return;
+}
+
+# A miniature GENERATED SDK for the declarative front door: a
+# module-level config constant beside a constructor that runs the
+# `extend` features the way a generated constructor does. Deliberately a
+# PRE-STATION SDK (its own config declares no station feature), which is
+# the 3.1 retrofit case build() has to carry the adapter for.
+{
+
+    package StubSDK;
+
+    our $CONFIG = {
+        main => {
+            name    => 'GnarlyPets',
+            slug    => 'gnarly-pets',
+            version => '0.0.1',
+            target  => 'perl',
+        },
+        feature => {
+            retry => { options => { retries => 1, wait => 100 } },
+            test  => {},
+        },
+        options => {
+            base   => 'http://localhost:8903',
+            auth   => { prefix => 'Bearer' },
+            entity => { pet => {} },
+        },
+        entity => {},
+    };
+
+    sub config { return $CONFIG }
+
+    sub new {
+        my ( $class, $options ) = @_;
+        my $self = bless {
+            mode     => 'live',
+            features => [],
+            options  => { %{ $options || {} } },
+        }, $class;
+
+        $self->{utility} =
+          { fetcher => sub { return ( main::okres(), undef ) } };
+        $self->{ctx} = {
+            client  => $self,
+            utility => $self->{utility},
+            options => $self->{options},
+            config  => $CONFIG,
+        };
+
+        my $fopts = $self->{options}{feature}{station};
+        for my $feature ( @{ $self->{options}{extend} || [] } ) {
+            push @{ $self->{features} }, $feature;
+            $feature->init( $self->{ctx}, { %{ $fopts || {} } } );
+        }
+        return $self;
+    }
+}
+
+sub stub_factory {
+    return {
+        construct => sub { return StubSDK->new( $_[0] ) },
+        config    => $StubSDK::CONFIG,
+    };
 }
 
 # --- ambient instance (design station.md 10.2) ---
