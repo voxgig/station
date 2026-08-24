@@ -187,7 +187,15 @@ verifies and fails loudly with `station_wrap_order`.
 Because every generated SDK carries its own value types, the adapter
 translates at one seam (`src/binding.rs`): `bind(BindSpec)` once at
 init, `prepare()`/`done_ok()`/`done_err()` per request,
-`op_start()`/`op_done()` from the hook bridge. Every binding rule —
+`op_start()`/`op_done()` from the hook bridge. `bind` returns the
+instance's placeholder and the profile's `base` for the adapter to plant,
+and — since Stage 5's later tranche — `Bound.allow`, the policy
+allowlist in the SDK's own `options.allow` form (design §16). That last
+one is ADDITIVE and the generated Rust adapter template
+(`sdkgen-station/.sdk/tm/rust/feature/station.rs`, which lives outside
+this port) does not apply it yet: until it does, `policy.hosts` is
+enforced here at the seam as before, and `policy.allow` is computed and
+handed back but not yet planted. Every binding rule —
 wrap position, placeholder placement, secret-name precedence, hosts
 policy, injection, events — lives in the library; the generated
 adapter only converts types and deep-clones its fetchdef before
@@ -201,9 +209,9 @@ Single-threaded by design: the generated SDKs' `Value` is neither
 thread that opens a Station gets its own. The §6.2 factory table is
 thread-local for the same reason (everything in it is `Rc<dyn Any>`):
 "process-global" means once per SDK-owning thread here, and `provide` is
-called once per such thread. The §10.2 "any thread"
-contract is satisfied vacuously; a multi-threaded app runs one station
-per SDK-owning thread.
+called once per such thread. The §10.2 "any thread" contract is
+satisfied vacuously; a multi-threaded app runs one station per
+SDK-owning thread.
 
 ## Layout
 

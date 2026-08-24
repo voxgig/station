@@ -16,6 +16,8 @@
 
 #include "voxgig_station.h"
 
+#include "voxgig_station_int.h"
+
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -26,7 +28,7 @@
  * Small helpers
  * =========================================================================*/
 
-static char* sdup(const char* s) {
+char* vxstn_sdup(const char* s) {
   size_t n;
   char* d;
   if (NULL == s) {
@@ -38,21 +40,14 @@ static char* sdup(const char* s) {
   return d;
 }
 
-/* A growable string builder. */
-typedef struct {
-  char* buf;
-  size_t len;
-  size_t cap;
-} vxstn_sb;
-
-static void sb_init(vxstn_sb* sb) {
+void vxstn_sb_init(vxstn_sb* sb) {
   sb->cap = 64;
   sb->len = 0;
   sb->buf = (char*)malloc(sb->cap);
   sb->buf[0] = '\0';
 }
 
-static void sb_need(vxstn_sb* sb, size_t extra) {
+static void vxstn_sb_need(vxstn_sb* sb, size_t extra) {
   if (sb->len + extra + 1 > sb->cap) {
     while (sb->len + extra + 1 > sb->cap) {
       sb->cap *= 2;
@@ -61,18 +56,18 @@ static void sb_need(vxstn_sb* sb, size_t extra) {
   }
 }
 
-static void sb_putn(vxstn_sb* sb, const char* s, size_t n) {
-  sb_need(sb, n);
+void vxstn_sb_putn(vxstn_sb* sb, const char* s, size_t n) {
+  vxstn_sb_need(sb, n);
   memcpy(sb->buf + sb->len, s, n);
   sb->len += n;
   sb->buf[sb->len] = '\0';
 }
 
-static void sb_put(vxstn_sb* sb, const char* s) { sb_putn(sb, s, strlen(s)); }
+void vxstn_sb_put(vxstn_sb* sb, const char* s) { vxstn_sb_putn(sb, s, strlen(s)); }
 
-static void sb_putc(vxstn_sb* sb, char c) { sb_putn(sb, &c, 1); }
+void vxstn_sb_putc(vxstn_sb* sb, char c) { vxstn_sb_putn(sb, &c, 1); }
 
-static void sb_putf(vxstn_sb* sb, const char* fmt, ...) {
+void vxstn_sb_putf(vxstn_sb* sb, const char* fmt, ...) {
   char tmp[64];
   va_list ap;
   int n;
@@ -80,7 +75,7 @@ static void sb_putf(vxstn_sb* sb, const char* fmt, ...) {
   n = vsnprintf(tmp, sizeof(tmp), fmt, ap);
   va_end(ap);
   if (0 < n) {
-    sb_putn(sb, tmp, (size_t)n);
+    vxstn_sb_putn(sb, tmp, (size_t)n);
   }
 }
 
@@ -90,17 +85,17 @@ static char* replaceall(const char* s, const char* find, const char* rep) {
   const char* p = s;
   size_t flen = strlen(find);
   if (0 == flen) {
-    return sdup(s);
+    return vxstn_sdup(s);
   }
-  sb_init(&sb);
+  vxstn_sb_init(&sb);
   for (;;) {
     const char* hit = strstr(p, find);
     if (NULL == hit) {
-      sb_put(&sb, p);
+      vxstn_sb_put(&sb, p);
       break;
     }
-    sb_putn(&sb, p, (size_t)(hit - p));
-    sb_put(&sb, rep);
+    vxstn_sb_putn(&sb, p, (size_t)(hit - p));
+    vxstn_sb_put(&sb, rep);
     p = hit + flen;
   }
   return sb.buf;
@@ -179,11 +174,11 @@ bool vxstn_known_code(const char* code) {
 vxstn_error* vxstn_error_new(const char* code, const char* msg) {
   vxstn_error* err = (vxstn_error*)calloc(1, sizeof(vxstn_error));
   vxstn_sb sb;
-  err->code = sdup(code);
-  sb_init(&sb);
-  sb_put(&sb, NULL == code ? "" : code);
-  sb_put(&sb, ": ");
-  sb_put(&sb, NULL == msg ? "" : msg);
+  err->code = vxstn_sdup(code);
+  vxstn_sb_init(&sb);
+  vxstn_sb_put(&sb, NULL == code ? "" : code);
+  vxstn_sb_put(&sb, ": ");
+  vxstn_sb_put(&sb, NULL == msg ? "" : msg);
   err->message = sb.buf;
   return err;
 }
@@ -198,7 +193,7 @@ void vxstn_error_free(vxstn_error* err) {
 }
 
 /* Set *out (when non-NULL) to a fresh error. */
-static void seterr(vxstn_error** out, const char* code, const char* msg) {
+void vxstn_seterr(vxstn_error** out, const char* code, const char* msg) {
   if (NULL != out) {
     *out = vxstn_error_new(code, msg);
   }
@@ -245,7 +240,7 @@ vxstn_val* vxstn_num(double n) {
 
 vxstn_val* vxstn_str(const char* s) {
   vxstn_val* v = val_new(VXSTN_STR);
-  v->str = sdup(s);
+  v->str = vxstn_sdup(s);
   return v;
 }
 
@@ -282,7 +277,7 @@ void vxstn_map_set(vxstn_val* map, const char* key, vxstn_val* val) {
     map->keys = (char**)realloc(map->keys, map->mcap * sizeof(char*));
     map->vals = (vxstn_val**)realloc(map->vals, map->mcap * sizeof(vxstn_val*));
   }
-  map->keys[map->mlen] = sdup(key);
+  map->keys[map->mlen] = vxstn_sdup(key);
   map->vals[map->mlen] = val;
   map->mlen++;
 }
@@ -377,7 +372,7 @@ void vxstn_val_free(vxstn_val* v) {
 
 /* Map read treating a present null as absent (the ts `null == v`
  * config-surface reads). Borrowed. */
-static vxstn_val* getk(const vxstn_val* map, const char* key) {
+vxstn_val* vxstn_getk(const vxstn_val* map, const char* key) {
   vxstn_val* v = vxstn_map_get(map, key);
   return vxstn_is_nil(v) ? NULL : v;
 }
@@ -388,7 +383,7 @@ static int cmp_keys(const void* a, const void* b) {
   return strcmp(*(const char* const*)a, *(const char* const*)b);
 }
 
-static const char** sortedkeys(const vxstn_val* map, size_t* n_out) {
+const char** vxstn_sortedkeys(const vxstn_val* map, size_t* n_out) {
   const char** keys;
   size_t i, n;
   n = vxstn_is_map(map) ? map->mlen : 0;
@@ -402,26 +397,26 @@ static const char** sortedkeys(const vxstn_val* map, size_t* n_out) {
 }
 
 /* String() of a scalar config value (descriptor normalization). Owned. */
-static char* val_to_string(const vxstn_val* v) {
+char* vxstn_val_to_string(const vxstn_val* v) {
   vxstn_sb sb;
   if (NULL == v) {
-    return sdup("");
+    return vxstn_sdup("");
   }
   switch (v->kind) {
   case VXSTN_STR:
-    return sdup(v->str);
+    return vxstn_sdup(v->str);
   case VXSTN_BOOL:
-    return sdup(v->b ? "true" : "false");
+    return vxstn_sdup(v->b ? "true" : "false");
   case VXSTN_NUM:
-    sb_init(&sb);
+    vxstn_sb_init(&sb);
     if (v->isint) {
-      sb_putf(&sb, "%lld", (long long)v->i);
+      vxstn_sb_putf(&sb, "%lld", (long long)v->i);
     } else {
-      sb_putf(&sb, "%g", v->num);
+      vxstn_sb_putf(&sb, "%g", v->num);
     }
     return sb.buf;
   default:
-    return sdup("");
+    return vxstn_sdup("");
   }
 }
 
@@ -441,9 +436,9 @@ static void jp_err(jparse* jp, const char* msg) {
   if (NULL != jp->err) {
     return;
   }
-  sb_init(&sb);
-  sb_putf(&sb, "station: invalid JSON at %lld: ", (long long)(jp->pos + 1));
-  sb_put(&sb, msg);
+  vxstn_sb_init(&sb);
+  vxstn_sb_putf(&sb, "station: invalid JSON at %lld: ", (long long)(jp->pos + 1));
+  vxstn_sb_put(&sb, msg);
   jp->err = sb.buf;
 }
 
@@ -462,22 +457,22 @@ static void jp_utf8(vxstn_sb* sb, long cp) {
   char b[4];
   if (cp < 0x80) {
     b[0] = (char)cp;
-    sb_putn(sb, b, 1);
+    vxstn_sb_putn(sb, b, 1);
   } else if (cp < 0x800) {
     b[0] = (char)(0xC0 | (cp >> 6));
     b[1] = (char)(0x80 | (cp & 0x3F));
-    sb_putn(sb, b, 2);
+    vxstn_sb_putn(sb, b, 2);
   } else if (cp < 0x10000) {
     b[0] = (char)(0xE0 | (cp >> 12));
     b[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
     b[2] = (char)(0x80 | (cp & 0x3F));
-    sb_putn(sb, b, 3);
+    vxstn_sb_putn(sb, b, 3);
   } else {
     b[0] = (char)(0xF0 | (cp >> 18));
     b[1] = (char)(0x80 | ((cp >> 12) & 0x3F));
     b[2] = (char)(0x80 | ((cp >> 6) & 0x3F));
     b[3] = (char)(0x80 | (cp & 0x3F));
-    sb_putn(sb, b, 4);
+    vxstn_sb_putn(sb, b, 4);
   }
 }
 
@@ -509,7 +504,7 @@ static int jp_hex4(jparse* jp, long* out) {
 static char* jp_string(jparse* jp) {
   vxstn_sb sb;
   jp->pos++; /* opening quote */
-  sb_init(&sb);
+  vxstn_sb_init(&sb);
   for (;;) {
     char c;
     if (jp->pos >= jp->n) {
@@ -552,24 +547,24 @@ static char* jp_string(jparse* jp) {
         }
         jp_utf8(&sb, cp);
       } else if ('"' == e || '\\' == e || '/' == e) {
-        sb_putc(&sb, e);
+        vxstn_sb_putc(&sb, e);
       } else if ('b' == e) {
-        sb_putc(&sb, '\b');
+        vxstn_sb_putc(&sb, '\b');
       } else if ('f' == e) {
-        sb_putc(&sb, '\f');
+        vxstn_sb_putc(&sb, '\f');
       } else if ('n' == e) {
-        sb_putc(&sb, '\n');
+        vxstn_sb_putc(&sb, '\n');
       } else if ('r' == e) {
-        sb_putc(&sb, '\r');
+        vxstn_sb_putc(&sb, '\r');
       } else if ('t' == e) {
-        sb_putc(&sb, '\t');
+        vxstn_sb_putc(&sb, '\t');
       } else {
         jp_err(jp, "bad escape");
         free(sb.buf);
         return NULL;
       }
     } else {
-      sb_putc(&sb, c);
+      vxstn_sb_putc(&sb, c);
       jp->pos++;
     }
   }
@@ -757,7 +752,7 @@ vxstn_val* vxstn_parse_json(const char* text, char** errmsg) {
   }
   if (NULL == out) {
     if (NULL != errmsg) {
-      *errmsg = NULL != jp.err ? jp.err : sdup("station: invalid JSON");
+      *errmsg = NULL != jp.err ? jp.err : vxstn_sdup("station: invalid JSON");
     } else {
       free(jp.err);
     }
@@ -777,32 +772,32 @@ static void canon_escape(vxstn_sb* sb, const char* s) {
     unsigned char c = *p;
     switch (c) {
     case '"':
-      sb_put(sb, "\\\"");
+      vxstn_sb_put(sb, "\\\"");
       break;
     case '\\':
-      sb_put(sb, "\\\\");
+      vxstn_sb_put(sb, "\\\\");
       break;
     case '\b':
-      sb_put(sb, "\\b");
+      vxstn_sb_put(sb, "\\b");
       break;
     case '\f':
-      sb_put(sb, "\\f");
+      vxstn_sb_put(sb, "\\f");
       break;
     case '\n':
-      sb_put(sb, "\\n");
+      vxstn_sb_put(sb, "\\n");
       break;
     case '\r':
-      sb_put(sb, "\\r");
+      vxstn_sb_put(sb, "\\r");
       break;
     case '\t':
-      sb_put(sb, "\\t");
+      vxstn_sb_put(sb, "\\t");
       break;
     default:
       if (c < 0x20) {
-        sb_putf(sb, "\\u%04x", (unsigned)c);
+        vxstn_sb_putf(sb, "\\u%04x", (unsigned)c);
       } else {
         /* Minimal escaping: UTF-8 bytes ride through verbatim. */
-        sb_putn(sb, (const char*)p, 1);
+        vxstn_sb_putn(sb, (const char*)p, 1);
       }
     }
   }
@@ -814,7 +809,7 @@ static void canon_number(vxstn_sb* sb, const vxstn_val* v) {
   char tmp[40];
   int prec;
   if (v->isint) {
-    sb_putf(sb, "%lld", (long long)v->i);
+    vxstn_sb_putf(sb, "%lld", (long long)v->i);
     return;
   }
   for (prec = 1; prec <= 17; prec++) {
@@ -823,42 +818,42 @@ static void canon_number(vxstn_sb* sb, const vxstn_val* v) {
       break;
     }
   }
-  sb_put(sb, tmp);
+  vxstn_sb_put(sb, tmp);
 }
 
 static void canon_val(vxstn_sb* sb, const vxstn_val* v) {
   size_t i;
   if (NULL == v || VXSTN_UNDEF == v->kind || VXSTN_NULL == v->kind) {
-    sb_put(sb, "null");
+    vxstn_sb_put(sb, "null");
     return;
   }
   switch (v->kind) {
   case VXSTN_BOOL:
-    sb_put(sb, v->b ? "true" : "false");
+    vxstn_sb_put(sb, v->b ? "true" : "false");
     return;
   case VXSTN_NUM:
     canon_number(sb, v);
     return;
   case VXSTN_STR:
-    sb_putc(sb, '"');
+    vxstn_sb_putc(sb, '"');
     canon_escape(sb, v->str);
-    sb_putc(sb, '"');
+    vxstn_sb_putc(sb, '"');
     return;
   case VXSTN_LIST:
-    sb_putc(sb, '[');
+    vxstn_sb_putc(sb, '[');
     for (i = 0; i < v->len; i++) {
       if (0 < i) {
-        sb_putc(sb, ',');
+        vxstn_sb_putc(sb, ',');
       }
       canon_val(sb, v->items[i]);
     }
-    sb_putc(sb, ']');
+    vxstn_sb_putc(sb, ']');
     return;
   case VXSTN_MAP: {
     size_t n = 0;
-    const char** keys = sortedkeys(v, &n);
+    const char** keys = vxstn_sortedkeys(v, &n);
     bool first = true;
-    sb_putc(sb, '{');
+    vxstn_sb_putc(sb, '{');
     for (i = 0; i < n; i++) {
       /* An UNDEF value means "absent": the key is skipped, matching
        * the ts serializer's undefined filter. */
@@ -867,26 +862,26 @@ static void canon_val(vxstn_sb* sb, const vxstn_val* v) {
         continue;
       }
       if (!first) {
-        sb_putc(sb, ',');
+        vxstn_sb_putc(sb, ',');
       }
       first = false;
-      sb_putc(sb, '"');
+      vxstn_sb_putc(sb, '"');
       canon_escape(sb, keys[i]);
-      sb_put(sb, "\":");
+      vxstn_sb_put(sb, "\":");
       canon_val(sb, item);
     }
     free(keys);
-    sb_putc(sb, '}');
+    vxstn_sb_putc(sb, '}');
     return;
   }
   default:
-    sb_put(sb, "null");
+    vxstn_sb_put(sb, "null");
   }
 }
 
 char* vxstn_canonical(const vxstn_val* v) {
   vxstn_sb sb;
-  sb_init(&sb);
+  vxstn_sb_init(&sb);
   canon_val(&sb, v);
   return sb.buf;
 }
@@ -900,7 +895,7 @@ char* vxstn_envtoken(const char* name) {
   const unsigned char* p;
   bool pending = false; /* a pending '_' between alnum runs */
   bool any = false;
-  sb_init(&sb);
+  vxstn_sb_init(&sb);
   if (NULL == name) {
     name = "";
   }
@@ -911,11 +906,11 @@ char* vxstn_envtoken(const char* name) {
     }
     if (('A' <= c && c <= 'Z') || ('0' <= c && c <= '9')) {
       if (pending && any) {
-        sb_putc(&sb, '_');
+        vxstn_sb_putc(&sb, '_');
       }
       pending = false;
       any = true;
-      sb_putc(&sb, (char)c);
+      vxstn_sb_putc(&sb, (char)c);
     } else {
       pending = true; /* runs of non-alnum collapse; edges trim */
     }
@@ -932,9 +927,9 @@ char* vxstn_secretname_default(const char* slug) {
       *p = (char)(*p - 'A' + 'a');
     }
   }
-  sb_init(&sb);
-  sb_put(&sb, token);
-  sb_put(&sb, ".apikey");
+  vxstn_sb_init(&sb);
+  vxstn_sb_put(&sb, token);
+  vxstn_sb_put(&sb, ".apikey");
   free(token);
   return sb.buf;
 }
@@ -969,22 +964,22 @@ char* vxstn_envkey(const char* name, vxstn_error** err) {
   }
   if (!vxstn_validname(name)) {
     vxstn_sb msg;
-    sb_init(&msg);
-    sb_put(&msg, "invalid secret name: ");
-    sb_put(&msg, NULL == name ? "" : name);
-    seterr(err, "station_secret_error", msg.buf);
+    vxstn_sb_init(&msg);
+    vxstn_sb_put(&msg, "invalid secret name: ");
+    vxstn_sb_put(&msg, NULL == name ? "" : name);
+    vxstn_seterr(err, "station_secret_error", msg.buf);
     free(msg.buf);
     return NULL;
   }
-  sb_init(&sb);
+  vxstn_sb_init(&sb);
   for (p = name; *p; p++) {
     char c = *p;
     if ('.' == c) {
-      sb_putc(&sb, '_');
+      vxstn_sb_putc(&sb, '_');
     } else if ('a' <= c && c <= 'z') {
-      sb_putc(&sb, (char)(c - 'a' + 'A'));
+      vxstn_sb_putc(&sb, (char)(c - 'a' + 'A'));
     } else {
-      sb_putc(&sb, c);
+      vxstn_sb_putc(&sb, c);
     }
   }
   return sb.buf;
@@ -992,10 +987,10 @@ char* vxstn_envkey(const char* name, vxstn_error** err) {
 
 char* vxstn_placeholder(const char* slug) {
   vxstn_sb sb;
-  sb_init(&sb);
-  sb_put(&sb, "[station:");
-  sb_put(&sb, NULL == slug ? "" : slug);
-  sb_putc(&sb, ']');
+  vxstn_sb_init(&sb);
+  vxstn_sb_put(&sb, "[station:");
+  vxstn_sb_put(&sb, NULL == slug ? "" : slug);
+  vxstn_sb_putc(&sb, ']');
   return sb.buf;
 }
 
@@ -1009,7 +1004,7 @@ char* vxstn_placeholder(const char* slug) {
  * 'voxgig-solardemo' - callers surface a warning event when this path
  * is taken. */
 static char* legacy_slug(const char* name) {
-  char* out = sdup(name);
+  char* out = vxstn_sdup(name);
   char* p;
   for (p = out; *p; p++) {
     if ('A' <= *p && *p <= 'Z') {
@@ -1023,8 +1018,8 @@ vxstn_val* vxstn_normalize_descriptor(const vxstn_val* config,
                                       const vxstn_val* active_features,
                                       vxstn_val** warnings_out) {
   vxstn_val* warnings = vxstn_list();
-  const vxstn_val* main_ = getk(config, "main");
-  const vxstn_val* options = getk(config, "options");
+  const vxstn_val* main_ = vxstn_getk(config, "main");
+  const vxstn_val* options = vxstn_getk(config, "options");
   const vxstn_val* slugv;
   const vxstn_val* optauth;
   const vxstn_val* entdefs;
@@ -1043,38 +1038,38 @@ vxstn_val* vxstn_normalize_descriptor(const vxstn_val* config,
   const char** keys;
   size_t nkeys, i;
 
-  name = vxstn_is_str(getk(main_, "name")) ? sdup(vxstn_strval(getk(main_, "name")))
-                                           : val_to_string(getk(main_, "name"));
+  name = vxstn_is_str(vxstn_getk(main_, "name")) ? vxstn_sdup(vxstn_strval(vxstn_getk(main_, "name")))
+                                           : vxstn_val_to_string(vxstn_getk(main_, "name"));
 
-  slugv = getk(main_, "slug");
+  slugv = vxstn_getk(main_, "slug");
   if (NULL == slugv || (vxstn_is_str(slugv) && '\0' == slugv->str[0])) {
     vxstn_sb warn;
     slug = legacy_slug(name);
-    sb_init(&warn);
-    sb_put(&warn, "descriptor: legacy config has no main.slug; derived \"");
-    sb_put(&warn, slug);
-    sb_put(&warn, "\" from the camel name - hyphens in the original name are lost");
+    vxstn_sb_init(&warn);
+    vxstn_sb_put(&warn, "descriptor: legacy config has no main.slug; derived \"");
+    vxstn_sb_put(&warn, slug);
+    vxstn_sb_put(&warn, "\" from the camel name - hyphens in the original name are lost");
     {
       vxstn_val* w = val_new(VXSTN_STR);
       w->str = warn.buf;
       vxstn_list_push(warnings, w);
     }
   } else {
-    slug = val_to_string(slugv);
+    slug = vxstn_val_to_string(slugv);
   }
 
-  version = NULL == getk(main_, "version") ? sdup("0.0.0")
-                                           : val_to_string(getk(main_, "version"));
-  target = NULL == getk(main_, "target") ? sdup("unknown")
-                                         : val_to_string(getk(main_, "target"));
+  version = NULL == vxstn_getk(main_, "version") ? vxstn_sdup("0.0.0")
+                                           : vxstn_val_to_string(vxstn_getk(main_, "version"));
+  target = NULL == vxstn_getk(main_, "target") ? vxstn_sdup("unknown")
+                                         : vxstn_val_to_string(vxstn_getk(main_, "target"));
 
   server = vxstn_list();
   {
-    const vxstn_val* svr = getk(options, "server");
-    keys = sortedkeys(svr, &nkeys);
+    const vxstn_val* svr = vxstn_getk(options, "server");
+    keys = vxstn_sortedkeys(svr, &nkeys);
     for (i = 0; i < nkeys; i++) {
       vxstn_val* entry = vxstn_map();
-      char* value = val_to_string(getk(svr, keys[i]));
+      char* value = vxstn_val_to_string(vxstn_getk(svr, keys[i]));
       vxstn_map_set(entry, "name", vxstn_str(keys[i]));
       {
         vxstn_val* vv = val_new(VXSTN_STR);
@@ -1086,13 +1081,13 @@ vxstn_val* vxstn_normalize_descriptor(const vxstn_val* config,
     free(keys);
   }
 
-  optauth = getk(options, "auth");
+  optauth = vxstn_getk(options, "auth");
   auth_active = NULL != optauth;
   auth = vxstn_map();
   vxstn_map_set(auth, "active", vxstn_bool(auth_active));
   vxstn_map_set(auth, "prefix",
-                auth_active && NULL != getk(optauth, "prefix")
-                    ? vxstn_str(vxstn_strval(getk(optauth, "prefix")))
+                auth_active && NULL != vxstn_getk(optauth, "prefix")
+                    ? vxstn_str(vxstn_strval(vxstn_getk(optauth, "prefix")))
                     : vxstn_str(""));
   {
     char* sn = vxstn_secretname_default(slug);
@@ -1102,16 +1097,16 @@ vxstn_val* vxstn_normalize_descriptor(const vxstn_val* config,
   }
 
   entities = vxstn_map();
-  entdefs = getk(config, "entity");
-  keys = sortedkeys(entdefs, &nkeys);
+  entdefs = vxstn_getk(config, "entity");
+  keys = vxstn_sortedkeys(entdefs, &nkeys);
   for (i = 0; i < nkeys; i++) {
     const char* ename = keys[i];
-    const vxstn_val* e = getk(entdefs, ename);
+    const vxstn_val* e = vxstn_getk(entdefs, ename);
     vxstn_val* fields = vxstn_map();
     vxstn_val* ops = vxstn_map();
     vxstn_val* ent = vxstn_map();
-    const vxstn_val* flist = getk(e, "fields");
-    const vxstn_val* opdefs = getk(e, "op");
+    const vxstn_val* flist = vxstn_getk(e, "fields");
+    const vxstn_val* opdefs = vxstn_getk(e, "op");
     const char** opkeys;
     size_t nops, j;
 
@@ -1119,21 +1114,21 @@ vxstn_val* vxstn_normalize_descriptor(const vxstn_val* config,
       size_t fi;
       for (fi = 0; fi < flist->len; fi++) {
         const vxstn_val* f = flist->items[fi];
-        const vxstn_val* fname = getk(f, "name");
+        const vxstn_val* fname = vxstn_getk(f, "name");
         if (NULL != fname) {
           vxstn_val* fd = vxstn_map();
-          const vxstn_val* kind = getk(f, "kind");
+          const vxstn_val* kind = vxstn_getk(f, "kind");
           if (NULL == kind || (vxstn_is_str(kind) && '\0' == kind->str[0])) {
-            kind = getk(f, "type"); /* ts: f.kind || f.type - '' falls through */
+            kind = vxstn_getk(f, "type"); /* ts: f.kind || f.type - '' falls through */
           }
           {
-            char* ks = val_to_string(kind);
+            char* ks = vxstn_val_to_string(kind);
             vxstn_val* kv = val_new(VXSTN_STR);
             kv->str = ks;
             vxstn_map_set(fd, "kind", kv);
           }
           {
-            char* fn = val_to_string(fname);
+            char* fn = vxstn_val_to_string(fname);
             vxstn_map_set(fields, fn, fd);
             free(fn);
           }
@@ -1141,10 +1136,10 @@ vxstn_val* vxstn_normalize_descriptor(const vxstn_val* config,
       }
     }
 
-    opkeys = sortedkeys(opdefs, &nops);
+    opkeys = vxstn_sortedkeys(opdefs, &nops);
     for (j = 0; j < nops; j++) {
-      const vxstn_val* op = getk(opdefs, opkeys[j]);
-      const vxstn_val* pdefs = getk(op, "points");
+      const vxstn_val* op = vxstn_getk(opdefs, opkeys[j]);
+      const vxstn_val* pdefs = vxstn_getk(op, "points");
       vxstn_val* points = vxstn_list();
       vxstn_val* opout = vxstn_map();
       if (vxstn_is_list(pdefs)) {
@@ -1161,7 +1156,7 @@ vxstn_val* vxstn_normalize_descriptor(const vxstn_val* config,
           }
           point = vxstn_map();
           params = vxstn_list();
-          parts = getk(p, "parts");
+          parts = vxstn_getk(p, "parts");
           if (vxstn_is_list(parts)) {
             size_t qi;
             for (qi = 0; qi < parts->len; qi++) {
@@ -1172,17 +1167,17 @@ vxstn_val* vxstn_normalize_descriptor(const vxstn_val* config,
             }
           }
           {
-            char* ms = val_to_string(getk(p, "method"));
+            char* ms = vxstn_val_to_string(vxstn_getk(p, "method"));
             vxstn_val* mv = val_new(VXSTN_STR);
             mv->str = ms;
             vxstn_map_set(point, "method", mv);
           }
-          pathv = getk(p, "orig");
+          pathv = vxstn_getk(p, "orig");
           if (NULL == pathv || (vxstn_is_str(pathv) && '\0' == pathv->str[0])) {
-            pathv = getk(p, "path"); /* ts: p.orig || p.path - '' falls through */
+            pathv = vxstn_getk(p, "path"); /* ts: p.orig || p.path - '' falls through */
           }
           {
-            char* ps = val_to_string(pathv);
+            char* ps = vxstn_val_to_string(pathv);
             vxstn_val* pv = val_new(VXSTN_STR);
             pv->str = ps;
             vxstn_map_set(point, "path", pv);
@@ -1207,12 +1202,12 @@ vxstn_val* vxstn_normalize_descriptor(const vxstn_val* config,
   free(keys);
 
   features = vxstn_list();
-  fdefs = getk(config, "feature");
-  keys = sortedkeys(fdefs, &nkeys);
+  fdefs = vxstn_getk(config, "feature");
+  keys = vxstn_sortedkeys(fdefs, &nkeys);
   for (i = 0; i < nkeys; i++) {
     vxstn_val* entry = vxstn_map();
-    const vxstn_val* fopts = getk(active_features, keys[i]);
-    const vxstn_val* activev = getk(fopts, "active");
+    const vxstn_val* fopts = vxstn_getk(active_features, keys[i]);
+    const vxstn_val* activev = vxstn_getk(fopts, "active");
     bool active = NULL != activev && VXSTN_BOOL == activev->kind && activev->b;
     vxstn_map_set(entry, "name", vxstn_str(keys[i]));
     vxstn_map_set(entry, "active", vxstn_bool(active));
@@ -1231,7 +1226,7 @@ vxstn_val* vxstn_normalize_descriptor(const vxstn_val* config,
   }
   {
     vxstn_val* sv = val_new(VXSTN_STR);
-    sv->str = sdup(slug);
+    sv->str = vxstn_sdup(slug);
     vxstn_map_set(descriptor, "slug", sv);
   }
   {
@@ -1250,8 +1245,8 @@ vxstn_val* vxstn_normalize_descriptor(const vxstn_val* config,
     vxstn_map_set(descriptor, "target", tv);
   }
   {
-    char* base = NULL == getk(options, "base") ? sdup("")
-                                               : val_to_string(getk(options, "base"));
+    char* base = NULL == vxstn_getk(options, "base") ? vxstn_sdup("")
+                                               : vxstn_val_to_string(vxstn_getk(options, "base"));
     vxstn_val* bv = val_new(VXSTN_STR);
     bv->str = base;
     vxstn_map_set(descriptor, "base", bv);
@@ -1278,13 +1273,13 @@ vxstn_val* vxstn_normalize_descriptor(const vxstn_val* config,
 char* vxstn_select_profile(const char* opt_profile) {
   const char* env;
   if (NULL != opt_profile && '\0' != opt_profile[0]) {
-    return sdup(opt_profile);
+    return vxstn_sdup(opt_profile);
   }
   env = getenv("VOXGIG_STATION_PROFILE");
   if (NULL != env && '\0' != env[0]) {
-    return sdup(env);
+    return vxstn_sdup(env);
   }
-  return sdup("default");
+  return vxstn_sdup("default");
 }
 
 /* The api half of a ref is the substring before the first `$`, and an
@@ -1359,7 +1354,7 @@ static char** merged_keys(const vxstn_val* a, const vxstn_val* b,
       }
       if (!seen) {
         keys = (char**)realloc(keys, (n + 1) * sizeof(char*));
-        keys[n] = sdup(m->keys[i]);
+        keys[n] = vxstn_sdup(m->keys[i]);
         n++;
       }
     }
@@ -1402,7 +1397,7 @@ static int checksecrets(const vxstn_val* sdk, const char* profile_name,
   int* derivedf = NULL;
 
   for (i = 0; i < sdk->mlen; i++) {
-    const vxstn_val* namev = getk(sdk->vals[i], "secret");
+    const vxstn_val* namev = vxstn_getk(sdk->vals[i], "secret");
     if (NULL != namev) {
       const char* name = vxstn_is_str(namev) ? namev->str : "";
       if (!vxstn_validname(name)) {
@@ -1410,14 +1405,14 @@ static int checksecrets(const vxstn_val* sdk, const char* profile_name,
         vxstn_val* asval = vxstn_str(name);
         char* shown = vxstn_canonical(asval);
         vxstn_val_free(asval);
-        sb_init(&msg);
-        sb_put(&msg, "profile \"");
-        sb_put(&msg, profile_name);
-        sb_put(&msg, "\" sdk \"");
-        sb_put(&msg, sdk->keys[i]);
-        sb_put(&msg, "\": secret name rejected by sekreto: ");
-        sb_put(&msg, shown);
-        seterr(err, "station_secret_name", msg.buf);
+        vxstn_sb_init(&msg);
+        vxstn_sb_put(&msg, "profile \"");
+        vxstn_sb_put(&msg, profile_name);
+        vxstn_sb_put(&msg, "\" sdk \"");
+        vxstn_sb_put(&msg, sdk->keys[i]);
+        vxstn_sb_put(&msg, "\": secret name rejected by sekreto: ");
+        vxstn_sb_put(&msg, shown);
+        vxstn_seterr(err, "station_secret_name", msg.buf);
         free(msg.buf);
         free(shown);
         return 0;
@@ -1428,30 +1423,30 @@ static int checksecrets(const vxstn_val* sdk, const char* profile_name,
   names = (char**)calloc(sdk->mlen ? sdk->mlen : 1, sizeof(char*));
   derivedf = (int*)calloc(sdk->mlen ? sdk->mlen : 1, sizeof(int));
   for (i = 0; i < sdk->mlen; i++) {
-    const vxstn_val* namev = getk(sdk->vals[i], "secret");
+    const vxstn_val* namev = vxstn_getk(sdk->vals[i], "secret");
     const char* written = (NULL != namev && vxstn_is_str(namev)) ? namev->str : "";
     derivedf[i] = ('\0' == written[0]) ? 1 : 0;
     names[i] = derivedf[i] ? vxstn_secretname_default(sdk->keys[i])
-                           : sdup(written);
+                           : vxstn_sdup(written);
   }
 
   for (i = 0; i < sdk->mlen; i++) {
     for (j = 0; j < i; j++) {
       if (0 == strcmp(names[i], names[j]) && (derivedf[i] || derivedf[j])) {
         vxstn_sb msg;
-        sb_init(&msg);
-        sb_put(&msg, "profile \"");
-        sb_put(&msg, profile_name);
-        sb_put(&msg, "\": instances \"");
-        sb_put(&msg, sdk->keys[j]);
-        sb_put(&msg, "\" and \"");
-        sb_put(&msg, sdk->keys[i]);
-        sb_put(&msg, "\" both resolve to secret name \"");
-        sb_put(&msg, names[i]);
-        sb_put(&msg,
+        vxstn_sb_init(&msg);
+        vxstn_sb_put(&msg, "profile \"");
+        vxstn_sb_put(&msg, profile_name);
+        vxstn_sb_put(&msg, "\": instances \"");
+        vxstn_sb_put(&msg, sdk->keys[j]);
+        vxstn_sb_put(&msg, "\" and \"");
+        vxstn_sb_put(&msg, sdk->keys[i]);
+        vxstn_sb_put(&msg, "\" both resolve to secret name \"");
+        vxstn_sb_put(&msg, names[i]);
+        vxstn_sb_put(&msg,
                "\", so they would share one credential; name it explicitly "
                "on each, or at the api level to share it deliberately (5.1)");
-        seterr(err, "station_secret_collision", msg.buf);
+        vxstn_seterr(err, "station_secret_collision", msg.buf);
         free(msg.buf);
         free_keys(names, sdk->mlen);
         free(derivedf);
@@ -1480,7 +1475,7 @@ static int checksecrets(const vxstn_val* sdk, const char* profile_name,
 vxstn_val* vxstn_resolve_profile(const vxstn_val* config,
                                  const char* profile_name,
                                  vxstn_error** err) {
-  const vxstn_val* profiles = getk(config, "profiles");
+  const vxstn_val* profiles = vxstn_getk(config, "profiles");
   const vxstn_val* base;
   const vxstn_val* overlay = NULL;
   const vxstn_val* providers;
@@ -1498,23 +1493,23 @@ vxstn_val* vxstn_resolve_profile(const vxstn_val* config,
     profile_name = "default";
   }
 
-  base = getk(profiles, "default");
+  base = vxstn_getk(profiles, "default");
   if (0 != strcmp("default", profile_name)) {
-    overlay = getk(profiles, profile_name);
+    overlay = vxstn_getk(profiles, profile_name);
   }
 
   /* secrets.providers replaces WHOLESALE, never merges by position
    * (design 3.5, 5.2): chain order decides which store wins, so a
    * positional merge would be actively dangerous. */
-  providers = getk(getk(overlay, "secrets"), "providers");
+  providers = vxstn_getk(vxstn_getk(overlay, "secrets"), "providers");
   if (NULL == providers) {
-    providers = getk(getk(base, "secrets"), "providers");
+    providers = vxstn_getk(vxstn_getk(base, "secrets"), "providers");
   }
 
-  base_api = getk(base, "api");
-  over_api = getk(overlay, "api");
-  base_sdk = getk(base, "sdk");
-  over_sdk = getk(overlay, "sdk");
+  base_api = vxstn_getk(base, "api");
+  over_api = vxstn_getk(overlay, "api");
+  base_sdk = vxstn_getk(base, "sdk");
+  over_sdk = vxstn_getk(overlay, "sdk");
 
   /* The api-level defaults in effect for this profile. A REPORT, not an
      input to the instance merge below. */
@@ -1589,9 +1584,9 @@ static void parse_url(const char* fullurl, char** host_out, char** hostname_out,
   char* pathstr;
 
   if (NULL == scheme_end) {
-    *host_out = sdup("");
-    *hostname_out = sdup("");
-    *path_out = sdup(p);
+    *host_out = vxstn_sdup("");
+    *hostname_out = vxstn_sdup("");
+    *path_out = vxstn_sdup(p);
     return;
   }
 
@@ -1656,7 +1651,7 @@ static void parse_url(const char* fullurl, char** host_out, char** hostname_out,
     memcpy(hostname, authority, hn);
     hostname[hn] = '\0';
     if (strlen(dflt) == plen && 0 == strncmp(port, dflt, plen)) {
-      host = sdup(hostname);
+      host = vxstn_sdup(hostname);
     } else {
       host = (char*)malloc(alen + 1);
       memcpy(host, authority, alen);
@@ -1666,7 +1661,7 @@ static void parse_url(const char* fullurl, char** host_out, char** hostname_out,
     hostname = (char*)malloc(alen + 1);
     memcpy(hostname, authority, alen);
     hostname[alen] = '\0';
-    host = sdup(hostname);
+    host = vxstn_sdup(hostname);
   }
 
   path = auth_end;
@@ -1676,7 +1671,7 @@ static void parse_url(const char* fullurl, char** host_out, char** hostname_out,
       path_end++;
     }
     if (path_end == path) {
-      pathstr = sdup("/");
+      pathstr = vxstn_sdup("/");
     } else {
       size_t pn = (size_t)(path_end - path);
       pathstr = (char*)malloc(pn + 1);
@@ -1787,19 +1782,19 @@ static void kv_set(vxstn_kv** kvs, size_t* n, const char* slug, const char* valu
   for (i = 0; i < *n; i++) {
     if (0 == strcmp((*kvs)[i].slug, slug)) {
       free((*kvs)[i].value);
-      (*kvs)[i].value = sdup(value);
+      (*kvs)[i].value = vxstn_sdup(value);
       return;
     }
   }
   *kvs = (vxstn_kv*)realloc(*kvs, (*n + 1) * sizeof(vxstn_kv));
-  (*kvs)[*n].slug = sdup(slug);
-  (*kvs)[*n].value = sdup(value);
+  (*kvs)[*n].slug = vxstn_sdup(slug);
+  (*kvs)[*n].value = vxstn_sdup(value);
   (*n)++;
 }
 
 static void broker_hold(vxstn_broker* b, const char* value) {
   b->held = (char**)realloc(b->held, (b->nheld + 1) * sizeof(char*));
-  b->held[b->nheld++] = sdup(value);
+  b->held[b->nheld++] = vxstn_sdup(value);
 }
 
 static void broker_hoist(vxstn_broker* b, const char* slug, const char* value) {
@@ -1847,13 +1842,13 @@ static const char* broker_value(vxstn_broker* b, const char* slug,
   free(key);
   if (NULL == env) {
     vxstn_sb msg;
-    sb_init(&msg);
-    sb_put(&msg, "no store had \"");
-    sb_put(&msg, name);
-    sb_put(&msg, "\" for plugin \"");
-    sb_put(&msg, slug);
-    sb_putc(&msg, '"');
-    seterr(err, "station_secret_no_value", msg.buf);
+    vxstn_sb_init(&msg);
+    vxstn_sb_put(&msg, "no store had \"");
+    vxstn_sb_put(&msg, name);
+    vxstn_sb_put(&msg, "\" for plugin \"");
+    vxstn_sb_put(&msg, slug);
+    vxstn_sb_putc(&msg, '"');
+    vxstn_seterr(err, "station_secret_no_value", msg.buf);
     free(msg.buf);
     return NULL;
   }
@@ -1868,7 +1863,7 @@ static const char* broker_value(vxstn_broker* b, const char* slug,
  * promise is absolute, every held value is scrubbed whatever its
  * length. Owned result. */
 static char* broker_scrub(vxstn_broker* b, const char* text) {
-  char* out = sdup(text);
+  char* out = vxstn_sdup(text);
   size_t i;
   for (i = 0; i < b->nheld; i++) {
     if ('\0' != b->held[i][0]) {
@@ -1993,7 +1988,7 @@ vxstn_station* vxstn_station_new(const vxstn_open_opts* opts, vxstn_error** err)
     char* jerr = NULL;
     config = vxstn_parse_json(opts->config_json, &jerr);
     if (NULL == config) {
-      seterr(err, "station_protocol", NULL == jerr ? "invalid config JSON" : jerr);
+      vxstn_seterr(err, "station_protocol", NULL == jerr ? "invalid config JSON" : jerr);
       free(jerr);
       return NULL;
     }
@@ -2036,10 +2031,10 @@ vxstn_station* vxstn_station_new(const vxstn_open_opts* opts, vxstn_error** err)
     size_t nseen = 0;
     bool any = false;
     size_t i;
-    sb_init(&missing);
+    vxstn_sb_init(&missing);
     if (vxstn_is_list(providers)) {
       for (i = 0; i < providers->len; i++) {
-        const vxstn_val* kindv = getk(providers->items[i], "kind");
+        const vxstn_val* kindv = vxstn_getk(providers->items[i], "kind");
         const char* kind = vxstn_is_str(kindv) ? kindv->str : "?";
         bool dup = false;
         size_t j;
@@ -2054,19 +2049,19 @@ vxstn_station* vxstn_station_new(const vxstn_open_opts* opts, vxstn_error** err)
             seen[nseen++] = kind;
           }
           if (any) {
-            sb_put(&missing, ", ");
+            vxstn_sb_put(&missing, ", ");
           }
-          sb_put(&missing, kind);
+          vxstn_sb_put(&missing, kind);
           any = true;
         }
       }
     }
     if (any) {
       vxstn_sb warn;
-      sb_init(&warn);
-      sb_put(&warn, "c station is env-only (no sekreto c port): provider kind(s) [");
-      sb_put(&warn, missing.buf);
-      sb_put(&warn, "] are not available; secrets are read from the process "
+      vxstn_sb_init(&warn);
+      vxstn_sb_put(&warn, "c station is env-only (no sekreto c port): provider kind(s) [");
+      vxstn_sb_put(&warn, missing.buf);
+      vxstn_sb_put(&warn, "] are not available; secrets are read from the process "
                     "environment only (design 2.2)");
       vxstn_emit_warn(st, NULL, warn.buf);
       free(warn.buf);
@@ -2086,7 +2081,7 @@ vxstn_station* vxstn_open(const vxstn_open_opts* opts, vxstn_error** err) {
   key = opts_key(opts);
   if (NULL != AMBIENT) {
     if (0 != strcmp(key, AMBIENT_OPTS)) {
-      seterr(err, "station_open_conflict",
+      vxstn_seterr(err, "station_open_conflict",
              "vxstn_open() was already called with different options");
       free(key);
       return NULL;
@@ -2145,7 +2140,7 @@ void vxstn_close(vxstn_station* st) {
    * typo'd key silently configuring nothing is the worst outcome for a
    * secrets-and-policy file (design 11). */
   plugin = vxstn_map_get(st->profile, "sdk");
-  keys = sortedkeys(plugin, &n);
+  keys = vxstn_sortedkeys(plugin, &n);
   for (i = 0; i < n; i++) {
     size_t j;
     bool found = false;
@@ -2157,10 +2152,10 @@ void vxstn_close(vxstn_station* st) {
     }
     if (!found) {
       vxstn_sb warn;
-      sb_init(&warn);
-      sb_put(&warn, "profile plugin key \"");
-      sb_put(&warn, keys[i]);
-      sb_put(&warn, "\" matched no registered plugin");
+      vxstn_sb_init(&warn);
+      vxstn_sb_put(&warn, "profile plugin key \"");
+      vxstn_sb_put(&warn, keys[i]);
+      vxstn_sb_put(&warn, "\" matched no registered plugin");
       vxstn_emit_warn(st, NULL, warn.buf);
       free(warn.buf);
     }
@@ -2235,17 +2230,17 @@ vxstn_binding* vxstn_register(vxstn_station* st, void* client,
     *err = NULL;
   }
   if (NULL == st) {
-    seterr(err, "station_no_plugin", "no station");
+    vxstn_seterr(err, "station_no_plugin", "no station");
     return NULL;
   }
   if (st->closed) {
-    seterr(err, "station_no_plugin", "station is closed");
+    vxstn_seterr(err, "station_no_plugin", "station is closed");
     return NULL;
   }
 
   config = vxstn_parse_json(NULL == config_json ? "{}" : config_json, &jerr);
   if (NULL == config) {
-    seterr(err, "station_protocol", NULL == jerr ? "invalid config JSON" : jerr);
+    vxstn_seterr(err, "station_protocol", NULL == jerr ? "invalid config JSON" : jerr);
     free(jerr);
     return NULL;
   }
@@ -2261,12 +2256,12 @@ vxstn_binding* vxstn_register(vxstn_station* st, void* client,
 
   if (NULL != find_plugin(st, slug)) {
     vxstn_sb msg;
-    sb_init(&msg);
-    sb_put(&msg, "plugin \"");
-    sb_put(&msg, slug);
-    sb_put(&msg, "\" is already registered; binding one client twice is an "
+    vxstn_sb_init(&msg);
+    vxstn_sb_put(&msg, "plugin \"");
+    vxstn_sb_put(&msg, slug);
+    vxstn_sb_put(&msg, "\" is already registered; binding one client twice is an "
                  "error (10.2)");
-    seterr(err, "station_bound_twice", msg.buf);
+    vxstn_seterr(err, "station_bound_twice", msg.buf);
     free(msg.buf);
     vxstn_val_free(descriptor);
     vxstn_val_free(warnings);
@@ -2281,8 +2276,8 @@ vxstn_binding* vxstn_register(vxstn_station* st, void* client,
    * config.options.secret) beats the profile, which beats the
    * descriptor default. */
   {
-    const vxstn_val* pp = getk(vxstn_map_get(st->profile, "sdk"), slug);
-    const vxstn_val* ps = getk(pp, "secret");
+    const vxstn_val* pp = vxstn_getk(vxstn_map_get(st->profile, "sdk"), slug);
+    const vxstn_val* ps = vxstn_getk(pp, "secret");
     if (vxstn_is_str(ps) && '\0' != ps->str[0]) {
       profile_secret = ps->str;
     }
@@ -2299,12 +2294,12 @@ vxstn_binding* vxstn_register(vxstn_station* st, void* client,
       st->plugins, (st->nplugins + 1) * sizeof(vxstn_plugin_entry));
   entry = &st->plugins[st->nplugins++];
   memset(entry, 0, sizeof(*entry));
-  entry->slug = sdup(slug);
+  entry->slug = vxstn_sdup(slug);
   entry->descriptor = descriptor;
-  entry->rung = sdup(auth_active ? "R1" : "none");
+  entry->rung = vxstn_sdup(auth_active ? "R1" : "none");
   entry->client = client;
   entry->warnings = warnings;
-  entry->secretname = sdup(effective_secret);
+  entry->secretname = vxstn_sdup(effective_secret);
 
   for (i = 0; i < entry->warnings->len; i++) {
     vxstn_emit_warn(st, slug, vxstn_strval(entry->warnings->items[i]));
@@ -2325,10 +2320,10 @@ vxstn_binding* vxstn_register(vxstn_station* st, void* client,
   }
 
   binding = (vxstn_binding*)calloc(1, sizeof(vxstn_binding));
-  binding->plugin = sdup(slug);
+  binding->plugin = vxstn_sdup(slug);
   binding->placeholder = auth_active ? vxstn_placeholder(slug) : NULL;
-  binding->secretname = auth_active ? sdup(effective_secret) : NULL;
-  binding->rung = sdup(entry->rung);
+  binding->secretname = auth_active ? vxstn_sdup(effective_secret) : NULL;
+  binding->rung = vxstn_sdup(entry->rung);
   return binding;
 }
 
@@ -2342,13 +2337,13 @@ const vxstn_val* vxstn_profile_sdk(vxstn_station* st, const char* slug) {
   if (NULL == st || NULL == slug) {
     return NULL;
   }
-  return getk(vxstn_map_get(st->profile, "sdk"), slug);
+  return vxstn_getk(vxstn_map_get(st->profile, "sdk"), slug);
 }
 
 bool vxstn_host_allowed(vxstn_station* st, const char* slug,
                         const char* fullurl, bool* has_policy) {
   const vxstn_val* pp = vxstn_profile_sdk(st, slug);
-  const vxstn_val* hosts = getk(getk(pp, "policy"), "hosts");
+  const vxstn_val* hosts = vxstn_getk(vxstn_getk(pp, "policy"), "hosts");
   char* host;
   char* hostname;
   char* path;
@@ -2391,7 +2386,7 @@ const char* vxstn_secret_value(vxstn_station* st, const char* slug,
   }
   entry = NULL == st ? NULL : find_plugin(st, slug);
   if (NULL == entry) {
-    seterr(err, "station_no_plugin", "unknown plugin");
+    vxstn_seterr(err, "station_no_plugin", "unknown plugin");
     return NULL;
   }
   return broker_value(&st->broker, slug, entry->secretname, err);
@@ -2410,8 +2405,8 @@ void vxstn_hoist(vxstn_station* st, const char* slug, const char* value) {
 
 char* vxstn_next_corr(vxstn_station* st) {
   vxstn_sb sb;
-  sb_init(&sb);
-  sb_putf(&sb, "c%lld", (long long)(NULL == st ? 0 : ++st->corr_seq));
+  vxstn_sb_init(&sb);
+  vxstn_sb_putf(&sb, "c%lld", (long long)(NULL == st ? 0 : ++st->corr_seq));
   return sb.buf;
 }
 
@@ -2455,16 +2450,16 @@ vxstn_error* vxstn_wrap_order_check(const char* const* names, size_t n) {
   if (self_at != expected) {
     vxstn_sb msg;
     vxstn_error* err;
-    sb_init(&msg);
-    sb_put(&msg, "station must init immediately after the base transport; "
+    vxstn_sb_init(&msg);
+    vxstn_sb_put(&msg, "station must init immediately after the base transport; "
                  "feature order is [");
     for (i = 0; i < n; i++) {
       if (0 < i) {
-        sb_put(&msg, ", ");
+        vxstn_sb_put(&msg, ", ");
       }
-      sb_put(&msg, NULL == names[i] ? "" : names[i]);
+      vxstn_sb_put(&msg, NULL == names[i] ? "" : names[i]);
     }
-    sb_putc(&msg, ']');
+    vxstn_sb_putc(&msg, ']');
     err = vxstn_error_new("station_wrap_order", msg.buf);
     free(msg.buf);
     return err;
@@ -2669,20 +2664,20 @@ vxstn_val* vxstn_descriptor_of(vxstn_station* st, const char* slug,
   if (NULL == entry) {
     vxstn_sb msg;
     size_t i;
-    sb_init(&msg);
-    sb_put(&msg, "unknown plugin \"");
-    sb_put(&msg, NULL == slug ? "" : slug);
-    sb_put(&msg, "\"; known: [");
+    vxstn_sb_init(&msg);
+    vxstn_sb_put(&msg, "unknown plugin \"");
+    vxstn_sb_put(&msg, NULL == slug ? "" : slug);
+    vxstn_sb_put(&msg, "\"; known: [");
     if (NULL != st) {
       for (i = 0; i < st->nplugins; i++) {
         if (0 < i) {
-          sb_put(&msg, ", ");
+          vxstn_sb_put(&msg, ", ");
         }
-        sb_put(&msg, st->plugins[i].slug);
+        vxstn_sb_put(&msg, st->plugins[i].slug);
       }
     }
-    sb_putc(&msg, ']');
-    seterr(err, "station_no_plugin", msg.buf);
+    vxstn_sb_putc(&msg, ']');
+    vxstn_seterr(err, "station_no_plugin", msg.buf);
     free(msg.buf);
     return NULL;
   }
@@ -2703,7 +2698,7 @@ char* vxstn_canonical_descriptor(vxstn_station* st, const char* slug,
 
 char* vxstn_redact(vxstn_station* st, const char* text) {
   if (NULL == st) {
-    return sdup(text);
+    return vxstn_sdup(text);
   }
   return broker_scrub(&st->broker, NULL == text ? "" : text);
 }
