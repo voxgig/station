@@ -332,7 +332,11 @@ func New(opts *Options) (*Station, error) {
 	repoScoped := false
 	if nil != opts.RepoScoped {
 		repoScoped = *opts.RepoScoped
-	} else if incode {
+	} else if incode || opts.NoConfig {
+		// NoConfig is the canonical library's explicit `config: null`,
+		// which takes the same branch: the application settled the
+		// question in code, so there is no file whose location could
+		// answer it.
 		repoScoped = true
 	} else {
 		repoScoped = "user" != ConfigScope(opts.Folder)
