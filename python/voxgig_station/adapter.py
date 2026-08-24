@@ -32,7 +32,9 @@ def _now_ms():
 class FeatureBinding:
     """The hook bridge (design station.md 3 item 3): operation semantics
     correlated with the HTTP events via a per-operation id on the SDK's
-    own ctx."""
+    own ctx. Keyed by the INSTANCE name (7.1); the field keeps its
+    `slug` spelling so the generated adapter contract is unchanged, and
+    for a single-instance project the two are one string."""
 
     def __init__(self, station, slug):
         self._station = station
@@ -97,9 +99,16 @@ def feature_binding(ctx, fopts):
             'station must init immediately after the base transport; '
             'feature order is [' + ', '.join(names) + ']')
 
+    # 7.5: registration is driven by station now. `fopts.instance` is
+    # where station puts the instance name it knew before construction
+    # began; _register reads it and falls back to the descriptor slug,
+    # which is today's behaviour for a bare connect(SDK).
     binding, profile_plugin = station._register(
         client, ctx.config, options, calleropts, fopts)
-    slug = binding['plugin']
+    # The INSTANCE name, not the api slug. Everything below keys on it -
+    # the placeholder, the transport seam, the op events - because two
+    # live instances of one api must be distinguishable at each.
+    name = binding['plugin']
 
     # Base URL precedence (design station.md 3.5): caller opts (7) beat
     # the profile (4), which beats the SDK's config default (1) already
@@ -108,6 +117,26 @@ def feature_binding(ctx, fopts):
     if calleropts is not None and calleropts.get('base') is None \
             and (profile_plugin or {}).get('base') is not None:
         options['base'] = profile_plugin['base']
+
+    # Policy allowlists (design station.md 16): `allow.op` / `allow.method`
+    # are "the same vocabulary the SDKs already enforce (options.allow,
+    # and the raw-access gate every target implements); station sets
+    # these SDK options from policy so enforcement is in the SDK's own
+    # pipeline". The SDK's own option form is a comma-separated string,
+    # so the policy's list joins into it. Applied at binding time, on
+    # BOTH entry paths - connect/adopt and the declarative build both
+    # delegate here. Unlike `base` above, which is a default the caller
+    # may override, an allowlist is ENFORCEMENT: policy wins over
+    # whatever the options carry, on exactly the keys it sets.
+    pallow = ((profile_plugin or {}).get('policy') or {}).get('allow')
+    if isinstance(pallow, dict):
+        prior = options.get('allow')
+        allow = dict(prior) if isinstance(prior, dict) else {}
+        if isinstance(pallow.get('op'), list):
+            allow['op'] = ','.join(str(x) for x in pallow['op'])
+        if isinstance(pallow.get('method'), list):
+            allow['method'] = ','.join(str(x) for x in pallow['method'])
+        options['allow'] = allow
 
     if 'none' != binding['rung']:
         placeholder = binding['placeholder']
@@ -120,7 +149,7 @@ def feature_binding(ctx, fopts):
         resident = options.get('apikey')
         if isinstance(resident, str) and '' != resident \
                 and placeholder != resident:
-            station._hoist(slug, resident)
+            station._hoist(name, resident)
         options['apikey'] = placeholder
 
     # Wrap the transport. Copy-on-inject (design station.md 5.3) happens
@@ -130,15 +159,15 @@ def feature_binding(ctx, fopts):
     if True is getattr(inner, '__station__', False):
         raise StationError(
             'station_bound_twice',
-            'plugin "' + slug + '" already carries a station wrap')
+            'plugin "' + name + '" already carries a station wrap')
 
     def wrapped(fctx, fullurl, fetchdef):
-        return station._transport(slug, inner, fctx, fullurl, fetchdef)
+        return station._transport(name, inner, fctx, fullurl, fetchdef)
 
     wrapped.__station__ = True
     utility.fetcher = wrapped
 
-    return FeatureBinding(station, slug)
+    return FeatureBinding(station, name)
 
 
 def adapter_feature(station, calleropts):
