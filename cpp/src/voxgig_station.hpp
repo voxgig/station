@@ -71,6 +71,28 @@
 #include <utility>
 #include <vector>
 
+// THE SECOND RUNTIME DEPENDENCY (design station.md 4, 9). Config
+// validation is voxgig/struct's - `validate` with an `errs` collection
+// so it COLLECTS rather than throwing at the first problem, closed maps
+// by default, and `$OPEN` where a foreign grammar passes through - and
+// not a second validator written here. It runs at open(), not only
+// under test, so it is a runtime dependency and not a test one.
+//
+// C++ has no package registry, so struct is VENDORED exactly as this
+// library is: a generated C++ SDK already carries it (the SDK's own
+// `utility/voxgigstruct/`, the precedent VENDORED.md names) beside this
+// library's `feature/station/`. In THIS checkout the Makefile puts the
+// sibling voxgig/struct's `cpp/src` on the include path, found the way
+// every port finds its siblings ($STRUCT_HOME, then a sibling
+// directory, then two fixed fallbacks). Both headers are header-only,
+// so there is nothing to link.
+//
+// Included with -isystem here for the same reason the C port compiles
+// struct with struct's own flags: -Werror over somebody else's warnings
+// is a build that breaks on their next release.
+#include "voxgig_struct.hpp"
+#include "value_io.hpp"
+
 namespace vstation {
 
 inline const char* VERSION = "0.0.1";
@@ -818,7 +840,21 @@ inline Normalized normalize_descriptor(const Jval& config, const Jval& active_fe
   }
 
   // features: present features + active state (from the caller's
-  // options.feature map, when given).
+  // options.feature map, when given), plus the two fields the
+  // descriptor used to throw away (design 7.4):
+  //
+  //  - `options` is the feature's own declared key set WITH TYPED
+  //    DEFAULTS, which is the schema design 8.5 validates against;
+  //  - `transport` is the role design 8.4 orders by.
+  //
+  // Both are already inside the SDK; the descriptor stops discarding
+  // them. ADDITIVE, so descriptor v1 consumers are unaffected and the
+  // existing `descriptor` corpus section passes unchanged.
+  //
+  // `transport` is CARRIED rather than inferred: the obvious signal, an
+  // empty `hook: {}`, is wrong for station, which both wraps AND
+  // dispatches hooks. Until sdkgen emits it the role checks degrade to
+  // nothing rather than guessing.
   Jval features = Jval::list();
   Jval fdefs = config.get("feature");
   if (fdefs.ismap()) {
@@ -826,10 +862,22 @@ inline Normalized normalize_descriptor(const Jval& config, const Jval& active_fe
     for (const auto& entry : fdefs.mval) fnames.push_back(entry.first);
     std::sort(fnames.begin(), fnames.end());
     for (const auto& fname : fnames) {
+      Jval fdef = fdefs.get(fname);
       Jval f = Jval::map();
       f.set("name", Jval::str(fname));
       Jval factive = active_features.get(fname).get("active");
       f.set("active", Jval::boolean(factive.isbool() && factive.bval));
+      Jval fopts = fdef.get("options");
+      if (fopts.ismap()) {
+        f.set("options", fopts);
+      }
+      Jval ftransport = fdef.get("transport");
+      if (!ftransport.isnone()) {
+        std::string role = scalar_str(ftransport);
+        if (!role.empty()) {
+          f.set("transport", Jval::str(role));
+        }
+      }
       features.push(f);
     }
   }
@@ -849,6 +897,1570 @@ inline Normalized normalize_descriptor(const Jval& config, const Jval& active_fe
 
   out.descriptor = d;
   return out;
+}
+
+// ---------------------------------------------------------------------
+// The config grammar, as data (design station.md 4).
+//
+// TWO STEPS, AND THE FIRST IS WHAT MAKES THE SECOND HONEST.
+//
+// struct drops the unexpected-key check for a map whose spec node ends
+// up EMPTY - "an empty spec object means the object can be open". An
+// optional key is `['$ONE','$NIL', spec]`, and when the data does not
+// carry that key the validator REMOVES it from the spec node. So a
+// block whose keys are all optional degenerates into an open map
+// exactly when the data has none of them, and `{"solar": {"bass": 1}}`
+// validates clean - the one property the whole exercise is for,
+// silently absent in the one case that matters.
+//
+// So: normalize_config materializes every documented default, and
+// validate_config then runs a shape WITH NO OPTIONAL CONTAINERS AT ALL.
+// After normalization every container is present, so the shape can
+// require them, so unexpected-key detection is live at every level and
+// every error names its path.
+//
+// A port of typescript/src/shape.ts, which is canonical.
+// ---------------------------------------------------------------------
+
+// Map keys in insertion order.
+inline std::vector<std::string> keys_of(const Jval& v) {
+  std::vector<std::string> out;
+  if (v.ismap()) {
+    for (const auto& kv : v.mval) {
+      out.push_back(kv.first);
+    }
+  }
+  return out;
+}
+
+inline std::vector<std::string> sorted_keys_of(const Jval& v) {
+  std::vector<std::string> out = keys_of(v);
+  std::sort(out.begin(), out.end());
+  return out;
+}
+
+inline std::string join_strings(const std::vector<std::string>& parts,
+                                const std::string& sep) {
+  std::string out;
+  for (size_t i = 0; i < parts.size(); i++) {
+    if (0 < i) {
+      out += sep;
+    }
+    out += parts[i];
+  }
+  return out;
+}
+
+// --- the defaults table - ONE table, two callers ---------------------
+
+// Profile-level containers. Safe to materialize early either way: they
+// are containers, and a missing one merges as empty regardless.
+inline Jval profile_defaults() {
+  Jval out = Jval::map();
+  Jval secrets = Jval::map();
+  Jval providers = Jval::list();
+  Jval env = Jval::map();
+  env.set("kind", Jval::str("env"));
+  providers.push(env);
+  secrets.set("providers", providers);
+  out.set("secrets", secrets);
+  out.set("api", Jval::map());
+  out.set("sdk", Jval::map());
+  out.set("feature", Jval::map());
+  return out;
+}
+
+// Block-level. `feature` is a container and safe early.
+//
+// `active` IS NOT, and that is the whole timing rule: a default
+// synthesized into an OVERLAY block overwrites the base's real value
+// and silently reactivates an integration the base deliberately barred
+// (design 3.3). So the two consumers read this same table at DIFFERENT
+// MOMENTS - validate_config BEFORE, applied to every block, because a
+// block with no present keys is an open map; resolve_profile AFTER,
+// applied to the merged instance, because an absent key must stay
+// absent through the merge.
+inline Jval block_defaults() {
+  Jval out = Jval::map();
+  out.set("active", Jval::boolean(true));
+  out.set("feature", Jval::map());
+  return out;
+}
+
+// The one block key carrying the timing rule. Named rather than
+// inferred, so a reader does not have to work out which of the two it
+// is, and so a test can assert it.
+inline const std::vector<std::string>& merge_sensitive() {
+  static const std::vector<std::string> KEYS = {"active"};
+  return KEYS;
+}
+
+// --- normalize_config ------------------------------------------------
+
+// Per feature entry, at every level: `active` -> true.
+//
+// A FEATURE NAMED IN THE CONFIG IS ONE YOU ARE ASKING FOR. The SDK's
+// own default is `active: false` for all but `log`, and
+// `{"retry": {"retries": 3}}` plainly means "retry, with three
+// attempts". It also keeps the feature map closed, for the same reason
+// every other block needs one present key.
+//
+// Defensive like the rest: a non-map is returned untouched for validate
+// to reject by path.
+inline Jval normfeatures(const Jval& f) {
+  if (!f.ismap()) {
+    return f;
+  }
+  Jval out = Jval::map();
+  for (const auto& kv : f.mval) {
+    if (kv.second.ismap() && !kv.second.has("active")) {
+      Jval entry = kv.second;
+      entry.set("active", Jval::boolean(true));
+      out.set(kv.first, entry);
+    } else {
+      out.set(kv.first, kv.second);
+    }
+  }
+  return out;
+}
+
+// Materialize every documented default, DEFENSIVELY: a node that is not
+// the kind it expects is left alone for validate to reject with a
+// message that names the path. Pure data-in/data-out, which is what
+// makes it portable to sixteen languages and expressible in the corpus.
+//
+// NEVER MUTATES THE INPUT: Jval is a value type, so every `Jval x = y`
+// below is already the copy the dynamic ports make by spreading.
+//
+// THE NORMALIZED FORM IS AN INPUT TO VALIDATION AND TO NOTHING ELSE -
+// resolve_profile continues to read the RAW config.
+inline Jval normalize_config(const Jval& raw) {
+  if (!raw.ismap()) {
+    return raw;
+  }
+  Jval out = raw;
+
+  if (!out.has("station")) {
+    out.set("station", Jval::num(1));
+  }
+  if (!out.has("profiles")) {
+    out.set("profiles", Jval::map());
+  }
+  Jval profiles = out.get("profiles");
+  if (!profiles.ismap()) {
+    return out;
+  }
+
+  const Jval pdefaults = profile_defaults();
+  const Jval bdefaults = block_defaults();
+  static const char* const BLOCKKEYS[] = {"api", "sdk"};
+
+  Jval outprofiles = Jval::map();
+  for (const auto& pkv : profiles.mval) {
+    if (!pkv.second.ismap()) {
+      outprofiles.set(pkv.first, pkv.second);
+      continue;
+    }
+    Jval prof = pkv.second;
+
+    for (const auto& dkv : pdefaults.mval) {
+      if (!prof.has(dkv.first)) {
+        prof.set(dkv.first, dkv.second);
+      }
+    }
+
+    // A `secrets` written without `providers` still gets the chain.
+    Jval secrets = prof.get("secrets");
+    if (secrets.ismap() && !secrets.has("providers")) {
+      secrets.set("providers", pdefaults.get("secrets").get("providers"));
+      prof.set("secrets", secrets);
+    }
+
+    prof.set("feature", normfeatures(prof.get("feature")));
+
+    for (const char* bkey : BLOCKKEYS) {
+      Jval blocks = prof.get(bkey);
+      if (!blocks.ismap()) {
+        continue;
+      }
+      Jval outblocks = Jval::map();
+      for (const auto& bkv : blocks.mval) {
+        if (!bkv.second.ismap()) {
+          outblocks.set(bkv.first, bkv.second);
+          continue;
+        }
+        Jval block = bkv.second;
+        for (const auto& dkv : bdefaults.mval) {
+          if (!block.has(dkv.first)) {
+            block.set(dkv.first, dkv.second);
+          }
+        }
+        block.set("feature", normfeatures(block.get("feature")));
+        outblocks.set(bkv.first, block);
+      }
+      prof.set(bkey, outblocks);
+    }
+
+    outprofiles.set(pkv.first, prof);
+  }
+  out.set("profiles", outprofiles);
+  return out;
+}
+
+// --- the shape, and the struct bridge --------------------------------
+
+// --- BEGIN GENERATED: config-shape (cpp/tools/sync-shape.py) ---
+// The mirrored bytes of `spec/config-shape.json`, verbatim, so a diff of
+// this region reads like a diff of the spec.
+inline const char* config_shape_json() {
+  static const char* const SHAPE = R"SHAPE({
+  "station": [
+    "`$EXACT`",
+    1
+  ],
+  "profiles": {
+    "`$CHILD`": {
+      "secrets": {
+        "providers": "`$LIST`"
+      },
+      "api": {
+        "`$CHILD`": {
+          "active": "`$BOOLEAN`",
+          "package": [
+            "`$ONE`",
+            "`$NIL`",
+            "`$STRING`"
+          ],
+          "export": [
+            "`$ONE`",
+            "`$NIL`",
+            "`$STRING`"
+          ],
+          "base": [
+            "`$ONE`",
+            "`$NIL`",
+            "`$STRING`"
+          ],
+          "secret": [
+            "`$ONE`",
+            "`$NIL`",
+            "`$STRING`"
+          ],
+          "resolve": [
+            "`$ONE`",
+            "`$NIL`",
+            [
+              "`$EXACT`",
+              "library"
+            ],
+            [
+              "`$EXACT`",
+              "proxy"
+            ]
+          ],
+          "capture": [
+            "`$ONE`",
+            "`$NIL`",
+            [
+              "`$EXACT`",
+              "meta"
+            ],
+            [
+              "`$EXACT`",
+              "headers"
+            ],
+            [
+              "`$EXACT`",
+              "full"
+            ]
+          ],
+          "policy": [
+            "`$ONE`",
+            "`$NIL`",
+            {
+              "allow": [
+                "`$ONE`",
+                "`$NIL`",
+                {
+                  "method": [
+                    "`$CHILD`",
+                    "`$STRING`"
+                  ],
+                  "op": [
+                    "`$CHILD`",
+                    "`$STRING`"
+                  ]
+                }
+              ],
+              "budget": [
+                "`$ONE`",
+                "`$NIL`",
+                {
+                  "concurrency": [
+                    "`$ONE`",
+                    "`$NIL`",
+                    "`$INTEGER`"
+                  ],
+                  "rps": [
+                    "`$ONE`",
+                    "`$NIL`",
+                    "`$NUMBER`"
+                  ]
+                }
+              ],
+              "hosts": [
+                "`$CHILD`",
+                "`$STRING`"
+              ],
+              "mode": [
+                "`$ONE`",
+                "`$NIL`",
+                [
+                  "`$EXACT`",
+                  "live"
+                ],
+                [
+                  "`$EXACT`",
+                  "record"
+                ],
+                [
+                  "`$EXACT`",
+                  "replay"
+                ],
+                [
+                  "`$EXACT`",
+                  "mock"
+                ],
+                [
+                  "`$EXACT`",
+                  "block"
+                ]
+              ]
+            }
+          ],
+          "agent": [
+            "`$ONE`",
+            "`$NIL`",
+            {
+              "write": "`$BOOLEAN`"
+            }
+          ],
+          "options": [
+            "`$ONE`",
+            "`$NIL`",
+            "`$MAP`"
+          ],
+          "feature": {
+            "`$CHILD`": {
+              "active": "`$BOOLEAN`",
+              "`$OPEN`": true
+            }
+          }
+        }
+      },
+      "sdk": {
+        "`$CHILD`": {
+          "active": "`$BOOLEAN`",
+          "package": [
+            "`$ONE`",
+            "`$NIL`",
+            "`$STRING`"
+          ],
+          "export": [
+            "`$ONE`",
+            "`$NIL`",
+            "`$STRING`"
+          ],
+          "base": [
+            "`$ONE`",
+            "`$NIL`",
+            "`$STRING`"
+          ],
+          "secret": [
+            "`$ONE`",
+            "`$NIL`",
+            "`$STRING`"
+          ],
+          "resolve": [
+            "`$ONE`",
+            "`$NIL`",
+            [
+              "`$EXACT`",
+              "library"
+            ],
+            [
+              "`$EXACT`",
+              "proxy"
+            ]
+          ],
+          "capture": [
+            "`$ONE`",
+            "`$NIL`",
+            [
+              "`$EXACT`",
+              "meta"
+            ],
+            [
+              "`$EXACT`",
+              "headers"
+            ],
+            [
+              "`$EXACT`",
+              "full"
+            ]
+          ],
+          "policy": [
+            "`$ONE`",
+            "`$NIL`",
+            {
+              "allow": [
+                "`$ONE`",
+                "`$NIL`",
+                {
+                  "method": [
+                    "`$CHILD`",
+                    "`$STRING`"
+                  ],
+                  "op": [
+                    "`$CHILD`",
+                    "`$STRING`"
+                  ]
+                }
+              ],
+              "budget": [
+                "`$ONE`",
+                "`$NIL`",
+                {
+                  "concurrency": [
+                    "`$ONE`",
+                    "`$NIL`",
+                    "`$INTEGER`"
+                  ],
+                  "rps": [
+                    "`$ONE`",
+                    "`$NIL`",
+                    "`$NUMBER`"
+                  ]
+                }
+              ],
+              "hosts": [
+                "`$CHILD`",
+                "`$STRING`"
+              ],
+              "mode": [
+                "`$ONE`",
+                "`$NIL`",
+                [
+                  "`$EXACT`",
+                  "live"
+                ],
+                [
+                  "`$EXACT`",
+                  "record"
+                ],
+                [
+                  "`$EXACT`",
+                  "replay"
+                ],
+                [
+                  "`$EXACT`",
+                  "mock"
+                ],
+                [
+                  "`$EXACT`",
+                  "block"
+                ]
+              ]
+            }
+          ],
+          "agent": [
+            "`$ONE`",
+            "`$NIL`",
+            {
+              "write": "`$BOOLEAN`"
+            }
+          ],
+          "options": [
+            "`$ONE`",
+            "`$NIL`",
+            "`$MAP`"
+          ],
+          "feature": {
+            "`$CHILD`": {
+              "active": "`$BOOLEAN`",
+              "`$OPEN`": true
+            }
+          }
+        }
+      },
+      "feature": {
+        "`$CHILD`": {
+          "active": "`$BOOLEAN`",
+          "order": {
+            "before": [
+              "`$ONE`",
+              "`$NIL`",
+              "`$STRING`",
+              [
+                "`$CHILD`",
+                "`$STRING`"
+              ]
+            ],
+            "after": [
+              "`$ONE`",
+              "`$NIL`",
+              "`$STRING`",
+              [
+                "`$CHILD`",
+                "`$STRING`"
+              ]
+            ],
+            "band": [
+              "`$ONE`",
+              "`$NIL`",
+              "`$INTEGER`"
+            ]
+          },
+          "`$OPEN`": true
+        }
+      }
+    }
+  }
+}
+)SHAPE";
+  return SHAPE;
+}
+// --- END GENERATED: config-shape ---
+
+// A FRESH DEEP COPY ON EVERY CALL, and that is not an optimization left
+// undone: struct's validate CONSUMES the spec it walks - it deletes
+// satisfied `$ONE` branches as it goes - so handing it one parsed
+// constant twice validates the second config against a spec the first
+// already ate. Re-parsing the mirror IS the copy.
+inline Jval config_shape() { return parse_json(config_shape_json()); }
+
+namespace detail {
+
+// Jval -> struct's own value model. INTEGER-SHAPED NUMBERS STAY
+// INTEGERS: struct's `$INTEGER` checker and its error spellings ("found
+// integer: 8080" rather than "found decimal") both read the
+// distinction, and Jval carries one double for both.
+inline ::voxgig::structlib::Value to_struct(const Jval& v) {
+  namespace vsx = ::voxgig::structlib;
+  switch (v.type) {
+    case Jval::Type::Absent:
+      return vsx::Value::undef();
+    case Jval::Type::Null:
+      return vsx::Value(nullptr);
+    case Jval::Type::Bool:
+      return vsx::Value(v.bval);
+    case Jval::Type::Num:
+      if (v.nval == std::floor(v.nval) && std::fabs(v.nval) < 9007199254740992.0) {
+        return vsx::Value(static_cast<int64_t>(v.nval));
+      }
+      return vsx::Value(v.nval);
+    case Jval::Type::Str:
+      return vsx::Value(v.sval);
+    case Jval::Type::List: {
+      vsx::Value out = vsx::Value::list();
+      for (const auto& item : v.lval) {
+        out.as_list()->push_back(to_struct(item));
+      }
+      return out;
+    }
+    case Jval::Type::Map: {
+      vsx::Value out = vsx::Value::map();
+      for (const auto& kv : v.mval) {
+        if (kv.second.isabsent()) {
+          continue;  // absent is absent, as in the canonical serializer
+        }
+        out.as_map()->set(kv.first, to_struct(kv.second));
+      }
+      return out;
+    }
+  }
+  return vsx::Value::undef();
+}
+
+// A design 4.4 workaround of the same family as firstelement below, and
+// recorded here for the same reason: the corpus pins a spelling, and
+// this port must produce it whatever struct version is vendored.
+//
+// Canonical struct lowers a spec term's `$NAME` to a bare `name` across
+// the WHOLE joined description (StructUtility.ts validate_ONE:
+// `replace(join(...), R_TRANSFORM_NAME, lowercase)`), so
+// `[`$EXACT`,library]` reads `[exact,library]`. THE C++ PORT OF STRUCT
+// APPLIES IT PER TOP-LEVEL TERM ONLY, so a nested list or map term
+// keeps its backticked names - `config#resolve-is-an-enum`,
+// `config#policy-typo-is-the-generic-one-form`,
+// `config#order-list-element-type`,
+// `config#capture-depth-must-be-a-known-depth` and
+// `config#agent-block-stays-closed` all pin the canonical spelling and
+// all five see the raw one. struct's own corpus has no `$ONE` carrying
+// a compound term, which is why the gap is untested upstream.
+//
+// So the replacement is finished here, over CANONICAL'S OWN SCOPE and
+// no wider: the `need_type` span of struct's message, which sits
+// between the first " to be " and the last ", but found " (see
+// invalid_type_msg). A `$NAME` in the offending VALUE half is left
+// alone. Remove this when struct's C++ port lowers the joined
+// description, not before - the corpus entries above are what will say
+// so.
+inline std::string pin_spec_names(const std::string& msg) {
+  static const std::string TOBE = " to be ";
+  static const std::string FOUND = ", but found ";
+  static const std::string EXPECTED = "Expected ";
+
+  size_t end = msg.rfind(FOUND);
+  if (std::string::npos == end) {
+    return msg;
+  }
+  size_t start;
+  size_t tobe = msg.find(TOBE);
+  if (std::string::npos != tobe && tobe < end) {
+    start = tobe + TOBE.size();
+  } else if (0 == msg.compare(0, EXPECTED.size(), EXPECTED)) {
+    start = EXPECTED.size();
+  } else {
+    return msg;
+  }
+
+  std::string out = msg.substr(0, start);
+  size_t at = start;
+  while (at < end) {
+    if ('`' == msg[at] && at + 1 < end && '$' == msg[at + 1]) {
+      size_t scan = at + 2;
+      while (scan < end && std::isupper(static_cast<unsigned char>(msg[scan]))) {
+        scan++;
+      }
+      if (scan > at + 2 && scan < end && '`' == msg[scan]) {
+        for (size_t i = at + 2; i < scan; i++) {
+          out.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(msg[i]))));
+        }
+        at = scan + 1;
+        continue;
+      }
+    }
+    out.push_back(msg[at]);
+    at++;
+  }
+  return out + msg.substr(end);
+}
+
+// Run the shape. Appends struct's own error strings, IN ENCOUNTER
+// ORDER, to `errs` - the order `config#every-error-at-once` pins.
+inline void runshape(const Jval& normalized, std::vector<std::string>& errs) {
+  namespace vsx = ::voxgig::structlib;
+  vsx::Value data = to_struct(normalized);
+  vsx::Value spec = to_struct(config_shape());
+  vsx::Value collected = vsx::Value::list();
+  vsx::Value opts = vsx::Value::map();
+  // The errs collection is what makes struct COLLECT rather than throw
+  // at the first problem, which is what "every error at once" needs.
+  opts.as_map()->set("errs", collected);
+
+  std::string thrown;
+  try {
+    vsx::validate(data, spec, opts);
+  } catch (const std::exception& err) {
+    thrown = err.what();
+  }
+
+  for (const auto& item : *collected.as_list()) {
+    errs.push_back(
+        pin_spec_names(item.is_string() ? item.as_string() : vsx::stringify(item)));
+  }
+  // A collecting validate does not throw for a validation failure, so
+  // anything that arrives here is struct itself giving up - reported
+  // rather than swallowed, and only when it left nothing collected.
+  if (!thrown.empty() && errs.empty()) {
+    errs.push_back(thrown);
+  }
+}
+
+}  // namespace detail
+
+// --- the design 5.2 / 4.4 scans --------------------------------------
+
+// Credential-shaped keys (design 5.2). `secret` is here AND is the one
+// exempt key - see secretvalue below; a blanket deny would reject the
+// very mechanism that keeps values out of the file.
+inline const std::vector<std::string>& credential_keys() {
+  static const std::vector<std::string> KEYS = {
+      "apikey", "auth", "authorization", "token",
+      "secret", "password", "credential", "bearer",
+  };
+  return KEYS;
+}
+
+// The suffix rule catches `access_key`, `X-Api-Token` and friends in
+// one rule rather than a growing list of spellings.
+inline const std::vector<std::string>& credential_suffix() {
+  static const std::vector<std::string> SUFFIX = {"_KEY", "_TOKEN", "_SECRET",
+                                                  "_PASSWORD"};
+  return SUFFIX;
+}
+
+// Design 5.2's backstop, stated as a bound rather than a grammar.
+// `validname()` is a NAME grammar, not a credential filter: it rejects
+// uppercase, hyphens, `+`, `/` and `=`, so it excludes most real
+// credential formats - but a lowercase hex token passes it cleanly. A
+// character class cannot tell a name from a secret.
+//
+// Derived names break on every separator (`voxgig_solardemo.apikey`
+// runs 6/9/6) and a hand-written name for a human to read does too; a
+// 24-character unbroken run is not a name anybody writes. Note this is
+// a RUN bound, not a length bound: `acme_internal_billing_service.apikey`
+// is 36 characters and passes, which is the false positive a naive
+// length bound would produce.
+inline constexpr int RUN_BOUND = 24;
+
+inline bool unbroken_run(const std::string& s) {
+  int run = 0;
+  for (unsigned char c : s) {
+    if (std::isalnum(c)) {
+      run++;
+      if (RUN_BOUND <= run) {
+        return true;
+      }
+    } else {
+      run = 0;
+    }
+  }
+  return false;
+}
+
+// The SHAPE kindof: it must agree with struct's own spellings, because
+// the design 4.4 workarounds below raise the message the shape would
+// have raised. NOT the FEATURE kindof of design 8.5 (feature_kindof,
+// further down) - "object"/"integer" here against "map"/"number" there
+// - and unifying the two would make one of the two sets of messages
+// wrong.
+inline std::string shape_kindof(const Jval& v) {
+  switch (v.type) {
+    case Jval::Type::Null:
+      return "null";
+    case Jval::Type::List:
+      return "list";
+    case Jval::Type::Num:
+      return (v.nval == std::floor(v.nval) && std::fabs(v.nval) < 9007199254740992.0)
+                 ? "integer"
+                 : "decimal";
+    case Jval::Type::Map:
+      return "object";
+    case Jval::Type::Bool:
+      return "boolean";
+    case Jval::Type::Str:
+      return "string";
+    default:
+      return "undefined";
+  }
+}
+
+namespace detail {
+
+inline std::string lowercase(const std::string& s) {
+  std::string out = s;
+  std::transform(out.begin(), out.end(), out.begin(),
+                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  return out;
+}
+
+inline bool endswith(const std::string& s, const std::string& tail) {
+  return s.size() >= tail.size() && 0 == s.compare(s.size() - tail.size(), tail.size(), tail);
+}
+
+// A `secret`-named key holds a NAME, and that exemption is not a
+// loophole - it is the whole design. THREE checks, not one, in this
+// order, first failure winning, and they live in the same handful of
+// lines precisely so a port cannot implement only the first and inherit
+// the gap the others close.
+inline void secretvalue(const Jval& val, const std::string& path,
+                        std::vector<std::string>& secrets) {
+  if (!val.isstr()) {
+    secrets.push_back(path + " must be a secret name (a string), but found " +
+                      shape_kindof(val));
+    return;
+  }
+  if (!validname(val.sval)) {
+    secrets.push_back(path +
+                      " is not a valid sekreto name, so it cannot be a name and "
+                      "must not be a value: " +
+                      canonical_serialize(val));
+    return;
+  }
+  if (unbroken_run(val.sval)) {
+    secrets.push_back(path +
+                      " contains an unbroken alphanumeric run of 24 or more "
+                      "characters, which is not a name anybody writes");
+  }
+}
+
+// One rule about VALUES rather than keys, because the `proxy` feature
+// makes it concrete: `http://user:pass@proxy.internal:8080`. A parse
+// failure is not an error - it returns silently.
+inline void userinfo(const Jval& val, const std::string& path,
+                     std::vector<std::string>& secrets) {
+  if (!val.isstr()) {
+    return;
+  }
+  const std::string& s = val.sval;
+
+  // ^[a-zA-Z][a-zA-Z0-9+.-]*://
+  if (s.empty() || !std::isalpha(static_cast<unsigned char>(s[0]))) {
+    return;
+  }
+  size_t at = 1;
+  while (at < s.size()) {
+    unsigned char c = static_cast<unsigned char>(s[at]);
+    if (std::isalnum(c) || '+' == c || '.' == c || '-' == c) {
+      at++;
+      continue;
+    }
+    break;
+  }
+  if (0 != s.compare(at, 3, "://")) {
+    return;
+  }
+
+  size_t astart = at + 3;
+  size_t aend = s.find_first_of("/?#", astart);
+  if (std::string::npos == aend) {
+    aend = s.size();
+  }
+  // Everything before the LAST `@` in the authority is the userinfo.
+  size_t marker = s.rfind('@', 0 == aend ? 0 : aend - 1);
+  if (std::string::npos == marker || marker < astart || marker >= aend ||
+      marker == astart) {
+    return;
+  }
+
+  secrets.push_back(path +
+                    " is a URL carrying userinfo, which puts a credential in the "
+                    "config file; use the proxy feature's `fromEnv` option "
+                    "instead (design 8.6)");
+}
+
+inline bool credentialkey(const std::string& key) {
+  std::string low;
+  for (unsigned char c : key) {
+    unsigned char lc = static_cast<unsigned char>(std::tolower(c));
+    if (std::isalnum(lc)) {
+      low.push_back(static_cast<char>(lc));
+    }
+  }
+  const auto& keys = credential_keys();
+  if (std::find(keys.begin(), keys.end(), low) != keys.end()) {
+    return true;
+  }
+  std::string tok = envtoken(key);
+  for (const auto& suffix : credential_suffix()) {
+    if (endswith(tok, suffix)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// RECURSIVE OVER EVERY NESTED MAP AND LIST, not just the top level - a
+// credential one level down is the case a top-level scan misses.
+inline void scan(const Jval& node, const std::string& path,
+                 std::vector<std::string>& secrets, std::vector<std::string>& reserved) {
+  if (node.islist()) {
+    for (size_t i = 0; i < node.lval.size(); i++) {
+      scan(node.lval[i], path + "." + std::to_string(i), secrets, reserved);
+    }
+    return;
+  }
+  if (node.isstr()) {
+    userinfo(node, path, secrets);
+    return;
+  }
+  if (!node.ismap()) {
+    return;
+  }
+
+  for (const auto& kv : node.mval) {
+    const std::string kpath = path + "." + kv.first;
+
+    // Design 8.6: station owns feature composition, so an
+    // `options.feature` in a declarative config is a second,
+    // unreconciled ordering input.
+    if ("feature" == kv.first) {
+      reserved.push_back(kpath +
+                         " is reserved: configure features under the block's own "
+                         "`feature` key, not through `options`");
+      continue;
+    }
+
+    if ("secret" == lowercase(kv.first)) {
+      secretvalue(kv.second, kpath, secrets);
+      continue;
+    }
+
+    if (credentialkey(kv.first)) {
+      secrets.push_back(kpath +
+                        " is a credential-shaped key: station.json holds secret "
+                        "NAMES, never values (design 5.2)");
+      continue;
+    }
+
+    scan(kv.second, kpath, secrets, reserved);
+  }
+}
+
+// Design 4.4: `$CHILD` in list mode DOES NOT VALIDATE ELEMENT 0.
+// Verified: `["a", 1]` fails at index 1, `[1]` passes, at any list
+// length. Filed upstream as voxgig/struct#113.
+//
+// It reaches THREE string lists in this shape: `policy.hosts`, and the
+// per-feature `order.before` and `order.after`. Applied where the shape
+// cannot reach, raising the same code the shape would, and PINNED IN
+// THE CORPUS so the workaround is removed deliberately when struct is
+// fixed rather than forgotten.
+inline void firstelement(const Jval& list, const std::string& path,
+                         std::vector<std::string>& invalid) {
+  if (!list.islist() || list.lval.empty()) {
+    return;
+  }
+  if (list.lval[0].isstr()) {
+    return;
+  }
+  invalid.push_back("Expected field " + path + ".0 to be string, but found " +
+                    shape_kindof(list.lval[0]) + ": " +
+                    canonical_serialize(list.lval[0]));
+}
+
+// The policy block's design 4.4 workarounds, in one place because they
+// are one class of gap: struct cannot check what its own defects hide.
+//
+// - `hosts`, `allow.op` and `allow.method` are `$CHILD` string lists,
+//   so element 0 escapes the shape (see firstelement above).
+// - `budget` is a map whose keys are ALL optional scalars, and struct
+//   removes an unsatisfied optional key from the spec node - so
+//   `budget: {rp: 1}` degenerates the spec into an open map and the
+//   typo passes. `allow` does not have this problem (its `$CHILD` keys
+//   stay in the spec whether or not the data carries them, keeping the
+//   map closed), and neither does `policy` itself (`hosts` anchors it);
+//   `budget` alone needs the explicit unexpected-key check, phrased as
+//   struct would phrase it.
+inline void checkpolicy(const Jval& policy, const std::string& path,
+                        std::vector<std::string>& invalid) {
+  static const std::vector<std::string> BUDGET_KEYS = {"concurrency", "rps"};
+
+  if (!policy.ismap()) {
+    return;
+  }
+
+  firstelement(policy.get("hosts"), path + ".hosts", invalid);
+
+  Jval allow = policy.get("allow");
+  if (allow.ismap()) {
+    firstelement(allow.get("op"), path + ".allow.op", invalid);
+    firstelement(allow.get("method"), path + ".allow.method", invalid);
+  }
+
+  Jval budget = policy.get("budget");
+  if (budget.ismap()) {
+    std::vector<std::string> unknown;
+    for (const auto& key : sorted_keys_of(budget)) {
+      if (std::find(BUDGET_KEYS.begin(), BUDGET_KEYS.end(), key) == BUDGET_KEYS.end()) {
+        unknown.push_back(key);
+      }
+    }
+    if (!unknown.empty()) {
+      invalid.push_back("Unexpected keys at field " + path + ".budget: " +
+                        join_strings(unknown, ", "));
+    }
+  }
+}
+
+// A feature map at any level. `station` is reserved: station composes
+// its own wrap and a config that reconfigures it is asking for a state
+// the ordering rules cannot express (design 8.4) - and a config file
+// that can switch off the component reading it is not a surface, it is
+// a trap.
+inline void checkfeatures_scan(const Jval& f, const std::string& path,
+                               std::vector<std::string>& secrets,
+                               std::vector<std::string>& reserved,
+                               std::vector<std::string>& invalid) {
+  if (!f.ismap()) {
+    return;
+  }
+  for (const auto& kv : f.mval) {
+    if ("station" == kv.first) {
+      reserved.push_back(path +
+                         ".station is reserved: station composes its own wrap and "
+                         "it cannot be configured from station.json");
+    }
+    const std::string fpath = path + "." + kv.first;
+    Jval order = kv.second.ismap() ? kv.second.get("order") : Jval::absent();
+    if (order.ismap()) {
+      firstelement(order.get("before"), fpath + ".order.before", invalid);
+      firstelement(order.get("after"), fpath + ".order.after", invalid);
+    }
+    scan(kv.second, fpath, secrets, reserved);
+  }
+}
+
+// The design 5.2 scans, over the parts of the grammar that hold
+// arbitrary data. Everything else is closed by construction and needs
+// no scan - and `profiles.<p>.secrets.providers` IS NOT SCANNED:
+// provider blocks legitimately carry an `auth` sub-map ({method, role}),
+// and config#twenty-sdk-fleet passes only because the scan does not
+// reach there. Collects rather than throwing - the caller owns the
+// throw order.
+inline void scanconfig(const Jval& cfg, std::vector<std::string>& secrets,
+                       std::vector<std::string>& reserved,
+                       std::vector<std::string>& invalid) {
+  static const char* const BLOCKKEYS[] = {"api", "sdk"};
+
+  Jval profiles = cfg.get("profiles");
+  if (!profiles.ismap()) {
+    return;
+  }
+
+  for (const auto& pkv : profiles.mval) {
+    const Jval& prof = pkv.second;
+    if (!prof.ismap()) {
+      continue;
+    }
+    const std::string ppath = "profiles." + pkv.first;
+
+    checkfeatures_scan(prof.get("feature"), ppath + ".feature", secrets, reserved,
+                       invalid);
+
+    for (const char* bkey : BLOCKKEYS) {
+      Jval blocks = prof.get(bkey);
+      if (!blocks.ismap()) {
+        continue;
+      }
+      for (const auto& bkv : blocks.mval) {
+        const Jval& block = bkv.second;
+        if (!block.ismap()) {
+          continue;
+        }
+        const std::string bpath = ppath + "." + bkey + "." + bkv.first;
+
+        // The block's own `secret` holds a NAME. resolve_profile checks
+        // it again per instance (station_secret_name); this catches it
+        // at open(), for the whole file at once.
+        if (block.has("secret")) {
+          secretvalue(block.get("secret"), bpath + ".secret", secrets);
+        }
+
+        // `options` is passthrough to a generated constructor, so it is
+        // the one place a value can hide.
+        scan(block.get("options"), bpath + ".options", secrets, reserved);
+        checkfeatures_scan(block.get("feature"), bpath + ".feature", secrets, reserved,
+                           invalid);
+        checkpolicy(block.get("policy"), bpath + ".policy", invalid);
+      }
+    }
+  }
+}
+
+// `plugin` is REMOVED, not aliased (design 3.4) - a deprecated alias
+// would be a second grammar for one concept in sixteen ports. The shape
+// already rejects it as an unexpected key; this says WHAT TO RENAME,
+// because "unexpected key: plugin" alone does not, and the migration
+// for a single-instance project is exactly this one rename.
+inline std::string renamehint(const Jval& cfg) {
+  Jval profiles = cfg.get("profiles");
+  if (!profiles.ismap()) {
+    return "";
+  }
+  std::vector<std::string> hit;
+  for (const auto& pkv : profiles.mval) {
+    if (pkv.second.ismap() && pkv.second.has("plugin")) {
+      hit.push_back("profiles." + pkv.first);
+    }
+  }
+  if (hit.empty()) {
+    return "";
+  }
+  return "; rename `plugin` to `sdk` in " + join_strings(hit, ", ") +
+         " - the keys are unchanged, an untagged ref IS an api slug (design 3.4)";
+}
+
+}  // namespace detail
+
+// Normalize, then validate (design 4.2). Raises station_config_invalid
+// with EVERY error at once - an eighteen-instance config that touches
+// three of them must not die because the eighteenth has a typo'd
+// package name.
+//
+// The design 4.4 workarounds are merged into the SAME throw as struct's
+// own errors: a struct new enough to reject a first-element gap itself
+// reports a DIFFERENT spelling ("to be one of ..."), and the corpus
+// pins the explicit one - so the pinned message is produced here either
+// way, and behaviour is identical whatever struct version is vendored.
+//
+// Takes the NORMALIZED form. Handing it a raw config is the mistake
+// design 4.2 exists to prevent, so every caller goes through
+// normalize_config first (Station's constructor does exactly
+// validate_config(normalize_config(config))).
+inline Jval validate_config(const Jval& normalized) {
+  std::vector<std::string> errs;
+  detail::runshape(normalized, errs);
+
+  std::vector<std::string> secrets;
+  std::vector<std::string> reserved;
+  std::vector<std::string> invalid;
+  detail::scanconfig(normalized, secrets, reserved, invalid);
+
+  if (!errs.empty() || !invalid.empty()) {
+    std::vector<std::string> all = errs;
+    all.insert(all.end(), invalid.begin(), invalid.end());
+    throw StationError("station_config_invalid",
+                       join_strings(all, "; ") + detail::renamehint(normalized));
+  }
+  if (!reserved.empty()) {
+    throw StationError("station_feature_reserved", join_strings(reserved, "; "));
+  }
+  if (!secrets.empty()) {
+    throw StationError("station_config_secret", join_strings(secrets, "; "));
+  }
+  return normalized;
+}
+
+// ---------------------------------------------------------------------
+// Feature management (design station.md 8): the three-level merge, the
+// constraint-and-band resolver, and the descriptor-derived checker.
+//
+// A port of typescript/src/feature.ts, which is canonical.
+// ---------------------------------------------------------------------
+
+// Reserved on a feature entry: not options, and never passed through to
+// the SDK's own option map.
+inline const std::vector<std::string>& reserved_keys() {
+  static const std::vector<std::string> KEYS = {"active", "order"};
+  return KEYS;
+}
+
+// `test` substitutes the base transport, so it takes the innermost
+// band; `station` sits immediately outside it, pinned; everything else
+// is band 0, outside station. HIGHER IS FURTHER IN.
+//
+// THE DEFAULT IS TODAY'S BEHAVIOUR EXPRESSED IN THE NEW MODEL rather
+// than as a special case: a project that writes no `order` anywhere
+// sees exactly today's nesting.
+inline constexpr int BAND_DEFAULT = 0;
+inline constexpr int BAND_STATION = 100;
+inline constexpr int BAND_TEST = 200;
+
+inline int default_band(const std::string& name) {
+  if ("test" == name) {
+    return BAND_TEST;
+  }
+  if ("station" == name) {
+    return BAND_STATION;
+  }
+  return BAND_DEFAULT;
+}
+
+// A feature named in the config is one you are ASKING for, so an entry
+// with no `active` is active.
+inline bool feature_active(const Jval& entry) {
+  if (!entry.ismap()) {
+    return !(entry.isbool() && !entry.bval);
+  }
+  Jval a = entry.get("active");
+  return !(a.isbool() && !a.bval);
+}
+
+// `feature` is the ONE key where design 3.3's shallow-per-key rule is
+// wrong: composition is the entire point, a fleet default plus a
+// per-instance tweak. So it is a TWO-LEVEL merge - per feature name,
+// then per option key - AND NO DEEPER. A map-valued option REPLACES
+// wholesale, which is what `{"$MERGE": {"deep": 2}}` states and what a
+// port defaulting to a deep merge would silently get wrong.
+//
+// NO DEFAULTS ARE SYNTHESIZED HERE, which is why the caller passes RAW
+// blocks: an entry mentioned at one level with only a tuning key must
+// NOT synthesize `active` and switch on a feature a broader level
+// turned off. That is the design 3.3 defect one level down.
+inline Jval merge_features(const std::vector<Jval>& sources) {
+  Jval out = Jval::map();
+  for (const auto& src : sources) {
+    if (!src.ismap()) {
+      continue;
+    }
+    for (const auto& kv : src.mval) {
+      if (!kv.second.ismap()) {
+        out.set(kv.first, kv.second);  // a non-map entry replaces wholesale
+        continue;
+      }
+      Jval prior = out.get(kv.first);
+      Jval entry = prior.ismap() ? prior : Jval::map();
+      for (const auto& okv : kv.second.mval) {
+        entry.set(okv.first, okv.second);  // per option key, and NOT deeper
+      }
+      out.set(kv.first, entry);
+    }
+  }
+  return out;
+}
+
+// The six sources for one instance, in design 3.3's order extended by
+// the profile level:
+//
+//   1 base.feature            4 overlay.feature
+//   2 base.api[<api>].feature 5 overlay.api[<api>].feature
+//   3 base.sdk[<ref>].feature 6 overlay.sdk[<ref>].feature
+//
+// PROFILE SPECIFICITY OUTRANKS BLOCK SPECIFICITY, and within a profile
+// the narrower block wins. Assembled here rather than at the call site
+// so the order lives in exactly one place.
+inline std::vector<Jval> feature_sources(const Jval& base, const Jval& overlay,
+                                         const std::string& api, const std::string& ref) {
+  return {
+      base.get("feature"),
+      base.get("api").get(api).get("feature"),
+      base.get("sdk").get(ref).get("feature"),
+      overlay.get("feature"),
+      overlay.get("api").get(api).get("feature"),
+      overlay.get("sdk").get(ref).get("feature"),
+  };
+}
+
+// One row of the resolved order, OUTERMOST FIRST.
+struct Ordered {
+  std::string name;
+  double band = 0;
+  Jval entry;
+};
+
+namespace detail {
+
+// `before`/`after` take a feature name or a list of them.
+inline std::vector<std::string> listof(const Jval& v) {
+  std::vector<std::string> out;
+  if (v.isnone()) {
+    return out;
+  }
+  if (v.islist()) {
+    for (const auto& item : v.lval) {
+      out.push_back(scalar_str(item));
+    }
+    return out;
+  }
+  out.push_back(scalar_str(v));
+  return out;
+}
+
+}  // namespace detail
+
+// Resolve the activation order: constraints, then bands, then the
+// feature's position in the merged map.
+//
+// `before`/`after` are SATISFIED VACUOUSLY when the named feature is
+// absent - `after: 'test'` loads fine in a project with no test
+// feature, which is sdkgen's `__after__` behaviour kept rather than
+// reinvented.
+//
+// Constraints beat bands; bands break ties no constraint decides;
+// remaining ties break by DECLARATION POSITION, so the result is a
+// stable topological sort with no alphabetical accident in it.
+//
+// Returns OUTERMOST FIRST, which is the array form the constructor
+// takes and the direction the chain composes in.
+inline std::vector<Ordered> resolve_order(const Jval& merged) {
+  std::vector<std::string> names;
+  for (const auto& kv : merged.mval) {
+    if (feature_active(kv.second)) {
+      names.push_back(kv.first);
+    }
+  }
+
+  std::map<std::string, size_t> pos;
+  std::map<std::string, double> band;
+  for (size_t i = 0; i < names.size(); i++) {
+    pos[names[i]] = i;
+    Jval entry = merged.get(names[i]);
+    Jval order = entry.ismap() ? entry.get("order") : Jval::absent();
+    Jval b = order.ismap() ? order.get("band") : Jval::absent();
+    band[names[i]] = b.isnum() ? b.nval : static_cast<double>(default_band(names[i]));
+  }
+
+  // edges: from OUTER to INNER. `after: X` means "further in than X".
+  std::map<std::string, std::set<std::string>> inner;
+  for (const auto& n : names) {
+    inner[n];
+  }
+  for (const auto& n : names) {
+    Jval entry = merged.get(n);
+    Jval order = entry.ismap() ? entry.get("order") : Jval::absent();
+    if (!order.ismap()) {
+      continue;
+    }
+    for (const auto& other : detail::listof(order.get("after"))) {
+      if (0 < inner.count(other)) {
+        inner[other].insert(n);
+      }
+    }
+    for (const auto& other : detail::listof(order.get("before"))) {
+      if (0 < inner.count(other)) {
+        inner[n].insert(other);
+      }
+    }
+  }
+
+  std::map<std::string, int> indeg;
+  for (const auto& n : names) {
+    indeg[n] = 0;
+  }
+  for (const auto& n : names) {
+    for (const auto& m : inner[n]) {
+      indeg[m]++;
+    }
+  }
+
+  // Kahn, picking the LOWEST BAND first (outermost), then declaration
+  // position - so ties break the same way in every port.
+  std::vector<std::string> ready;
+  for (const auto& n : names) {
+    if (0 == indeg[n]) {
+      ready.push_back(n);
+    }
+  }
+
+  std::vector<Ordered> out;
+  while (!ready.empty()) {
+    std::sort(ready.begin(), ready.end(),
+              [&band, &pos](const std::string& a, const std::string& b) {
+                if (band[a] != band[b]) {
+                  return band[a] < band[b];
+                }
+                return pos[a] < pos[b];
+              });
+    std::string n = ready.front();
+    ready.erase(ready.begin());
+
+    Ordered row;
+    row.name = n;
+    row.band = band[n];
+    row.entry = merged.get(n);
+    out.push_back(row);
+
+    for (const auto& m : inner[n]) {
+      if (0 == --indeg[m]) {
+        ready.push_back(m);
+      }
+    }
+  }
+
+  if (out.size() != names.size()) {
+    std::vector<std::string> stuck;
+    for (const auto& n : names) {
+      bool emitted = false;
+      for (const auto& row : out) {
+        if (row.name == n) {
+          emitted = true;
+          break;
+        }
+      }
+      if (!emitted) {
+        stuck.push_back(n);
+      }
+    }
+    std::sort(stuck.begin(), stuck.end());
+    throw StationError("station_feature_order",
+                       "feature ordering constraints form a cycle among [" +
+                           join_strings(stuck, ", ") + "]");
+  }
+
+  return out;
+}
+
+// Station's own position is PINNED and not orderable (design 8.4): an
+// order that moves `station` away from immediately-outside-the-base is
+// REJECTED, not honoured.
+//
+// The pin is INNERMOST, and the spelling matters. A chain composes with
+// the FIRST binding outermost, so a pin written in sort terms -
+// "station first" - would place every other wrapper between the adapter
+// and the base: the exact inversion of the invariant, and one that
+// would leave station's wire-truth events observing the wrong boundary
+// while still looking ordered.
+inline void check_pin(const std::vector<Ordered>& ordered) {
+  int at = -1;
+  int base = -1;
+  for (size_t i = 0; i < ordered.size(); i++) {
+    if (-1 == at && "station" == ordered[i].name) {
+      at = static_cast<int>(i);
+    }
+    if (-1 == base && "test" == ordered[i].name) {
+      base = static_cast<int>(i);
+    }
+  }
+  if (-1 == at) {
+    return;
+  }
+  int want = -1 == base ? static_cast<int>(ordered.size()) - 1 : base - 1;
+  if (at != want) {
+    throw StationError("station_feature_order",
+                       "an ordering would move `station` away from immediately "
+                       "outside the base transport; its position is pinned "
+                       "innermost and is not orderable (design 8.4)");
+  }
+}
+
+// Compose the ordered rows into the ARRAY FORM the generated
+// constructor already accepts. Reserved keys are not options and are
+// never passed through to the SDK's own option map.
+inline Jval compose_features(const std::vector<Ordered>& ordered) {
+  Jval out = Jval::list();
+  for (const auto& row : ordered) {
+    Jval entry = Jval::map();
+    entry.set("name", Jval::str(row.name));
+    entry.set("active", Jval::boolean(true));
+    if (row.entry.ismap()) {
+      for (const auto& kv : row.entry.mval) {
+        const auto& reserved = reserved_keys();
+        if (std::find(reserved.begin(), reserved.end(), kv.first) != reserved.end()) {
+          continue;
+        }
+        entry.set(kv.first, kv.second);
+      }
+    }
+    out.push(entry);
+  }
+  return out;
+}
+
+// The FEATURE kindof of design 8.5 - "map"/"number" where the shape
+// kindof says "object"/"integer". TWO DIFFERENT FUNCTIONS, and
+// unifying them would make one of the two sets of messages wrong.
+inline std::string feature_kindof(const Jval& v) {
+  switch (v.type) {
+    case Jval::Type::Absent:
+    case Jval::Type::Null:
+      return "null";
+    case Jval::Type::List:
+      return "list";
+    case Jval::Type::Num:
+      return "number";
+    case Jval::Type::Map:
+      return "map";
+    case Jval::Type::Bool:
+      return "boolean";
+    case Jval::Type::Str:
+      return "string";
+  }
+  return "null";
+}
+
+// One design 8.5 fault. COLLECTED, never thrown - the callers own the
+// throw.
+struct FeatureFault {
+  std::string code;
+  std::string feature;
+  std::string key;
+  std::string message;
+};
+
+// Check a merged feature map against the SDK'S OWN DECLARATION.
+//
+// The schema arrives with the FACTORY rather than with a live client
+// (design 6.2), so this needs no construction and no network - which is
+// what lets check() run it for every instance in CI.
+//
+// Derived from the descriptor, NEVER hand-written, so it cannot drift:
+// when a feature gains an option, the next regeneration teaches station
+// about it with no station change.
+//
+// SCALARS AGREE BY CONSTRUCTION; COMPOUND OPTIONS ARE KIND-CHECKED
+// ONLY, and that limit is real and deliberate: an empty list default
+// says nothing reliable about its element type and a nested map default
+// says nothing about its value shapes.
+inline std::vector<FeatureFault> check_features(const Jval& merged,
+                                                const Jval& descriptor) {
+  std::vector<FeatureFault> faults;
+
+  std::map<std::string, Jval> byname;
+  std::vector<std::string> declared;
+  Jval features = descriptor.get("features");
+  if (features.islist()) {
+    for (const auto& row : features.lval) {
+      std::string name = scalar_str(row.get("name"));
+      if (0 == byname.count(name)) {
+        declared.push_back(name);
+      }
+      byname[name] = row;
+    }
+  }
+  std::sort(declared.begin(), declared.end());
+
+  for (const auto& name : sorted_keys_of(merged)) {
+    auto found = byname.find(name);
+    if (byname.end() == found) {
+      FeatureFault fault;
+      fault.code = "station_feature_unknown";
+      fault.feature = name;
+      fault.message = "the SDK has no feature \"" + name + "\"; it declares [" +
+                      join_strings(declared, ", ") + "]";
+      faults.push_back(fault);
+      continue;
+    }
+
+    Jval entry = merged.get(name);
+    if (!entry.ismap()) {
+      continue;
+    }
+    Jval defaults = found->second.get("options");
+    if (!defaults.ismap()) {
+      defaults = Jval::map();
+    }
+    const std::vector<std::string> defaultkeys = sorted_keys_of(defaults);
+
+    for (const auto& key : sorted_keys_of(entry)) {
+      const auto& reserved = reserved_keys();
+      if (std::find(reserved.begin(), reserved.end(), key) != reserved.end()) {
+        continue;
+      }
+
+      if (!defaults.has(key)) {
+        // THE CASE THAT ACTUALLY BITES: `retry.retires: 5` is accepted
+        // and silently ignored today, because the SDK's own feature
+        // spec is `$OPEN` per feature so the SDK cannot catch it and
+        // nothing else looks.
+        FeatureFault fault;
+        fault.code = "station_feature_option";
+        fault.feature = name;
+        fault.key = key;
+        fault.message = "feature \"" + name + "\" declares no option \"" + key +
+                        "\"; it declares [" + join_strings(defaultkeys, ", ") + "]";
+        faults.push_back(fault);
+        continue;
+      }
+
+      std::string want = feature_kindof(defaults.get(key));
+      std::string got = feature_kindof(entry.get(key));
+      if (want != got) {
+        FeatureFault fault;
+        fault.code = "station_feature_option";
+        fault.feature = name;
+        fault.key = key;
+        fault.message = "feature \"" + name + "\" option \"" + key + "\" expects " +
+                        want + ", but found " + got + ": " +
+                        canonical_serialize(entry.get(key));
+        faults.push_back(fault);
+      }
+    }
+  }
+
+  return faults;
+}
+
+// The joined messages of a fault list, for the one error a caller
+// raises from them.
+inline std::string fault_messages(const std::vector<FeatureFault>& faults) {
+  std::vector<std::string> parts;
+  for (const auto& fault : faults) {
+    parts.push_back(fault.message);
+  }
+  return join_strings(parts, "; ");
 }
 
 // ---------------------------------------------------------------------
@@ -1077,6 +2689,319 @@ inline ResolvedProfile resolve_profile(const Jval& config, const std::string& pr
   out.api = api;
   out.sdk = sdk;
   return out;
+}
+
+// ---------------------------------------------------------------------
+// The instance ref grammar (design station.md 6.1), pinned by the
+// `instanceref` corpus section.
+//
+//   REF_NAME = ^[a-zA-Z@][a-zA-Z0-9.~_\-/]*$   length 1..1024
+//   REF_TAG  = ^[a-zA-Z0-9.~_-]+$  OR empty    length 0..1024
+//   split on the FIRST `$`, so "a$b$c" is a good name with a bad tag
+//
+// A tag MAY start with a digit, because auto-tagging assigns integer
+// tags, and admits neither `@` nor `/`.
+// ---------------------------------------------------------------------
+
+inline constexpr size_t REF_MAX = 1024;
+
+inline bool check_instance_name(const std::string& name) {
+  if (name.empty() || REF_MAX < name.size()) {
+    return false;
+  }
+  unsigned char first = static_cast<unsigned char>(name[0]);
+  if (!(std::isalpha(first) || '@' == first)) {
+    return false;
+  }
+  for (size_t i = 1; i < name.size(); i++) {
+    unsigned char c = static_cast<unsigned char>(name[i]);
+    if (std::isalnum(c) || '.' == c || '~' == c || '_' == c || '-' == c || '/' == c) {
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
+
+inline bool check_instance_tag(const std::string& tag) {
+  // The empty tag is an ordinary tag: the single-instance case writes
+  // no tag and never learns tags exist.
+  if (tag.empty()) {
+    return true;
+  }
+  if (REF_MAX < tag.size()) {
+    return false;
+  }
+  for (unsigned char c : tag) {
+    if (std::isalnum(c) || '.' == c || '~' == c || '_' == c || '-' == c) {
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
+
+// Validate a ref and return its CANONICAL spelling: a trailing `$` (an
+// empty tag) is never kept, so `stripe$` and `stripe` are ONE registry
+// key rather than two.
+inline std::string check_ref(const std::string& ref) {
+  std::string::size_type cut = ref.find('$');
+  std::string name = refapi(ref);
+  std::string tag = std::string::npos == cut ? "" : ref.substr(cut + 1);
+
+  if (!check_instance_name(name)) {
+    throw StationError("station_instance_api",
+                       "invalid instance name \"" + name + "\" in ref \"" + ref +
+                           "\": a name starts with a letter or `@` and uses "
+                           "`[a-zA-Z0-9.~_-/]`, max 1024 (design 6.1)");
+  }
+  if (!check_instance_tag(tag)) {
+    throw StationError("station_instance_api",
+                       "invalid instance tag \"" + tag + "\" in ref \"" + ref +
+                           "\": a tag uses `[a-zA-Z0-9.~_-]`, max 1024 (design 6.1)");
+  }
+  return tag.empty() ? name : ref;
+}
+
+// `as` is a TAG, not a free name: a ref whose name half is another api
+// is refused rather than quietly denoting some other definition.
+inline void check_api(const std::string& api, const std::string& ref) {
+  std::string named = refapi(ref);
+  if (named == api) {
+    return;
+  }
+  throw StationError("station_instance_api",
+                     "instance \"" + ref + "\" names api \"" + named +
+                         "\", but the SDK passed is api \"" + api +
+                         "\"; `as` is a tag, not a free name (design 6.1)");
+}
+
+// Design 6.1's rule. `instance` wins over `as`; a bare call returns the
+// validated api slug; a `$`-LESS `as` IS ALWAYS A TAG and yields
+// api+"$"+as; a `$`-bearing value is a full ref validated against the
+// api.
+//
+// The `$`-less branch has NO EXCEPTION for "the tag happens to equal
+// the api": design 6.1 says twice and emphatically that `as` is a tag
+// rather than a free name, and a rule with no exceptions is the one
+// that ports the same way sixteen times. Someone who wants the untagged
+// instance passes no `as` at all.
+inline std::string instance_ref(const std::string& api, const Jval& fopts) {
+  Jval explicitref = fopts.get("instance");
+  if (explicitref.isstr() && !explicitref.sval.empty()) {
+    check_api(api, explicitref.sval);
+    return check_ref(explicitref.sval);
+  }
+
+  Jval as = fopts.get("as");
+  if (!as.isstr() || as.sval.empty()) {
+    // The bare fallback is the SLUG - a name, never a ref: a `$` in it
+    // is an invalid name, not an implicit tag.
+    if (check_instance_name(api)) {
+      return api;
+    }
+    throw StationError("station_instance_api",
+                       "invalid instance name \"" + api +
+                           "\": a name starts with a letter or `@` and uses "
+                           "`[a-zA-Z0-9.~_-/]`, max 1024 (design 6.1)");
+  }
+
+  if (std::string::npos == as.sval.find('$')) {
+    return check_ref(api + "$" + as.sval);
+  }
+  check_api(api, as.sval);
+  return check_ref(as.sval);
+}
+
+// ---------------------------------------------------------------------
+// `package`: the validator this port keeps, and the loader it does not
+// (design station.md 6.3, and the non-loader divergence).
+// ---------------------------------------------------------------------
+
+// Only MODULE NAMES, resolved by the host language's ordinary
+// resolution from the application root - never a filesystem path, never
+// a URL, never anything relative.
+//
+// THE SEGMENT CHECK IS NOT OPTIONAL AND IS NOT IMPLIED BY THE PREFIX
+// CHECKS: "pkg/../../escape" starts with neither `.` nor `/`, so a
+// first-character check passes it, and a host that resolved it would
+// reach application-local code from OUTSIDE the named dependency.
+//
+// C++ HAS NO LOADER (see the divergence note on resolve_factory), so
+// this is a pure validator here: it rejects a malformed `package` value
+// with the same station_sdk_load message every loader port raises, and
+// nothing in this port ever imports anything. Kept because it is pure
+// and cheap and because a config shared with a loader port should fail
+// the same way in both.
+inline std::string check_package(const std::string& api, const std::string& pkg) {
+  bool bad = pkg.empty();
+  if (!bad) {
+    bad = '.' == pkg[0] || '/' == pkg[0] || '~' == pkg[0];
+  }
+  if (!bad) {
+    bad = std::string::npos != pkg.find("://") || std::string::npos != pkg.find('\\');
+  }
+  if (!bad) {
+    size_t start = 0;
+    for (size_t i = 0; i <= pkg.size(); i++) {
+      if (i == pkg.size() || '/' == pkg[i]) {
+        std::string seg = pkg.substr(start, i - start);
+        if ("." == seg || ".." == seg) {
+          bad = true;
+          break;
+        }
+        start = i + 1;
+      }
+    }
+  }
+  if (bad) {
+    throw StationError("station_sdk_load",
+                       "api \"" + api +
+                           "\": `package` must be a module name resolved from the "
+                           "application root, not a path or URL: " +
+                           canonical_serialize(Jval::str(pkg)));
+  }
+  return pkg;
+}
+
+// ---------------------------------------------------------------------
+// The factory table (design station.md 6.2)
+//
+// A FACTORY IS A CONSTRUCTOR *PLUS* THE SDK'S STATIC CONFIG, not a bare
+// callable. Station composes the ordered feature array FOR the
+// constructor, so it needs the transport roles and the feature option
+// schemas BEFORE construction - but the adapter builds and registers
+// its descriptor DURING construction, so nothing would be known in
+// time. The generated package emits its config as a module-level
+// constant, which exists as soon as it is linked; station normalizes
+// the descriptor AT PROVIDE TIME and three things follow: the per-api
+// descriptor cache is populated at REGISTRATION rather than on first
+// construction, check() can validate every instance's feature config
+// WITHOUT constructing anything, and the adapter's registration during
+// construction becomes a RECONCILIATION rather than the first sighting.
+//
+// PROCESS-GLOBAL, and station-independent: it holds no configuration,
+// only "here is how to construct this api".
+//
+// THE C++ DIVERGENCE (design 6.2 path 1, and the loader's absence): of
+// the three ways the table gets filled this port offers exactly ONE -
+// `provide`, called by the application (or by a generated SDK's own
+// registrar) before the first `sdk()`. A header-only library vendored
+// into a static C++ SDK has no module-init hook a linker is required to
+// run, and C++ has no import-by-name at run time at all. README.md
+// states it in full.
+// ---------------------------------------------------------------------
+
+// The generated constructor, as station calls it: station-built options
+// in, a client out. The client is `shared_ptr<void>` because a station
+// library cannot name the generated SDK's type - the same opaque
+// identity the binding seam already crosses with. A caller casts:
+// `std::static_pointer_cast<TaskpadSDK>(client)`.
+using ConstructFn = std::function<std::shared_ptr<void>(const Jval& options)>;
+
+// What a generated package (or an application) hands station.
+struct Factory {
+  ConstructFn construct;
+  Jval config;
+};
+
+// One registered api: the factory, plus the descriptor normalized at
+// provide time.
+struct FactoryEntry {
+  std::string api;
+  ConstructFn construct;
+  Jval config;
+  Jval descriptor;
+  std::vector<std::string> warnings;
+};
+
+namespace detail {
+
+inline std::mutex& factory_mutex() {
+  static std::mutex m;
+  return m;
+}
+
+inline std::map<std::string, std::shared_ptr<FactoryEntry>>& factory_table() {
+  static std::map<std::string, std::shared_ptr<FactoryEntry>> table;
+  return table;
+}
+
+// "The same pair", read literally. The dynamic ports compare object
+// identity (`prior.construct === factory.construct`); C++ has no such
+// handle - `std::function` is not equality-comparable and a generated
+// SDK's config constant may be rebuilt per call - so sameness is the
+// same callable TYPE and the same canonical config BYTES. Two
+// registrations that differ in either are two factories.
+inline bool same_factory(const FactoryEntry& prior, const Factory& incoming) {
+  return prior.construct.target_type() == incoming.construct.target_type() &&
+         canonical_serialize(prior.config) == canonical_serialize(incoming.config);
+}
+
+}  // namespace detail
+
+inline std::shared_ptr<const FactoryEntry> factory_for(const std::string& api) {
+  std::lock_guard<std::mutex> lock(detail::factory_mutex());
+  auto& table = detail::factory_table();
+  auto found = table.find(api);
+  return table.end() == found ? nullptr : found->second;
+}
+
+// Register an api's { construct, config } pair.
+//
+// IDEMPOTENT per api: registering the SAME pair twice is a no-op,
+// because a generated SDK's own registrar plus an explicit `provide`
+// for one api is an ordinary thing for an application to end up with. A
+// second registration with a DIFFERENT factory is
+// station_factory_conflict - a process has one build of an SDK, and
+// picking between two silently is not a thing to do quietly.
+inline std::shared_ptr<const FactoryEntry> provide(const std::string& api,
+                                                   const Factory& factory) {
+  std::lock_guard<std::mutex> lock(detail::factory_mutex());
+  auto& table = detail::factory_table();
+
+  auto found = table.find(api);
+  if (table.end() != found) {
+    if (detail::same_factory(*found->second, factory)) {
+      return found->second;
+    }
+    throw StationError("station_factory_conflict",
+                       "two different factories registered for api \"" + api +
+                           "\"; a process has one build of an SDK, and picking "
+                           "between two silently is not a thing to do quietly");
+  }
+
+  // AT PROVIDE TIME, which is the whole point of carrying `config` -
+  // and with NO per-instance features, so the shared value holds only
+  // api-stable metadata.
+  Normalized norm = normalize_descriptor(factory.config, Jval::absent());
+
+  auto entry = std::make_shared<FactoryEntry>();
+  entry->api = api;
+  entry->construct = factory.construct;
+  entry->config = factory.config;
+  entry->descriptor = norm.descriptor;
+  entry->warnings = norm.warnings;
+  table[api] = entry;
+  return entry;
+}
+
+// The api slugs currently registered, sorted.
+inline std::vector<std::string> provided() {
+  std::lock_guard<std::mutex> lock(detail::factory_mutex());
+  std::vector<std::string> out;
+  for (const auto& kv : detail::factory_table()) {
+    out.push_back(kv.first);
+  }
+  std::sort(out.begin(), out.end());
+  return out;
+}
+
+// Test seam. The table is process-global by design, so a suite that
+// registers factories has to be able to put the process back.
+inline void reset_factories() {
+  std::lock_guard<std::mutex> lock(detail::factory_mutex());
+  detail::factory_table().clear();
 }
 
 // ---------------------------------------------------------------------
