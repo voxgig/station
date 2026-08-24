@@ -32,6 +32,7 @@ use warnings;
 
 use File::Basename ();
 use File::Spec ();
+use JSON::PP ();
 use Scalar::Util qw(blessed refaddr);
 use Time::HiRes ();
 
@@ -1319,9 +1320,10 @@ sub check {
     for my $row ( @{ $self->instances } ) {
         next unless $row->{active};
 
-        my $err = do {
+        my $faults;
+        my $ok = do {
             local $@;
-            eval {
+            my $done = eval {
 
                 # 8.5 runs FIRST and needs no construction: the schema
                 # arrives with the factory, not with a live client, so a
@@ -1329,34 +1331,39 @@ sub check {
                 # quietly did nothing in production.
                 my $entry = factory_for( $row->{api} );
                 if ( defined $entry ) {
-                    my $faults = checkfeatures(
+                    my $found = checkfeatures(
                         $self->features_of( $row->{name} )->{merged},
                         $entry->{descriptor} );
-                    if (@$faults) {
-                        push @failed,
-                          {
-                            name    => $row->{name},
-                            code    => $faults->[0]{code},
-                            message => join( '; ', map { $_->{message} } @$faults ),
-                          };
-                        next;
-                    }
+                    $faults = $found if @$found;
                 }
-                $self->sdk( $row->{name} );
-                push @ok, $row->{name};
+                $self->sdk( $row->{name} ) unless defined $faults;
                 1;
-            } ? undef : $@;
+            };
+            $done ? undef : $@;
         };
-        next unless defined $err;
 
-        push @failed,
-          {
-            name    => $row->{name},
-            code    => ( Scalar::Util::blessed($err) && $err->can('code') )
-            ? $err->code
-            : undef,
-            message => "$err",
-          };
+        if ( defined $ok ) {
+            my $err = $ok;
+            push @failed,
+              {
+                name => $row->{name},
+                code => ( blessed($err) && $err->can('code') ) ? $err->code : undef,
+                message => "$err",
+              };
+            next;
+        }
+
+        if ( defined $faults ) {
+            push @failed,
+              {
+                name    => $row->{name},
+                code    => $faults->[0]{code},
+                message => join( '; ', map { $_->{message} } @$faults ),
+              };
+            next;
+        }
+
+        push @ok, $row->{name};
     }
 
     return { ok => \@ok, failed => \@failed };
@@ -1489,8 +1496,20 @@ sub status {
     return {
         mode    => 'solo',
         profile => $self->{profile}{name},
+        # 7.1: the registry is keyed by INSTANCE, so a status page that
+        # projects only `slug` shows two indistinguishable rows for
+        # `stripe$test` and `stripe$live` and omits the names it is keyed
+        # by - an operator cannot tell which one is unhealthy. `slug`
+        # stays for compatibility; `name` and `api` answer the question.
         plugins => [
-            map { { slug => $_->{slug}, rung => $_->{rung} } } @{ $self->plugins }
+            map {
+                {
+                    name => $_->{name},
+                    api  => $_->{api},
+                    slug => $_->{slug},
+                    rung => $_->{rung},
+                }
+            } @{ $self->plugins }
         ],
         events => $self->{buffer}->status,
     };
@@ -1644,6 +1663,19 @@ sub _first_non_empty {
         return $val if defined $val && !ref $val && '' ne $val;
     }
     return undef;
+}
+
+# Exactly boolean false - a JSON::PP boolean or struct's own, never a
+# plain 0. `false === block.active` in the canonical means the value the
+# config file wrote, and a truthiness test here would bar an instance
+# whose `active` happened to be the number 0 from a hand-built config.
+sub _isfalse {
+    my ($val) = @_;
+    return 0 unless defined $val && ref $val;
+    return 0
+      unless JSON::PP::is_bool($val)
+      || 'Voxgig::Struct::Bool' eq ref($val);
+    return $val ? 0 : 1;
 }
 
 # ( host-with-port, hostname, path ) from a URL, core-regex only (URI is
