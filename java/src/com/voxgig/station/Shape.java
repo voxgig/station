@@ -326,7 +326,7 @@ public final class Shape {
     if (!errs.isEmpty() || !scan.invalid.isEmpty()) {
       List<String> all = new ArrayList<>();
       for (Object err : errs) {
-        all.add(String.valueOf(err));
+        all.add(transformnames(String.valueOf(err)));
       }
       all.addAll(scan.invalid);
       throw new StationError("station_config_invalid",
@@ -341,6 +341,37 @@ public final class Shape {
           String.join("; ", scan.secrets));
     }
     return normalized;
+  }
+
+  // A struct-port divergence, narrowed here rather than left to differ.
+  //
+  // The canonical struct lowers every transform-command marker in a `$ONE`
+  // alternatives list by applying /`\$([A-Z]+)`/g GLOBALLY to the joined
+  // description, so a NESTED marker reads `[exact,library]` and
+  // `{write:boolean}`. struct's java port applies the same regex only when
+  // an alternative is ITSELF a whole marker string, so a nested one comes
+  // back as `[`$EXACT`,library]`. The corpus pins the canonical spelling,
+  // and the config grammar is full of nested `$EXACT` and `$CHILD`
+  // alternatives, so the same lowering is applied here to struct's
+  // collected messages.
+  //
+  // Narrow on purpose: it rewrites nothing but a backticked `$NAME`
+  // marker, which is struct's own vocabulary and never a value a config
+  // carries. Filed upstream; this goes when struct's java port lands the
+  // global replace, and until then the java port reports what every other
+  // port reports.
+  private static final Pattern TRANSFORM_NAME = Pattern.compile("`\\$([A-Z]+)`");
+
+  private static String transformnames(String message) {
+    java.util.regex.Matcher matcher = TRANSFORM_NAME.matcher(message);
+    StringBuilder out = new StringBuilder();
+    while (matcher.find()) {
+      matcher.appendReplacement(out,
+          java.util.regex.Matcher.quoteReplacement(
+              matcher.group(1).toLowerCase()));
+    }
+    matcher.appendTail(out);
+    return out.toString();
   }
 
   // Every Number to a double, so `$EXACT` sees one numeric type. Lists and

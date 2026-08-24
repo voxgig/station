@@ -15,7 +15,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.TreeMap;
 import java.util.TreeSet;
 
 @SuppressWarnings({"unchecked"})
@@ -484,11 +483,5 @@ public final class Feature {
       return "string";
     }
     return val.getClass().getSimpleName().toLowerCase();
-  }
-
-  // Sorted view of a map's keys, for the deterministic iteration the
-  // checker's messages depend on.
-  static List<String> sortedkeys(Map<String, Object> map) {
-    return new ArrayList<>(new TreeMap<>(map).keySet());
   }
 }
