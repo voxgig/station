@@ -533,6 +533,22 @@ static bool credentialkey(const char* key) {
   return hit;
 }
 
+/* `key` lower-cased equals `lowerlit` (which must already be lower
+   case). */
+static bool eqlower(const char* key, const char* lowerlit) {
+  size_t i;
+  for (i = 0; '\0' != key[i] && '\0' != lowerlit[i]; i++) {
+    char c = key[i];
+    if (c >= 'A' && c <= 'Z') {
+      c = (char)(c - 'A' + 'a');
+    }
+    if (c != lowerlit[i]) {
+      return false;
+    }
+  }
+  return '\0' == key[i] && '\0' == lowerlit[i];
+}
+
 /* RECURSIVE OVER EVERY NESTED MAP AND LIST, not just the top level - a
  * credential one level down is the case a top-level scan misses. */
 static void scan(const vxstn_val* node, const char* path, vxstn_val* secrets,
@@ -559,8 +575,6 @@ static void scan(const vxstn_val* node, const char* path, vxstn_val* secrets,
     const char* key = node->keys[i];
     const vxstn_val* val = node->vals[i];
     char* kpath = joinpath(path, key);
-    size_t j;
-    bool issecret;
 
     /* Design 8.6: station owns feature composition, so an
      * `options.feature` in a declarative config is a second,
@@ -576,15 +590,9 @@ static void scan(const vxstn_val* node, const char* path, vxstn_val* secrets,
       continue;
     }
 
-    issecret = 6 == strlen(key);
-    for (j = 0; issecret && j < 6; j++) {
-      char c = key[j];
-      if (c >= 'A' && c <= 'Z') {
-        c = (char)(c - 'A' + 'a');
-      }
-      issecret = c == "secret"[j];
-    }
-    if (issecret) {
+    /* The one EXEMPT key, and it is matched case-insensitively because
+       a config writes `Secret` as readily as `secret`. */
+    if (eqlower(key, "secret")) {
       secretvalue(val, kpath, secrets);
       free(kpath);
       continue;
