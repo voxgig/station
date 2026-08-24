@@ -107,15 +107,35 @@ module VoxgigStation
       entities[ename] = { 'fields' => fields, 'ops' => ops }
     end
 
+    # The features list gains `options` and `transport`, because it was
+    # throwing away what the SDK already embeds: `config.feature[name].
+    # options` is the feature's own declared key set WITH TYPED
+    # DEFAULTS, which is the schema design station.md 8.5 validates
+    # against, and `transport` is the role 8.4 orders by.
+    #
+    # Both are already inside the SDK; the descriptor stops discarding
+    # them. ADDITIVE, so descriptor v1 consumers are unaffected and the
+    # `descriptor` corpus section passes unchanged.
+    #
+    # `transport` is CARRIED rather than inferred: the obvious signal, an
+    # empty `hook: {}`, is wrong for station, which both wraps AND
+    # dispatches hooks. Absent until sdkgen emits it, and 8.4's role
+    # checks degrade to nothing until then rather than guessing.
     features = []
     fdefs = config['feature'].is_a?(Hash) ? config['feature'] : {}
     factive = active_features.is_a?(Hash) ? active_features : {}
     fdefs.keys.sort.each do |fname|
+      fdef = fdefs[fname].is_a?(Hash) ? fdefs[fname] : {}
       fopts = factive[fname]
-      features << {
+      row = {
         'name' => fname,
         'active' => fopts.is_a?(Hash) && true == fopts['active'],
       }
+      row['options'] = fdef['options'] if fdef['options'].is_a?(Hash)
+      if !fdef['transport'].nil? && '' != fdef['transport']
+        row['transport'] = fdef['transport'].to_s
+      end
+      features << row
     end
 
     descriptor = {
