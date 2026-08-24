@@ -814,6 +814,19 @@ function solarfactory(): array
     ];
 }
 
+/**
+ * The design 6.3 loader resolves a `package` through CLASS AUTOLOADING,
+ * which is php's ordinary resolution from the application root. This
+ * stands in for composer's PSR-4 map: `test/pkg/solar_sdk.php` is never
+ * required directly, so the loader has to find `Acme\SolarSdk\SDK` the
+ * way php finds any class.
+ */
+spl_autoload_register(function (string $class): void {
+    if (str_starts_with($class, 'Acme\\SolarSdk\\')) {
+        require_once __DIR__ . '/pkg/solar_sdk.php';
+    }
+});
+
 // --- the factory table (station.md 6.2) ---
 
 testcase('provide_is_idempotent_and_a_different_pair_conflicts', function () {
@@ -856,6 +869,38 @@ testcase('factory_from_module_needs_a_constructor_and_a_config', function () {
     ok(($f['construct'])(['feature' => []]) instanceof FakeSDK);
 });
 
+testcase('the_loader_resolves_a_package_through_class_autoloading', function () {
+    $st = new Station(['config' => [
+        'station' => 1,
+        'profiles' => ['default' => [
+            'api' => ['solar' => ['package' => 'acme/solar-sdk']],
+            'sdk' => ['solar' => []],
+        ]],
+    ]]);
+    eq([], provided());
+
+    // No factory registered: `package` closes the loop, and the
+    // constructed client is bound like any other.
+    $client = $st->sdk('solar');
+    ok($client instanceof \Acme\SolarSdk\SDK, 'loaded from the package');
+    eq(['solar'], provided());
+    eq('[station:solar]', $client->client->options['apikey']);
+    eq('solar', $st->plugins()[0]['name']);
+});
+
+testcase('load_preloads_every_declared_active_package', function () {
+    $st = new Station(['config' => [
+        'station' => 1,
+        'profiles' => ['default' => ['sdk' => [
+            'solar' => ['package' => 'acme/solar-sdk'],
+            'solar$off' => ['active' => false, 'package' => 'acme/nope-sdk'],
+        ]]],
+    ]]);
+    // php has one module system and no async, so this is a plain call.
+    $st->load();
+    eq(['solar'], provided());
+});
+
 // --- sdk()/create() (station.md 6.1, 6.5) ---
 
 /** @return array<string, mixed> */
@@ -868,7 +913,8 @@ function solarconfig(array $sdk = ['solar' => []], array $extra = []): array
 }
 
 testcase('sdk_caches_and_create_takes_the_next_free_tag', function () {
-    provide('solar', solarfactory());
+    // The static front door delegates to the one process-global table.
+    Station::provide('solar', solarfactory());
     $st = new Station(['config' => solarconfig()]);
 
     $a = $st->sdk('solar');

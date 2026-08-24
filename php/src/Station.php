@@ -890,7 +890,10 @@ class Station
         }
         $ofeature = is_array(($overrides ?? [])['feature'] ?? null)
             ? $overrides['feature'] : [];
-        $opts['feature'] = array_merge($fmap, $ofeature);
+        foreach ($ofeature as $k => $v) {
+            $fmap[$k] = $v;
+        }
+        $opts['feature'] = $fmap;
 
         // RECORD THE ALIAS, NOT THE FIELDS. Carrying the declared
         // `secret` through the feature options and stopping there leaves
@@ -923,6 +926,12 @@ class Station
 
         // The instance name reaches the adapter the same way it does on
         // the imperative path, so registration has one spelling (7.5).
+        if (!is_callable($entry['construct'] ?? null)) {
+            throw new StationError('station_no_factory',
+                'the factory registered for api "' . $api . '" has no ' .
+                '`construct`; a factory is a constructor PLUS the SDK\'s ' .
+                'static config (6.2)');
+        }
         $client = ($entry['construct'])($this->options($as ?? $name, $with_adapter));
         if (!is_object($client)) {
             throw new StationError('station_no_factory',

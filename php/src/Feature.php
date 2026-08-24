@@ -64,9 +64,15 @@ function merge_features(array $sources): array
                 $out[$name] = $entry;
                 continue;
             }
-            // Per option key, and NOT deeper.
-            $prior = is_map($out[$name] ?? null) ? map_entries($out[$name]) : [];
-            $out[$name] = array_merge($prior, map_entries($entry));
+            // Per option key, and NOT deeper. Assigned key by key
+            // rather than array_merge'd: php's array_merge RENUMBERS
+            // integer-like keys, and a feature option named "0" is a
+            // key like any other.
+            $acc = is_map($out[$name] ?? null) ? map_entries($out[$name]) : [];
+            foreach (map_entries($entry) as $k => $v) {
+                $acc[$k] = $v;
+            }
+            $out[$name] = $acc;
         }
     }
     return $out;
