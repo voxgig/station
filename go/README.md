@@ -82,7 +82,12 @@ names only the remedies Go actually offers; a message pointing a Go user
 at `api.<slug>.package` would send them down a road with no end.
 `Load()` is present and inert, and `Options{Load: &no}` is accepted and
 equally inert. `station_sdk_load` stays in the §14 catalog — it is
-repo-wide — and is never raised here.
+repo-wide — and nothing this port runs raises it. What does survive from
+§6.3 is `station.CheckPackage`, the pure rule for what may appear in that
+key at all (a module name, never a path or a URL, and never a `..`
+segment that walks out of the named dependency); it is exported so a
+Go-side tool can hold a shared `station.json` to the same rule the
+loading ports apply, and it is called from nowhere in this port.
 
 ## Binding
 
@@ -121,6 +126,7 @@ installed.
 | `station/feature.go` | the three-level merge, the constraint-and-band order, the §8.5 checker |
 | `station/factory.go` | the process-global factory table (design §6.2) |
 | `station/instance.go` | the instance ref grammar (design §6.1) |
+| `station/loader.go` | `CheckPackage`, and why §6.3's loader is not here |
 | `station/order.go` | JSON key-declaration order, which a Go map discards |
 | `station/secrets.go` | the broker over [sekreto](https://github.com/voxgig/sekreto) (design §5) |
 | `station/profile.go` | station.json lookup + profile resolution (design §3.5) |

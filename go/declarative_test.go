@@ -741,6 +741,34 @@ func TestPolicyAllowlistReachesTheSDKOptions(t *testing.T) {
 	}
 }
 
+// CheckPackage is the one piece of §6.3 that survives here: pure, and
+// called by nothing this port runs - it exists so a Go-side tool can
+// hold a shared station.json to the same rule the loading ports apply.
+func TestCheckPackageTakesModuleNamesOnly(t *testing.T) {
+	for _, good := range []string{
+		"github.com/acme/stripe-sdk", "@acme-sdk/stripe", "stripe_sdk",
+	} {
+		if _, err := station.CheckPackage("stripe", good); nil != err {
+			t.Fatalf("%q must be accepted: %v", good, err)
+		}
+	}
+
+	for _, bad := range []string{
+		"", "./local", "/abs/path", "~/home", "https://cdn.example/x.js",
+		"c:\\win\\path",
+		// NOT IMPLIED BY THE PREFIX CHECKS: this starts with neither `.`
+		// nor `/`, and a host resolving it walks out of the named
+		// dependency into application-local code.
+		"pkg/../../escape",
+	} {
+		_, err := station.CheckPackage("stripe", bad)
+		serr := expectCode(t, "station_sdk_load", err)
+		if !strings.Contains(serr.Message, "module name") {
+			t.Fatalf("message for %q: %v", bad, serr)
+		}
+	}
+}
+
 func toFloat(val any) float64 {
 	switch n := val.(type) {
 	case float64:
