@@ -4,7 +4,6 @@
 package station
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"sort"
@@ -52,19 +51,59 @@ func FindConfigFile(from string) string {
 // LoadConfig reads the nearest station.json. nil (no error) when there is
 // no config file at all.
 func LoadConfig(from string) (map[string]any, error) {
+	config, _, err := LoadConfigOrder(from)
+	return config, err
+}
+
+// LoadConfigOrder is LoadConfig plus the config's KEY DECLARATION ORDER,
+// which §8.4 needs as the last tie-break of the feature order and which
+// a Go map cannot keep (see order.go). Station reads this one; LoadConfig
+// stays for callers that only want the data.
+func LoadConfigOrder(from string) (map[string]any, *Order, error) {
 	file := FindConfigFile(from)
 	if "" == file {
-		return nil, nil
+		return nil, nil, nil
 	}
 	text, err := os.ReadFile(file)
 	if nil != err {
-		return nil, err
+		return nil, nil, err
 	}
-	var config map[string]any
-	if err := json.Unmarshal(text, &config); nil != err {
-		return nil, err
+	// A file that is not JSON is a config error, not a raw parse error
+	// escaping Open(): the reader found station.json and could not use
+	// it, which is exactly what station_config_invalid exists to say.
+	parsed, order, err := ParseOrdered(text)
+	if nil != err {
+		return nil, nil, fail("station_config_invalid",
+			"station.json at "+file+" is not valid JSON: "+err.Error())
 	}
-	return config, nil
+	config, is := parsed.(map[string]any)
+	if !is {
+		// Not a map: hand it on as an empty config and let ValidateConfig
+		// reject the raw value by path, the same way every other
+		// wrong-kind node is handled (§4.2, defensively).
+		return nil, order, nil
+	}
+	return config, order, nil
+}
+
+// ConfigScope reports which side of the review boundary the discovered
+// config came from (§6.3).
+//
+// `package` and `export` are honoured only from REPO-SCOPED config,
+// because a user-level file is outside the repo's review boundary and a
+// `package` key arriving from it names code to import. Everything else
+// in a user-level config still applies - this narrows one key rather
+// than distrusting the file.
+func ConfigScope(from string) string {
+	file := FindConfigFile(from)
+	if "" == file {
+		return "none"
+	}
+	home, err := os.UserHomeDir()
+	if nil == err && file == filepath.Join(home, ".voxgig", "station.json") {
+		return "user"
+	}
+	return "repo"
 }
 
 // SelectProfile picks the profile name: the Open() option, else
@@ -98,15 +137,12 @@ type ResolvedProfile struct {
 	Sdk map[string]map[string]any
 }
 
-// blockDefaults is the one table applied AFTER the merge, never before
-// (§3.3, §4.2). `active` is the key carrying that timing rule.
-func blockDefaults() map[string]any {
-	return map[string]any{"active": true, "feature": map[string]any{}}
-}
-
-// MergeSensitive names the block key that must not be materialized
-// before the profile merge.
-var MergeSensitive = []string{"active"}
+// The block defaults are ONE table with TWO CALLERS AT DIFFERENT
+// MOMENTS (shape.go BlockDefaults): ValidateConfig applies them BEFORE,
+// to every block, because a block with no present keys is an open map;
+// the resolver below applies them AFTER, to the merged instance, because
+// an absent key must stay absent through the merge. MergeSensitive names
+// the key carrying that timing rule.
 
 // RefApi returns the api half of a ref: the substring before the first
 // `$`. An untagged ref IS an api slug (§3.4).
@@ -205,9 +241,10 @@ func ResolveProfile(config map[string]any, profileName string) (*ResolvedProfile
 		// the overlay block carried a synthesized `active` into the
 		// merge, a one-key environment override would silently re-enable
 		// an integration the base declared inactive.
-		for k, v := range blockDefaults() {
+		defaults := BlockDefaults()
+		for _, k := range defaultkeys(defaults) {
 			if _, has := merged[k]; !has {
-				merged[k] = v
+				merged[k] = defaults[k]()
 			}
 		}
 

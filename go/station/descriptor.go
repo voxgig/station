@@ -172,6 +172,20 @@ func NormalizeDescriptor(config map[string]any, activeFeatures map[string]any) (
 		entities[ename] = map[string]any{"fields": fields, "ops": ops}
 	}
 
+	// §8.5: the features list gains `options` and `transport`, because it
+	// was throwing away what the SDK already embeds -
+	// `config.feature[name].options` is the feature's own declared key
+	// set WITH TYPED DEFAULTS, which is the schema §8.5 validates
+	// against, and `transport` is the role §8.4 orders by.
+	//
+	// Both are already inside the SDK; the descriptor stops discarding
+	// them. ADDITIVE, so descriptor v1 consumers are unaffected and the
+	// `descriptor` corpus section still passes unchanged.
+	//
+	// `transport` is CARRIED rather than inferred: the obvious signal, an
+	// empty `hook: {}`, is wrong for station, which both wraps AND
+	// dispatches hooks. Absent until sdkgen emits it, and §8.4's role
+	// checks degrade to nothing until then rather than guessing.
 	features := []any{}
 	fdefs := asMap(config["feature"])
 	for _, fname := range sortedKeys(fdefs) {
@@ -179,7 +193,17 @@ func NormalizeDescriptor(config map[string]any, activeFeatures map[string]any) (
 		if fopts := asMap(activeFeatures[fname]); nil != fopts {
 			active = true == fopts["active"]
 		}
-		features = append(features, map[string]any{"name": fname, "active": active})
+		row := map[string]any{"name": fname, "active": active}
+		fdef := asMap(fdefs[fname])
+		if fopts, is := fdef["options"].(map[string]any); is {
+			row["options"] = fopts
+		}
+		if transport, has := fdef["transport"]; has && nil != transport {
+			if text := fmt.Sprint(transport); "" != text {
+				row["transport"] = text
+			}
+		}
+		features = append(features, row)
 	}
 
 	descriptor := map[string]any{
