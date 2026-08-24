@@ -40,6 +40,32 @@ const (
 	// tap consumer drops (counted), never blocks ingest (§6: events
 	// never delay an operation).
 	DefaultTapBuffer = 256
+
+	// DefaultForwardBodyLimit is §8.5's /v1/forward request-body limit:
+	// 32 MB, with a structured station_body_limit beyond it. Streaming
+	// uploads are an open question (§18); v1 buffers.
+	DefaultForwardBodyLimit = 32 << 20
+
+	// DefaultCaptureMaxEntries / DefaultCaptureMaxBytes bound the capture
+	// store: §8.5's 10k entries / 256 MB LRU.
+	DefaultCaptureMaxEntries = 10000
+	DefaultCaptureMaxBytes   = 256 << 20
+
+	// DefaultCaptureBodyLimit is §8.5's capture-body truncation point:
+	// `capture: full` bodies are cut at 64 KB with a truncated marker.
+	DefaultCaptureBodyLimit = 64 << 10
+
+	// DefaultGrantTTL is §5.3's grant lifetime: 15m, renewed by
+	// re-registration (§3.4).
+	DefaultGrantTTL = 15 * time.Minute
+
+	// DefaultPolicyPollTimeout bounds the GET /v1/policy/{ref} long-poll:
+	// hold until the policy version changes or this long, then answer
+	// with the current view.
+	DefaultPolicyPollTimeout = 25 * time.Second
+
+	// DefaultUpstreamTimeout caps one /v1/forward upstream exchange.
+	DefaultUpstreamTimeout = 30 * time.Second
 )
 
 // Config carries the daemon's tunables. The zero value is usable:
@@ -61,6 +87,32 @@ type Config struct {
 	EventsBodyLimit   int64
 	EventLineLimit    int
 	TapBuffer         int
+
+	// StationConfigPath is the proxy-side station.json (§8.3: the proxy
+	// loads profiles ITSELF and derives policy from them, never from
+	// registrations). Empty means no proxy-side config: everything stays
+	// pending until explicitly approved. main resolves the default via
+	// FindStationConfig (cwd upward, then ~/.voxgig/station.json);
+	// --config overrides, which is also the test seam.
+	StationConfigPath string
+
+	// Profile selects the station.json profile (default "default"; main
+	// honors VOXGIG_STATION_PROFILE with the --profile flag winning).
+	Profile string
+
+	// StatePath is the approval-state file (§8.3): the blessed
+	// base/hosts/name triples - NEVER secret values - persisted beside
+	// the token file so approvals survive restart. Empty disables
+	// persistence (in-memory approvals only).
+	StatePath string
+
+	ForwardBodyLimit  int64
+	CaptureMaxEntries int
+	CaptureMaxBytes   int64
+	CaptureBodyLimit  int
+	GrantTTL          time.Duration
+	PolicyPollTimeout time.Duration
+	UpstreamTimeout   time.Duration
 
 	// Now is the clock; tests inject a fake. Defaults to time.Now.
 	Now func() time.Time
@@ -87,6 +139,30 @@ func (c Config) withDefaults() Config {
 	}
 	if c.TapBuffer <= 0 {
 		c.TapBuffer = DefaultTapBuffer
+	}
+	if c.ForwardBodyLimit <= 0 {
+		c.ForwardBodyLimit = DefaultForwardBodyLimit
+	}
+	if c.CaptureMaxEntries <= 0 {
+		c.CaptureMaxEntries = DefaultCaptureMaxEntries
+	}
+	if c.CaptureMaxBytes <= 0 {
+		c.CaptureMaxBytes = DefaultCaptureMaxBytes
+	}
+	if c.CaptureBodyLimit <= 0 {
+		c.CaptureBodyLimit = DefaultCaptureBodyLimit
+	}
+	if c.GrantTTL <= 0 {
+		c.GrantTTL = DefaultGrantTTL
+	}
+	if c.PolicyPollTimeout <= 0 {
+		c.PolicyPollTimeout = DefaultPolicyPollTimeout
+	}
+	if c.UpstreamTimeout <= 0 {
+		c.UpstreamTimeout = DefaultUpstreamTimeout
+	}
+	if c.Profile == "" {
+		c.Profile = "default"
 	}
 	if c.Now == nil {
 		c.Now = time.Now

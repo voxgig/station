@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -38,6 +39,11 @@ type Server struct {
 	ring     *Ring
 	hub      *Hub
 	sessions *Sessions
+	policy   *PolicyStore
+	grants   *Grants
+	broker   *broker
+	captures *CaptureStore
+	upstream *http.Client
 
 	// allowedHosts is the §8.1 DNS-rebinding allowlist, derived from the
 	// bound address: exact Host header values (and Origin authorities)
@@ -48,9 +54,31 @@ type Server struct {
 }
 
 // NewServer builds the daemon handler. cfg.Listen must be the actual
-// bound address (it seeds the Host/Origin allowlist).
-func NewServer(cfg Config, token string) *Server {
+// bound address (it seeds the Host/Origin allowlist). It loads the
+// proxy-side station.json (cfg.StationConfigPath), the approval state
+// (cfg.StatePath), and builds the proxy's own sekreto chain from the
+// selected profile's providers (§8.3) - failures here are startup
+// failures, not per-request surprises.
+func NewServer(cfg Config, token string) (*Server, error) {
 	cfg = cfg.withDefaults()
+
+	stationCfg, err := loadStationConfig(cfg.StationConfigPath, cfg.Profile)
+	if err != nil {
+		return nil, err
+	}
+	policy, err := NewPolicyStore(stationCfg, cfg.StatePath, cfg.Now)
+	if err != nil {
+		return nil, err
+	}
+	var providers []any
+	if stationCfg != nil {
+		providers = stationCfg.Providers
+	}
+	brk, err := newBroker(providers)
+	if err != nil {
+		return nil, err
+	}
+
 	s := &Server{
 		cfg:          cfg,
 		token:        token,
@@ -58,9 +86,14 @@ func NewServer(cfg Config, token string) *Server {
 		ring:         NewRing(cfg.RingCapacity),
 		hub:          NewHub(cfg.TapBuffer),
 		sessions:     NewSessions(cfg.SessionTTL, cfg.Now),
+		policy:       policy,
+		grants:       NewGrants(cfg.GrantTTL, cfg.Now),
+		broker:       brk,
+		captures:     NewCaptureStore(cfg.CaptureMaxEntries, cfg.CaptureMaxBytes),
+		upstream:     newUpstreamClient(cfg.UpstreamTimeout),
 		allowedHosts: allowedHostSet(cfg.Listen),
 	}
-	return s
+	return s, nil
 }
 
 // allowedHostSet computes the exact Host values a request may carry. A
@@ -170,21 +203,46 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	switch r.URL.Path {
-	case "/v1/register":
+	switch {
+	case r.URL.Path == "/v1/register":
 		s.route(w, r, http.MethodPost, s.handleRegister)
-	case "/v1/session":
+	case r.URL.Path == "/v1/session":
 		s.route(w, r, http.MethodDelete, s.handleSessionDelete)
-	case "/v1/events":
+	case r.URL.Path == "/v1/events":
 		s.route(w, r, http.MethodPost, s.handleEvents)
-	case "/v1/tap":
+	case r.URL.Path == "/v1/forward":
+		s.route(w, r, http.MethodPost, s.handleForward)
+	case r.URL.Path == "/v1/tap":
 		s.route(w, r, http.MethodGet, s.handleTap)
-	case "/v1/status":
+	case r.URL.Path == "/v1/status":
 		s.route(w, r, http.MethodGet, s.handleStatus)
+	case strings.HasPrefix(r.URL.Path, "/v1/approve/"):
+		s.routeRef(w, r, http.MethodPost, "/v1/approve/", s.handleApprove)
+	case strings.HasPrefix(r.URL.Path, "/v1/grants/"):
+		s.routeRef(w, r, http.MethodDelete, "/v1/grants/", s.handleGrantRevoke)
+	case strings.HasPrefix(r.URL.Path, "/v1/policy/"):
+		s.routeRef(w, r, http.MethodGet, "/v1/policy/", s.handlePolicy)
 	default:
 		writeError(w, http.StatusNotFound, CodeNoRoute,
 			fmt.Sprintf("unknown path %q", r.URL.Path))
 	}
+}
+
+// routeRef dispatches a /v1/<verb>/{ref} path, handing the handler the
+// instance ref (D-2026-08-24-1: grants and policy address instances).
+func (s *Server) routeRef(w http.ResponseWriter, r *http.Request, method string, prefix string, h func(http.ResponseWriter, *http.Request, string)) {
+	if r.Method != method {
+		writeError(w, http.StatusMethodNotAllowed, CodeNoRoute,
+			fmt.Sprintf("use %s %s{ref}", method, prefix))
+		return
+	}
+	ref := strings.TrimPrefix(r.URL.Path, prefix)
+	if ref == "" || strings.Contains(ref, "/") {
+		writeError(w, http.StatusNotFound, CodeNoRoute,
+			fmt.Sprintf("unknown path %q", r.URL.Path))
+		return
+	}
+	h(w, r, ref)
 }
 
 func (s *Server) route(w http.ResponseWriter, r *http.Request, method string, h func(http.ResponseWriter, *http.Request)) {
@@ -237,6 +295,10 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 type registerRequest struct {
 	Descriptor json.RawMessage `json:"descriptor"`
 	Process    Process         `json:"process"`
+	// Instance is the ref this registration binds (`name$tag`); an
+	// untagged ref is the api slug and the default is the descriptor's
+	// slug, so single-instance clients need not send it (§3.2).
+	Instance string `json:"instance"`
 	// Identity is reserved (§8.2): accepted on wire v1, ignored by a
 	// local proxy (§8.4; D-2026-08-24-2 - no per-principal state in v1).
 	Identity json.RawMessage `json:"identity"`
@@ -276,22 +338,42 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	// re-registrations (§3.4), not the §4 canonical-form hash.
 	sum := sha256.Sum256(req.Descriptor)
 
+	ref := req.Instance
+	if ref == "" {
+		ref = pluginLabel(req.Descriptor)
+	}
+
 	sess := s.sessions.Register(
-		pluginLabel(req.Descriptor), req.Process, req.Descriptor,
+		ref, req.Process, req.Descriptor,
 		hex.EncodeToString(sum[:]), req.Identity)
 
-	// The binding (§3.1) will carry resolved base/server variables, the
-	// credential plan and effective policy once the proxy-side policy
-	// authority (§8.3) and grants (§5.3) phases land; until then it
-	// carries what this phase can honestly assert.
+	// The binding (§3.1) reports the proxy-side effective policy for
+	// this instance (§8.3: derived from the proxy's OWN config and
+	// approvals, never from the registration). A pending instance gets
+	// exactly what §8.3 grants it: capture and library-resolved traffic.
+	eff := s.policy.EffectiveFor(ref)
+	binding := map[string]any{
+		"state":      eff.State,
+		"capture":    eff.Capture,
+		"resolve":    eff.Resolve,
+		"protocol":   Protocol,
+		"ttlSeconds": int(s.sessions.TTL().Seconds()),
+	}
+	if eff.State == StateApproved {
+		binding["hosts"] = narrowHosts(eff.Hosts, descriptorBase(req.Descriptor))
+		binding["secret"] = eff.Secret // the NAME (§4 Binding.secretname), never a value
+		if eff.Resolve == "proxy" {
+			// R2 (§5.3, D-2026-08-24-1): a per-INSTANCE grant, bound to
+			// this session, TTL'd, renewed by re-registration (§3.4).
+			grant := s.grants.Issue(ref, sess.ID, eff.Secret)
+			binding["grant"] = grant.Token
+			binding["grantTtlSeconds"] = int(s.grants.TTL().Seconds())
+		}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"session": sess.ID,
-		"binding": map[string]any{
-			"state":      sess.State,
-			"capture":    "meta", // §6 default capture depth
-			"protocol":   Protocol,
-			"ttlSeconds": int(s.sessions.TTL().Seconds()),
-		},
+		"binding": binding,
 	})
 }
 
@@ -444,6 +526,86 @@ func (s *Server) handleTap(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleApprove implements POST /v1/approve/{ref} - the HTTP surface
+// under the `voxgig-station approve` CLI verb (§8.3): an explicit human
+// decision blesses the base/hosts/name triple, upgrading the instance
+// from pending. The hosts default may come from the proxy-side view of
+// a live registration's descriptor base (§16) when config declares
+// neither hosts nor base.
+func (s *Server) handleApprove(w http.ResponseWriter, r *http.Request, ref string) {
+	approval, err := s.policy.Approve(ref, s.sessions.LatestDescriptorBase(ref))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, CodeConfigInvalid, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "approval": approval})
+}
+
+// handleGrantRevoke implements DELETE /v1/grants/{ref} (§5.3,
+// D-2026-08-24-1): revocation is per instance and never touches
+// siblings on the same api. It counts as a policy update, so
+// long-pollers wake.
+func (s *Server) handleGrantRevoke(w http.ResponseWriter, r *http.Request, ref string) {
+	revoked := s.grants.RevokeRef(ref)
+	s.policy.Bump(ref)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "revoked": revoked})
+}
+
+// policyView is the wire shape of GET /v1/policy/{ref}. Names only,
+// never values (§7: secrets are structurally invisible on every
+// observability surface).
+func policyView(eff Effective) map[string]any {
+	view := map[string]any{
+		"ref":     eff.Ref,
+		"version": eff.Version,
+		"state":   eff.State,
+		"covered": eff.Covered,
+		"resolve": eff.Resolve,
+		"capture": eff.Capture,
+	}
+	if eff.State == StateApproved {
+		view["hosts"] = eff.Hosts
+		view["secret"] = eff.Secret
+		if eff.Base != "" {
+			view["base"] = eff.Base
+		}
+		if eff.Approved != nil {
+			view["approvedAt"] = eff.Approved.ApprovedAt
+		}
+	}
+	return view
+}
+
+// handlePolicy implements GET /v1/policy/{ref} (§8.2): the current
+// policy view, as a long-poll - a caller that passes ?version=<seen>
+// is held until the version changes or the poll timeout (default 25s)
+// passes, then answered with the current view either way.
+func (s *Server) handlePolicy(w http.ResponseWriter, r *http.Request, ref string) {
+	eff := s.policy.EffectiveFor(ref)
+	if vq := r.URL.Query().Get("version"); vq != "" {
+		since, err := strconv.Atoi(vq)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, CodeForwardInvalid,
+				"version must be an integer")
+			return
+		}
+		var ch <-chan struct{}
+		eff, ch = s.policy.WaitChan(ref, since)
+		if ch != nil {
+			timer := time.NewTimer(s.cfg.PolicyPollTimeout)
+			defer timer.Stop()
+			select {
+			case <-ch:
+			case <-timer.C:
+			case <-r.Context().Done():
+				return
+			}
+			eff = s.policy.EffectiveFor(ref)
+		}
+	}
+	writeJSON(w, http.StatusOK, policyView(eff))
+}
+
 // handleStatus implements GET /v1/status: sessions and registered
 // plugins with their state, ring fill, bounds, uptime (§8.5: bounds are
 // visible in status; §3.4: liveness shown is truthful - expired sessions
@@ -473,10 +635,14 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	byPlugin := map[string]*pluginView{}
 	pluginOrder := []string{}
 	for _, sess := range sessions {
+		// State is computed from the policy authority at report time
+		// (§8.3): approval - and a triple change re-entering pending -
+		// applies to live sessions immediately.
+		state := s.policy.EffectiveFor(sess.Plugin).State
 		sessViews = append(sessViews, sessionView{
 			Session:          sess.ID,
 			Plugin:           sess.Plugin,
-			State:            sess.State,
+			State:            state,
 			Process:          sess.Proc,
 			RegisteredAt:     sess.RegisteredAt.UTC().Format(time.RFC3339),
 			LastSeen:         sess.LastSeen.UTC().Format(time.RFC3339),
@@ -486,7 +652,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		})
 		pv, ok := byPlugin[sess.Plugin]
 		if !ok {
-			pv = &pluginView{Plugin: sess.Plugin, State: sess.State}
+			pv = &pluginView{Plugin: sess.Plugin, State: state}
 			byPlugin[sess.Plugin] = pv
 			pluginOrder = append(pluginOrder, sess.Plugin)
 		}
@@ -498,6 +664,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tapSubs, tapDropped := s.hub.Stats()
+	configFile, profile, covered, approved := s.policy.Snapshot()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":            true,
 		"version":       Version,
@@ -512,13 +679,28 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 			"tapSubscribers": tapSubs,
 			"tapDropped":     tapDropped,
 		},
+		"captures": s.captures.Stats(),
+		"grants":   map[string]any{"active": s.grants.Active()},
+		"policy": map[string]any{
+			"configFile": configFile,
+			"profile":    profile,
+			"covered":    covered,
+			"approved":   approved,
+		},
 		"bounds": map[string]any{
-			"ringCapacity":      s.cfg.RingCapacity,
-			"sessionTtlSeconds": int(s.cfg.SessionTTL.Seconds()),
-			"registerBodyBytes": s.cfg.RegisterBodyLimit,
-			"eventsBodyBytes":   s.cfg.EventsBodyLimit,
-			"eventLineBytes":    s.cfg.EventLineLimit,
-			"tapBufferEvents":   s.cfg.TapBuffer,
+			"ringCapacity":       s.cfg.RingCapacity,
+			"sessionTtlSeconds":  int(s.cfg.SessionTTL.Seconds()),
+			"registerBodyBytes":  s.cfg.RegisterBodyLimit,
+			"eventsBodyBytes":    s.cfg.EventsBodyLimit,
+			"eventLineBytes":     s.cfg.EventLineLimit,
+			"tapBufferEvents":    s.cfg.TapBuffer,
+			"forwardBodyBytes":   s.cfg.ForwardBodyLimit,
+			"captureMaxEntries":  s.cfg.CaptureMaxEntries,
+			"captureMaxBytes":    s.cfg.CaptureMaxBytes,
+			"captureBodyBytes":   s.cfg.CaptureBodyLimit,
+			"grantTtlSeconds":    int(s.cfg.GrantTTL.Seconds()),
+			"policyPollSeconds":  int(s.cfg.PolicyPollTimeout.Seconds()),
+			"upstreamTimeoutSec": int(s.cfg.UpstreamTimeout.Seconds()),
 		},
 	})
 }

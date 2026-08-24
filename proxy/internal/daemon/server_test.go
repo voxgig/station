@@ -45,15 +45,28 @@ func (c *fakeClock) Advance(d time.Duration) {
 // main.go follows: Config.Listen is the bound address).
 func newTestProxy(t *testing.T, mut func(*Config)) *httptest.Server {
 	t.Helper()
+	ts, _ := newTestProxyServer(t, mut)
+	return ts
+}
+
+// newTestProxyServer additionally exposes the *Server for white-box
+// assertions (the capture store's "secret bytes appear nowhere"
+// guarantee is checked against the store itself).
+func newTestProxyServer(t *testing.T, mut func(*Config)) (*httptest.Server, *Server) {
+	t.Helper()
 	ts := httptest.NewUnstartedServer(nil)
 	cfg := Config{Listen: ts.Listener.Addr().String()}
 	if mut != nil {
 		mut(&cfg)
 	}
-	ts.Config.Handler = NewServer(cfg, testToken)
+	srv, err := NewServer(cfg, testToken)
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	ts.Config.Handler = srv
 	ts.Start()
 	t.Cleanup(ts.Close)
-	return ts
+	return ts, srv
 }
 
 // call issues one request with valid protocol + auth headers by default;

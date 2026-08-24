@@ -30,15 +30,23 @@ import (
 //     grammar and are candidates for the catalog - see README "Error
 //     codes".
 const (
-	// Catalog codes (error.ts; reserved for the proxy in §14).
-	CodeProtocol  = "station_protocol"   // wire/descriptor version rejected (§8.6)
-	CodeBodyLimit = "station_body_limit" // request body over the configured limit (§8.5)
+	// Catalog codes (error.ts; §14 - the proxy raises its reserved set
+	// plus the secret/host/config codes it now shares with the library).
+	CodeProtocol      = "station_protocol"        // wire/descriptor version rejected (§8.6)
+	CodeBodyLimit     = "station_body_limit"      // request body over the configured limit (§8.5)
+	CodeHostAllow     = "station_host_allow"      // egress denied by the hosts policy (§16)
+	CodeGrantExpired  = "station_grant_expired"   // grant expired/revoked/unknown; re-register (§5.3)
+	CodeSecretNoValue = "station_secret_no_value" // the chain ran and no store had the name (§5.2)
+	CodeSecretError   = "station_secret_error"    // a store could not answer; sekreto's message intact (§5.2)
+	CodeConfigInvalid = "station_config_invalid"  // proxy-side config cannot support the request (§8.3 approve)
 
 	// Transport codes (daemon boundary; not yet in the shared catalog).
 	CodeTokenAllow      = "station_token_allow"      // bearer token missing or wrong (§8.1)
 	CodeOriginAllow     = "station_origin_allow"     // Host/Origin validation failed (§8.1)
 	CodeNoSession       = "station_no_session"       // unknown or expired session (§3.4)
 	CodeRegisterInvalid = "station_register_invalid" // malformed /v1/register body (§8.2)
+	CodeForwardInvalid  = "station_forward_invalid"  // malformed /v1/forward envelope (§8.2)
+	CodeUpstream        = "station_upstream"         // upstream unreachable/failed before a response
 	CodeNoRoute         = "station_no_route"         // unknown path or method
 )
 

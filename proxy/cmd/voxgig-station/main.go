@@ -19,6 +19,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -69,6 +70,12 @@ func runCmd(args []string) error {
 	tokenFile := fs.String("token-file", "", "token file path (default ~/.voxgig/station/token)")
 	sessionTTL := fs.Duration("session-ttl", daemon.DefaultSessionTTL, "session liveness TTL")
 	ringCap := fs.Int("ring", daemon.DefaultRingCapacity, "event ring capacity (entries)")
+	configPath := fs.String("config", "", "proxy-side station.json (default: cwd-up lookup, then ~/.voxgig/station.json)")
+	profile := fs.String("profile", "", "station.json profile (default: VOXGIG_STATION_PROFILE, else \"default\")")
+	stateFile := fs.String("state-file", "", "approval state file (default: approvals.json beside the token file)")
+	grantTTL := fs.Duration("grant-ttl", daemon.DefaultGrantTTL, "R2 grant TTL")
+	captureEntries := fs.Int("capture-entries", daemon.DefaultCaptureMaxEntries, "capture store entry bound")
+	captureBytes := fs.Int64("capture-bytes", daemon.DefaultCaptureMaxBytes, "capture store byte bound")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -101,19 +108,47 @@ func runCmd(args []string) error {
 		return err
 	}
 
+	// §8.3: the proxy loads its OWN station.json - same lookup the
+	// libraries use (cwd upward to the repo root, then
+	// ~/.voxgig/station.json), with --config overriding.
+	cfgPath := *configPath
+	if cfgPath == "" {
+		cfgPath = daemon.FindStationConfig("")
+	}
+	profileName := *profile
+	if profileName == "" {
+		profileName = os.Getenv("VOXGIG_STATION_PROFILE")
+	}
+	// Approval state lives beside the token file (§8.3): triples only,
+	// never values.
+	statePath := *stateFile
+	if statePath == "" {
+		statePath = filepath.Join(filepath.Dir(tokenPath), "approvals.json")
+	}
+
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("cannot listen on %s: %w", addr, err)
 	}
 
-	srv := daemon.NewServer(daemon.Config{
+	srv, err := daemon.NewServer(daemon.Config{
 		// The resolved address, so a ":0" bind still yields a correct
 		// Host/Origin allowlist.
-		Listen:       ln.Addr().String(),
-		TokenPath:    tokenPath,
-		SessionTTL:   *sessionTTL,
-		RingCapacity: *ringCap,
+		Listen:            ln.Addr().String(),
+		TokenPath:         tokenPath,
+		SessionTTL:        *sessionTTL,
+		RingCapacity:      *ringCap,
+		StationConfigPath: cfgPath,
+		Profile:           profileName,
+		StatePath:         statePath,
+		GrantTTL:          *grantTTL,
+		CaptureMaxEntries: *captureEntries,
+		CaptureMaxBytes:   *captureBytes,
 	}, token)
+	if err != nil {
+		ln.Close()
+		return err
+	}
 
 	httpSrv := &http.Server{
 		Handler:           srv,

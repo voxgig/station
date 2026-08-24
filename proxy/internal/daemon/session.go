@@ -9,15 +9,11 @@ import (
 	"time"
 )
 
-// Registration state (§8.3). With no proxy-side policy authority in this
-// phase (no proxy-loaded profiles, no `voxgig-station approve`), every
-// registration parks in "pending": registered, visible in status,
-// capture and library-resolved traffic working - but nothing proxy-side
-// is derived from the descriptor. There is deliberately no first-seen
-// shortcut; "approved" arrives with the policy-authority phase.
-const (
-	StatePending = "pending"
-)
+// Registration state lives with the policy authority (policy.go): a
+// session's pending/approved state is COMPUTED from the proxy-side
+// policy store at each use, never stored here - approval and
+// triple-change-re-enters-pending (§8.3) must apply to live sessions
+// immediately.
 
 // Process is the self-reported process identity from /v1/register
 // (§8.2). Observability only - like the descriptor it is untrusted
@@ -31,9 +27,13 @@ type Process struct {
 // Session is one registration (§3.4: one register call, one session; a
 // re-registration is a new session).
 type Session struct {
-	ID     string
-	Plugin string // display label, best-effort from the untrusted descriptor
-	State  string
+	ID string
+	// Plugin is the instance ref this registration bound (`name$tag`;
+	// an untagged ref is the api slug, §3.2). Client-claimed - policy
+	// keyed by it stays safe because which secret a ref resolves and
+	// which hosts it may reach come from PROXY-side config (§8.3), and
+	// local v1 is single-team by policy (D-2026-08-24-2).
+	Plugin string
 	Proc   Process
 
 	// Descriptor is stored verbatim (§8.3: untrusted input, kept for
@@ -90,7 +90,6 @@ func (s *Sessions) Register(plugin string, proc Process, descriptor json.RawMess
 	sess := &Session{
 		ID:            newID(),
 		Plugin:        plugin,
-		State:         StatePending,
 		Proc:          proc,
 		Descriptor:    descriptor,
 		DescriptorSHA: descriptorSHA,
@@ -123,6 +122,41 @@ func (s *Sessions) Touch(id string) bool {
 	}
 	sess.LastSeen = now
 	return true
+}
+
+// Get returns a copy of a live session without touching liveness.
+func (s *Sessions) Get(id string) (Session, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sess, ok := s.m[id]
+	if !ok || s.expiredLocked(sess, s.now()) {
+		return Session{}, false
+	}
+	return *sess, true
+}
+
+// LatestDescriptorBase returns the base URL claimed by the most recent
+// live registration of ref - the proxy-side view of the descriptor,
+// used only for the approve-time hosts default (§16) and narrowing
+// (§8.3), where untrusted input may act because it can only narrow.
+func (s *Sessions) LatestDescriptorBase(ref string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := s.now()
+	base := ""
+	var latest time.Time
+	for _, sess := range s.m {
+		if sess.Plugin != ref || s.expiredLocked(sess, now) {
+			continue
+		}
+		if sess.RegisteredAt.After(latest) || base == "" {
+			if b := descriptorBase(sess.Descriptor); b != "" {
+				base = b
+				latest = sess.RegisteredAt
+			}
+		}
+	}
+	return base
 }
 
 // AddEvents credits n ingested events to the session, if it still exists.
