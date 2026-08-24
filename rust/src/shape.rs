@@ -232,6 +232,12 @@ const CONFIG_SHAPE_JSON: &str = include_str!("config-shape.json");
 /// would validate the second config against a spec the first had already
 /// eaten. `struct::clone` is used rather than a re-parse so the cost is a
 /// tree copy, not a parse.
+///
+/// (struct's OWN Rust port happens to deep-clone the spec inside
+/// `transform` as well, so today the second copy is belt and braces
+/// there. It stays: the requirement is the contract's, not one struct
+/// build's, and `Value`'s maps are `Rc<RefCell<_>>` - a shared shape is
+/// one struct release away from being eaten.)
 pub fn config_shape() -> Value {
     thread_local! {
         static PARSED: Value = parse_shape();

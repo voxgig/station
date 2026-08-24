@@ -801,6 +801,15 @@ impl Station {
         // `feature.station` is already station_feature_reserved at
         // validation, so this is the second half of one rule rather than
         // a second rule.
+        //
+        // THE MAP CANNOT CARRY THE ORDER - a generated Rust constructor
+        // takes options.feature as a map, and this port's map type is
+        // sorted rather than insertion-ordered. The order is RESOLVED
+        // here, so a cycle or a pin violation fails the build, and
+        // REPORTED by features_of; what a Rust SDK actually inits in is
+        // its own generated feature list, whose one station-relevant
+        // invariant - the pin - bind() still verifies and fails loudly
+        // with station_wrap_order. README.md states the divergence.
         let rows = resolve_order(&resolved.merged, &resolved.declared)?;
         let kept: Vec<crate::feature::Ordered> = rows
             .into_iter()
