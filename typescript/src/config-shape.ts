@@ -59,9 +59,63 @@ export const CONFIG_SHAPE: any = {
             "`$ONE`",
             "`$NIL`",
             {
+              "allow": [
+                "`$ONE`",
+                "`$NIL`",
+                {
+                  "method": [
+                    "`$CHILD`",
+                    "`$STRING`"
+                  ],
+                  "op": [
+                    "`$CHILD`",
+                    "`$STRING`"
+                  ]
+                }
+              ],
+              "budget": [
+                "`$ONE`",
+                "`$NIL`",
+                {
+                  "concurrency": [
+                    "`$ONE`",
+                    "`$NIL`",
+                    "`$INTEGER`"
+                  ],
+                  "rps": [
+                    "`$ONE`",
+                    "`$NIL`",
+                    "`$NUMBER`"
+                  ]
+                }
+              ],
               "hosts": [
                 "`$CHILD`",
                 "`$STRING`"
+              ],
+              "mode": [
+                "`$ONE`",
+                "`$NIL`",
+                [
+                  "`$EXACT`",
+                  "live"
+                ],
+                [
+                  "`$EXACT`",
+                  "record"
+                ],
+                [
+                  "`$EXACT`",
+                  "replay"
+                ],
+                [
+                  "`$EXACT`",
+                  "mock"
+                ],
+                [
+                  "`$EXACT`",
+                  "block"
+                ]
               ]
             }
           ],
@@ -117,9 +171,63 @@ export const CONFIG_SHAPE: any = {
             "`$ONE`",
             "`$NIL`",
             {
+              "allow": [
+                "`$ONE`",
+                "`$NIL`",
+                {
+                  "method": [
+                    "`$CHILD`",
+                    "`$STRING`"
+                  ],
+                  "op": [
+                    "`$CHILD`",
+                    "`$STRING`"
+                  ]
+                }
+              ],
+              "budget": [
+                "`$ONE`",
+                "`$NIL`",
+                {
+                  "concurrency": [
+                    "`$ONE`",
+                    "`$NIL`",
+                    "`$INTEGER`"
+                  ],
+                  "rps": [
+                    "`$ONE`",
+                    "`$NIL`",
+                    "`$NUMBER`"
+                  ]
+                }
+              ],
               "hosts": [
                 "`$CHILD`",
                 "`$STRING`"
+              ],
+              "mode": [
+                "`$ONE`",
+                "`$NIL`",
+                [
+                  "`$EXACT`",
+                  "live"
+                ],
+                [
+                  "`$EXACT`",
+                  "record"
+                ],
+                [
+                  "`$EXACT`",
+                  "replay"
+                ],
+                [
+                  "`$EXACT`",
+                  "mock"
+                ],
+                [
+                  "`$EXACT`",
+                  "block"
+                ]
               ]
             }
           ],

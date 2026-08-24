@@ -3,9 +3,8 @@ import { StationError } from './error'
 import { EventBuffer } from './events'
 import { canonicalSerialize, normalizeDescriptor, secretnameDefault } from './descriptor'
 import {
-  configScope, loadConfig, refapi, resolveProfile, selectProfile,
-  ResolvedProfile,
-} from './profile'
+  refapi, resolveProfile, selectProfile, ResolvedProfile,
+} from './profilecore'
 import { FactoryEntry, factoryFor, provide } from './factory'
 import { loadAsync, loadSync } from './loader'
 import {
@@ -23,6 +22,27 @@ import {
 // in-process with no other component running. The proxy (D2) is a
 // deferred amplifier - `require` therefore fails on the operation path
 // (design §2.1/§14), and `auto` degrades to solo with one warning event.
+
+/** The FILE half of config loading, behind a seam so this module never
+ * imports it (§2.2, §17 Phase 1: no top-level `node:` imports reachable
+ * from the browser entry). The NODE entry (`index.ts`) registers
+ * `profile.ts`'s loadConfig/configScope at module load; the browser
+ * entry registers nothing, so a browser `open()` with no explicit
+ * `config` behaves exactly as node does when no station.json exists -
+ * null config, repo-scoped - rather than inventing a third state.
+ * Passing `config` (the documented browser spelling, §2.2) skips the
+ * seam entirely on both entries, which is the pre-existing
+ * explicit-config path unchanged. */
+export type ConfigFileIO = {
+  loadConfig: (from?: string) => any
+  configScope: (from?: string) => 'repo' | 'user' | 'none'
+}
+
+let configfileio: ConfigFileIO | null = null
+
+export function setConfigFileIO(io: ConfigFileIO): void {
+  configfileio = io
+}
 
 /** §6.1: `as` IS A TAG, NOT A FREE NAME.
  *
@@ -205,7 +225,7 @@ export class Station {
 
     const config = undefined !== this.opts.config
       ? this.opts.config
-      : loadConfig(this.opts.folder)
+      : (null != configfileio ? configfileio.loadConfig(this.opts.folder) : null)
 
     // §6.3: an in-code config is repo-scoped by construction - the
     // application wrote it. A file is repo-scoped unless it came from
@@ -218,7 +238,8 @@ export class Station {
     this.repoScoped = this.opts.repoScoped
       ?? (undefined !== this.opts.config
         ? true
-        : 'user' !== configScope(this.opts.folder))
+        : (null == configfileio ||
+          'user' !== configfileio.configScope(this.opts.folder)))
 
     // Normalize, then validate (design §4.2). A malformed station.json
     // fails open() with EVERY error at once - an eighteen-instance
@@ -511,6 +532,33 @@ export class Station {
     const placeholder = placeholderFor(name)
     const live = 'live' === fctx.client._mode
     const profilePlugin = this.blockFor(name)
+
+    // Policy mode (design §16): `live` is the default; `block` is the
+    // kill switch and refuses live egress outright. Enforced at the
+    // same seam as the hosts allowlist, and like it only on LIVE
+    // traffic - a test-mode client's mock transport is not egress.
+    //
+    // §14 names no mode-specific code, so `block` raises
+    // `station_host_allow` - the closest existing catalog code: the
+    // same `_allow` gate grammar, the same seam, the same meaning
+    // (egress denied by this plugin's policy), with the message naming
+    // the mode. `record`/`replay`/`mock` are proxy-era modes accepted
+    // by the grammar now (so a config written for the proxy is not a
+    // validation error) and fail `station_no_proxy` on the operation
+    // path until a proxy is attached - the same fail-closed behaviour
+    // `require` shows above.
+    const mode = profilePlugin?.policy?.mode ?? 'live'
+    if ('live' !== mode && live) {
+      const err = 'block' === mode
+        ? new StationError('station_host_allow',
+          'egress denied: plugin "' + name + '" is policy mode "block", ' +
+          'the kill switch (§16)')
+        : new StationError('station_no_proxy',
+          'policy mode "' + mode + '" for plugin "' + name + '" needs an ' +
+          'attached proxy, and none is attached')
+      this.emitErr(name, fctx, err)
+      return err
+    }
 
     // Egress policy (design §16), solo half: the hosts allowlist is
     // enforced at the seam every request crosses. When a policy is
@@ -943,7 +991,44 @@ export class Station {
       }
     })
 
-    const merged = mergefeatures(sources)
+    let merged = mergefeatures(sources)
+
+    // Policy budget (design §16): rps/concurrency ceilings ride "the
+    // SDK `ratelimit` feature, configured by station". Composed HERE,
+    // into the merged map every consumer reads, rather than patched in
+    // at construction alone - so `build()` orders it with the ordinary
+    // constraint-and-band rules (ordering and the station pin hold),
+    // `check()`'s §8.5 pass validates it against the SDK's own
+    // declaration (a budget on an SDK with no ratelimit feature is
+    // `station_feature_unknown`, not a setting that quietly did
+    // nothing), and the §8.7 fleet view answers "is ratelimit on?"
+    // truthfully, with `policy.budget` as the provenance level.
+    //
+    // `rps` maps to the token bucket's refill `rate` (per second -
+    // the same unit); `concurrency` to its capacity `burst`, the
+    // number of requests that can be in flight from a full bucket.
+    // POLICY WINS over a `feature.ratelimit` config entry on the keys
+    // it sets - it is enforcement, not a default - and other tuning
+    // keys survive beside it.
+    const budget = this.blockFor(name)?.policy?.budget
+    if (null != budget && 'object' === typeof budget && !Array.isArray(budget)) {
+      const prior = merged.ratelimit
+      const entry: any = {
+        ...(null != prior && 'object' === typeof prior ? prior : {}),
+        active: true,
+      }
+      from.ratelimit = from.ratelimit || {}
+      from.ratelimit.active = 'policy.budget'
+      if (null != budget.rps) {
+        entry.rate = budget.rps
+        from.ratelimit.rate = 'policy.budget'
+      }
+      if (null != budget.concurrency) {
+        entry.burst = budget.concurrency
+        from.ratelimit.burst = 'policy.budget'
+      }
+      merged = { ...merged, ratelimit: entry }
+    }
 
     // THE IMPLICIT STATION ENTRY, added for ORDERING ONLY. `station` is
     // never in `merged` — `feature.station` is reserved and rejected at

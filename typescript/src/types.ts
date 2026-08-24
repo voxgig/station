@@ -40,13 +40,28 @@ export type Profile = {
 // The same eight keys in both block positions. The two differ in what
 // they KEY, not in what they hold, which is why the two spec objects in
 // config-shape.json are identical and a guard test asserts it (§3.1).
+// Per-plugin policy (design §16). The solo-expressible keys:
+// `hosts` and `mode` gate the operation path in the library; `allow`
+// is set into the SDK's own `options.allow` so enforcement rides the
+// SDK's own pipeline; `budget` configures the SDK's `ratelimit`
+// feature through the ordinary feature composition. `record`,
+// `replay` and `mock` are proxy-era vocabulary, accepted now so a
+// config written for the proxy is not a validation error, and failing
+// `station_no_proxy` on the operation path until one is attached.
+export type PolicyBlock = {
+  hosts?: string[]
+  allow?: { op?: string[], method?: string[] }
+  budget?: { rps?: number, concurrency?: number }
+  mode?: 'live' | 'record' | 'replay' | 'mock' | 'block'
+}
+
 export type SdkBlock = {
   package?: string
   export?: string
   base?: string
   secret?: string
   resolve?: 'library' | 'proxy'
-  policy?: { hosts?: string[] }
+  policy?: PolicyBlock
   feature?: Record<string, any>
   options?: Record<string, any>
   // `active: false` means BARRED FROM RUNNING - a declaration that stays

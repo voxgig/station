@@ -486,7 +486,7 @@
      },
      {
       "doc": true,
-      "err": "to be one of nil, {hosts:[child,string]}",
+      "err": "to be one of nil, {allow:[one,nil,{method:[child,string],op:[child,string]}],budget:[one,nil,{concurrency:[one,nil,integer],rps:[one,nil,number]}],hosts:[child,string],mode:[one,nil,[exact,live],[exact,record],[exact,replay],[exact,mock],[exact,block]]}",
       "id": "config#policy-typo-is-the-generic-one-form",
       "in": {
        "profiles": {
@@ -624,6 +624,290 @@
             "hosts": [
              1
             ]
+           }
+          }
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "doc": true,
+      "id": "config#policy-mode-vocabulary",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "policy": {
+            "mode": "block"
+           }
+          }
+         }
+        }
+       },
+       "station": 1
+      },
+      "out": {
+       "profiles": {
+        "default": {
+         "api": {},
+         "feature": {},
+         "sdk": {
+          "solar": {
+           "active": true,
+           "feature": {},
+           "policy": {
+            "mode": "block"
+           }
+          }
+         },
+         "secrets": {
+          "providers": [
+           {
+            "kind": "env"
+           }
+          ]
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "doc": true,
+      "id": "config#policy-proxy-era-mode-validates",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "policy": {
+            "mode": "record"
+           }
+          }
+         }
+        }
+       },
+       "station": 1
+      },
+      "out": {
+       "profiles": {
+        "default": {
+         "api": {},
+         "feature": {},
+         "sdk": {
+          "solar": {
+           "active": true,
+           "feature": {},
+           "policy": {
+            "mode": "record"
+           }
+          }
+         },
+         "secrets": {
+          "providers": [
+           {
+            "kind": "env"
+           }
+          ]
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "err": "policy to be one of nil, {allow:",
+      "id": "config#policy-mode-is-an-enum",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "policy": {
+            "mode": "sideways"
+           }
+          }
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "doc": true,
+      "id": "config#policy-allow-and-budget",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "policy": {
+            "allow": {
+             "method": [
+              "GET"
+             ],
+             "op": [
+              "find",
+              "list"
+             ]
+            },
+            "budget": {
+             "concurrency": 2,
+             "rps": 5
+            },
+            "hosts": [
+             "api.x.com"
+            ],
+            "mode": "live"
+           }
+          }
+         }
+        }
+       },
+       "station": 1
+      },
+      "out": {
+       "profiles": {
+        "default": {
+         "api": {},
+         "feature": {},
+         "sdk": {
+          "solar": {
+           "active": true,
+           "feature": {},
+           "policy": {
+            "allow": {
+             "method": [
+              "GET"
+             ],
+             "op": [
+              "find",
+              "list"
+             ]
+            },
+            "budget": {
+             "concurrency": 2,
+             "rps": 5
+            },
+            "hosts": [
+             "api.x.com"
+            ],
+            "mode": "live"
+           }
+          }
+         },
+         "secrets": {
+          "providers": [
+           {
+            "kind": "env"
+           }
+          ]
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "err": "policy to be one of nil, {allow:",
+      "id": "config#policy-allow-op-is-a-list",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "policy": {
+            "allow": {
+             "op": "find"
+            }
+           }
+          }
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "err": "policy to be one of nil, {allow:",
+      "id": "config#policy-allow-unknown-key",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "policy": {
+            "allow": {
+             "ops": [
+              "find"
+             ]
+            }
+           }
+          }
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "err": "policy.allow.op.0 to be string, but found integer: 7",
+      "id": "config#policy-allow-first-element-gap",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "policy": {
+            "allow": {
+             "op": [
+              7
+             ]
+            }
+           }
+          }
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "err": "policy to be one of nil, {allow:",
+      "id": "config#policy-budget-rps-is-a-number",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "policy": {
+            "budget": {
+             "rps": "ten"
+            }
+           }
+          }
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "doc": true,
+      "err": "Unexpected keys at field profiles.default.sdk.solar.policy.budget: rp",
+      "id": "config#policy-budget-unknown-key-gap",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "policy": {
+            "budget": {
+             "rp": 1
+            }
            }
           }
          }

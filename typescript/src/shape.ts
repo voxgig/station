@@ -239,13 +239,11 @@ function scanConfig(cfg: any): void {
         scan(block.options, bpath + '.options', secrets, reserved)
         checkfeatures(block.feature, bpath + '.feature', secrets, reserved, invalid)
 
-        // §4.4: `$CHILD` in list mode does not validate element 0, so
-        // `hosts: [1]` passes the shape as written. Three lines, applied
-        // where the shape cannot reach, raising the same code the shape
-        // would - and pinned in the corpus so the workaround is removed
-        // deliberately when struct is fixed rather than forgotten.
-        const hosts = ismap(block.policy) ? block.policy.hosts : undefined
-        firstelement(hosts, bpath + '.policy.hosts', invalid)
+        // §4.4's explicit checks, applied where the shape cannot reach,
+        // raising the same code the shape would - and pinned in the
+        // corpus so each workaround is removed deliberately when struct
+        // is fixed rather than forgotten.
+        checkpolicy(block.policy, bpath + '.policy', invalid)
       }
     }
   }
@@ -281,6 +279,43 @@ function checkfeatures(
       firstelement(order.after, fpath + '.order.after', invalid)
     }
     scan(f[name], fpath, secrets, reserved)
+  }
+}
+
+/** The policy block's §4.4 workarounds, in one place because they are
+ * one class of gap: struct cannot check what its own defects hide.
+ *
+ * - `hosts`, `allow.op` and `allow.method` are `$CHILD` string lists,
+ *   so element 0 escapes the shape (see firstelement below).
+ * - `budget` is a map whose keys are ALL optional scalars, and struct
+ *   removes an unsatisfied optional key from the spec node - so
+ *   `budget: {rp: 1}` degenerates the spec into an open map and the
+ *   typo passes. `allow` does not have this problem (its `$CHILD` keys
+ *   stay in the spec whether or not the data carries them, keeping the
+ *   map closed), and neither does `policy` itself (`hosts` anchors it);
+ *   `budget` alone needs the explicit unexpected-key check, phrased as
+ *   struct would phrase it. */
+const BUDGET_KEYS = ['concurrency', 'rps']
+
+function checkpolicy(policy: any, path: string, invalid: string[]): void {
+  if (!ismap(policy)) { return }
+
+  firstelement(policy.hosts, path + '.hosts', invalid)
+
+  const allow = policy.allow
+  if (ismap(allow)) {
+    firstelement(allow.op, path + '.allow.op', invalid)
+    firstelement(allow.method, path + '.allow.method', invalid)
+  }
+
+  const budget = policy.budget
+  if (ismap(budget)) {
+    const unknown = Object.keys(budget)
+      .filter((k) => !BUDGET_KEYS.includes(k)).sort()
+    if (0 < unknown.length) {
+      invalid.push('Unexpected keys at field ' + path + '.budget: ' +
+        unknown.join(', '))
+    }
   }
 }
 
