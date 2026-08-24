@@ -1,4 +1,4 @@
-.PHONY: build test clean inspect vendor
+.PHONY: build build-clean test clean inspect vendor
 
 # voxgig/omni (the conformance runner, test-only) is a sibling checkout,
 # not a published package, and it may sit anywhere. Link it under vendor/
@@ -19,6 +19,18 @@ vendor:
 	ln -sfn $(OMNI)/swift vendor/omni
 
 build: vendor
+	swift build
+
+# Compiles the LIBRARY alone, with NO omni link present: nothing this
+# package ships names omni (register 4.13), and Package.swift declares the
+# omni dependency only when vendor/omni is there - so this proves a
+# checkout with no omni beside it still builds. The go and rust ports
+# carry the same proof under the same target name, and CI runs all three.
+# Package.resolved is removed too: it pins the dependency graph, and a
+# stale one re-introduces omni to the resolution this target exists to
+# do without.
+build-clean:
+	rm -rf vendor Package.resolved
 	swift build
 
 test: vendor

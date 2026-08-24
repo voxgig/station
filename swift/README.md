@@ -8,7 +8,9 @@ canonical serializer, the event ring/tap, and the transport middleware
 decisions the generated station feature delegates to.
 
 ```sh
-make test        # links vendor/omni to the sibling voxgig/omni checkout, then `swift test`
+make test         # links vendor/omni to the sibling voxgig/omni checkout, then `swift test`
+make build-clean  # removes the link and builds the LIBRARY alone - the proof
+                  # that nothing shipped names omni (register 4.13)
 ```
 
 ## Use

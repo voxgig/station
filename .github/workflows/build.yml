@@ -189,6 +189,15 @@ jobs:
         id: csharp
         continue-on-error: true
         run: make -C station/csharp test
+      # Register 4.13, the same proof the go and rust lanes carry: the
+      # LIBRARY must build with no omni checkout present. Package.swift
+      # declares the omni dependency only when vendor/omni is there, and
+      # this removes the link before building. It runs BEFORE the swift
+      # lane below, which relinks vendor as part of `make test`.
+      - name: swift builds without omni
+        id: swift-no-omni
+        continue-on-error: true
+        run: make -C station/swift build-clean
       - name: swift
         id: swift
         continue-on-error: true
@@ -225,6 +234,7 @@ jobs:
             cpp ${{ steps.cpp.outcome }}
             csharp ${{ steps.csharp.outcome }}
             swift ${{ steps.swift.outcome }}
+            swift-no-omni ${{ steps.swift-no-omni.outcome }}
             dart ${{ steps.dart.outcome }}
             elixir ${{ steps.elixir.outcome }}
             lua ${{ steps.lua.outcome }}
