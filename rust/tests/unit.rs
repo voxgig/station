@@ -214,7 +214,7 @@ fn bind_registers_plants_placeholder_and_dedupes() {
     let client: Rc<dyn Any> = Rc::new(());
 
     let bound = bind(spec(client.clone(), &["test", "station"])).expect("bound");
-    assert_eq!("taskpad", bound.binding.slug);
+    assert_eq!("taskpad", bound.binding.name);
     assert_eq!(Some(placeholder_for("taskpad")), bound.placeholder);
 
     let construct = events_of(&station, "construct");

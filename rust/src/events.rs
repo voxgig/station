@@ -23,7 +23,12 @@ pub struct StationEvent {
     pub t: i64,
     /// construct | op | http | error | feature | station
     pub kind: String,
+    /// The INSTANCE name (§6.1).
     pub plugin: Option<String>,
+    /// The api that groups this instance's siblings. Carried on EVERY
+    /// kind, not only construction: grouping that works exactly until it
+    /// is used is not grouping.
+    pub api: Option<String>,
     pub corr: Option<String>,
     pub op: Option<OpEvent>,
     pub http: Option<HttpEvent>,
@@ -61,6 +66,9 @@ impl StationEvent {
         let mut out = vec![("t", Json::Num(self.t as f64)), ("kind", jtext(self.kind.clone()))];
         if let Some(plugin) = &self.plugin {
             out.push(("plugin", jtext(plugin.clone())));
+        }
+        if let Some(api) = &self.api {
+            out.push(("api", jtext(api.clone())));
         }
         if let Some(corr) = &self.corr {
             out.push(("corr", jtext(corr.clone())));

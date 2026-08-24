@@ -175,17 +175,44 @@ pub fn normalize_descriptor(config: &Json, active_features: &Json) -> (Json, Vec
         }
     }
 
+    // §8.5: the features list gains `options` and `transport`, because it
+    // was throwing away what the SDK already embeds -
+    // `config.feature[name].options` is the feature's own declared key set
+    // WITH TYPED DEFAULTS, which is the schema §8.5 validates against, and
+    // `transport` is the role §8.4 orders by.
+    //
+    // Both are already inside the SDK; the descriptor stops discarding
+    // them. ADDITIVE, so descriptor v1 consumers are unaffected and the
+    // `descriptor` corpus section still passes unchanged.
+    //
+    // `transport` is CARRIED rather than inferred: the obvious signal, an
+    // empty `hook: {}`, is wrong for station, which both wraps AND
+    // dispatches hooks. Absent until sdkgen emits it, and §8.4's role
+    // checks degrade to nothing until then rather than guessing.
     let mut features: Vec<Json> = Vec::new();
     if let Some(Json::Map(fdefs)) = jget(config, "feature") {
-        for (fname, _fdef) in fdefs.iter() {
+        for (fname, fdef) in fdefs.iter() {
             let active = matches!(
                 jget(active_features, fname).and_then(|f| jget(f, "active")),
                 Some(Json::Bool(true))
             );
-            features.push(jobj(vec![
+            let mut row = vec![
                 ("name", jtext(fname.clone())),
                 ("active", Json::Bool(active)),
-            ]));
+            ];
+            if let Some(fopts @ Json::Map(_)) = jget(fdef, "options") {
+                row.push(("options", fopts.clone()));
+            }
+            match jget(fdef, "transport") {
+                Some(Json::Null) | None => {}
+                Some(found) => {
+                    let text = found.text();
+                    if !text.is_empty() {
+                        row.push(("transport", jtext(text)));
+                    }
+                }
+            }
+            features.push(jobj(row));
         }
     }
 

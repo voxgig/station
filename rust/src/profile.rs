@@ -49,17 +49,58 @@ pub fn find_config_file(from: Option<&Path>) -> Option<PathBuf> {
 }
 
 /// Load the discovered station.json, or None when there is none.
-/// An unreadable or unparseable file is construction-time
-/// misconfiguration and panics with the offending path (the canonical
-/// port throws from JSON.parse at the same moment).
-pub fn load_config(from: Option<&Path>) -> Option<Json> {
-    let file = find_config_file(from)?;
-    let text = std::fs::read_to_string(&file)
-        .unwrap_or_else(|err| panic!("station: cannot read {}: {}", file.display(), err));
+///
+/// A JSON parse failure is `station_config_invalid` NAMING THE FILE, not
+/// a raw parser error escaping open(): the one thing a person needs when
+/// a config will not load is which file it was, and the canonical port
+/// wraps it at exactly this moment for the same reason. An unreadable
+/// file (present, but the process cannot read it) is the same class of
+/// misconfiguration and carries the io error.
+pub fn load_config(from: Option<&Path>) -> Result<Option<Json>, StationError> {
+    let file = match find_config_file(from) {
+        Some(file) => file,
+        None => return Ok(None),
+    };
+    let text = std::fs::read_to_string(&file).map_err(|err| {
+        StationError::new(
+            "station_config_invalid",
+            format!("station.json at {} cannot be read: {}", file.display(), err),
+        )
+    })?;
     match voxgig_sekreto::json::parse(&text) {
-        Some(parsed) => Some(parsed),
-        None => panic!("station: cannot parse {}", file.display()),
+        Some(parsed) => Ok(Some(parsed)),
+        None => Err(StationError::new(
+            "station_config_invalid",
+            format!(
+                "station.json at {} is not valid JSON: the parser found no value",
+                file.display()
+            ),
+        )),
     }
+}
+
+/// Which side of §6.3's review boundary the discovered config came from:
+/// `none` when the lookup found no file, `user` when it found
+/// `~/.voxgig/station.json`, else `repo`.
+///
+/// `package` and `export` are honoured only from REPO-SCOPED config,
+/// because a user-level file sits outside the repo's review boundary and
+/// a `package` key arriving from it names CODE TO LOAD. Everything else
+/// in a user-level config still applies - this narrows one key rather
+/// than distrusting the file.
+pub fn config_scope(from: Option<&Path>) -> String {
+    let file = match find_config_file(from) {
+        Some(file) => file,
+        None => return "none".to_string(),
+    };
+    let home = env::var("HOME").unwrap_or_default();
+    if !home.is_empty() {
+        let user = Path::new(&home).join(".voxgig").join("station.json");
+        if file == user {
+            return "user".to_string();
+        }
+    }
+    "repo".to_string()
 }
 
 /// Profile selection: the open() option, else VOXGIG_STATION_PROFILE,
@@ -96,16 +137,13 @@ pub struct ResolvedProfile {
     pub sdk: BTreeMap<String, Json>,
 }
 
-/// The one block key carrying the timing rule: applied AFTER the merge,
-/// never before (§3.3, §4.2).
-pub const MERGE_SENSITIVE: [&str; 1] = ["active"];
-
-fn block_defaults() -> Vec<(&'static str, Json)> {
-    vec![
-        ("active", Json::Bool(true)),
-        ("feature", Json::Map(BTreeMap::new())),
-    ]
-}
+// The block defaults and the one merge-sensitive key among them live in
+// shape.rs: ONE TABLE, TWO CALLERS AT DIFFERENT MOMENTS (§4.2).
+// validate_config applies it BEFORE, to every block, because a block with
+// no present keys is an open map; the resolver below applies it AFTER, to
+// the merged instance, because an absent key must stay absent through the
+// merge.
+pub use crate::shape::{block_defaults, MERGE_SENSITIVE};
 
 /// The api half of a ref: the substring before the first `$`. An
 /// untagged ref IS an api slug (§3.4).
