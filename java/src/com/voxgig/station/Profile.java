@@ -21,6 +21,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
+import java.util.function.Supplier;
 
 @SuppressWarnings({"unchecked"})
 public final class Profile {
@@ -59,14 +60,42 @@ public final class Profile {
     if (null == file) {
       return null;
     }
+    String text;
     try {
-      String text = new String(
+      text = new String(
           Files.readAllBytes(Paths.get(file)), StandardCharsets.UTF_8);
-      Object parsed = Json.parse(text);
-      return Descriptor.asmap(parsed);
     } catch (IOException err) {
       throw new RuntimeException("station: cannot read " + file + ": " + err.getMessage(), err);
     }
+    // A file that is not JSON is a CONFIG ERROR, not a raw parse error
+    // escaping open(): the reader found station.json and could not use it,
+    // which is exactly what station_config_invalid exists to say.
+    try {
+      return Descriptor.asmap(Json.parse(text));
+    } catch (RuntimeException err) {
+      throw new StationError("station_config_invalid",
+          "station.json at " + file + " is not valid JSON: " + err.getMessage());
+    }
+  }
+
+  /**
+   * Which side of the repo review boundary the discovered station.json came
+   * from (design 6.3): 'none' when no file was found, 'user' when the file
+   * found is ~/.voxgig/station.json, else 'repo'.
+   *
+   * <p>`package` and `export` are honoured only from REPO-SCOPED config,
+   * because a user-level file is outside the repo's review boundary and a
+   * `package` key arriving from it names code to import. Everything else in
+   * a user-level config still applies - this narrows one key rather than
+   * distrusting the file.
+   */
+  public static String configScope(String from) {
+    String file = findConfigFile(from);
+    if (null == file) {
+      return "none";
+    }
+    Path home = Paths.get(System.getProperty("user.home"), ".voxgig", "station.json");
+    return home.toString().equals(file) ? "user" : "repo";
   }
 
   /**
@@ -92,17 +121,6 @@ public final class Profile {
    * name sekreto would reject fails here (station_secret_name), at
    * profile load rather than first request (design 14).
    */
-  /** The one block key carrying the timing rule: applied AFTER the merge,
-   * never before (design 3.3, 4.2). */
-  public static final List<String> MERGE_SENSITIVE = List.of("active");
-
-  private static Map<String, Object> blockDefaults() {
-    Map<String, Object> out = new LinkedHashMap<>();
-    out.put("active", Boolean.TRUE);
-    out.put("feature", new LinkedHashMap<String, Object>());
-    return out;
-  }
-
   /** The api half of a ref is the substring before the first `$`, and an
    * untagged ref IS an api slug (design 3.4).
    *
@@ -196,9 +214,16 @@ public final class Profile {
       // overlay block carried a synthesized `active` into the merge, a
       // one-key environment override would silently re-enable an
       // integration the base declared inactive.
-      for (Map.Entry<String, Object> d : blockDefaults().entrySet()) {
+      // Shape.blockDefaults() is ONE TABLE WITH TWO CALLERS AT DIFFERENT
+      // MOMENTS: validateConfig applies it BEFORE the merge, to every
+      // block, because a block with no present keys is an open map; this
+      // applies it AFTER, to the merged instance, because an absent key
+      // must stay absent through the merge. Shape.MERGE_SENSITIVE names
+      // `active` explicitly so this can be asserted rather than inferred.
+      for (Map.Entry<String, Supplier<Object>> d
+          : Shape.blockDefaults().entrySet()) {
         if (!merged.containsKey(d.getKey())) {
-          merged.put(d.getKey(), d.getValue());
+          merged.put(d.getKey(), d.getValue().get());
         }
       }
 
