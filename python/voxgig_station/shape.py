@@ -256,7 +256,8 @@ def _renamehint(cfg):
     already rejects it as an unexpected key; this says what to rename,
     because "unexpected key: plugin" alone does not, and the migration
     for a single-instance project is exactly this one rename."""
-    profiles = cfg['profiles'] if _ismap(cfg) and _ismap(cfg.get('profiles')) else {}
+    profiles = cfg.get('profiles') if _ismap(cfg) else None
+    profiles = profiles if _ismap(profiles) else {}
     hit = [p for p in profiles
            if _ismap(profiles[p]) and 'plugin' in profiles[p]]
     if 0 == len(hit):
@@ -277,7 +278,8 @@ def _scan_config(cfg):
     reserved = []
     invalid = []
 
-    profiles = cfg['profiles'] if _ismap(cfg) and _ismap(cfg.get('profiles')) else {}
+    profiles = cfg.get('profiles') if _ismap(cfg) else None
+    profiles = profiles if _ismap(profiles) else {}
     for pname, prof in profiles.items():
         if not _ismap(prof):
             continue
@@ -302,7 +304,8 @@ def _scan_config(cfg):
 
                 # `options` is passthrough to a generated constructor, so
                 # it is the one place a value can hide.
-                _scan(block.get('options'), bpath + '.options', secrets, reserved)
+                _scan(block.get('options'), bpath + '.options',
+                      secrets, reserved)
                 _scanfeatures(block.get('feature'), bpath + '.feature',
                               secrets, reserved, invalid)
 
@@ -329,8 +332,10 @@ def _scanfeatures(f, path, secrets, reserved, invalid):
                 'and it cannot be configured from station.json')
         order = entry.get('order') if _ismap(entry) else None
         if _ismap(order):
-            _firstelement(order.get('before'), fpath + '.order.before', invalid)
-            _firstelement(order.get('after'), fpath + '.order.after', invalid)
+            _firstelement(order.get('before'),
+                          fpath + '.order.before', invalid)
+            _firstelement(order.get('after'),
+                          fpath + '.order.after', invalid)
         _scan(entry, fpath, secrets, reserved)
 
 

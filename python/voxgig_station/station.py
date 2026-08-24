@@ -407,7 +407,8 @@ class Station:
         return self._alias_of.get(name, name)
 
     def _register(self, client, config, options, _calleropts, fopts=None):
-        descriptor, warnings = self.describe(config, (options or {}).get('feature'))
+        descriptor, warnings = self.describe(
+            config, (options or {}).get('feature'))
         api = descriptor['slug']
 
         # 7.5: station knows the instance name before construction begins
@@ -993,7 +994,8 @@ class Station:
         # POLICY WINS over a `feature.ratelimit` config entry on the keys
         # it sets - it is enforcement, not a default - and other tuning
         # keys survive beside it.
-        budget = ((self.block_for(name) or {}).get('policy') or {}).get('budget')
+        policy = (self.block_for(name) or {}).get('policy') or {}
+        budget = policy.get('budget')
         if isinstance(budget, dict):
             prior = merged.get('ratelimit')
             entry = dict(prior) if isinstance(prior, dict) else {}

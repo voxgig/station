@@ -293,11 +293,16 @@ def check_features(merged, descriptor):
                     'key': key,
                     'message': 'feature "' + name + '" option "' + key +
                                '" expects ' + want + ', but found ' + got +
-                               ': ' + json.dumps(entry[key], ensure_ascii=False,
-                                                 separators=(',', ':')),
+                               ': ' + _json(entry[key]),
                 })
 
     return faults
+
+
+def _json(v):
+    # JSON.stringify's spacing, so the pinned messages read the same in
+    # every port.
+    return json.dumps(v, ensure_ascii=False, separators=(',', ':'))
 
 
 def _kindof(v):

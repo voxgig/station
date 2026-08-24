@@ -22,9 +22,9 @@ CODES = (
     'station_open_conflict',
     'station_bound_twice',
 
-    # Declarative config (design 6.4). Only the TypeScript port raises
-    # the config-validation codes so far (Stage 1); the catalog is
-    # repo-wide, so every port knows them.
+    # Declarative config (design 6.4). Raised by validate_config; the
+    # catalog is repo-wide, so every port knows them whether or not it
+    # raises them yet.
     'station_config_invalid',
     'station_config_secret',
     'station_secret_collision',

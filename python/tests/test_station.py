@@ -7,8 +7,11 @@
 # miniature of the py SDK's seams. Integration against a REAL generated
 # SDK lives in the consumer validation flow, not here.
 
+import json
 import os
+import shutil
 import sys
+import tempfile
 import unittest
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -37,6 +40,8 @@ from voxgig_station import (  # noqa: E402
     factory_for,
     factory_from_module,
     feature_binding,
+    load_sync,
+    normalize_config,
     normalize_descriptor,
     placeholder_for,
     provide,
@@ -533,6 +538,106 @@ class TestLoader(unittest.TestCase):
         self.assertIn('`config` singleton', str(caught.exception))
 
 
+# A package on sys.path, written at test time: the loader's one job is
+# to import a module BY NAME, so proving it needs a real importable
+# module and nothing else.
+_RETRO_SDK = """
+CONFIG = {'main': {'name': 'Pad', 'slug': 'pad', 'version': '1.0.0',
+                   'target': 'py'},
+          'feature': {}, 'options': {}, 'entity': {}}
+
+
+class SDK:
+    # A pre-station SDK in miniature: it consumes no `extend`, which is
+    # exactly the retrofit case factory_from_module exists for.
+    def __init__(self, options):
+        self.options = options
+
+
+config = CONFIG
+"""
+
+_SELF_SDK = """
+from voxgig_station import provide
+
+CONFIG = {'main': {'name': 'Pad', 'slug': 'pad', 'version': '9.9.9',
+                   'target': 'py'},
+          'feature': {}, 'options': {}, 'entity': {}}
+
+
+class SDK:
+    def __init__(self, options):
+        self.options = options
+
+
+provide('pad', {'construct': SDK, 'config': CONFIG})
+"""
+
+
+class TestLoaderImport(unittest.TestCase):
+    """py IS A LOADER LANGUAGE (design 6.3): a module can be imported by
+    name at runtime, so `api.<slug>.package` closes the loop."""
+
+    def setUp(self):
+        Station.reset()
+        reset_factories()
+        self._dir = tempfile.mkdtemp()
+        sys.path.insert(0, self._dir)
+        for name, src in (('pad_retro_sdk', _RETRO_SDK),
+                          ('pad_self_sdk', _SELF_SDK)):
+            with open(os.path.join(self._dir, name + '.py'), 'w') as handle:
+                handle.write(src)
+
+    def tearDown(self):
+        Station.reset()
+        reset_factories()
+        if self._dir in sys.path:
+            sys.path.remove(self._dir)
+        for name in ('pad_retro_sdk', 'pad_self_sdk'):
+            sys.modules.pop(name, None)
+        shutil.rmtree(self._dir, ignore_errors=True)
+
+    def test_a_module_that_self_registers_needs_no_exports(self):
+        self.assertTrue(load_sync('pad', 'pad_self_sdk'))
+        # Path 1: the factory is the one the module registered itself.
+        self.assertEqual('9.9.9', factory_for('pad')['descriptor']['version'])
+
+    def test_a_retrofit_module_is_read_through_its_exports(self):
+        self.assertTrue(load_sync('pad', 'pad_retro_sdk'))
+        self.assertEqual('1.0.0', factory_for('pad')['descriptor']['version'])
+        # Already registered: a second call is a lookup, not an import.
+        self.assertTrue(load_sync('pad', 'pad_retro_sdk'))
+
+    def test_an_unimportable_package_says_so(self):
+        with self.assertRaises(StationError) as caught:
+            load_sync('pad', 'no_such_pad_sdk')
+        self.assertEqual('station_sdk_load', caught.exception.code)
+        self.assertIn('could not be imported', str(caught.exception))
+
+    def test_the_declarative_path_loads_a_configured_package(self):
+        st = Station({'config': cfg(
+            api={'pad': {'package': 'pad_retro_sdk'}},
+            sdk={'pad': {}})})
+        client = st.sdk('pad')
+        # The instance name reaches the constructor the same way it does
+        # on the imperative path, so registration has one spelling.
+        self.assertEqual(
+            'pad', client.options['feature']['station']['instance'])
+        st.close()
+
+    def test_load_preloads_the_declared_packages(self):
+        st = Station({'config': cfg(sdk={
+            'pad': {'package': 'pad_self_sdk'},
+            'pad$off': {'active': False, 'secret': 'pad_off.apikey',
+                        'package': 'no_such_pad_sdk'},
+        })})
+        # Inactive instances are skipped, so the unimportable one is not
+        # reached: warm/load reach for what is meant to run.
+        st.load()
+        self.assertEqual(['pad'], provided())
+        st.close()
+
+
 class TestDeclarative(unittest.TestCase):
 
     def setUp(self):
@@ -838,6 +943,22 @@ class TestConfigShape(unittest.TestCase):
     assert properties of the shape file itself, not of any config that
     runs through it - the sdkgen discipline for data that must be
     duplicated."""
+
+    def test_normalize_never_mutates_the_input(self):
+        raw = {'station': 1, 'profiles': {'default': {
+            'sdk': {'pad': {'feature': {'retry': {'retries': 3}}}}}}}
+        before = json.dumps(raw, sort_keys=True)
+        out = normalize_config(raw)
+        self.assertEqual(before, json.dumps(raw, sort_keys=True))
+        # ...and the copy really did materialize the defaults.
+        self.assertEqual(True, out['profiles']['default']['sdk']['pad']['active'])
+        self.assertEqual(True, out['profiles']['default']['sdk']['pad']
+                         ['feature']['retry']['active'])
+
+    def test_a_non_map_is_returned_untouched(self):
+        # validate rejects it with a message that names the path; the
+        # normalizer never coerces and never drops.
+        self.assertEqual([1], normalize_config([1]))
 
     def test_every_call_gets_a_fresh_copy(self):
         # struct's validate CONSUMES the spec it walks, so two configs
