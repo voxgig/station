@@ -104,6 +104,14 @@ func (e instanceEntry) str(key string) string {
 	return s
 }
 
+// agentWrite reads the §16 `agent.write` policy opt-in: mutating agent
+// operations are a per-instance grant, never a default (§7, §12).
+func (e instanceEntry) agentWrite() bool {
+	agent, _ := e["agent"].(map[string]any)
+	write, _ := agent["write"].(bool)
+	return write
+}
+
 func (e instanceEntry) hosts() []string {
 	policy, _ := e["policy"].(map[string]any)
 	raw, _ := policy["hosts"].([]any)
@@ -255,16 +263,17 @@ type approvalState struct {
 
 // Effective is the policy view a forward/register consults for one ref.
 type Effective struct {
-	Ref      string
-	State    string // pending | approved
-	Covered  bool   // a proxy-side profile entry exists for the ref
-	Hosts    []string
-	Secret   string // sekreto name
-	Base     string
-	Resolve  string // library | proxy
-	Capture  string // meta | headers | full
-	Version  int
-	Approved *Approval
+	Ref        string
+	State      string // pending | approved
+	Covered    bool   // a proxy-side profile entry exists for the ref
+	Hosts      []string
+	Secret     string // sekreto name
+	Base       string
+	Resolve    string // library | proxy
+	Capture    string // meta | headers | full
+	AgentWrite bool   // the instance's §16 agent.write opt-in
+	Version    int
+	Approved   *Approval
 }
 
 // PolicyStore is the proxy-side policy authority: the resolved config,
@@ -405,6 +414,7 @@ func (p *PolicyStore) effectiveLocked(ref string) Effective {
 			eff.Capture = c
 		}
 		eff.Base = entry.str("base")
+		eff.AgentWrite = entry.agentWrite()
 	}
 	if approval := p.approvedLocked(ref); approval != nil {
 		eff.State = StateApproved

@@ -132,6 +132,9 @@ func (c *client) do(method string, path string, body io.Reader) (*http.Response,
 	}
 	req.Header.Set("Station-Protocol", "1")
 	req.Header.Set("Authorization", "Bearer "+c.token)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return nil, &daemonDown{base: c.base, err: err}

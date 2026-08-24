@@ -165,6 +165,44 @@ func (cs *CaptureStore) Snapshot() []*CaptureEntry {
 	return append([]*CaptureEntry(nil), cs.entries...)
 }
 
+// Query is the cursor-based read over the store (GET /v1/traffic and
+// the station_traffic tool): entries with ID > cursor, oldest first,
+// filtered by plugin/corr, up to limit. more reports whether matching
+// entries remained beyond the limit.
+func (cs *CaptureStore) Query(cursor uint64, limit int, plugin string, corr string) (entries []*CaptureEntry, more bool) {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	for _, e := range cs.entries {
+		if e.ID <= cursor {
+			continue
+		}
+		if plugin != "" && e.Plugin != plugin {
+			continue
+		}
+		if corr != "" && e.Corr != corr {
+			continue
+		}
+		if len(entries) >= limit {
+			return entries, true
+		}
+		entries = append(entries, e)
+	}
+	return entries, false
+}
+
+// Find returns the entry with the given id, nil when evicted or never
+// recorded.
+func (cs *CaptureStore) Find(id uint64) *CaptureEntry {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	for _, e := range cs.entries {
+		if e.ID == id {
+			return e
+		}
+	}
+	return nil
+}
+
 // DumpForScan concatenates every stored string field - the surface the
 // "secret bytes appear nowhere" guarantee is checked against.
 func (cs *CaptureStore) DumpForScan() string {

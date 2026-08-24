@@ -114,6 +114,17 @@ type Config struct {
 	PolicyPollTimeout time.Duration
 	UpstreamTimeout   time.Duration
 
+	// The §7 agent gates, both visible in status. AgentWrite arms the
+	// daemon half of the mutating-tool gate: a mutating station_call
+	// (or replay of a mutating capture) needs BOTH this flag AND the
+	// instance's own policy opt-in (`agent: {write: true}`) - writes
+	// are a policy grant, not a default (§12). AgentReadDisabled turns
+	// the read surface off (agent.read defaults TRUE on a local proxy,
+	// §7; the inverted name keeps the zero Config value at the local
+	// default). Remote mode will flip the read default (§8.4).
+	AgentWrite        bool
+	AgentReadDisabled bool
+
 	// Now is the clock; tests inject a fake. Defaults to time.Now.
 	Now func() time.Time
 }

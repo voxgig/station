@@ -159,6 +159,49 @@ func (s *Sessions) LatestDescriptorBase(ref string) string {
 	return base
 }
 
+// LatestDescriptor returns the verbatim descriptor of the most recent
+// live registration of ref - the §7 tools' source for entity/op shape.
+// Untrusted input: the agent surface derives candidate lists and
+// request synthesis from it, while hosts policy and secret selection
+// stay proxy-side (§8.3), so a hostile descriptor cannot widen egress
+// or pick a secret.
+func (s *Sessions) LatestDescriptor(ref string) json.RawMessage {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := s.now()
+	var descriptor json.RawMessage
+	var latest time.Time
+	for _, sess := range s.m {
+		if sess.Plugin != ref || s.expiredLocked(sess, now) {
+			continue
+		}
+		if descriptor == nil || sess.RegisteredAt.After(latest) {
+			descriptor = sess.Descriptor
+			latest = sess.RegisteredAt
+		}
+	}
+	return descriptor
+}
+
+// Refs lists the distinct instance refs with live sessions, sorted.
+func (s *Sessions) Refs() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := s.now()
+	seen := map[string]bool{}
+	for _, sess := range s.m {
+		if !s.expiredLocked(sess, now) {
+			seen[sess.Plugin] = true
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for ref := range seen {
+		out = append(out, ref)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // AddEvents credits n ingested events to the session, if it still exists.
 func (s *Sessions) AddEvents(id string, n uint64) {
 	s.mu.Lock()

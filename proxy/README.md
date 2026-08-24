@@ -74,6 +74,7 @@ $ voxgig-station run                  # daemon on 127.0.0.1:8299 (alias: serve)
 $ voxgig-station status               # plugins, sessions, stores, bounds
 $ voxgig-station approve solardemo    # bless a pending instance's triple
 $ voxgig-station tap [plugin]         # live NDJSON event stream (ctrl-c stops)
+$ voxgig-station mcp                  # MCP server on stdio (for `claude mcp add`)
 ```
 
 `status`/`approve`/`tap` discover the daemon per §8.1 — `--url` flag,
@@ -116,6 +117,58 @@ truncated or body redaction replaced bytes the request needs —
 redacted *auth headers* excepted, since replay restores them through
 the credential path (§8.5).
 
+Two agent-era additions: `GET /v1/traffic` (cursor/limit, plugin/corr
+filters — the query skin over the capture store) and `POST /v1/mcp`
+(below).
+
+## The agent surface (MCP, §7)
+
+The daemon is an MCP server, two transports over one implementation:
+
+```
+$ claude mcp add station -- voxgig-station mcp     # stdio
+# or point a streamable-HTTP MCP client at POST /v1/mcp
+#   with Authorization: Bearer <token>
+```
+
+`voxgig-station mcp` bridges newline-delimited JSON-RPC on stdio to
+`POST /v1/mcp` after the §8.1 proof-of-token handshake; the HTTP form
+sits behind the same bearer auth and Host/Origin hardening (the
+`Station-Protocol` header is not required there — MCP carries its own
+version inside `initialize`). The protocol layer is a minimal stdlib
+implementation of `initialize`, `tools/list` and `tools/call` (JSON-RPC
+2.0): the official Go SDK was evaluated and declined for v1 — it
+requires go ≥ 1.25 against this module's 1.21 floor and brings a
+third-party tree into the hardening-focus binary (§15).
+
+Eight generic, descriptor-driven tools (§7 — no per-entity tool
+explosion): `station_status`, `station_integrations`,
+`station_describe`, `station_call`, `station_traffic`,
+`station_replay`, `station_secrets`, `station_policy`. Entity/op
+matching is case-insensitive with the canonical form echoed back;
+unknown plugin/entity/op errors carry the valid candidates in the
+payload. `station_call` synthesizes the HTTP request from the
+registered descriptor (canonical point) and sends it through the same
+policy, injection, and capture path as library traffic — no language
+runtime involved.
+
+Safety posture (§7, §12): `station_call` allows `load`/`list` by
+default; a mutating op (and replay of a mutating capture) needs **both**
+the daemon's `--agent-write` flag **and** the instance's
+`agent: {write: true}` policy — writes are a policy grant, not a
+default. The `agent.read` knob (`--agent-read`, default on locally)
+gates the data-bearing tools; both gates are visible in status.
+`station_secrets` reports names and placement only — which store
+answered, via sekreto's `Sources`/`Stores`/`Has`, never `Get`. Every
+tool result passes the same credential-aware scrub as captures (exact
+resolved values, no length floor) before entering the agent's context,
+and results carrying upstream-controlled content are labeled
+`contentOrigin: upstream-external` — external data, never
+instructions. `station_replay` enforces replayability
+(`station_replay_lossy`) and the write gates for real; execution
+itself reports honestly that the replay engine ships with the
+record/replay phase (§17 Phase 2).
+
 ## Error shape and codes
 
 Every error is `{"error":{"code","message"}}`, codes in §14's house
@@ -126,7 +179,12 @@ catalog string is used: `station_protocol`, `station_body_limit`,
 `station_secret_no_value`, `station_secret_error`,
 `station_config_invalid`.
 
-**Candidate catalog codes — seven wire codes awaiting owner sign-off.**
+The agent tools raise the catalog's §7 set too: `station_no_plugin` /
+`station_no_entity` / `station_no_op` (candidates listed in the
+payload), `station_agent_allow` (read/write gate denial), and
+`station_replay_lossy`.
+
+**Candidate catalog codes — eight wire codes awaiting owner sign-off.**
 These daemon-boundary conditions have no catalog code yet; the proxy
 uses grammar-conformant strings, proposed as catalog additions. None
 surfaces as a library `err.code` — per §14, auth and proof failures
@@ -141,15 +199,13 @@ read to a library exactly like proxy absence.
 | `station_forward_invalid` | malformed `/v1/forward` envelope (400) |
 | `station_upstream` | upstream unreachable / failed before a response (502) |
 | `station_no_route` | unknown path or method (404/405) |
+| `station_no_capture` | `station_replay` id not in the store (evicted or never recorded) |
 
 ## Deferred (later phases, seams left)
 
 - SQLite capture persistence (and its encryption-at-rest question, §18)
-- replay / record / mock (`station_replay_lossy`, `station_agent_allow`
-  stay unraised until then; the `replayable` flag and store snapshot
-  seam are ready)
-- the MCP surface (§7) and the `traffic` query endpoint over the ring
-  and capture store
+- replay / record / mock execution (`station_replay` enforces the
+  gates and refusals today and reports execution as a later phase)
 - streaming uploads through the envelope (§18; v1 buffers at 32MB)
 - OTLP export
 - unix-socket listener and remote/TLS mode (§8.4, gated on the

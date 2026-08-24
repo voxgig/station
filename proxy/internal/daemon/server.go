@@ -190,6 +190,22 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The MCP endpoint (§7) negotiates its own protocol version inside
+	// `initialize` and its clients (MCP hosts) cannot send custom
+	// station headers, so it skips the Station-Protocol check - but
+	// keeps bearer auth and sits behind the same §8.1 Host/Origin
+	// hardening applied above.
+	if r.URL.Path == "/v1/mcp" {
+		if !s.authorized(r) {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="voxgig-station"`)
+			writeError(w, http.StatusUnauthorized, CodeTokenAllow,
+				"missing or invalid bearer token (see ~/.voxgig/station/token)")
+			return
+		}
+		s.route(w, r, http.MethodPost, s.handleMCP)
+		return
+	}
+
 	// Everything else: protocol version, then bearer token, then route.
 	p := r.Header.Get("Station-Protocol")
 	if !acceptedProtocols[p] {
@@ -214,6 +230,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.route(w, r, http.MethodPost, s.handleForward)
 	case r.URL.Path == "/v1/tap":
 		s.route(w, r, http.MethodGet, s.handleTap)
+	case r.URL.Path == "/v1/traffic":
+		s.route(w, r, http.MethodGet, s.handleTraffic)
 	case r.URL.Path == "/v1/status":
 		s.route(w, r, http.MethodGet, s.handleStatus)
 	case strings.HasPrefix(r.URL.Path, "/v1/approve/"):
@@ -606,11 +624,46 @@ func (s *Server) handlePolicy(w http.ResponseWriter, r *http.Request, ref string
 	writeJSON(w, http.StatusOK, policyView(eff))
 }
 
+// handleTraffic implements GET /v1/traffic: the cursor-based query over
+// the capture store (the wire home of `voxgig-station traffic` and the
+// station_traffic tool). Entries were scrubbed at capture time (§15).
+func (s *Server) handleTraffic(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	cursor, _ := strconv.ParseUint(q.Get("cursor"), 10, 64)
+	limit := 50
+	if raw := q.Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n <= 0 {
+			writeError(w, http.StatusBadRequest, CodeNoRoute, "limit must be a positive integer")
+			return
+		}
+		limit = n
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	entries, more := s.captures.Query(cursor, limit, q.Get("plugin"), q.Get("corr"))
+	if entries == nil {
+		entries = []*CaptureEntry{}
+	}
+	resp := map[string]any{"captures": entries, "more": more}
+	if len(entries) > 0 {
+		resp["next"] = entries[len(entries)-1].ID
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
 // handleStatus implements GET /v1/status: sessions and registered
 // plugins with their state, ring fill, bounds, uptime (§8.5: bounds are
 // visible in status; §3.4: liveness shown is truthful - expired sessions
 // are purged before reporting).
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.statusPayload())
+}
+
+// statusPayload builds the status view - one payload behind both the
+// HTTP endpoint and the station_status tool (§6: two skins, one API).
+func (s *Server) statusPayload() map[string]any {
 	now := s.cfg.Now()
 	sessions := s.sessions.List()
 
@@ -626,8 +679,13 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		DescriptorSHA256 string  `json:"descriptorSha256"`
 	}
 	type pluginView struct {
-		Plugin   string `json:"plugin"`
-		State    string `json:"state"`
+		Plugin  string `json:"plugin"`
+		State   string `json:"state"`
+		Resolve string `json:"resolve"`
+		// Rung is the §5.3 isolation rung this registration runs at:
+		// R2 when approved with resolve:proxy (the value never enters
+		// the application process), else R1 (library-resolved hygiene).
+		Rung     string `json:"rung"`
 		Sessions int    `json:"sessions"`
 	}
 
@@ -638,7 +696,8 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		// State is computed from the policy authority at report time
 		// (§8.3): approval - and a triple change re-entering pending -
 		// applies to live sessions immediately.
-		state := s.policy.EffectiveFor(sess.Plugin).State
+		eff := s.policy.EffectiveFor(sess.Plugin)
+		state := eff.State
 		sessViews = append(sessViews, sessionView{
 			Session:          sess.ID,
 			Plugin:           sess.Plugin,
@@ -652,7 +711,11 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		})
 		pv, ok := byPlugin[sess.Plugin]
 		if !ok {
-			pv = &pluginView{Plugin: sess.Plugin, State: state}
+			rung := "R1"
+			if state == StateApproved && eff.Resolve == "proxy" {
+				rung = "R2"
+			}
+			pv = &pluginView{Plugin: sess.Plugin, State: state, Resolve: eff.Resolve, Rung: rung}
 			byPlugin[sess.Plugin] = pv
 			pluginOrder = append(pluginOrder, sess.Plugin)
 		}
@@ -665,7 +728,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 	tapSubs, tapDropped := s.hub.Stats()
 	configFile, profile, covered, approved := s.policy.Snapshot()
-	writeJSON(w, http.StatusOK, map[string]any{
+	return map[string]any{
 		"ok":            true,
 		"version":       Version,
 		"protocol":      Protocol,
@@ -681,6 +744,13 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		},
 		"captures": s.captures.Stats(),
 		"grants":   map[string]any{"active": s.grants.Active()},
+		// The §7 agent gates, visible as promised: read defaults on
+		// locally; write needs the explicit --agent-write flag AND
+		// per-instance policy (station_policy shows that half).
+		"agent": map[string]any{
+			"read":  !s.cfg.AgentReadDisabled,
+			"write": s.cfg.AgentWrite,
+		},
 		"policy": map[string]any{
 			"configFile": configFile,
 			"profile":    profile,
@@ -702,5 +772,5 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 			"policyPollSeconds":  int(s.cfg.PolicyPollTimeout.Seconds()),
 			"upstreamTimeoutSec": int(s.cfg.UpstreamTimeout.Seconds()),
 		},
-	})
+	}
 }

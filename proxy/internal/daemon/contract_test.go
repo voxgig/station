@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -306,6 +307,52 @@ func TestContract(t *testing.T) {
 					t.Errorf("code = %q, want %q", got, c.wantCode)
 				}
 			})
+		}
+	})
+
+	// --- §7/§12: the agent surface composes with everything above -
+	// same daemon, same policy, same stores, one more skin.
+	t.Run("13 agent surface (MCP)", func(t *testing.T) {
+		m := rpc(t, ts, 100, "initialize", map[string]any{"protocolVersion": mcpProtocolVersion})
+		if m["result"].(map[string]any)["serverInfo"].(map[string]any)["name"] != "voxgig-station" {
+			t.Fatalf("initialize = %v", m)
+		}
+
+		m = rpc(t, ts, 101, "tools/list", nil)
+		if tools := m["result"].(map[string]any)["tools"].([]any); len(tools) != 8 {
+			t.Fatalf("tools/list = %d tools, want 8", len(tools))
+		}
+
+		payload, isErr := agentTool(t, ts, "station_status", nil)
+		if isErr || payload["ok"] != true {
+			t.Fatalf("station_status = %v", payload)
+		}
+
+		// The traffic read sees the walk's own exchanges - filtered:
+		// the injected credential appears nowhere in the tool output.
+		payload, isErr = agentTool(t, ts, "station_traffic", map[string]any{"limit": 50})
+		if isErr {
+			t.Fatalf("station_traffic = %v", payload)
+		}
+		if captures := payload["captures"].([]any); len(captures) == 0 {
+			t.Fatal("traffic should show the walk's captures")
+		}
+		if text, _ := json.Marshal(payload); strings.Contains(string(text), testSecret) {
+			t.Fatal("traffic output carries the secret")
+		}
+
+		// A mutating tool call is refused: this daemon runs without
+		// --agent-write, and writes are a policy grant, not a default.
+		registerDescriptor(t, ts, ref, fullDescriptor(up.ts.URL))
+		payload, isErr = agentTool(t, ts, "station_call", map[string]any{
+			"plugin": ref, "entity": "planet", "op": "create",
+			"data": map[string]any{"name": "x"},
+		})
+		if !isErr {
+			t.Fatal("mutating station_call must be refused without --agent-write")
+		}
+		if code, _ := toolErrCode(t, payload); code != CodeAgentAllow {
+			t.Errorf("code = %q, want %q", code, CodeAgentAllow)
 		}
 	})
 }

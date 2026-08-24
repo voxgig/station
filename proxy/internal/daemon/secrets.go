@@ -117,5 +117,33 @@ func (b *broker) heldValues() []string {
 	return append([]string(nil), b.held...)
 }
 
+// chainSources describes the chain for station_secrets - sekreto's own
+// Sources() strings ("env:<prefix>", "memory", "hashicorp", ...), safe
+// by construction (§7).
+func (b *broker) chainSources() []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.sek.Sources()
+}
+
+// storeFor reports which store answers for a name - sekreto's
+// Stores()/HasIn, never Get: station_secrets reports placement, not
+// values (§7). Empty store with nil error is a miss everywhere; an
+// error is §5.2's "store could not answer", surfaced verbatim.
+func (b *broker) storeFor(name string) (string, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, store := range b.sek.Stores() {
+		has, err := b.sek.HasIn(store, name)
+		if err != nil {
+			return "", err
+		}
+		if has {
+			return store, nil
+		}
+	}
+	return "", nil
+}
+
 // redactedMarker replaces scrubbed bytes in captures and tool output.
 const redactedMarker = "[redacted]"

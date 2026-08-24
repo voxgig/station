@@ -46,6 +46,8 @@ func main() {
 		exitOnErr(approveCmd(os.Args[2:]))
 	case "tap":
 		exitOnErr(tapCmd(os.Args[2:]))
+	case "mcp":
+		exitOnErr(mcpCmd(os.Args[2:]))
 	case "version":
 		fmt.Printf("voxgig-station %s (protocol %d)\n", daemon.Version, daemon.Protocol)
 	case "help", "-h", "--help":
@@ -72,6 +74,7 @@ Usage:
   voxgig-station status [flags]         show plugins, sessions, stores, bounds
   voxgig-station approve <ref> [flags]  bless an instance's base/hosts/name triple
   voxgig-station tap [plugin] [flags]   stream live events as NDJSON
+  voxgig-station mcp [flags]            MCP server on stdio (bridges to the daemon)
   voxgig-station version                print version
   voxgig-station help                   this text
 
@@ -94,6 +97,8 @@ Run flags:
   --tap-buffer n         per-subscriber tap buffer (default %d)
   --poll-timeout dur     policy long-poll hold time (default %s)
   --upstream-timeout dur upstream exchange timeout (default %s)
+  --agent-write          arm the daemon half of the mutating-agent gate (default off)
+  --agent-read           the agent.read knob (default true locally)
 
 Verb flags (status / approve / tap):
   --url u                daemon URL (default: VOXGIG_STATION_URL, else http://%s)
@@ -131,6 +136,8 @@ func runCmd(args []string) error {
 	eventLine := fs.Int("event-line", daemon.DefaultEventLineLimit, "single event line limit (bytes)")
 	tapBuffer := fs.Int("tap-buffer", daemon.DefaultTapBuffer, "per-subscriber tap buffer (events)")
 	pollTimeout := fs.Duration("poll-timeout", daemon.DefaultPolicyPollTimeout, "policy long-poll hold time")
+	agentWrite := fs.Bool("agent-write", false, "arm the daemon half of the mutating-agent gate (§7; instance policy agent.write is also required)")
+	agentRead := fs.Bool("agent-read", true, "the §7 agent.read knob (default true on a local proxy)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -207,6 +214,8 @@ func runCmd(args []string) error {
 		EventLineLimit:    *eventLine,
 		TapBuffer:         *tapBuffer,
 		PolicyPollTimeout: *pollTimeout,
+		AgentWrite:        *agentWrite,
+		AgentReadDisabled: !*agentRead,
 	}, token)
 	if err != nil {
 		ln.Close()

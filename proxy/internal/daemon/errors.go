@@ -39,15 +39,21 @@ const (
 	CodeSecretNoValue = "station_secret_no_value" // the chain ran and no store had the name (§5.2)
 	CodeSecretError   = "station_secret_error"    // a store could not answer; sekreto's message intact (§5.2)
 	CodeConfigInvalid = "station_config_invalid"  // proxy-side config cannot support the request (§8.3 approve)
+	CodeNoPlugin      = "station_no_plugin"       // unknown plugin in a §7 tool; payload lists candidates
+	CodeNoEntity      = "station_no_entity"       // unknown entity in a §7 tool; payload lists candidates
+	CodeNoOp          = "station_no_op"           // unknown op in a §7 tool; payload lists candidates
+	CodeAgentAllow    = "station_agent_allow"     // agent.read/agent.write gate denial (§7, §16)
+	CodeReplayLossy   = "station_replay_lossy"    // replay refused: capture not byte-reconstructable (§8.5)
 
 	// Transport codes (daemon boundary; not yet in the shared catalog).
 	CodeTokenAllow      = "station_token_allow"      // bearer token missing or wrong (§8.1)
 	CodeOriginAllow     = "station_origin_allow"     // Host/Origin validation failed (§8.1)
 	CodeNoSession       = "station_no_session"       // unknown or expired session (§3.4)
 	CodeRegisterInvalid = "station_register_invalid" // malformed /v1/register body (§8.2)
-	CodeForwardInvalid  = "station_forward_invalid"  // malformed /v1/forward envelope (§8.2)
+	CodeForwardInvalid  = "station_forward_invalid"  // malformed /v1/forward envelope, or unbuildable tool call (§8.2, §7)
 	CodeUpstream        = "station_upstream"         // upstream unreachable/failed before a response
 	CodeNoRoute         = "station_no_route"         // unknown path or method
+	CodeNoCapture       = "station_no_capture"       // station_replay/traffic id not in the store
 )
 
 type wireError struct {
