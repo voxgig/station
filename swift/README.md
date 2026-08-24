@@ -52,7 +52,7 @@ Swift port, contributed to sekreto (design 18).
 | `Sources/VoxgigStation/Station.swift` | ambient instance, options(), featureBinding, registry, status/close |
 | `Sources/VoxgigStation/Binding.swift` | per-plugin hook bridge + transport middleware decisions |
 | `Sources/VoxgigStation/Descriptor.swift` | descriptor v1 normalizer, envToken, canonical serializer |
-| `Sources/VoxgigStation/Profile.swift` | station.json lookup, profile resolution (wholesale providers replacement) |
+| `Sources/VoxgigStation/Profile.swift` | station.json lookup, the design-3.3 api/sdk instance merge (wholesale providers replacement) |
 | `Sources/VoxgigStation/Secrets.swift` | env-only broker: placeholder, hoist, miss-vs-error, floor-less scrub |
 | `Sources/VoxgigStation/Events.swift` | bounded ring + serialized tap |
 | `Sources/VoxgigStation/Error.swift` | the design-14 error-code catalog |

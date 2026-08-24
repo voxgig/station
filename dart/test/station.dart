@@ -235,7 +235,7 @@ void stationCases(void Function(String, FutureOr<void> Function()) testcase) {
         'station': 1,
         'profiles': {
           'default': {
-            'plugin': {
+            'sdk': {
               'typod': {'base': 'http://x'}
             }
           }
@@ -598,7 +598,7 @@ void stationCases(void Function(String, FutureOr<void> Function()) testcase) {
         'station': 1,
         'profiles': {
           'default': {
-            'plugin': {
+            'sdk': {
               'gnarly-pets': {
                 'policy': {
                   'hosts': ['api.ok']

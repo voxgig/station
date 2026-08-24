@@ -24,6 +24,31 @@ public final class StationError: Error, CustomStringConvertible {
     "station_replay_lossy",
     "station_open_conflict",
     "station_bound_twice",
+
+    // Declarative config (design 6.4). Only the reference ports raise
+    // the config-validation codes so far; the catalog is repo-wide, so
+    // every port knows them.
+    "station_config_invalid",
+    "station_config_secret",
+    "station_secret_collision",
+    "station_feature_reserved",
+
+    // Instances (design 6.4). `as` is a tag, not a free name: a full
+    // ref whose name is not the SDK's api slug is this.
+    "station_instance_api",
+
+    // The declarative front door (design 6.4). Availability errors are
+    // fatal at first use, not at open().
+    "station_no_instance",
+    "station_instance_inactive",
+    "station_sdk_load",
+    "station_no_factory",
+    "station_factory_conflict",
+
+    // Features (design 8.4, 8.5).
+    "station_feature_unknown",
+    "station_feature_option",
+    "station_feature_order",
   ]
 
   public let code: String
@@ -42,9 +67,10 @@ public final class StationError: Error, CustomStringConvertible {
   }
 }
 
-/// A malformed-JSON failure (station.json parsing). Not a catalog code:
-/// like the elixir and lua ports, a config file that does not parse is a
-/// plain "station: ..." error, not a StationError.
+/// A malformed-JSON failure from the in-tree parser. A station.json
+/// that is found but does not parse never lets this escape open():
+/// loadConfig catches it and rethrows as
+/// StationError("station_config_invalid", ...).
 public struct JsonError: Error, CustomStringConvertible {
   public let message: String
 

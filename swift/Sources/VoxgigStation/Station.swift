@@ -257,7 +257,7 @@ public final class Station {
           + "twice is an error (design 10.2)")
     }
 
-    let profilePlugin = profile.get("plugin").get(slug)
+    let profilePlugin = profile.get("sdk").get(slug)
 
     // Secret name precedence: the feature option (in-code, design 9
     // config.options.secret) beats the profile, which beats the
@@ -343,7 +343,7 @@ public final class Station {
   func profilePlugin(_ slug: String) -> Json {
     gate.lock()
     defer { gate.unlock() }
-    return profile.get("plugin").get(slug)
+    return profile.get("sdk").get(slug)
   }
 
   func secretOverrideOf(_ slug: String) -> String? {
@@ -422,7 +422,7 @@ public final class Station {
   public func close() {
     gate.lock()
     if !closed {
-      if let entries = profile.get("plugin").asMap {
+      if let entries = profile.get("sdk").asMap {
         for slug in Descriptor.sortedKeys(entries) where nil == registry[slug] {
           warn(nil, "profile plugin key \"" + slug + "\" matched no registered plugin")
         }

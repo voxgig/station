@@ -273,7 +273,7 @@ namespace Voxgig.Station
                 }
 
                 Dictionary<string, object> profilePlugin = Descriptor.AsMap(
-                    Descriptor.GetProp(profile["plugin"], slug));
+                    Descriptor.GetProp(profile["sdk"], slug));
 
                 // Secret name precedence: the feature option (in-code, design
                 // 9 config.options.secret) beats the profile, which beats the
@@ -437,7 +437,7 @@ namespace Voxgig.Station
             }
             string placeholder = SecretBroker.PlaceholderFor(slug);
             Dictionary<string, object> profilePlugin = Descriptor.AsMap(
-                Descriptor.GetProp(profile["plugin"], slug));
+                Descriptor.GetProp(profile["sdk"], slug));
 
             // Egress policy (design 16), solo half: the hosts allowlist is
             // enforced at the seam every request crosses. When a policy is
@@ -719,7 +719,7 @@ namespace Voxgig.Station
                 {
                     return;
                 }
-                foreach (string slug in Descriptor.AsMap(profile["plugin"]).Keys)
+                foreach (string slug in Descriptor.AsMap(profile["sdk"]).Keys)
                 {
                     if (!registry.ContainsKey(slug))
                     {

@@ -105,7 +105,7 @@ internal static class Program
     private static readonly Subject CANONICAL = args =>
         Descriptor.CanonicalSerialize(Denull(args[0]));
 
-    private static readonly Subject PROFILE = args =>
+    private static readonly Subject INSTANCE = args =>
         Profile.ResolveProfile(
             Descriptor.GetProp(args[0], "config"),
             Convert.ToString(Descriptor.GetProp(args[0], "profile")));
@@ -167,7 +167,7 @@ internal static class Program
             "secrets", Map("providers", Vals(Map("kind", "memory", "values", values))));
         if (null != plugin)
         {
-            profile["plugin"] = plugin;
+            profile["sdk"] = plugin;
         }
         var config = Map("station", 1, "profiles", Map("default", profile));
         return new Station(Map("config", config));
@@ -223,7 +223,12 @@ internal static class Program
         TestCase("descriptor", () => R.RunSet(R.Set("descriptor"), DESCRIPTOR));
         TestCase("descriptorwarnings", () => R.RunSet(R.Set("descriptorwarnings"), DESCWARN));
         TestCase("canonical", () => R.RunSet(R.Set("canonical"), CANONICAL));
-        TestCase("profile", () => R.RunSet(R.Set("profile"), PROFILE));
+        // The 3.3 merge, and the whole of this port's profile contract.
+        // The `profile` section is NOT run: it pins the pre-Stage-1
+        // `plugin` grammar, which this port no longer speaks. It stays in
+        // the corpus for the ports that have not crossed yet - see
+        // spec/README.md.
+        TestCase("instance", () => R.RunSet(R.Set("instance"), INSTANCE));
         TestCase("errors", () => R.RunSet(R.Set("errors"), ERRORS));
 
         // Focused unit cases: the mechanics the corpus cannot reach.
