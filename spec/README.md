@@ -5,8 +5,8 @@ run by every station port through [voxgig/omni](https://github.com/voxgig/omni)
 - the discipline sekreto already uses (`spec/sekreto.json`).
 
 Sections here are the pure-contract half: `secretname`, `placeholder`,
-`descriptor`, `descriptorwarnings`, `canonical`, `config`, `instance`,
-`instanceref`, `profile`, `errors`.
+`descriptor`, `descriptorwarnings`, `canonical`, `config`, `feature`,
+`instance`, `instanceref`, `profile`, `errors`.
 
 ## Two grammars, for as long as the rename is in flight
 
@@ -39,10 +39,17 @@ not do that. Whoever has those toolchains should port them the way the
 eleven were ported - the `instance` section is the specification, and it
 is executable.
 
-`config`, `instanceref` and the feature sections are TypeScript-only for
-now because `validateConfig`, `instanceRef` and `feature.ts` are ported
-in Stage 5's later tranches; sections are opt-in per port, so that costs
-the others nothing.
+`config`, `instanceref` and `feature` are TypeScript-only for now
+because `validateConfig`, `instanceRef` and `feature.ts` are ported in
+Stage 5's later tranches; sections are opt-in per port, so that costs
+the others nothing. `feature` is §10.1's promised section: the
+three-level merge with its depth boundary (a map-valued option replaces
+wholesale) and the defaults-after-merge guard one level down, plus the
+§8.4 order resolution - constraints, bands, vacuous absence, the cycle
+rejection, and the pinned `station` wrap - the set station holds itself
+to under C4. One driver, two entry shapes: `merged` selects the
+resolver, anything else the merge. Feature *option* checking is
+descriptor-dependent and stays in the integration suites.
 
 The sections that need live SDK machinery - `inject` (copy-on-inject,
 placeholder-safe `ctrl.explain`), `order` (wrap position, retry

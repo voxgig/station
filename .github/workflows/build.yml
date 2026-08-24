@@ -1,8 +1,14 @@
 # Conformance in CI for every shipped library (station design §13):
 # each port runs its unit suite plus the shared spec/station.json
 # corpus through the sibling voxgig/omni runner. The integration
-# suites that need generated SDKs skip cleanly here; the package-side
-# fixture-consumer lane (§9.5) covers those pre-graduation.
+# suites that need generated SDKs skip cleanly here until the
+# package-side fixture-consumer lane (§9.5) covers them.
+#
+# Sibling checkouts: omni and sekreto are PINNED (build infrastructure
+# - a green run means the same thing tomorrow; bump the ref when
+# adopting a sibling change). plugin is deliberately UNPINNED: the C4
+# suite runs plugin's corpus against station's own implementation, and
+# drift going red here is that contract working, not a flake.
 #
 # Every port step is `continue-on-error` with an id, and the final
 # `result` step fails the job naming each red port. Without that the
@@ -29,11 +35,17 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: voxgig/omni
+          ref: dcbab7aa3f79ed99663ba8f70a79b5721fd5092d # omni#36
           path: omni
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: voxgig/sekreto
+          ref: 7b603824e56fa4255998fc1e7105463ef87dd5a3 # sekreto#7
           path: sekreto
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: voxgig/plugin
+          path: plugin
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
@@ -55,6 +67,10 @@ jobs:
       - name: typescript
         id: typescript
         continue-on-error: true
+        env:
+          # The C4 suite must RUN here, not skip: a missing plugin
+          # checkout is a broken lane, not an optional extra.
+          STATION_REQUIRE_C4: '1'
         run: |
           cd station/typescript
           mkdir -p node_modules/@voxgig
@@ -72,6 +88,17 @@ jobs:
           mkdir -p node_modules/@voxgig
           ln -sfn ../../../../sekreto/javascript node_modules/@voxgig/sekreto-js
           npm test
+      # Register 4.13 (omni): the conformance suite is a nested module
+      # (go/testutil), so the published module must build - and its
+      # tests resolve - naming no omni. GOWORK=off makes the proof hold
+      # even with the omni checkout on disk: a leaked require would go
+      # to the module proxy and fail.
+      - name: go builds without omni
+        id: go-no-omni
+        continue-on-error: true
+        env:
+          SEKRETO_HOME: ${{ github.workspace }}/sekreto
+        run: make -C station/go build-clean
       - name: go
         id: go
         continue-on-error: true
@@ -104,6 +131,16 @@ jobs:
       # dependencies under vendor/, and the Makefile's `vendor` target is
       # what links them to the sibling checkouts. Calling cargo directly
       # skips it and the build cannot resolve voxgig_sekreto.
+      # Register 4.13 (omni): the conformance suite is a separate
+      # package (rust/corpus). Only vendor/sekreto is linked - the
+      # library genuinely depends on it - and the build must pass with
+      # no omni link present.
+      - name: rust builds without omni
+        id: rust-no-omni
+        continue-on-error: true
+        env:
+          SEKRETO_HOME: ${{ github.workspace }}/sekreto
+        run: make -C station/rust build-clean
       - name: rust
         id: rust
         continue-on-error: true
@@ -127,12 +164,14 @@ jobs:
             typescript ${{ steps.typescript.outcome }}
             javascript ${{ steps.javascript.outcome }}
             go ${{ steps.go.outcome }}
+            go-no-omni ${{ steps.go-no-omni.outcome }}
             python ${{ steps.python.outcome }}
             ruby ${{ steps.ruby.outcome }}
             php ${{ steps.php.outcome }}
             perl ${{ steps.perl.outcome }}
             java ${{ steps.java.outcome }}
             rust ${{ steps.rust.outcome }}
+            rust-no-omni ${{ steps.rust-no-omni.outcome }}
             c ${{ steps.c.outcome }}
             cpp ${{ steps.cpp.outcome }}
         run: |

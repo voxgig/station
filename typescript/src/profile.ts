@@ -30,7 +30,16 @@ export function loadConfig(from?: string): StationConfig | null {
   const file = findConfigFile(from)
   if (null == file) { return null }
   const text = Fs.readFileSync(file, 'utf8')
-  return JSON.parse(text)
+  // A file that is not JSON is a config error, not a raw SyntaxError
+  // escaping open(): the reader found station.json and could not use
+  // it, which is exactly what station_config_invalid exists to say.
+  try {
+    return JSON.parse(text)
+  }
+  catch (err: any) {
+    throw new StationError('station_config_invalid',
+      'station.json at ' + file + ' is not valid JSON: ' + err.message)
+  }
 }
 
 // Which side of the review boundary the config came from (§6.3).

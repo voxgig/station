@@ -44,10 +44,19 @@ import {
  * unchanged to the byte. */
 export function instanceRef(api: string, fopts?: any): string {
   const explicit = firstNonEmpty(fopts?.instance)
-  if (null != explicit) { return checkapi(api, explicit) }
+  if (null != explicit) { return checkref(checkapi(api, explicit)) }
 
   const as = firstNonEmpty(fopts?.as)
-  if (null == as) { return api }
+  // The bare fallback is the SLUG - a name, never a ref: a `$` in it is
+  // an invalid name, not an implicit tag.
+  if (null == as) {
+    if (!checkInstanceName(api)) {
+      throw new StationError('station_instance_api',
+        'invalid instance name "' + api + '": a name starts with a letter ' +
+        'or `@` and uses `[a-zA-Z0-9.~_-/]`, max 1024 (§6.1)')
+    }
+    return api
+  }
 
   // A full ref is validated against the api; a `$`-less string is a TAG
   // and is joined to it.
@@ -63,7 +72,54 @@ export function instanceRef(api: string, fopts?: any): string {
   // is a special case that would make `as` mean different things at
   // different values. Someone who wants the untagged instance passes no
   // `as` at all, which is the documented spelling for it.
-  return -1 === as.indexOf('$') ? api + '$' + as : checkapi(api, as)
+  return checkref(-1 === as.indexOf('$') ? api + '$' + as : checkapi(api, as))
+}
+
+// The ref grammar is the JOINT identity model's (station-and-plugin.md
+// §2, plugin design §4): a name is a package-ish specifier
+// (`^[a-zA-Z@][a-zA-Z0-9.~_\-/]*$`), a tag is not (`^[a-zA-Z0-9.~_-]+$`
+// or empty - it MAY start with a digit because auto-tagging assigns
+// integer tags, and admits neither `@` nor `/`); both cap at 1024; the
+// split is on the FIRST `$`, so `a$b$c` is a good name with a bad tag.
+// Discharges the C4 divergence rows that pinned instanceRef accepting
+// what plugin's grammar rejects.
+const REF_NAME_RE = /^[a-zA-Z@][a-zA-Z0-9.~_\-\/]*$/
+const REF_TAG_RE = /^[a-zA-Z0-9.~_-]+$/
+const REF_MAX = 1024
+
+export function checkInstanceName(name: string): boolean {
+  if ('string' !== typeof name) { return false }
+  if (0 === name.length || REF_MAX < name.length) { return false }
+  return REF_NAME_RE.test(name)
+}
+
+export function checkInstanceTag(tag: string): boolean {
+  if ('string' !== typeof tag) { return false }
+  // The empty tag is an ordinary tag: the single-instance case writes
+  // no tag and never learns tags exist.
+  if (0 === tag.length) { return true }
+  if (REF_MAX < tag.length) { return false }
+  return REF_TAG_RE.test(tag)
+}
+
+/** Validate a ref against the joint grammar and return its CANONICAL
+ * spelling: a trailing `$` (empty tag) is never kept, so `stripe$` and
+ * `stripe` are one registry key rather than two. */
+function checkref(ref: string): string {
+  const cut = ref.indexOf('$')
+  const name = -1 === cut ? ref : ref.substring(0, cut)
+  const tag = -1 === cut ? '' : ref.substring(cut + 1)
+  if (!checkInstanceName(name)) {
+    throw new StationError('station_instance_api',
+      'invalid instance name "' + name + '" in ref "' + ref + '": a name ' +
+      'starts with a letter or `@` and uses `[a-zA-Z0-9.~_-/]`, max 1024 (§6.1)')
+  }
+  if (!checkInstanceTag(tag)) {
+    throw new StationError('station_instance_api',
+      'invalid instance tag "' + tag + '" in ref "' + ref + '": a tag ' +
+      'uses `[a-zA-Z0-9.~_-]`, max 1024 (§6.1)')
+  }
+  return '' === tag ? name : ref
 }
 
 function checkapi(api: string, ref: string): string {

@@ -1346,6 +1346,456 @@
      }
     ]
    },
+   "feature": {
+    "set": [
+     {
+      "doc": true,
+      "id": "feature#three-level",
+      "in": {
+       "api": "stripe",
+       "base": {
+        "api": {
+         "stripe": {
+          "feature": {
+           "retry": {
+            "max": 2
+           }
+          }
+         }
+        },
+        "feature": {
+         "retry": {
+          "max": 1,
+          "wait": 100
+         }
+        },
+        "sdk": {
+         "stripe$test": {
+          "feature": {
+           "retry": {
+            "max": 3
+           }
+          }
+         }
+        }
+       },
+       "ref": "stripe$test"
+      },
+      "out": {
+       "retry": {
+        "max": 3,
+        "wait": 100
+       }
+      }
+     },
+     {
+      "doc": true,
+      "id": "feature#profile-outranks-block",
+      "in": {
+       "api": "pad",
+       "base": {
+        "sdk": {
+         "pad$a": {
+          "feature": {
+           "debug": {
+            "level": 3
+           }
+          }
+         }
+        }
+       },
+       "overlay": {
+        "feature": {
+         "debug": {
+          "level": 1
+         }
+        }
+       },
+       "ref": "pad$a"
+      },
+      "out": {
+       "debug": {
+        "level": 1
+       }
+      }
+     },
+     {
+      "id": "feature#per-key-union",
+      "in": {
+       "api": "pad",
+       "base": {
+        "feature": {
+         "retry": {
+          "max": 2
+         }
+        }
+       },
+       "overlay": {
+        "sdk": {
+         "pad$a": {
+          "feature": {
+           "retry": {
+            "wait": 50
+           }
+          }
+         }
+        }
+       },
+       "ref": "pad$a"
+      },
+      "out": {
+       "retry": {
+        "max": 2,
+        "wait": 50
+       }
+      }
+     },
+     {
+      "doc": true,
+      "id": "feature#depth-boundary-map-replaces",
+      "in": {
+       "api": "pad",
+       "base": {
+        "feature": {
+         "audit": {
+          "sink": {
+           "kind": "file",
+           "path": "/tmp/a"
+          }
+         }
+        }
+       },
+       "overlay": {
+        "feature": {
+         "audit": {
+          "sink": {
+           "kind": "stdout"
+          }
+         }
+        }
+       },
+       "ref": "pad$a"
+      },
+      "out": {
+       "audit": {
+        "sink": {
+         "kind": "stdout"
+        }
+       }
+      }
+     },
+     {
+      "doc": true,
+      "id": "feature#no-synthesized-active",
+      "in": {
+       "api": "pad",
+       "base": {
+        "feature": {
+         "debug": {
+          "active": false
+         }
+        }
+       },
+       "overlay": {
+        "sdk": {
+         "pad$a": {
+          "feature": {
+           "debug": {
+            "level": 2
+           }
+          }
+         }
+        }
+       },
+       "ref": "pad$a"
+      },
+      "out": {
+       "debug": {
+        "active": false,
+        "level": 2
+       }
+      }
+     },
+     {
+      "id": "feature#tuning-only-stays-bare",
+      "in": {
+       "api": "pad",
+       "base": {
+        "sdk": {
+         "pad$a": {
+          "feature": {
+           "metrics": {
+            "step": 10
+           }
+          }
+         }
+        }
+       },
+       "ref": "pad$a"
+      },
+      "out": {
+       "metrics": {
+        "step": 10
+       }
+      }
+     },
+     {
+      "id": "feature#non-map-entry-replaces",
+      "in": {
+       "api": "pad",
+       "base": {
+        "feature": {
+         "debug": {
+          "level": 3
+         }
+        }
+       },
+       "overlay": {
+        "api": {
+         "pad": {
+          "feature": {
+           "debug": false
+          }
+         }
+        }
+       },
+       "ref": "pad$a"
+      },
+      "out": {
+       "debug": false
+      }
+     },
+     {
+      "id": "feature#absent-sources-skipped",
+      "in": {
+       "api": "pad",
+       "base": {
+        "feature": {
+         "trace": {}
+        }
+       },
+       "ref": "pad$a"
+      },
+      "out": {
+       "trace": {}
+      }
+     },
+     {
+      "doc": true,
+      "id": "feature#order-default-nesting",
+      "in": {
+       "merged": {
+        "debug": {},
+        "station": {},
+        "test": {}
+       }
+      },
+      "out": [
+       "debug",
+       "station",
+       "test"
+      ]
+     },
+     {
+      "doc": true,
+      "id": "feature#order-after",
+      "in": {
+       "merged": {
+        "a": {},
+        "b": {
+         "order": {
+          "after": "a"
+         }
+        }
+       }
+      },
+      "out": [
+       "a",
+       "b"
+      ]
+     },
+     {
+      "id": "feature#order-before",
+      "in": {
+       "merged": {
+        "a": {
+         "order": {
+          "before": "b"
+         }
+        },
+        "b": {}
+       }
+      },
+      "out": [
+       "a",
+       "b"
+      ]
+     },
+     {
+      "doc": true,
+      "id": "feature#order-vacuous-absent",
+      "in": {
+       "merged": {
+        "a": {
+         "order": {
+          "after": "ghost"
+         }
+        },
+        "b": {}
+       }
+      },
+      "out": [
+       "a",
+       "b"
+      ]
+     },
+     {
+      "doc": true,
+      "id": "feature#order-band-lower-outermost",
+      "in": {
+       "merged": {
+        "x": {
+         "order": {
+          "band": 10
+         }
+        },
+        "y": {
+         "order": {
+          "band": 1
+         }
+        }
+       }
+      },
+      "out": [
+       "y",
+       "x"
+      ]
+     },
+     {
+      "doc": true,
+      "id": "feature#order-constraint-beats-band",
+      "in": {
+       "merged": {
+        "x": {
+         "order": {
+          "band": 10
+         }
+        },
+        "y": {
+         "order": {
+          "after": "x",
+          "band": 1
+         }
+        }
+       }
+      },
+      "out": [
+       "x",
+       "y"
+      ]
+     },
+     {
+      "id": "feature#order-band-and-position-tie",
+      "in": {
+       "merged": {
+        "a": {
+         "order": {
+          "band": 10
+         }
+        },
+        "b": {},
+        "c": {}
+       }
+      },
+      "out": [
+       "b",
+       "c",
+       "a"
+      ]
+     },
+     {
+      "doc": true,
+      "err": "form a cycle among [a, b]",
+      "id": "feature#order-cycle",
+      "in": {
+       "merged": {
+        "a": {
+         "order": {
+          "after": "b"
+         }
+        },
+        "b": {
+         "order": {
+          "after": "a"
+         }
+        }
+       }
+      }
+     },
+     {
+      "doc": true,
+      "err": "pinned innermost",
+      "id": "feature#order-pin-band-violation",
+      "in": {
+       "merged": {
+        "station": {
+         "order": {
+          "band": 0
+         }
+        },
+        "test": {},
+        "wrap": {
+         "order": {
+          "band": 150
+         }
+        }
+       }
+      }
+     },
+     {
+      "err": "pinned innermost",
+      "id": "feature#order-pin-constraint-violation",
+      "in": {
+       "merged": {
+        "late": {
+         "order": {
+          "after": "station"
+         }
+        },
+        "station": {},
+        "test": {}
+       }
+      }
+     },
+     {
+      "id": "feature#order-pin-last-without-base",
+      "in": {
+       "merged": {
+        "retry": {},
+        "station": {}
+       }
+      },
+      "out": [
+       "retry",
+       "station"
+      ]
+     },
+     {
+      "id": "feature#order-inactive-excluded",
+      "in": {
+       "merged": {
+        "a": {},
+        "b": {
+         "active": false
+        }
+       }
+      },
+      "out": [
+       "a"
+      ]
+     }
+    ]
+   },
    "instance": {
     "set": [
      {
@@ -2021,6 +2471,37 @@
        }
       },
       "out": "stripe$stripe"
+     },
+     {
+      "doc": true,
+      "id": "instanceref#trailing-tag-canonicalized",
+      "in": {
+       "api": "stripe",
+       "opts": {
+        "instance": "stripe$"
+       }
+      },
+      "out": "stripe"
+     },
+     {
+      "doc": true,
+      "err": "invalid instance name",
+      "id": "instanceref#bad-name-refused",
+      "in": {
+       "api": "9stripe",
+       "opts": {}
+      }
+     },
+     {
+      "doc": true,
+      "err": "invalid instance tag",
+      "id": "instanceref#bad-tag-refused",
+      "in": {
+       "api": "stripe",
+       "opts": {
+        "as": "a/b"
+       }
+      }
      }
     ]
    },
