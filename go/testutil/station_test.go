@@ -17,6 +17,7 @@ package station_test
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -108,7 +109,12 @@ var (
 	orderErr   error
 )
 
-func mergedOrder(in any) []string {
+// mergedOrder returns the authored key order of one entry's `merged`
+// map, and whether it was found. A MISS IS AN ERROR, not a shrug: the
+// fallback is sorted keys, which would quietly pass three of the twenty
+// entries by alphabetical accident and silently stop testing the
+// tie-break the rest of the time.
+func mergedOrder(in any) ([]string, bool) {
 	orderOnce.Do(func() {
 		file, err := findspec("station.json")
 		if nil != err {
@@ -140,9 +146,17 @@ func mergedOrder(in any) []string {
 		}
 	})
 	if nil != orderErr {
-		return nil
+		return nil, false
 	}
-	return orderIndex[station.CanonicalSerialize(in)]
+	order, has := orderIndex[station.CanonicalSerialize(in)]
+	return order, has
+}
+
+func errtext(err error) string {
+	if nil == err {
+		return "none"
+	}
+	return err.Error()
 }
 
 func getpath(node any, path ...string) any {
@@ -257,7 +271,13 @@ var (
 		entry := entrymap(args[0])
 		if raw, has := entry["merged"]; has && nil != raw && omni.NULLMARK != raw {
 			merged := denullmap(raw)
-			ordered, err := station.ResolveOrder(merged, mergedOrder(entry))
+			declared, found := mergedOrder(entry)
+			if !found {
+				return nil, errors.New("station: no authored key order for " +
+					station.CanonicalSerialize(entry) + " (orderErr: " +
+					errtext(orderErr) + ")")
+			}
+			ordered, err := station.ResolveOrder(merged, declared)
 			if nil != err {
 				return nil, err
 			}
