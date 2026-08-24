@@ -1208,9 +1208,35 @@ vxstn_val* vxstn_normalize_descriptor(const vxstn_val* config,
     vxstn_val* entry = vxstn_map();
     const vxstn_val* fopts = vxstn_getk(active_features, keys[i]);
     const vxstn_val* activev = vxstn_getk(fopts, "active");
+    const vxstn_val* fdef = vxstn_getk(fdefs, keys[i]);
+    const vxstn_val* declared = vxstn_getk(fdef, "options");
+    const vxstn_val* transport = vxstn_getk(fdef, "transport");
     bool active = NULL != activev && VXSTN_BOOL == activev->kind && activev->b;
     vxstn_map_set(entry, "name", vxstn_str(keys[i]));
     vxstn_map_set(entry, "active", vxstn_bool(active));
+
+    /* Stage 5 (design 7.4): the feature row stops discarding two fields
+       the SDK already embeds. `options` is the feature's own declared
+       key set WITH TYPED DEFAULTS - the schema design 8.5 validates
+       against - and `transport` is the role 8.4 orders by. Both are
+       ADDITIVE, so descriptor v1 consumers are unaffected and the
+       `descriptor` corpus section passes unchanged (its fixtures carry
+       neither).
+
+       `transport` is CARRIED rather than inferred: the obvious signal,
+       an empty `hook: {}`, is wrong for station, which both wraps AND
+       dispatches hooks. Until sdkgen emits it, the role checks degrade
+       to nothing rather than guessing. */
+    if (vxstn_is_map(declared)) {
+      vxstn_map_set(entry, "options", vxstn_clone(declared));
+    }
+    if (NULL != transport) {
+      char* role = vxstn_val_to_string(transport);
+      if ('\0' != role[0]) {
+        vxstn_map_set(entry, "transport", vxstn_str(role));
+      }
+      free(role);
+    }
     vxstn_list_push(features, entry);
   }
   free(keys);
@@ -1319,14 +1345,21 @@ static void merge_into(vxstn_val* out, const vxstn_val* src) {
 /* Defaults are applied ONCE, to the fully merged instance (3.3, 4.2).
    Had the overlay block carried a synthesized `active` into the merge, a
    one-key environment override would silently re-enable an integration
-   the base declared inactive. */
+   the base declared inactive.
+
+   THE SAME TABLE vxstn_validate_config applies BEFORE the shape run
+   (voxgig_station_shape.c): one table, two callers, two moments. The
+   timing is the rule, so reading the table from both places is what
+   keeps the two from drifting apart. */
 static void apply_block_defaults(vxstn_val* merged) {
-  if (NULL == vxstn_map_get(merged, "active")) {
-    vxstn_map_set(merged, "active", vxstn_bool(1));
+  vxstn_val* defaults = vxstn_block_defaults();
+  size_t i;
+  for (i = 0; i < defaults->mlen; i++) {
+    if (NULL == vxstn_map_get(merged, defaults->keys[i])) {
+      vxstn_map_set(merged, defaults->keys[i], vxstn_clone(defaults->vals[i]));
+    }
   }
-  if (NULL == vxstn_map_get(merged, "feature")) {
-    vxstn_map_set(merged, "feature", vxstn_map());
-  }
+  vxstn_val_free(defaults);
 }
 
 /* Collect the sorted union of two maps' keys. Caller frees the array and
