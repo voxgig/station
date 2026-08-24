@@ -4,19 +4,29 @@
 // ring/tap, the broker's miss-vs-error split and floorless scrub, the
 // bind() guards (wrap order, second arrival, bound twice, inert without
 // an open station), the per-request prepare() decisions (require,
-// hosts policy + manual redirects, injection, mock non-injection), and
-// the station.json lookup walk. Each test thread gets its own ambient
-// instance (thread-local), so tests stay isolated without a lock.
+// hosts policy + manual redirects, injection, mock non-injection), the
+// station.json lookup walk, and - since Stage 5's later tranche - the
+// declarative front door: the factory table, sdk()/create()/build(),
+// features_of's provenance and budget composition, warm(), check(), and
+// the drift guard on the embedded shape mirror. Each test thread gets
+// its own ambient instance and its own factory table (both
+// thread-local), so tests stay isolated without a lock - and each test
+// that uses either resets it first, for the case where the harness runs
+// them on one thread.
 
 use std::any::Any;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::path::PathBuf;
 use std::rc::Rc;
 
 use voxgig_station::{
-    bind, find_config_file, jobj, jtext, placeholder_for, BindSpec, ConfigSource, EventBuffer,
-    Json, SecretBroker, Station, StationEvent, StationOptions,
+    bind, camelify, canonical_serialize, check_features, check_package, config_scope, config_shape,
+    config_shape_json, find_config_file, jget, jobj, jstr, jtext, normalize_config,
+    normalize_descriptor, placeholder_for, provide, provided, reset_factories, validate_config,
+    BindSpec, ConfigSource, EventBuffer, Factory, Json, SecretBroker, Station, StationEvent,
+    StationOptions, MERGE_SENSITIVE,
 };
 
 fn parse(text: &str) -> Json {
