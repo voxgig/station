@@ -1104,3 +1104,101 @@ fn a_malformed_config_file_names_itself() {
 
     std::fs::remove_dir_all(&dir).ok();
 }
+
+// --- the fleet view (design §8.7) -------------------------------------------
+
+#[test]
+fn features_view_narrows_rows_to_the_named_feature() {
+    Station::reset();
+    let station = Station::new(StationOptions {
+        config: ConfigSource::Value(parse(
+            r#"{ "station": 1, "profiles": { "default": { "sdk": {
+                 "pad": { "feature": { "debug": { "level": 2 }, "retry": {} } },
+                 "pad$eu": { "feature": { "retry": {} } },
+                 "other": { "feature": { "debug": { "level": 9 } } } } } } }"#,
+        )),
+        ..Default::default()
+    });
+
+    // No filter: one row per declared instance.
+    assert_eq!(3, station.features(None).expect("all").len());
+
+    // The string shorthand is loose - "this instance or this api".
+    let rows = station
+        .features(Some(&voxgig_station::loose_filter("pad")))
+        .expect("loose");
+    let names: Vec<String> = rows.iter().map(|r| r.instance.clone()).collect();
+    assert_eq!(vec!["pad".to_string(), "pad$eu".to_string()], names);
+
+    // A `feature` filter narrows the ROWS, and each row's contents:
+    // "where is debug on, and with what".
+    let rows = station
+        .features(Some(&voxgig_station::FeatureFilter {
+            feature: Some("debug".to_string()),
+            ..Default::default()
+        }))
+        .expect("by feature");
+    let names: Vec<String> = rows.iter().map(|r| r.instance.clone()).collect();
+    assert_eq!(vec!["other".to_string(), "pad".to_string()], names);
+    assert_eq!(vec!["debug".to_string()], rows[1].ordered);
+    assert!(
+        jget(&rows[1].merged, "retry").is_none(),
+        "the row is narrowed to the named feature"
+    );
+    assert_eq!("default.sdk", rows[1].from["debug"]["level"]);
+    Station::reset();
+}
+
+// --- policy at the binding seam (design §16) --------------------------------
+
+#[test]
+fn binding_hands_back_the_policy_allowlist() {
+    Station::reset();
+    let station = open_station(station_config(
+        r#", "sdk": { "taskpad": { "policy": { "allow": {
+             "op": ["list", "load"], "method": ["GET"] } } } }"#,
+    ));
+    let client: Rc<dyn Any> = Rc::new(());
+    let bound = bind(spec(client, &["test", "station"])).expect("bound");
+
+    // The SDK's own option form is a comma-separated string, and this is
+    // ENFORCEMENT: the adapter applies it OVER options.allow.
+    let allow = bound.allow.expect("allow");
+    assert_eq!("list,load", jstr(&allow, "op"));
+    assert_eq!("GET", jstr(&allow, "method"));
+
+    station.close();
+    Station::reset();
+}
+
+// A tagged instance reads ITS OWN block, not the wider api-level one -
+// the §6.4 rule that kept a declared allowlist from being lost.
+#[test]
+fn block_for_prefers_the_declared_instance_over_the_api() {
+    Station::reset();
+    let station = Station::new(StationOptions {
+        config: ConfigSource::Value(parse(
+            r#"{ "station": 1, "profiles": { "default": {
+                 "api": { "pad": { "base": "http://api", "policy": { "hosts": ["wide.test"] } } },
+                 "sdk": { "pad$eu": { "policy": { "hosts": ["eu.test"] } } } } } }"#,
+        )),
+        ..Default::default()
+    });
+
+    // Declared: its own block, with the api defaults merged under it.
+    let block = station.block_for("pad$eu");
+    assert_eq!("http://api", jstr(&block, "base"));
+    assert_eq!(
+        "[\"eu.test\"]",
+        canonical_serialize(jget(jget(&block, "policy").unwrap(), "hosts").unwrap())
+    );
+
+    // Never declared - an imperative instance still gets the api block.
+    let block = station.block_for("pad$adhoc");
+    assert_eq!("http://api", jstr(&block, "base"));
+    assert_eq!(
+        "[\"wide.test\"]",
+        canonical_serialize(jget(jget(&block, "policy").unwrap(), "hosts").unwrap())
+    );
+    Station::reset();
+}

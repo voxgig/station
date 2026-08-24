@@ -53,8 +53,16 @@ pub struct BindSpec {
     /// The client's feature list, by name, in init order - the §3.3
     /// position guard reads it (Rc<dyn Fn> cannot carry a wrap marker).
     pub feature_names: Vec<String>,
-    /// The client's options.feature map (activation states, for the
-    /// descriptor's features list).
+    /// The client's options.feature map (activation states).
+    ///
+    /// NOT READ AT REGISTRATION since §7.4: the descriptor is per-API and
+    /// shared by every instance of it, so it is normalized with NO
+    /// per-instance features and a cache keyed by slug cannot be
+    /// construction-order-dependent. Per-instance activation is
+    /// `features_of()`'s answer. The field stays because it is the
+    /// adapter's honest report of what the client activated - the
+    /// canonical library keeps the same parameter, unread, for the same
+    /// reason.
     pub active_features: Json,
     /// The station feature's own options entry (options.feature.station):
     /// the config.options values - the secret override, and the INSTANCE
