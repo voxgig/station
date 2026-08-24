@@ -1390,7 +1390,32 @@ func (st *Station) Check() CheckResult {
 		if !row.Active {
 			continue
 		}
+		st.checkone(row, &out)
+	}
 
+	return out
+}
+
+// checkone is one instance's turn, with the panic seam recovered: this
+// port panics for construction-time misconfiguration (the wrap-order
+// guard, a second binding of one instance), and Check exists to turn
+// exactly those into ONE report at a moment somebody is watching.
+func (st *Station) checkone(row Instance, out *CheckResult) {
+	defer func() {
+		recovered := recover()
+		if nil == recovered {
+			return
+		}
+		if serr, is := recovered.(*Error); is {
+			out.Failed = append(out.Failed, CheckFailure{
+				Name: row.Name, Code: serr.Code, Message: serr.Error(),
+			})
+			return
+		}
+		panic(recovered)
+	}()
+
+	{
 		// §8.5 runs FIRST and needs no construction: the schema arrives
 		// with the factory, not with a live client, so a feature typo is
 		// a CI failure rather than a setting that quietly did nothing in
@@ -1399,25 +1424,23 @@ func (st *Station) Check() CheckResult {
 			resolved, err := st.FeaturesOf(row.Name)
 			if nil != err {
 				out.Failed = append(out.Failed, checkfailure(row.Name, err))
-				continue
+				return
 			}
 			if faults := CheckFeatures(resolved.Merged, entry.Descriptor); 0 < len(faults) {
 				out.Failed = append(out.Failed, CheckFailure{
 					Name: row.Name, Code: faults[0].Code,
 					Message: FaultMessages(faults),
 				})
-				continue
+				return
 			}
 		}
 
 		if _, err := st.SDK(row.Name); nil != err {
 			out.Failed = append(out.Failed, checkfailure(row.Name, err))
-			continue
+			return
 		}
 		out.OK = append(out.OK, row.Name)
 	}
-
-	return out
 }
 
 func checkfailure(name string, err error) CheckFailure {

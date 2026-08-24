@@ -23,6 +23,9 @@ import (
 type fakeClient struct {
 	mode    string
 	fetcher station.TransportFunc
+	// options is the resolved option map the constructor was handed -
+	// what Bind mutates (placeholder, base, policy allowlist).
+	options map[string]any
 }
 
 func fakeConfig(slug string, name string, auth bool) map[string]any {
