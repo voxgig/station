@@ -70,6 +70,24 @@ function map_entries(mixed $val): array
     return is_array($val) ? $val : [];
 }
 
+/** One key of a map node, or null - the map may be either spelling. */
+function mval(mixed $node, string $key): mixed
+{
+    if ($node instanceof \stdClass) {
+        return $node->{$key} ?? null;
+    }
+    return is_array($node) ? ($node[$key] ?? null) : null;
+}
+
+/** Is the key PRESENT (a null value is present), either spelling. */
+function mhas(mixed $node, string $key): bool
+{
+    if ($node instanceof \stdClass) {
+        return property_exists($node, $key);
+    }
+    return is_array($node) && array_key_exists($key, $node);
+}
+
 /**
  * Drop the synthesized-empty-map marks: every stdClass becomes a plain
  * array, so the value handed back is ordinary php data.
@@ -91,4 +109,11 @@ function plain(mixed $val): mixed
         return $out;
     }
     return $val;
+}
+
+/** JSON.stringify, for the message bodies the corpus pins. */
+function jsonify(mixed $val): string
+{
+    $out = json_encode($val, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    return false === $out ? '' : $out;
 }
