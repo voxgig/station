@@ -24,6 +24,19 @@ on:
   pull_request:
     branches: [main]
 
+# One run per ref at a time. A PR branch that gets several pushes in
+# quick succession - a tranche landing port by port, say - otherwise
+# queues a full nineteen-lane run for every one of them, and the
+# superseded runs keep going to completion. Only the newest commit's
+# answer is wanted, so cancel the older PR runs.
+#
+# Pushes to main are NEVER cancelled: a run on main is the record of
+# whether main is healthy, and cancelling one leaves a gap in exactly
+# the history a red-on-base check reads.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   ports:
     runs-on: ubuntu-latest
