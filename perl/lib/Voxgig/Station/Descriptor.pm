@@ -156,18 +156,36 @@ sub normalize_descriptor {
         $entities{$ename} = { fields => \%fields, ops => \%ops };
     }
 
+    # The features list gains `options` and `transport` (design station.md
+    # 8.5, 8.4), because it was throwing away what the SDK already
+    # embeds: `config.feature[name].options` is the feature's own
+    # declared key set WITH TYPED DEFAULTS, which is the schema 8.5
+    # validates against, and `transport` is the role 8.4 orders by.
+    #
+    # Both are already inside the SDK; the descriptor stops discarding
+    # them. ADDITIVE, so descriptor v1 consumers are unaffected and the
+    # existing `descriptor` corpus section passes unchanged.
+    #
+    # `transport` is CARRIED rather than inferred: the obvious signal, an
+    # empty `hook: {}`, is wrong for station, which both wraps AND
+    # dispatches hooks. Absent until sdkgen emits it, and 8.4's role
+    # checks degrade to nothing until then rather than guessing.
     my @features;
     my $fdefs   = _ismap( $config->{feature} ) ? $config->{feature} : {};
     my $factive = _ismap($active_features)     ? $active_features   : {};
     for my $fname ( sort keys %$fdefs ) {
         my $fopts = $factive->{$fname};
-        push @features,
-          {
+        my $fdef  = _ismap( $fdefs->{$fname} ) ? $fdefs->{$fname} : {};
+        my $row   = {
             name   => $fname,
             active => ( _ismap($fopts) && _truthy( $fopts->{active} ) )
             ? JSON::PP::true
             : JSON::PP::false,
-          };
+        };
+        $row->{options} = $fdef->{options} if _ismap( $fdef->{options} );
+        $row->{transport} = _str( $fdef->{transport} )
+          if defined $fdef->{transport} && '' ne _str( $fdef->{transport} );
+        push @features, $row;
     }
 
     my $descriptor = {
