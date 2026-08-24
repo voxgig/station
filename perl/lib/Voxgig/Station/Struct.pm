@@ -29,11 +29,12 @@ use warnings;
 
 use File::Basename ();
 use File::Spec ();
+use JSON::PP ();
 
 use Exporter 'import';
 our @EXPORT_OK = qw(
-  mapkeys ordered_map struct_clone struct_home struct_parse struct_validate
-  structmod
+  jsonform mapkeys ordered_map struct_clone struct_home struct_parse
+  struct_validate structmod
 );
 
 # The struct perl port's own library root inside a checkout.
@@ -98,6 +99,37 @@ sub ordered_map {
         $out->{$key} = $val;
     }
     return $out;
+}
+
+# Struct's JSON tree in the spelling the rest of this port speaks: its
+# own boolean singletons become JSON::PP booleans (the port's rule for
+# every value that crosses a serialization boundary or the corpus) and
+# its JSON-null singleton becomes undef. The ORDERED MAPS ARE KEPT, and
+# they are the whole reason a config file is read through struct's
+# reader rather than JSON::PP's: JSON::PP hands back plain perl hashes,
+# and design 8.4's last tie-break is the order the config declared its
+# features in.
+sub jsonform {
+    my ($val) = @_;
+    return $val if !defined $val;
+
+    my $ref = ref $val;
+    return $val if '' eq $ref;
+
+    structmod();
+    return undef if Voxgig::Struct::is_jnull($val);
+    return ( $val ? JSON::PP::true : JSON::PP::false )
+      if Voxgig::Struct::is_jbool($val);
+
+    return [ map { jsonform($_) } @$val ] if 'ARRAY' eq $ref;
+
+    if ( 'HASH' eq $ref ) {
+        my $out = ordered_map();
+        $out->{$_} = jsonform( $val->{$_} ) for mapkeys($val);
+        return $out;
+    }
+
+    return $val;
 }
 
 # The keys of a map in the order that MEANS something: insertion order
