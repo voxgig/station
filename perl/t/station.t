@@ -27,6 +27,7 @@ use Voxgig::Station::Profile qw(select_profile);
 use Voxgig::Station::Shape qw(
   BLOCK_DEFAULTS MERGE_SENSITIVE PROFILE_DEFAULTS config_shape normalize_config
 );
+use Voxgig::Station::Struct qw(mapkeys);
 
 my $CONFIG = {
     main => {
@@ -637,6 +638,548 @@ subtest 'the error catalog admits no comment fragments' => sub {
     for my $junk ( '#', 'Features', '(design', '8.4,', '8.5).', 'the', 'design' ) {
         ok( !is_known_code($junk), "\"$junk\" is not a code" );
     }
+};
+
+# --- the shape, as data (design station.md 4.3) ---
+#
+# The shape file is the artifact every port reads, so the properties the
+# design leans on are asserted HERE rather than trusted: a shape edit
+# that quietly reopens a map or drops a default has no other guard.
+subtest 'the shape holds its documented properties' => sub {
+    my $shape = config_shape();
+
+    my $api = $shape->{profiles}{'`$CHILD`'}{api}{'`$CHILD`'};
+    my $sdk = $shape->{profiles}{'`$CHILD`'}{sdk}{'`$CHILD`'};
+    is( Voxgig::Station::Descriptor::canonical_serialize($api),
+        Voxgig::Station::Descriptor::canonical_serialize($sdk),
+        'the two block specs are identical' );
+
+    my @sensitive = MERGE_SENSITIVE();
+    is_deeply( \@sensitive, ['active'], 'MERGE_SENSITIVE is exactly [active]' );
+
+    my %block = BLOCK_DEFAULTS();
+    ok( exists $block{$_}, "merge-sensitive `$_` has a default" ) for @sensitive;
+
+    # Every default that is NOT a container must be merge-sensitive: a
+    # container merges as empty when absent, a scalar does not.
+    my %issensitive = map { $_ => 1 } @sensitive;
+    for my $key ( sort keys %block ) {
+        my $value = $block{$key}->();
+        next if ref($value) eq 'HASH' || ref($value) eq 'ARRAY';
+        ok( $issensitive{$key}, "scalar default `$key` is merge-sensitive" );
+    }
+
+    # `$OPEN` re-opens a map where a foreign grammar must pass through,
+    # and the ONLY such grammar is a feature entry's own options.
+    my @open;
+    my $walk;
+    $walk = sub {
+        my ( $node, $path ) = @_;
+        if ( ref($node) eq 'ARRAY' ) {
+            $walk->( $node->[$_], [ @$path, $_ ] ) for 0 .. $#$node;
+            return;
+        }
+        return unless ref($node) eq 'HASH';
+        for my $key ( sort keys %$node ) {
+            push @open, join( '.', @$path ) if '`$OPEN`' eq $key;
+            $walk->( $node->{$key}, [ @$path, $key ] );
+        }
+    };
+    $walk->( $shape, [] );
+    is_deeply(
+        [ sort @open ],
+        [
+            'profiles.`$CHILD`.api.`$CHILD`.feature.`$CHILD`',
+            'profiles.`$CHILD`.feature.`$CHILD`',
+            'profiles.`$CHILD`.sdk.`$CHILD`.feature.`$CHILD`',
+        ],
+        'the only open nodes are the three feature entries'
+    );
+};
+
+# The normalized form is an input to VALIDATION and to nothing else, so
+# the raw config every other consumer reads must come back untouched.
+subtest 'normalize_config never mutates its input' => sub {
+    my $raw = {
+        station  => 1,
+        profiles => {
+            default => { sdk => { solar => { feature => { retry => {} } } } }
+        },
+    };
+    my $before = Voxgig::Station::Descriptor::canonical_serialize($raw);
+    my $out    = normalize_config($raw);
+
+    is( Voxgig::Station::Descriptor::canonical_serialize($raw),
+        $before, 'the input is unchanged' );
+    ok( !exists $raw->{profiles}{default}{api}, 'no container synthesized in place' );
+    ok( exists $out->{profiles}{default}{api},  'the copy has the container' );
+    ok( $out->{profiles}{default}{sdk}{solar}{active}, 'the copy has `active`' );
+    ok(
+        $out->{profiles}{default}{sdk}{solar}{feature}{retry}{active},
+        'a named feature defaults active'
+    );
+    is( normalize_config('nope'), 'nope', 'a non-map passes through' );
+};
+
+# --- the factory table (design station.md 6.2) ---
+
+subtest 'provide is idempotent and conflicts loudly' => sub {
+    reset_env();
+    my $factory = stub_factory();
+
+    my $entry = provide( 'gnarly-pets', $factory );
+    is( $entry->{api}, 'gnarly-pets', 'entry keyed by api' );
+    is( $entry->{descriptor}{slug}, 'gnarly-pets',
+        'the descriptor is normalized AT PROVIDE TIME' );
+    # Module self-registration PLUS an explicit provide for one api is an
+    # ordinary thing for an application to end up with, so the same pair
+    # twice is a no-op rather than an error.
+    is( refaddr( provide( 'gnarly-pets', $factory ) ),
+        refaddr($entry), 'the same pair twice is a no-op' );
+    is_deeply( provided(), ['gnarly-pets'], 'provided() lists the slug' );
+
+    my $err = do {
+        local $@;
+        eval {
+            provide( 'gnarly-pets',
+                {
+                    construct => $factory->{construct},
+                    config    => { %{ $factory->{config} } },
+                }
+            );
+        };
+        $@;
+    };
+    is( $err->code, 'station_factory_conflict', 'a different pair conflicts' );
+
+    reset_factories();
+    is_deeply( provided(), [], 'reset clears the table' );
+};
+
+# --- the loader (design station.md 6.3) ---
+
+{
+
+    package FakeMod::SDK;
+    sub new { return bless { built => 1 }, shift }
+}
+{
+
+    package FakeMod;
+    our $config = { main => { slug => 'fake', version => '1.0.0' } };
+}
+{
+
+    package BareMod::SDK;
+    sub new { return bless {}, shift }
+}
+
+subtest 'check_package admits module names and nothing else' => sub {
+    is( check_package( 'x', 'Acme::Stripe' ), 'Acme::Stripe', 'a module name' );
+
+    for my $bad ( '', './local', '/abs/path', '~/home', 'https://x/y',
+        'a\\b', 'pkg/../../escape', 'pkg/./here' )
+    {
+        my $err = do {
+            local $@;
+            eval { check_package( 'x', $bad ) };
+            $@;
+        };
+        is( $err->code, 'station_sdk_load', "refused: \"$bad\"" );
+    }
+
+    # A TRAVERSAL SEGMENT IS NOT A LEADING MARKER: `pkg/../../escape`
+    # starts with neither `.` nor `/`, so a first-character check passes
+    # it and the host resolves it from outside the named dependency.
+    is( camelify('stripe-eu'),      'StripeEu',   'camelify splits and caps' );
+    is( camelify('voxgig_solar.1'), 'VoxgigSolar1', 'runs of non-alphanumerics' );
+};
+
+subtest 'factory_from_module reads the constructor AND the config' => sub {
+    my $factory = factory_from_module( 'fake', 'FakeMod' );
+    isa_ok( $factory->{construct}->( {} ), 'FakeMod::SDK', 'constructed' );
+    is( $factory->{config}{main}{slug}, 'fake', 'config singleton found' );
+
+    # A module exporting a constructor but no config cannot have its
+    # feature schema read before construction, which is the whole point
+    # of carrying `config` (6.2).
+    my $err = do {
+        local $@;
+        eval { factory_from_module( 'bare', 'BareMod' ) };
+        $@;
+    };
+    is( $err->code, 'station_sdk_load', 'no config singleton is an error' );
+    ok( 0 <= index( "$err", 'no `config` singleton' ), 'the message says why' );
+
+    my $miss = do {
+        local $@;
+        eval { factory_from_module( 'nothing', 'FakeMod::SDK' ) };
+        $@;
+    };
+    is( $miss->code, 'station_sdk_load', 'no constructor is an error' );
+    ok( 0 <= index( "$miss", 'tried [' ), 'the message names what was tried' );
+};
+
+# --- the declarative front door (design station.md 6) ---
+
+sub declared_station {
+    my ($sdkblocks) = @_;
+    reset_env();
+    provide( 'gnarly-pets', stub_factory() );
+    return Voxgig::Station->new(
+        {
+            config => {
+                station  => 1,
+                profiles => { default => { sdk => $sdkblocks } },
+            }
+        }
+    );
+}
+
+subtest 'sdk() caches and create() does not' => sub {
+    my $st = declared_station( { 'gnarly-pets' => {} } );
+
+    my $a = $st->sdk('gnarly-pets');
+    my $b = $st->sdk('gnarly-pets');
+    isa_ok( $a, 'StubSDK', 'constructed' );
+    is( refaddr($a), refaddr($b), 'sdk() caches by name' );
+
+    # The carried adapter rode `extend`, so the client is REGISTERED and
+    # wrapped even though StubSDK declares no station feature of its own.
+    is( scalar @{ $st->plugins }, 1, 'registered' );
+    is( $st->plugins->[0]{name}, 'gnarly-pets', 'registered under the instance' );
+    is( $a->{options}{apikey}, $PLACEHOLDER, 'placeholder planted' );
+
+    my $c = $st->create('gnarly-pets');
+    isnt( refaddr($c), refaddr($a), 'create() is uncached' );
+    is( scalar @{ $st->plugins }, 2, 'and registers a second instance' );
+    is( $st->plugins->[1]{name}, 'gnarly-pets$1', 'under an auto-assigned tag' );
+    is( $st->plugins->[1]{api}, 'gnarly-pets', 'grouped by api' );
+    is( $c->{options}{apikey}, '[station:gnarly-pets$1]',
+        'two live instances have distinct placeholders' );
+};
+
+subtest 'the composed feature order reaches the constructor' => sub {
+    reset_env();
+    provide( 'gnarly-pets', stub_factory() );
+    my $st = Voxgig::Station->new(
+        {
+            config => {
+                station  => 1,
+                profiles => {
+                    default => {
+                        sdk => {
+                            'gnarly-pets' => {
+                                feature => { test => {}, retry => { retries => 2 } }
+                            }
+                        }
+                    }
+                },
+            }
+        }
+    );
+
+    # `test` substitutes the base transport so it takes the innermost
+    # band; everything else is band 0, outside it. A perl hash would
+    # answer differently on every run, so the composed map is an ORDERED
+    # map all the way to the constructor.
+    is_deeply( $st->features_of('gnarly-pets')->{ordered},
+        [ 'retry', 'station', 'test' ], 'station is pinned outside the base' );
+
+    my $sdk = $st->sdk('gnarly-pets');
+    is_deeply(
+        [ grep { 'station' ne $_ } mapkeys( $sdk->{options}{feature} ) ],
+        [ 'retry', 'test' ],
+        'the constructor got them outermost first'
+    );
+
+    # ...and 6.1's inverted binding takes the instance name as an
+    # OPTIONAL LEADING argument, so every existing options({...}) call is
+    # unchanged.
+    my $named = $st->options( 'gnarly-pets$eu', { base => 'http://x' } );
+    is( $named->{feature}{station}{instance}, 'gnarly-pets$eu', 'named form' );
+    is( $named->{base}, 'http://x', 'extra still applies' );
+    my $bare = $st->options( { base => 'http://y' } );
+    ok( !exists $bare->{feature}{station}{instance}, 'bare form is unchanged' );
+    is( $bare->{base}, 'http://y', 'and still carries the extra' );
+};
+
+subtest 'a declared tag reserves an auto tag' => sub {
+    my $st = declared_station(
+        { 'gnarly-pets' => {}, 'gnarly-pets$1' => {} } );
+
+    # THE REGISTRY ALONE IS NOT ENOUGH: `gnarly-pets$1` is declared and
+    # not yet built, so a registry-only check would hand its identity to
+    # the auto-tagged client and leave instances() reporting it live with
+    # the wrong client.
+    is( $st->autotag('gnarly-pets'), 'gnarly-pets$2', 'declaration reserves' );
+};
+
+subtest 'build refuses an unknown or barred instance' => sub {
+    my $st = declared_station(
+        { 'gnarly-pets' => {}, 'gnarly-pets$off' => { active => JSON::PP::false } }
+    );
+
+    my $unknown = do {
+        local $@;
+        eval { $st->sdk('gnarly-pets$nope') };
+        $@;
+    };
+    is( $unknown->code, 'station_no_instance', 'unknown instance' );
+    ok( 0 <= index( "$unknown", 'declared: [' ), 'the message lists what is declared' );
+
+    my $barred = do {
+        local $@;
+        eval { $st->sdk('gnarly-pets$off') };
+        $@;
+    };
+    is( $barred->code, 'station_instance_inactive', 'active: false bars running' );
+
+    my $rows = $st->instances;
+    is( scalar @$rows, 2, 'both stay visible in instances()' );
+    is( $rows->[0]{name},   'gnarly-pets',     'sorted by name' );
+    is( $rows->[1]{active}, 0,                 'the barred one is inactive' );
+    is( $rows->[0]{live},   0,                 'declared is not live' );
+};
+
+subtest 'no factory names only the remedies this port offers' => sub {
+    reset_env();
+    my $st = Voxgig::Station->new(
+        {
+            config => {
+                station  => 1,
+                profiles => { default => { sdk => { 'gnarly-pets' => {} } } },
+            }
+        }
+    );
+    my $err = do {
+        local $@;
+        eval { $st->sdk('gnarly-pets') };
+        $@;
+    };
+    is( $err->code, 'station_no_factory', 'no factory' );
+    ok( 0 <= index( "$err", 'Voxgig::Station->provide' ), 'names provide' );
+    ok( 0 <= index( "$err", 'api.gnarly-pets.package' ), 'names the loader key' );
+};
+
+# THE ALIAS IS RECORDED, NOT THE FIELDS. Carrying the declared `secret`
+# through the feature options and stopping there leaves `policy`, `base`
+# and everything else behind, so an auto-tagged client silently loses its
+# declared instance's hosts allowlist and falls back to the wider
+# api-level one.
+subtest 'an auto tag stands for its declared instance' => sub {
+    my $st = declared_station(
+        {
+            'gnarly-pets$eu' => {
+                base   => 'http://eu:9',
+                policy => { hosts => ['eu.example'] },
+            }
+        }
+    );
+
+    $st->create('gnarly-pets$eu');
+    is( $st->declared_ref('gnarly-pets$1'), 'gnarly-pets$eu', 'alias recorded' );
+    is_deeply( $st->block_for('gnarly-pets$1')->{policy}{hosts},
+        ['eu.example'], 'the declared policy still governs the tag' );
+
+    # ...and so does the declared instance's secret NAME, so every
+    # per-request client of one instance shares one broker cache entry.
+    is( $st->plugins->[0]{secretname}, 'gnarly_pets_eu.apikey',
+        'the secret name follows the declared ref, not the tag' );
+};
+
+subtest 'features_of merges, provenances and composes the budget' => sub {
+    reset_env();
+    my $st = Voxgig::Station->new(
+        {
+            config => {
+                station  => 1,
+                profiles => {
+                    default => {
+                        feature => { retry => { retries => 2 } },
+                        sdk     => {
+                            'gnarly-pets' => {
+                                feature => { retry => { wait => 5 } },
+                                policy  => { budget => { rps => 7, concurrency => 3 } },
+                            }
+                        },
+                    }
+                },
+            }
+        }
+    );
+
+    my $of = $st->features_of('gnarly-pets');
+    is( $of->{merged}{retry}{retries}, 2, 'profile level survives' );
+    is( $of->{merged}{retry}{wait},    5, 'block level merges per key' );
+    is( $of->{from}{retry}{retries}, 'default.feature', 'provenance: profile' );
+    is( $of->{from}{retry}{wait},    'default.sdk',     'provenance: block' );
+
+    # The budget is composed INTO the merged map, so build() orders it
+    # with the ordinary rules and check() validates it against the SDK's
+    # own declaration rather than it quietly doing nothing.
+    ok( $of->{merged}{ratelimit}{active}, 'ratelimit switched on by policy' );
+    is( $of->{merged}{ratelimit}{rate},  7, 'rps -> refill rate' );
+    is( $of->{merged}{ratelimit}{burst}, 3, 'concurrency -> burst' );
+    is( $of->{from}{ratelimit}{rate}, 'policy.budget', 'provenance: policy' );
+
+    # THE IMPLICIT STATION ENTRY is for ordering only: it is never in
+    # `merged`, and without it checkpin would be a permanent no-op.
+    ok( !exists $of->{merged}{station}, 'station is not in the merge' );
+    is( $of->{ordered}[-1], 'station', 'station is pinned innermost' );
+
+    my $rows = $st->features( { feature => 'retry' } );
+    is( scalar @$rows, 1, 'the fleet view narrows to the rows carrying it' );
+    is_deeply( $rows->[0]{ordered}, ['retry'], 'and narrows each row to it' );
+    is_deeply( $st->features( { feature => 'nope' } ), [],
+        'a feature nothing carries is an empty answer' );
+};
+
+subtest 'check() catches a feature typo without constructing' => sub {
+    reset_env();
+    provide( 'gnarly-pets', stub_factory() );
+    my $st = Voxgig::Station->new(
+        {
+            config => {
+                station  => 1,
+                profiles => {
+                    default => {
+                        sdk => {
+                            'gnarly-pets' =>
+                              { feature => { retry => { retires => 5 } } }
+                        }
+                    }
+                },
+            }
+        }
+    );
+
+    my $out = $st->check;
+    is_deeply( $out->{ok}, [], 'nothing passed' );
+    is( scalar @{ $out->{failed} }, 1, 'one failure' );
+    is( $out->{failed}[0]{code}, 'station_feature_option', 'the typo is the code' );
+    ok( 0 <= index( $out->{failed}[0]{message}, 'declares no option "retires"' ),
+        'the message names the key' );
+    is( scalar @{ $st->plugins }, 0, 'and nothing was constructed' );
+
+    # ...and the same check runs on the production path, so sdk() cannot
+    # silently ignore it either.
+    my $err = do {
+        local $@;
+        eval { $st->sdk('gnarly-pets') };
+        $@;
+    };
+    is( $err->code, 'station_feature_option', 'sdk() fails the same way' );
+};
+
+subtest 'warm resolves by secret name and misses what is undeclared' => sub {
+    reset_env();
+    local $ENV{SHARED_APIKEY} = 'shared-value';
+    provide( 'gnarly-pets', stub_factory() );
+    my $st = Voxgig::Station->new(
+        {
+            config => {
+                station  => 1,
+                profiles => {
+                    default => {
+                        api => { 'gnarly-pets' => { secret => 'shared.apikey' } },
+                        sdk => { 'gnarly-pets' => {}, 'gnarly-pets$eu' => {} },
+                    }
+                },
+            }
+        }
+    );
+
+    my $out = $st->warm;
+    is_deeply( $out->{warmed}, [ 'gnarly-pets', 'gnarly-pets$eu' ],
+        'both warmed off one shared name' );
+    is_deeply( $out->{missed}, [], 'nothing missed' );
+
+    # A NAME NOBODY DECLARED OR REGISTERED IS A MISS, NOT A LOOKUP - a
+    # wider fallback would let a typo derive a secret name, call the
+    # provider, and report a nonexistent instance warmed off a shared
+    # api-level credential.
+    my $typo = $st->warm( ['gnarly-pets$prodd'] );
+    is_deeply( $typo->{warmed}, [], 'the typo warmed nothing' );
+    is_deeply( $typo->{missed}, ['gnarly-pets$prodd'], 'it is a miss' );
+};
+
+subtest 'the broker caches by secret name, not by instance' => sub {
+    reset_env();
+    my $st = Voxgig::Station->new( { config => undef } );
+    {
+        local $ENV{SHARED_APIKEY} = 'once';
+        is( $st->{broker}->value( 'a', 'shared.apikey' ), 'once', 'resolved' );
+    }
+
+    # The env var is gone; a cache keyed by INSTANCE would go back to the
+    # store for `b` and fail. At 26 instances over 20 apis that is one
+    # store round-trip turned into 26.
+    is( $st->{broker}->value( 'b', 'shared.apikey' ), 'once',
+        'a second instance of one name is a cache hit' );
+};
+
+subtest 'policy allowlists reach the SDK own options' => sub {
+    reset_env();
+    my $st = Voxgig::Station->new(
+        {
+            config => {
+                station  => 1,
+                profiles => {
+                    default => {
+                        sdk => {
+                            'gnarly-pets' => {
+                                policy => {
+                                    allow => {
+                                        op     => [ 'find', 'list' ],
+                                        method => ['GET'],
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+            }
+        }
+    );
+    my $b = bind_client( $st, sub { return ( okres(), undef ) } );
+
+    # Unlike `base`, which is a DEFAULT the caller may override, an
+    # allowlist is ENFORCEMENT: policy wins on exactly the keys it sets.
+    is( $b->{options}{allow}{op},     'find,list', 'op allowlist applied' );
+    is( $b->{options}{allow}{method}, 'GET',       'method allowlist applied' );
+};
+
+subtest 'the descriptor carries a feature option schema and role' => sub {
+    my ($descriptor) = Voxgig::Station::Descriptor::normalize_descriptor(
+        {
+            main    => { slug => 'x', version => '1.0.0', target => 'perl' },
+            feature => {
+                plain => {},
+                retry => {
+                    options   => { retries => 1 },
+                    transport => 'wrap',
+                },
+            },
+        },
+        undef
+    );
+
+    my %byname = map { $_->{name} => $_ } @{ $descriptor->{features} };
+    ok( !exists $byname{plain}{options}, 'absent stays absent' );
+    is_deeply( $byname{retry}{options}, { retries => 1 }, 'options carried' );
+    is( $byname{retry}{transport}, 'wrap', 'transport carried' );
+
+    # 8.5 then validates against exactly that, so an option the SDK does
+    # not declare is a fault rather than a setting that does nothing.
+    my $faults = checkfeatures( { retry => { retries => 'many' } }, $descriptor );
+    is( scalar @$faults, 1, 'one fault' );
+    is( $faults->[0]{code}, 'station_feature_option', 'kind mismatch' );
+    ok( 0 <= index( $faults->[0]{message}, 'expects number, but found string' ),
+        'the message names both kinds' );
+
+    is_deeply( [ RESERVED_KEYS() ], [ 'active', 'order' ],
+        'reserved keys are never options' );
 };
 
 done_testing();

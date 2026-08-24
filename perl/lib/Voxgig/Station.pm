@@ -114,8 +114,13 @@ my $AMBIENT_OPTS;
 # MAY start with a digit, because auto-tagging assigns integer tags, and
 # admits neither `@` nor `/`; both cap at 1024; the split is on the FIRST
 # `$`, so `a$b$c` is a good name with a bad tag.
-my $REF_NAME_RE = qr{^[a-zA-Z@][a-zA-Z0-9.~_\-/]*$};
-my $REF_TAG_RE  = qr{^[a-zA-Z0-9.~_-]+$};
+#
+# `\z` rather than `$`, deliberately: perl's `$` also matches before a
+# final newline, so `"stripe\n"` would pass a rule every other port
+# rejects - and a registry key with a newline in it is a key nothing else
+# can name.
+my $REF_NAME_RE = qr{^[a-zA-Z@][a-zA-Z0-9.~_\-/]*\z};
+my $REF_TAG_RE  = qr{^[a-zA-Z0-9.~_-]+\z};
 my $REF_MAX     = 1024;
 
 sub check_instance_name {
@@ -293,11 +298,13 @@ sub new {
     # option is a real precedence bug: it makes `repo_scoped => 0`
     # unsettable for any caller passing a config in code, which is every
     # test of the rule.
+    my $explicit_scope =
+      exists $opts->{repo_scoped} ? $opts->{repo_scoped} : $opts->{repoScoped};
     my $repo_scoped =
-        defined $opts->{repo_scoped} ? ( $opts->{repo_scoped} ? 1 : 0 )
-      : exists $opts->{config}       ? 1
-      :   ( 'user' ne config_scope( $opts->{folder} ) ) ? 1
-      :                                                   0;
+        defined $explicit_scope ? ( $explicit_scope ? 1 : 0 )
+      : exists $opts->{config}  ? 1
+      : ( 'user' ne config_scope( $opts->{folder} ) ) ? 1
+      :                                                 0;
 
     # Normalize, then validate (design station.md 4.2). A malformed
     # station.json fails open() with EVERY error at once - an
@@ -433,9 +440,23 @@ sub options {
 # closure: the generated make_options deep-clones its options, and a
 # blessed hash object would be flattened to a plain map on the way
 # through - a coderef passes by reference, so the handle survives.
+# Copy a map, KEEPING INSERTION ORDER when the source has one. build()
+# hands _activation the composed feature map, which is ordered because
+# 8.4 resolved it; an imperative connect() hands it a plain perl hash,
+# which has no order to keep - and must not have to load voxgig/struct
+# just to build one it does not need.
+sub _copymap {
+    my ($src) = @_;
+    $src = {} unless ref($src) eq 'HASH';
+    return {%$src} unless defined tied(%$src);
+    my $out = ordered_map();
+    $out->{$_} = $src->{$_} for mapkeys($src);
+    return $out;
+}
+
 sub _activation {
     my ( $self, $fmap, $calleropts, $ident ) = @_;
-    $fmap = { %{ ref($fmap) eq 'HASH' ? $fmap : {} } };
+    $fmap = _copymap($fmap);
     my $station = $self;
     $fmap->{station} = {
         %{ ref( $fmap->{station} ) eq 'HASH' ? $fmap->{station} : {} },
