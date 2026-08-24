@@ -12,9 +12,16 @@
 use strict;
 use warnings;
 
+use File::Basename qw(dirname);
+use File::Spec;
 use JSON::PP ();
 use Scalar::Util qw(refaddr);
 use Test::More;
+
+# The loader fixtures resolve by NAME from @INC, exactly as a configured
+# `package` does - the point of the check being that a config file can
+# only name something the ordinary module path already reaches.
+use lib File::Spec->catdir( dirname( File::Spec->rel2abs(__FILE__) ), 'lib' );
 
 use Voxgig::Station;
 use Voxgig::Station::Error qw(is_known_code);
@@ -793,6 +800,73 @@ subtest 'check_package admits module names and nothing else' => sub {
     # it and the host resolves it from outside the named dependency.
     is( camelify('stripe-eu'),      'StripeEu',   'camelify splits and caps' );
     is( camelify('voxgig_solar.1'), 'VoxgigSolar1', 'runs of non-alphanumerics' );
+};
+
+subtest 'the loader fills the same table both paths' => sub {
+    reset_env();
+
+    # Path 1: loading the package self-registers, and the loader stops
+    # there rather than reading its exports.
+    ok( Voxgig::Station::Loader::load_sync( 'loadable', 'StationTestLoadable' ),
+        'loaded' );
+    my $entry = factory_for('loadable');
+    ok( defined $entry, 'a factory arrived' );
+    is( $entry->{descriptor}{slug}, 'loadable',
+        'with its descriptor already normalized' );
+
+    # The RETROFIT path: nothing self-registered, so the pair is built
+    # from the module's constructor and its `config` singleton.
+    ok( Voxgig::Station::Loader::load_sync( 'retrofit', 'StationTestRetrofit' ),
+        'loaded' );
+    is( factory_for('retrofit')->{descriptor}{slug}, 'retrofit',
+        'retrofit factory built from the exports' );
+
+    # An api that already has a factory is not loaded again.
+    ok( Voxgig::Station::Loader::load_sync( 'loadable', 'StationTestLoadable' ),
+        'idempotent' );
+    is_deeply( provided(), [ 'loadable', 'retrofit' ], 'both registered' );
+};
+
+subtest '`package` closes the loop, and only from repo-scoped config' => sub {
+    reset_env();
+    my $config = {
+        station  => 1,
+        profiles => {
+            default => {
+                api => { retrofit => { package => 'StationTestRetrofit' } },
+                sdk => { retrofit  => {} },
+            }
+        },
+    };
+
+    my $st = Voxgig::Station->new( { config => $config } );
+    my $sdk = $st->sdk('retrofit');
+    isa_ok( $sdk, 'StationTestRetrofit::SDK', 'constructed through the loader' );
+    is( $st->plugins->[0]{name}, 'retrofit', 'and registered' );
+
+    # `package` names CODE TO LOAD, and a user-level station.json sits
+    # outside the repo's review boundary - so it is IGNORED WITH A
+    # WARNING rather than imported. Everything else in that config still
+    # applies; this narrows one key rather than distrusting the file.
+    reset_env();
+    my $user = Voxgig::Station->new( { config => $config, repo_scoped => 0 } );
+    my $err = do {
+        local $@;
+        eval { $user->sdk('retrofit') };
+        $@;
+    };
+    is( $err->code, 'station_no_factory', 'not loaded from a user-level file' );
+    my @warns = grep {
+        'station' eq $_->{kind}
+          && 0 <= index( ( $_->{meta}{warn} || '' ), 'ignoring `package`' )
+    } @{ $user->events };
+    is( scalar @warns, 1, 'and says so once' );
+
+    # `load => 0` is accepted and inert on the same path.
+    reset_env();
+    my $off = Voxgig::Station->new( { config => $config, load => 0 } );
+    is( $off->loader_package( 'retrofit', $config->{profiles}{default}{api}{retrofit} ),
+        undef, 'load => 0 disables the loader' );
 };
 
 subtest 'factory_from_module reads the constructor AND the config' => sub {

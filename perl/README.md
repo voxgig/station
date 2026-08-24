@@ -120,6 +120,7 @@ Vendoring.
 | `lib/Voxgig/Station/Secrets.pm` | the secret broker over `Voxgig::Sekreto` |
 | `t/conform.t` | the shared conformance corpus, via voxgig/omni |
 | `t/station.t` | focused unit tests (binding, injection, policy, events, the declarative surface) |
+| `t/lib/StationTest*.pm` | loader fixtures: a package that self-registers, and one the retrofit path reads |
 
 ## Vendoring
 
