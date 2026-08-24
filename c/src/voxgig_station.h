@@ -24,7 +24,10 @@
  * its own tiny JSON value model (vxstn_val) because the canonical
  * serializer needs one anyway and the C SDKs' voxgig_value machinery
  * ships inside each generated SDK, not as a reusable library (design
- * station.md 10.1). The generated station feature (sdkgen-station's
+ * station.md 10.1). ONE DEPENDENCY, and the design sanctions it (4, 9):
+ * voxgig/struct validates the config grammar, at open() rather than
+ * only under test, and rides the same vendoring path this library does
+ * - a generated C SDK already carries it at utility/struct/. The generated station feature (sdkgen-station's
  * tm/c/feature/station.c) is the bridge: it serializes the SDK's
  * embedded config to JSON, registers here, and delegates transport
  * middleware decisions (require-proxy, host policy, secret value,
@@ -42,12 +45,14 @@
  * values is acceptable, matching the host's own discipline.
  *
  * NOTE ON COPIES: the canonical source of this library lives in the
- * voxgig/station repo at c/src/voxgig_station.{h,c}. The sdkgen-station
- * package carries a VENDORED copy under
- * .sdk/tm/c/feature/station/voxgig_station.{h,c} (C has no package
+ * voxgig/station repo at c/src/. The sdkgen-station package carries a
+ * VENDORED copy under .sdk/tm/c/feature/station/ (C has no package
  * registry; design station.md 9.2 vendors tier-C libraries through the
- * tm overlay). Edit HERE first, then refresh the vendored copy - the
- * two must stay byte-identical.
+ * tm overlay), and its SDK Makefile compiles every feature source by
+ * wildcard, so the sources are: voxgig_station.{h,c}, voxgig_station_int.h,
+ * voxgig_station_{shape,feature,factory}.c and the generated
+ * config_shape.h. Edit HERE first, then refresh the vendored copy - the
+ * files must stay byte-identical.
  */
 
 #ifndef VOXGIG_STATION_H
@@ -498,13 +503,21 @@ typedef struct vxstn_binding {
 
 void vxstn_binding_free(vxstn_binding* b);
 
-/* Register a plugin from its embedded config (as JSON text - the
- * adapter serializes the SDK's config value) plus the client's
- * options.feature map as JSON (only `active` flags are read) and the
- * feature-options secret override ('' / NULL = none). `client` is an
- * opaque identity pointer for the bound-twice check. Emits the legacy
- * warnings and the construct event. NULL + *err on station_bound_twice
- * (same slug twice) or unparseable config. */
+/* Register an INSTANCE from its SDK's embedded config (as JSON text -
+ * the adapter serializes the SDK's config value) plus the client's
+ * options.feature map as JSON, and the feature-options secret override
+ * ('' / NULL = none). `client` is an opaque identity pointer for the
+ * bound-twice check.
+ *
+ * THE INSTANCE NAME comes from `feature.station` in the features JSON -
+ * `instance` if present, else the api plus `$` plus `as`, else the api
+ * slug (design 6.1). The registry, the placeholder, the secret name and
+ * every event key on it, so two clients of one api are ordinary and two
+ * bindings of one instance are still station_bound_twice.
+ *
+ * Emits the legacy warnings and the construct event. NULL + *err on
+ * station_bound_twice, station_instance_api (a bad ref) or an
+ * unparseable config. */
 vxstn_binding* vxstn_register(vxstn_station* st, void* client,
                               const char* config_json,
                               const char* features_json,
@@ -529,13 +542,14 @@ bool vxstn_require_proxy(vxstn_station* st);
  * the adapter to ask the transport for manual redirects (design 8.2's
  * rule at the library seam). Returns false only when a policy exists
  * and the URL's hostname is not on it. */
-bool vxstn_host_allowed(vxstn_station* st, const char* slug,
+bool vxstn_host_allowed(vxstn_station* st, const char* name,
                         const char* fullurl, bool* has_policy);
 
-/* The plugin's isolation rung: "R1" | "none" (borrowed; NULL when the
- * slug is unknown). Injection happens only on R1 - and, adapter-side,
- * only in live mode: never into mock transports (design 3.3). */
-const char* vxstn_rung(vxstn_station* st, const char* slug);
+/* The instance's isolation rung: "R1" | "none" (borrowed; NULL when the
+ * INSTANCE NAME is unknown). Injection happens only on R1 - and,
+ * adapter-side, only in live mode: never into mock transports
+ * (design 3.3). */
+const char* vxstn_rung(vxstn_station* st, const char* name);
 
 /* Resolve the secret value for a registered plugin (override beats
  * cache beats environment). ENV-ONLY, keeping sekreto's miss-vs-error
@@ -544,12 +558,14 @@ const char* vxstn_rung(vxstn_station* st, const char* slug);
  * (empty) value; station_secret_error is reserved for malformed names,
  * because the environment cannot "fail to answer". Returns a BORROWED
  * value (held privately by the broker), or NULL + *err. */
-const char* vxstn_secret_value(vxstn_station* st, const char* slug,
+const char* vxstn_secret_value(vxstn_station* st, const char* name,
                                vxstn_error** err);
 
 /* Hoist a resident credential (found in options.apikey at bind time)
- * into the broker and emit the one-time warning event (design 3.1). */
-void vxstn_hoist(vxstn_station* st, const char* slug, const char* value);
+ * into the broker and emit the one-time warning event (design 3.1).
+ * Keyed by INSTANCE: a hoisted credential belongs to the one client it
+ * was resident in. */
+void vxstn_hoist(vxstn_station* st, const char* name, const char* value);
 
 /* The next correlation id ("c1", "c2", ...), owned. Correlates op and
  * http events (design station.md 3 item 3). */
@@ -609,16 +625,21 @@ void vxstn_untap(vxstn_station* st, int tap_id);
  * will read it (design 2.2). Owned. */
 vxstn_val* vxstn_status(vxstn_station* st);
 
-/* Registered plugins: [{slug, descriptor, rung, warnings}]. Owned. */
+/* Every LIVE INSTANCE, and EXHAUSTIVE - auto-tagged entries are not
+ * collapsed, because inspection, health reporting and cleanup all need
+ * to enumerate the clients vxstn_create produced:
+ * [{name, api, slug, descriptor, rung, secretname, warnings}]. `slug`
+ * is retained and equals the api. Owned. */
 vxstn_val* vxstn_plugins(vxstn_station* st);
 
-/* The descriptor of a registered plugin (owned copy), or NULL + *err
- * (station_no_plugin, listing the known slugs). */
-vxstn_val* vxstn_descriptor_of(vxstn_station* st, const char* slug,
+/* The descriptor of a registered INSTANCE (owned copy), or NULL + *err
+ * (station_no_plugin, listing the known instance names). One descriptor
+ * is SHARED by every instance of an api (design 7.4). */
+vxstn_val* vxstn_descriptor_of(vxstn_station* st, const char* name,
                                vxstn_error** err);
 
 /* Canonical bytes of the descriptor (owned), or NULL + *err. */
-char* vxstn_canonical_descriptor(vxstn_station* st, const char* slug,
+char* vxstn_canonical_descriptor(vxstn_station* st, const char* name,
                                  vxstn_error** err);
 
 /* Exact-value scrub of every value the broker ever held (owned). */
@@ -628,10 +649,11 @@ char* vxstn_redact(vxstn_station* st, const char* text);
  * (rotation support, design 5.3). */
 void vxstn_refresh_secrets(vxstn_station* st);
 
-/* The resolved profile's plugin entry for a slug (borrowed; NULL when
- * none). The adapter reads policy through vxstn_host_allowed; this is
- * for tests and status surfaces. */
-const vxstn_val* vxstn_profile_sdk(vxstn_station* st, const char* slug);
+/* The resolved profile's DECLARED entry for an instance name (borrowed;
+ * NULL when none). Prefer vxstn_block_for, which falls back to the api
+ * block for an instance the config never declared; this is for tests
+ * and status surfaces. */
+const vxstn_val* vxstn_profile_sdk(vxstn_station* st, const char* name);
 
 /* =========================================================================
  * The declarative front door (design station.md 6). Stage 5.

@@ -38,7 +38,6 @@
 
 #include "voxgig_station_int.h"
 
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 

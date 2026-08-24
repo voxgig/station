@@ -7,6 +7,14 @@
  * generated make_feature's base-feature strays, host policy, and the
  * secret-name precedence chain. Zero test framework, the house style:
  * a failing check prints and the process exits non-zero.
+ *
+ * Stage 5 adds the half of the tranche the corpus cannot pin, because
+ * it needs a live factory rather than a pure function: the shape mirror
+ * drift guard and the shape's own invariants, the descriptor-derived
+ * option checker, the process-global factory table, and the whole
+ * declarative front door driven by a miniature "generated SDK" whose
+ * constructor binds through the ambient station exactly as the
+ * generated feature/station.c adapter does.
  */
 
 #define _POSIX_C_SOURCE 200809L
@@ -1225,12 +1233,26 @@ static void test_declarative(void) {
     vxstn_val_free(names);
 
     result = vxstn_warm(st, NULL);
-    /* No environment variable is set for either, so both miss - the
-       point here is the PLAN: two active declared instances, and the
-       barred one left alone. */
+    /* No environment variable is set for either yet, so both miss - the
+       point here is the PLAN: the two ACTIVE declared instances, and
+       the barred one left alone. */
     CHECK(2 == vxstn_map_get(result, "missed")->len);
+    CHECK(0 == vxstn_map_get(result, "warmed")->len);
     CHECK_STR(vxstn_strval(vxstn_map_get(result, "missed")->items[0]), "solar");
     vxstn_val_free(result);
+
+    /* With the environment answering, both warm - `solar` under its
+       derived name and `solar$eu` under the one its block wrote. */
+    setenv("SOLAR_APIKEY", "sk-a", 1);
+    setenv("SOLAR_EU_APIKEY", "sk-b", 1);
+    result = vxstn_warm(st, NULL);
+    CHECK(2 == vxstn_map_get(result, "warmed")->len);
+    CHECK(0 == vxstn_map_get(result, "missed")->len);
+    CHECK_STR(vxstn_strval(vxstn_map_get(result, "warmed")->items[0]), "solar");
+    CHECK_STR(vxstn_strval(vxstn_map_get(result, "warmed")->items[1]), "solar$eu");
+    vxstn_val_free(result);
+    unsetenv("SOLAR_APIKEY");
+    unsetenv("SOLAR_EU_APIKEY");
   }
 
   fake_free(a);

@@ -2498,7 +2498,10 @@ inline std::string find_config_file(const std::string& from = "") {
   return "";
 }
 
-// The parsed station.json, or absent when none is found.
+// The parsed station.json, or absent when none is found. A malformed
+// file is station_config_invalid NAMING THE FILE - a raw parse error
+// escaping open() tells an operator nothing about which of the two
+// candidate paths it read.
 inline Jval load_config(const std::string& from = "") {
   std::string file = find_config_file(from);
   if (file.empty()) {
@@ -2507,7 +2510,35 @@ inline Jval load_config(const std::string& from = "") {
   std::ifstream handle(file);
   std::stringstream buffer;
   buffer << handle.rdbuf();
-  return parse_json(buffer.str());
+  try {
+    return parse_json(buffer.str());
+  } catch (const StationError& err) {
+    throw StationError("station_config_invalid",
+                       "station.json at " + file + " is not valid JSON: " +
+                           err.message());
+  }
+}
+
+// Which side of design 6.3's review boundary the discovered
+// station.json came from: 'none' when there is no file, 'user' when it
+// is ~/.voxgig/station.json, else 'repo'. `package` names CODE TO LOAD
+// and a user-level file sits outside the repo's review boundary, so
+// this narrows one key rather than distrusting the whole file.
+inline std::string config_scope(const std::string& from = "") {
+  namespace fs = std::filesystem;
+  std::string file = find_config_file(from);
+  if (file.empty()) {
+    return "none";
+  }
+  const char* home = std::getenv("HOME");
+  if (nullptr != home) {
+    std::error_code ec;
+    fs::path user = fs::path(home) / ".voxgig" / "station.json";
+    if (fs::path(file) == user || fs::equivalent(fs::path(file), user, ec)) {
+      return "user";
+    }
+  }
+  return "repo";
 }
 
 // Profile selection: the open() option, else VOXGIG_STATION_PROFILE,
@@ -3109,26 +3140,36 @@ class SecretBroker {
     return out;
   }
 
-  void hoist(const std::string& slug, const std::string& value) {
+  // A hoisted credential belongs to the ONE CLIENT it was resident in,
+  // so the override is keyed by INSTANCE (design 5.3).
+  void hoist(const std::string& instance, const std::string& value) {
     std::lock_guard<std::mutex> lock(mutex_);
-    overrides_[slug] = value;
+    overrides_[instance] = value;
     held_.push_back(value);
   }
 
-  // Resolve the value for a plugin's secret name. Env-only, and the
+  // Resolve the value for an INSTANCE's secret name. Env-only, and the
   // miss keeps sekreto's meaning (design station.md 5.2): an unset
   // variable is station_secret_no_value; a set-but-empty variable is a
   // present (empty) value, exactly as sekreto's env provider reads it.
   // There is no store that can "fail to answer" here, so
   // station_secret_error is reserved for malformed names.
-  std::string value(const std::string& slug, const std::string& name) {
+  //
+  // TWO KEYS, DELIBERATELY (design 5.3): the hoisted override by
+  // INSTANCE, because a resident credential belongs to the one client
+  // it came from; the resolution cache by SECRET NAME, because a
+  // resolved value belongs to the name it was resolved for - so several
+  // instances sharing one api-level `secret` cost one lookup rather
+  // than one each. At 26 instances over 20 apis, keying the cache by
+  // instance turns one store round-trip into 26.
+  std::string value(const std::string& instance, const std::string& name) {
     {
       std::lock_guard<std::mutex> lock(mutex_);
-      auto ov = overrides_.find(slug);
+      auto ov = overrides_.find(instance);
       if (ov != overrides_.end()) {
         return ov->second;
       }
-      auto cached = cache_.find(slug);
+      auto cached = cache_.find(name);
       if (cached != cache_.end()) {
         return cached->second;
       }
@@ -3136,13 +3177,14 @@ class SecretBroker {
 
     const char* raw = std::getenv(envkey(name).c_str());
     if (nullptr == raw) {
-      throw StationError("station_secret_no_value",
-                         "no store had \"" + name + "\" for plugin \"" + slug + "\"");
+      throw StationError("station_secret_no_value", "no store had \"" + name +
+                                                        "\" for instance \"" +
+                                                        instance + "\"");
     }
     std::string value(raw);
 
     std::lock_guard<std::mutex> lock(mutex_);
-    cache_[slug] = value;
+    cache_[name] = value;
     held_.push_back(value);
     return value;
   }
@@ -3196,6 +3238,17 @@ struct StationOptions {
   std::string folder;          // config search start ('' = cwd)
   bool has_config = false;
   Jval config;
+  // Which side of design 6.3's review boundary this config is on.
+  // has_repo_scoped=false infers it (true for an in-code config,
+  // else config_scope(folder) != "user"); true reads `repo_scoped`.
+  // READ THE EXPLICIT OPTION FIRST - inferring before reading it is a
+  // real precedence bug that makes repo_scoped=false unsettable for any
+  // caller passing a config in code, which is every test of the rule.
+  bool has_repo_scoped = false;
+  bool repo_scoped = true;
+  // Accepted and INERT (the non-loader divergence, item 4): the preload
+  // exists so one startup sequence serves a polyglot fleet.
+  bool load = true;
 };
 
 class Station;
@@ -3220,6 +3273,9 @@ inline std::string opts_key(const StationOptions& opts) {
   k.set("folder", Jval::str(opts.folder));
   k.set("has_config", Jval::boolean(opts.has_config));
   k.set("config", opts.config);
+  k.set("has_repo_scoped", Jval::boolean(opts.has_repo_scoped));
+  k.set("repo_scoped", Jval::boolean(opts.repo_scoped));
+  k.set("load", Jval::boolean(opts.load));
   return canonical_serialize(k);
 }
 inline long long next_corr() {
@@ -3230,8 +3286,16 @@ inline long long next_corr() {
 
 class Station {
  public:
-  // One registered plugin.
+  // One registered INSTANCE. The registry is keyed by instance name,
+  // not api slug: two clients of one api is the NORMAL case now, and
+  // everything downstream keys on the instance - the placeholder (two
+  // live instances of one api MUST have distinct placeholders or the
+  // injection seam cannot tell which credential a header wants), the
+  // transport wrap, op events, error events. `slug` is retained and
+  // equal to `api`, which is what groups an instance with its siblings.
   struct PluginEntry {
+    std::string name;
+    std::string api;
     std::string slug;
     Jval descriptor;
     std::string rung;  // 'R1' | 'none'
@@ -3242,11 +3306,69 @@ class Station {
 
   // What _register hands back to the binding (design station.md 3 item 1).
   struct Reg {
-    std::string slug;
+    std::string name;
+    std::string api;
+    std::string slug;  // == api, kept for the pre-instance spelling
     std::string placeholder;
     std::string secretname;
     std::string rung = "none";
-    Jval profile_plugin;
+    Jval block;  // the profile block that GOVERNS this instance
+  };
+
+  // One row of instances() (design 6.10).
+  struct Instance {
+    std::string name;
+    std::string api;
+    bool active = true;
+    bool live = false;
+    std::string rung = "none";
+    Jval block;
+  };
+
+  // featuresOf()'s answer (design 8.7).
+  struct FeatureSet {
+    std::vector<std::string> ordered;
+    Jval merged;
+    // feature -> option key -> the level that wrote it.
+    Jval from;
+  };
+
+  // One row of features() (design 6.7).
+  struct FeatureRow {
+    std::string instance;
+    std::string api;
+    std::vector<std::string> ordered;
+    Jval merged;
+    Jval from;
+  };
+
+  // features()'s filter. The string shorthand is `loose`; only the
+  // object form can express `{feature: "debug"}` - "is debug on
+  // anywhere?", the one that is twenty greps today.
+  struct FeatureFilter {
+    bool loose = false;
+    std::string instance;
+    std::string api;
+    std::string feature;
+
+    // The string shorthand: "this instance or this api", loose.
+    static FeatureFilter of(const std::string& text);
+  };
+
+  struct CheckFailure {
+    std::string name;
+    std::string code;
+    std::string message;
+  };
+
+  struct CheckResult {
+    std::vector<std::string> ok;
+    std::vector<CheckFailure> failed;
+  };
+
+  struct WarmResult {
+    std::vector<std::string> warmed;
+    std::vector<std::string> missed;
   };
 
   // Ambient instance (design station.md 10.2): open() is the idempotent
@@ -3284,10 +3406,39 @@ class Station {
     detail::ambient_key_ref().clear();
   }
 
+  // The config as it was written, KEPT FOR PROVENANCE: the resolved
+  // profile has already collapsed the levels that provenance has to
+  // name, and featuresOf() reads these levels directly.
+  //
+  // Design 6.1's order: read the config, decide the scope, VALIDATE
+  // (normalize first - handing validate a raw config is the mistake
+  // design 4.2 exists to prevent), then resolve the profile from the
+  // RAW config, never the normalized one.
+  static Jval readconfig(const StationOptions& opts) {
+    Jval raw = opts.has_config ? opts.config : load_config(opts.folder);
+    if (!raw.isnone()) {
+      validate_config(normalize_config(raw));
+    }
+    return raw;
+  }
+
+  static bool readscope(const StationOptions& opts) {
+    if (opts.has_repo_scoped) {
+      return opts.repo_scoped;
+    }
+    // A config that came IN CODE is repo-scoped by construction - the
+    // application wrote it.
+    if (opts.has_config) {
+      return true;
+    }
+    return "user" != config_scope(opts.folder);
+  }
+
   explicit Station(const StationOptions& opts = StationOptions())
       : opts_(opts),
-        profile_(resolve_profile(opts.has_config ? opts.config : load_config(opts.folder),
-                                 select_profile(opts.profile))),
+        raw_(readconfig(opts)),
+        repo_scoped_(readscope(opts)),
+        profile_(resolve_profile(raw_, select_profile(opts.profile))),
         broker_(profile_.providers),
         require_proxy_("require" == opts.proxy) {
     if ("auto" == opts_.proxy) {
@@ -3326,6 +3477,8 @@ class Station {
       ev.set("meta", meta);
       emit(ev);
     }
+
+    warn_packages();
   }
 
   // --- registration (design station.md 3 item 1, called by the binding) ---
@@ -3352,66 +3505,145 @@ class Station {
     wrapped_.insert(utility);
   }
 
-  Reg _register(const void* client, const Jval& config, const Jval& active_features,
-                const std::string& fsecret) {
-    Normalized norm = normalize_descriptor(config, active_features);
-    std::string slug = norm.descriptor.get("slug").str_or("");
+  // The DECLARED instance an assigned tag stands for, or the name
+  // itself. create("stripe$prod") registers under `stripe$1`, and every
+  // question about that client's configuration - its secret, its base,
+  // its egress policy - is a question about `stripe$prod`.
+  std::string declared_ref(const std::string& name) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto found = alias_of_.find(name);
+    return alias_of_.end() == found ? name : found->second;
+  }
+
+  // The profile block that GOVERNS an instance - its own if the profile
+  // declares it, otherwise its API's.
+  //
+  // ONE RULE, ONE PLACE. resolve_profile builds profile.sdk from the
+  // declared refs alone (an api block declares no instance, design
+  // 3.1), which leaves an IMPERATIVE instance - named but never written
+  // into config - with no block at all, so the api-level `secret`,
+  // `base` and most seriously `policy.hosts` did not reach it, and a
+  // profile that denied egress everywhere denied nothing for a tagged
+  // client. Registration and the transport seam must both ask HERE.
+  Jval block_for(const std::string& name) const {
+    std::string declared = declared_ref(name);
+    if (profile_.sdk.has(declared)) {
+      return profile_.sdk.get(declared);
+    }
+    return profile_.api.get(refapi(name));
+  }
+
+  // The per-api descriptor cache (design 6.11). THE DESCRIPTOR IS
+  // SHARED because it describes the API rather than any use of it: at
+  // 26 instances over 20 apis that is 20 normalizations, not 26, and
+  // the canonical serialization is computed once per api too.
+  //
+  // Normalized with NO per-instance features, so the shared value holds
+  // only api-stable metadata - which is what the factory table already
+  // does at provide time. Per-instance activation is features_of()'s
+  // answer; a cache keyed by slug but built from the first instance's
+  // feature map would make descriptor_of() construction-order-dependent.
+  Normalized describe(const Jval& config) {
+    std::string slug = config.get("main").get("slug").str_or("");
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (!slug.empty()) {
+        auto hit = descriptor_cache_.find(slug);
+        if (descriptor_cache_.end() != hit) {
+          return hit->second;
+        }
+      }
+    }
+    Normalized norm = normalize_descriptor(config, Jval::absent());
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      descriptor_cache_[norm.descriptor.get("slug").str_or("")] = norm;
+    }
+    return norm;
+  }
+
+  // `fopts` is the station feature's own option map - the seam's
+  // options.feature.station entry. Station knows the instance name
+  // before construction begins and passes it through there, so
+  // registration has one spelling on both entry paths; a bare build
+  // with no name falls back to the api slug, which is today's behaviour
+  // and why the single-instance case is unchanged.
+  Reg _register(const void* client, const Jval& config, const Jval& fopts) {
+    Normalized norm = describe(config);
+    std::string api = norm.descriptor.get("slug").str_or("");
+    std::string name = instance_ref(api, fopts);
 
     {
       std::lock_guard<std::mutex> lock(mutex_);
-      if (0 < registry_.count(slug)) {
+      if (0 < registry_.count(name)) {
         throw StationError("station_bound_twice",
-                           "plugin \"" + slug +
+                           "instance \"" + name +
                                "\" is already registered; binding one client twice is "
                                "an error (10.2)");
       }
     }
 
-    Jval profile_plugin = profile_.sdk.get(slug);
+    Jval block = block_for(name);
 
     // Secret name precedence: the feature option (in-code, design
-    // station.md 9 config.options.secret) beats the profile, which
-    // beats the descriptor default.
-    std::string secretname = fsecret;
+    // station.md 9 config.options.secret) beats the profile block,
+    // which beats the INSTANCE-derived default.
+    //
+    // The default takes the DECLARED ref, not the assigned tag, so
+    // every per-request client of one instance shares one broker cache
+    // entry (design 5.3). The descriptor's own auth.secretname stays
+    // the API-level default and is NOT used here (design 6.11): one
+    // descriptor is shared by every instance of an api and cannot hold
+    // two instance-derived names.
+    std::string secretname = fopts.get("secret").str_or("");
     if (secretname.empty()) {
-      secretname = profile_plugin.get("secret").str_or("");
+      secretname = block.get("secret").str_or("");
     }
     if (secretname.empty()) {
-      secretname = norm.descriptor.get("auth").get("secretname").str_or("");
+      secretname = secretname_default(declared_ref(name));
     }
 
     Jval authactive = norm.descriptor.get("auth").get("active");
     bool auth = authactive.isbool() && authactive.bval;
 
     Reg reg;
-    reg.slug = slug;
+    reg.name = name;
+    reg.api = api;
+    reg.slug = api;
     reg.rung = auth ? "R1" : "none";
-    reg.placeholder = auth ? placeholder_for(slug) : "";
+    reg.placeholder = auth ? placeholder_for(name) : "";
     reg.secretname = auth ? secretname : "";
-    reg.profile_plugin = profile_plugin;
+    reg.block = block;
 
     PluginEntry entry;
-    entry.slug = slug;
+    entry.name = name;
+    entry.api = api;
+    entry.slug = api;
     entry.descriptor = norm.descriptor;
     entry.rung = reg.rung;
     entry.client = client;
+    // Stored ON THE ENTRY and read from there at the transport seam
+    // with NO FALLBACK: re-deriving it there is how a tagged instance
+    // with no explicit `secret` reads `stripe.apikey` where
+    // registration recorded `stripe_test.apikey`.
     entry.secretname = secretname;
     entry.warnings = norm.warnings;
 
     {
       std::lock_guard<std::mutex> lock(mutex_);
-      registry_[slug] = entry;
-      order_.push_back(slug);
+      registry_[name] = entry;
+      order_.push_back(name);
     }
 
     for (const auto& w : norm.warnings) {
-      emit_warn(slug, w);
+      emit_warn(name, w);
     }
 
     Jval ev = Jval::map();
     ev.set("t", Jval::num(static_cast<double>(now_ms())));
     ev.set("kind", Jval::str("construct"));
-    ev.set("plugin", Jval::str(slug));
+    ev.set("plugin", Jval::str(name));
+    ev.set("api", Jval::str(api));
     Jval meta = Jval::map();
     meta.set("name", norm.descriptor.get("name"));
     meta.set("version", norm.descriptor.get("version"));
@@ -3422,40 +3654,48 @@ class Station {
     return reg;
   }
 
-  void _hoist(const std::string& slug, const std::string& value) {
-    broker_.hoist(slug, value);
-    emit_warn(slug,
+  void _hoist(const std::string& name, const std::string& value) {
+    broker_.hoist(name, value);
+    emit_warn(name,
               "a resident credential was hoisted into the broker and replaced by "
               "the placeholder; prefer configuring the secret name and letting "
               "the environment resolve it");
   }
 
-  // The resolved secret value for a registered plugin (throws
+  // The resolved secret value for a registered INSTANCE (throws
   // StationError on a miss - design station.md 5.2).
-  std::string _secret_value(const std::string& slug) {
+  std::string _secret_value(const std::string& name) {
     std::string secretname;
     {
       std::lock_guard<std::mutex> lock(mutex_);
-      auto it = registry_.find(slug);
+      auto it = registry_.find(name);
       if (it == registry_.end()) {
-        throw StationError("station_no_plugin", "unknown plugin \"" + slug + "\"");
+        throw StationError("station_no_plugin", "unknown instance \"" + name + "\"");
       }
       secretname = it->second.secretname;
     }
-    return broker_.value(slug, secretname);
+    return broker_.value(name, secretname);
   }
 
   // --- the query/observe surface (design station.md 3.2, 6) ---
 
+  // One entry per LIVE INSTANCE, and EXHAUSTIVE: auto-tagged entries
+  // are NOT collapsed here, because inspection, health reporting and
+  // cleanup all need to enumerate the clients create() produced, which
+  // is exactly when you most want them. Truncation is a presentation
+  // decision and belongs to status().
   Jval plugins() const {
     std::lock_guard<std::mutex> lock(mutex_);
     Jval out = Jval::list();
-    for (const auto& slug : order_) {
-      const auto& entry = registry_.at(slug);
+    for (const auto& name : order_) {
+      const auto& entry = registry_.at(name);
       Jval p = Jval::map();
+      p.set("name", Jval::str(entry.name));
+      p.set("api", Jval::str(entry.api));
       p.set("slug", Jval::str(entry.slug));
       p.set("descriptor", entry.descriptor);
       p.set("rung", Jval::str(entry.rung));
+      p.set("secretname", Jval::str(entry.secretname));
       Jval warnings = Jval::list();
       for (const auto& w : entry.warnings) {
         warnings.push(Jval::str(w));
@@ -3466,23 +3706,21 @@ class Station {
     return out;
   }
 
-  Jval descriptor_of(const std::string& slug) const {
+  // Takes an INSTANCE name and returns its api's descriptor - one
+  // object shared by every instance of that api (design 6.11).
+  Jval descriptor_of(const std::string& name) const {
     std::lock_guard<std::mutex> lock(mutex_);
-    auto it = registry_.find(slug);
+    auto it = registry_.find(name);
     if (it == registry_.end()) {
-      std::string known;
-      for (size_t i = 0; i < order_.size(); i++) {
-        if (0 < i) known += ", ";
-        known += order_[i];
-      }
-      throw StationError("station_no_plugin",
-                         "unknown plugin \"" + slug + "\"; known: [" + known + "]");
+      throw StationError("station_no_plugin", "unknown instance \"" + name +
+                                                  "\"; known: [" +
+                                                  join_strings(order_, ", ") + "]");
     }
     return it->second.descriptor;
   }
 
-  std::string canonical_descriptor(const std::string& slug) const {
-    return canonical_serialize(descriptor_of(slug));
+  std::string canonical_descriptor(const std::string& name) const {
+    return canonical_serialize(descriptor_of(name));
   }
 
   std::vector<Jval> events() const { return buffer_.events(); }
@@ -3498,9 +3736,11 @@ class Station {
     Jval plugins_out = Jval::list();
     {
       std::lock_guard<std::mutex> lock(mutex_);
-      for (const auto& slug : order_) {
-        const auto& entry = registry_.at(slug);
+      for (const auto& name : order_) {
+        const auto& entry = registry_.at(name);
         Jval p = Jval::map();
+        p.set("name", Jval::str(entry.name));
+        p.set("api", Jval::str(entry.api));
         p.set("slug", Jval::str(entry.slug));
         p.set("rung", Jval::str(entry.rung));
         plugins_out.push(p);
@@ -3519,6 +3759,607 @@ class Station {
 
   const ResolvedProfile& profile() const { return profile_; }
   bool requires_proxy() const { return require_proxy_; }
+
+  // --- the declarative front door (design station.md 6) ---------------
+
+  // Which side of design 6.3's review boundary this station's config
+  // came from.
+  bool repo_scoped() const { return repo_scoped_; }
+
+  // The config AS WRITTEN. Kept for provenance - the resolved profile
+  // has already collapsed the levels provenance has to name.
+  const Jval& raw() const { return raw_; }
+
+  // THE NON-LOADER DIVERGENCE (design 6.2/6.3, item 3). resolve_factory
+  // has TWO paths everywhere the language has no import-by-name, and
+  // C++ is one of them: the registered factory, then the error. THE
+  // LOADER IS THE THIRD PATH EVERYWHERE ELSE AND DOES NOT EXIST HERE,
+  // so the message names only the remedies this port actually offers -
+  // a message telling a C++ user to set `api.<slug>.package` would send
+  // them down a road with no end.
+  std::shared_ptr<const FactoryEntry> resolve_factory(const std::string& api,
+                                                      const Jval& block) const {
+    (void)block;
+    std::shared_ptr<const FactoryEntry> direct = factory_for(api);
+    if (nullptr != direct) {
+      return direct;
+    }
+    throw StationError("station_no_factory",
+                       "no factory for api \"" + api +
+                           "\"; call vstation::provide(\"" + api +
+                           "\", ...) before the first sdk() - a generated C++ SDK "
+                           "does that from its own registrar. `package` is not "
+                           "honoured in the C++ port: C++ links its dependencies "
+                           "and a header-only vendored library has no module-init "
+                           "hook a linker must run, so there is no import-by-name "
+                           "at run time (design 6.3)");
+  }
+
+  // Always empty here, and open() says why once per api (item 2).
+  // `package` and `export` stay IN THE GRAMMAR - they are shape keys,
+  // the corpus validates configs carrying them, and removing them would
+  // break one-config-file-serves-a-polyglot-fleet - but this port
+  // cannot honour them, and silence about that is worse than a warning.
+  std::string loader_package(const std::string& api, const Jval& block) const {
+    (void)api;
+    (void)block;
+    return "";
+  }
+
+  // Present and INERT (item 4): the preload exists so one startup
+  // sequence serves a polyglot fleet. StationOptions{load=false} is
+  // accepted and equally inert.
+  void load() {}
+
+  // One warning event per api whose declared block carries a non-empty
+  // `package`, at open, once.
+  void warn_packages() {
+    Jval blocks = Jval::map();
+    for (const auto& kv : profile_.sdk.mval) {
+      blocks.set(kv.first, kv.second);
+    }
+    for (const auto& kv : profile_.api.mval) {
+      if (!blocks.has(kv.first)) {
+        blocks.set(kv.first, kv.second);
+      }
+    }
+
+    std::set<std::string> seen;
+    for (const auto& ref : sorted_keys_of(blocks)) {
+      if (blocks.get(ref).get("package").str_or("").empty()) {
+        continue;
+      }
+      std::string api = refapi(ref);
+      if (0 < seen.count(api)) {
+        continue;
+      }
+      seen.insert(api);
+      emit_warn(api, api,
+                "`package` is not honoured in the C++ port: C++ links its "
+                "dependencies and a header-only vendored library has no "
+                "module-init hook a linker must run, so there is no "
+                "import-by-name at run time. api \"" +
+                    api +
+                    "\" must arrive through vstation::provide (design 6.3); "
+                    "everything else in this config still applies");
+    }
+  }
+
+  // Every DECLARED instance, sorted by name. A different question from
+  // plugins(), and the answers differ routinely: a lazily-started
+  // instance is active and not yet live.
+  std::vector<Instance> instances() const {
+    std::vector<Instance> out;
+    for (const auto& name : sorted_keys_of(profile_.sdk)) {
+      Jval block = profile_.sdk.get(name);
+      Instance row;
+      row.name = name;
+      row.api = refapi(name);
+      // `active: false` means BARRED FROM RUNNING - a declaration that
+      // stays in the file and here while being refused a client.
+      Jval act = block.get("active");
+      row.active = !(act.isbool() && !act.bval);
+      row.block = block;
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto found = registry_.find(name);
+        row.live = registry_.end() != found;
+        row.rung = row.live ? found->second.rung : "none";
+      }
+      out.push_back(row);
+    }
+    return out;
+  }
+
+  // The merged, ordered feature set for one instance, WITH PROVENANCE
+  // (design 8.7): which config level set each value. Provenance is the
+  // half that makes a fleet view usable rather than merely correct - at
+  // 26 instances "why is retry off here" is the question, and a merged
+  // map alone cannot answer it.
+  FeatureSet features_of(const std::string& name) const {
+    std::string api = refapi(name);
+    Jval profiles = raw_.get("profiles");
+    Jval base = profiles.get("default");
+    Jval overlay = "default" == profile_.name ? Jval::map() : profiles.get(profile_.name);
+
+    // LEVELS: one label per source, in design 3.3's order.
+    const std::vector<std::string> levels = {
+        "default.feature",           "default.api",           "default.sdk",
+        profile_.name + ".feature",  profile_.name + ".api",  profile_.name + ".sdk",
+    };
+    std::vector<Jval> sources = feature_sources(base, overlay, api, name);
+
+    // LAST WRITER PER (feature, key) WINS, and the level that wrote it
+    // is what `from` records.
+    Jval from = Jval::map();
+    for (size_t i = 0; i < sources.size(); i++) {
+      if (!sources[i].ismap()) {
+        continue;
+      }
+      for (const auto& fkv : sources[i].mval) {
+        if (!fkv.second.ismap()) {
+          continue;
+        }
+        Jval slot = from.get(fkv.first);
+        if (!slot.ismap()) {
+          slot = Jval::map();
+        }
+        for (const auto& okv : fkv.second.mval) {
+          slot.set(okv.first, Jval::str(levels[i]));
+        }
+        from.set(fkv.first, slot);
+      }
+    }
+
+    Jval merged = merge_features(sources);
+
+    // Policy budget (design 16): rps/concurrency ceilings ride the
+    // SDK's own `ratelimit` feature, configured by station. Composed
+    // HERE, into the merged map every consumer reads, rather than
+    // patched in at construction - so build() orders it with the
+    // ordinary constraint-and-band rules, check()'s design 8.5 pass
+    // catches a budget on an SDK with no ratelimit feature as
+    // station_feature_unknown rather than a setting that quietly did
+    // nothing, and the fleet view answers "is ratelimit on?" truthfully.
+    //
+    // `rps` maps to the token bucket's refill `rate` (per second - the
+    // same unit); `concurrency` to its capacity `burst`, the number of
+    // requests that can be in flight from a full bucket. POLICY WINS
+    // over a `feature.ratelimit` config entry on exactly the keys it
+    // sets - it is enforcement, not a default - and other tuning keys
+    // survive beside it.
+    Jval budget = block_for(name).get("policy").get("budget");
+    if (budget.ismap()) {
+      Jval prior = merged.get("ratelimit");
+      Jval entry = prior.ismap() ? prior : Jval::map();
+      Jval slot = from.get("ratelimit");
+      if (!slot.ismap()) {
+        slot = Jval::map();
+      }
+      entry.set("active", Jval::boolean(true));
+      slot.set("active", Jval::str("policy.budget"));
+      if (!budget.get("rps").isnone()) {
+        entry.set("rate", budget.get("rps"));
+        slot.set("rate", Jval::str("policy.budget"));
+      }
+      if (!budget.get("concurrency").isnone()) {
+        entry.set("burst", budget.get("concurrency"));
+        slot.set("burst", Jval::str("policy.budget"));
+      }
+      merged.set("ratelimit", entry);
+      from.set("ratelimit", slot);
+    }
+
+    // THE IMPLICIT STATION ENTRY, added for ORDERING ONLY. `station` is
+    // never in `merged` - feature.station is reserved and rejected at
+    // validation (design 8.4) - so without it check_pin finds no station
+    // row and is a PERMANENT NO-OP: a constraint like
+    // `retry.order.after: "station"` would be treated as vacuous rather
+    // than rejected, and the reported order would omit the one feature
+    // whose position is supposedly pinned.
+    Jval withstation = merged;
+    Jval srow = Jval::map();
+    srow.set("active", Jval::boolean(true));
+    withstation.set("station", srow);
+
+    std::vector<Ordered> ordered = resolve_order(withstation);
+    check_pin(ordered);
+
+    FeatureSet out;
+    for (const auto& row : ordered) {
+      out.ordered.push_back(row.name);
+    }
+    out.merged = merged;
+    out.from = from;
+    return out;
+  }
+
+  // The fleet feature view: instance x feature, effective options, and
+  // which config level set each (design 8.7). The default filter is
+  // everything; FeatureFilter::of(text) is the string shorthand.
+  std::vector<FeatureRow> features() const;
+
+  std::vector<FeatureRow> features(const FeatureFilter& filter) const {
+    std::vector<FeatureRow> rows;
+    for (const auto& one : instances()) {
+      if (filter.loose) {
+        if (!filter.instance.empty() && one.name != filter.instance &&
+            one.api != filter.api) {
+          continue;
+        }
+      } else {
+        if (!filter.instance.empty() && one.name != filter.instance &&
+            one.api != filter.instance) {
+          continue;
+        }
+        if (!filter.api.empty() && one.api != filter.api) {
+          continue;
+        }
+      }
+
+      FeatureSet resolved = features_of(one.name);
+      FeatureRow row;
+      row.instance = one.name;
+      row.api = one.api;
+      row.ordered = resolved.ordered;
+      row.merged = resolved.merged;
+      row.from = resolved.from;
+      rows.push_back(row);
+    }
+
+    // `feature` filters the ROWS, not the instances: an instance that
+    // does not carry the named feature is not part of the answer, and
+    // the rows that remain are narrowed to it, so the view answers
+    // "where is debug on, and with what" rather than "here is
+    // everything, go and look".
+    if (filter.feature.empty()) {
+      return rows;
+    }
+    std::vector<FeatureRow> narrowed;
+    for (const auto& row : rows) {
+      if (!row.merged.has(filter.feature)) {
+        continue;
+      }
+      FeatureRow one;
+      one.instance = row.instance;
+      one.api = row.api;
+      for (const auto& n : row.ordered) {
+        if (n == filter.feature) {
+          one.ordered.push_back(n);
+        }
+      }
+      one.merged = Jval::map();
+      one.merged.set(filter.feature, row.merged.get(filter.feature));
+      one.from = Jval::map();
+      if (row.from.has(filter.feature)) {
+        one.from.set(filter.feature, row.from.get(filter.feature));
+      }
+      narrowed.push_back(one);
+    }
+    return narrowed;
+  }
+
+  // The lowest positive integer tag not already taken, by a LIVE
+  // instance or a DECLARED one.
+  //
+  // THE REGISTRY ALONE IS NOT ENOUGH: a profile may declare `stripe$1`,
+  // and until something constructs it the registry says false - so
+  // create("stripe$prod") would take that identity, instances() would
+  // report the declared `stripe$1` as live with the wrong client, and a
+  // later sdk("stripe$1") would fail station_bound_twice against a
+  // binding that was never its own. Declaration reserves the name
+  // whether or not it has been built.
+  std::string autotag(const std::string& name) const {
+    std::string api = refapi(name);
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (long long n = 1;; n++) {
+      std::string ref = api + "$" + std::to_string(n);
+      if (0 == registry_.count(ref) && !profile_.sdk.has(ref)) {
+        return ref;
+      }
+    }
+  }
+
+  // The inverted binding form, with the INSTANCE NAME the construction
+  // registers under (design 6.1). C++ cannot overload on a leading
+  // optional argument the way the canonical `options(instanceName?,
+  // extra?)` does, so the name gets its own entry point and every
+  // existing options({...}) call is unchanged.
+  Jval build_options(const std::string& instance, const Jval& extra) const {
+    // calleropts snapshots what the CALLER passed - never the built
+    // options map, which would make feature.station.calleropts a cycle
+    // the SDK's own deep clone cannot survive.
+    Jval calleropts = extra.ismap() ? extra : Jval::map();
+    Jval out = extra.ismap() ? extra : Jval::map();
+
+    Jval fmap = out.get("feature");
+    if (!fmap.ismap()) {
+      fmap = Jval::map();
+    }
+    Jval sopts = fmap.get("station");
+    if (!sopts.ismap()) {
+      sopts = Jval::map();
+    }
+    sopts.set("active", Jval::boolean(true));
+    sopts.set("calleropts", calleropts);
+    if (!instance.empty()) {
+      sopts.set("instance", Jval::str(instance));
+    }
+    fmap.set("station", sopts);
+    out.set("feature", fmap);
+    return out;
+  }
+
+  // The shared construction path behind sdk() and create(). `as` is the
+  // ASSIGNED tag, or "" when the instance is built under its own name.
+  std::shared_ptr<void> build(const std::string& name, const std::string& as = "",
+                              const Jval& overrides = Jval::absent()) {
+    if (closed()) {
+      throw StationError("station_no_plugin", "station is closed");
+    }
+    if (!profile_.sdk.has(name)) {
+      throw StationError("station_no_instance",
+                         "no declared instance \"" + name + "\"; declared: [" +
+                             join_strings(sorted_keys_of(profile_.sdk), ", ") + "]");
+    }
+    Jval block = profile_.sdk.get(name);
+    Jval act = block.get("active");
+    if (act.isbool() && !act.bval) {
+      throw StationError("station_instance_inactive",
+                         "instance \"" + name +
+                             "\" is declared with `active: false`, which bars it "
+                             "from running while keeping it visible in instances()");
+    }
+
+    std::string api = refapi(name);
+    std::shared_ptr<const FactoryEntry> entry = resolve_factory(api, block);
+
+    FeatureSet resolved = features_of(name);
+
+    // DESIGN 8.5 VALIDATES HERE, not only in check(). The schema
+    // arrives with the factory, so the moment a factory is resolved is
+    // the first moment validation is possible - and running it in
+    // check() alone left production sdk() silently ignoring an unknown
+    // option like `retry.retires`. One call here closes it, because
+    // EVERY path to a constructor comes through this line.
+    std::vector<FeatureFault> faults = check_features(resolved.merged, entry->descriptor);
+    if (!faults.empty()) {
+      throw StationError(faults[0].code, fault_messages(faults));
+    }
+
+    // Compose the merged map into the ordered form the constructor
+    // takes. Station's own entry is composed AFTER the user merge and
+    // always wins, which is why `station` is dropped here and re-added
+    // by build_options: a config file that can switch off the component
+    // reading it is not a surface, it is a trap. `feature.station` is
+    // already station_feature_reserved at validation, so this is the
+    // second half of one rule rather than a second rule.
+    std::vector<Ordered> rows;
+    for (const auto& row : resolve_order(resolved.merged)) {
+      if ("station" != row.name) {
+        rows.push_back(row);
+      }
+    }
+    Jval fmap = Jval::map();
+    for (const auto& composed : compose_features(rows).lval) {
+      Jval rest = Jval::map();
+      for (const auto& kv : composed.mval) {
+        if ("name" != kv.first) {
+          rest.set(kv.first, kv.second);
+        }
+      }
+      fmap.set(composed.get("name").str_or(""), rest);
+    }
+
+    Jval opts = Jval::map();
+    Jval blockopts = block.get("options");
+    if (blockopts.ismap()) {
+      for (const auto& kv : blockopts.mval) {
+        opts.set(kv.first, kv.second);
+      }
+    }
+    std::string base = block.get("base").str_or("");
+    if (!base.empty()) {
+      opts.set("base", Jval::str(base));
+    }
+    if (overrides.ismap()) {
+      for (const auto& kv : overrides.mval) {
+        opts.set(kv.first, kv.second);
+      }
+      Jval ofeature = overrides.get("feature");
+      if (ofeature.ismap()) {
+        for (const auto& kv : ofeature.mval) {
+          fmap.set(kv.first, kv.second);
+        }
+      }
+    }
+    opts.set("feature", fmap);
+
+    // RECORD THE ALIAS, NOT THE FIELDS. Carrying the declared `secret`
+    // through the feature options and stopping there leaves `policy`,
+    // `base` and everything else behind, so an auto-tagged client
+    // silently loses its declared instance's HOSTS ALLOWLIST and falls
+    // back to the wider api-level one. Recording what the tag STANDS
+    // FOR is one rule that every lookup already goes through.
+    //
+    // Only when the tag was ASSIGNED - a caller naming its own is
+    // naming an instance, not aliasing one.
+    std::string register_as = name;
+    if (!as.empty() && as != name) {
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        alias_of_[as] = name;
+      }
+      register_as = as;
+    }
+
+    // The instance name reaches the adapter the same way it does on the
+    // imperative path, so registration has one spelling. C++ has no
+    // carried adapter - there is no `options.extend` in the generated
+    // C++ SDK (see the header's design delta) - so the retrofit path
+    // here is regeneration with the station feature installed, and the
+    // constructor's own feature is what binds.
+    return entry->construct(build_options(register_as, opts));
+  }
+
+  // Construct on first ask and CACHE by name. Synchronous - the caching
+  // is what makes "get it where you need it" a real instruction.
+  std::shared_ptr<void> sdk(const std::string& name) {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      auto found = clients_.find(name);
+      if (clients_.end() != found) {
+        return found->second;
+      }
+    }
+    std::shared_ptr<void> client = build(name, "", Jval::absent());
+    std::lock_guard<std::mutex> lock(mutex_);
+    clients_[name] = client;
+    return client;
+  }
+
+  // An UNCACHED client from the same resolved config plus overrides,
+  // for the case that genuinely wants a distinct one - a per-request
+  // credential scope, a test double. Deliberately the longer name.
+  //
+  // It registers under an AUTO-ASSIGNED TAG, because every constructed
+  // adapter registers under its instance name and station_bound_twice
+  // fires on a second binding of one name: a second create("stripe")
+  // would otherwise fail, which is exactly the per-request case this
+  // exists for.
+  std::shared_ptr<void> create(const std::string& name,
+                               const Jval& overrides = Jval::absent()) {
+    return build(name, autotag(name), overrides);
+  }
+
+  // Eagerly validate and construct every ACTIVE declared instance - for
+  // CI (design 6.8). The point is to turn availability errors, which
+  // are deliberately deferred to first use, into ONE failure at a
+  // moment somebody is watching.
+  CheckResult check() {
+    CheckResult out;
+    for (const auto& row : instances()) {
+      if (!row.active) {
+        continue;
+      }
+      try {
+        // Design 8.5 runs FIRST and needs no construction: the schema
+        // arrives with the factory, not with a live client, so a
+        // feature typo is a CI failure rather than a setting that
+        // quietly did nothing in production.
+        std::shared_ptr<const FactoryEntry> entry = factory_for(row.api);
+        if (nullptr != entry) {
+          FeatureSet resolved = features_of(row.name);
+          std::vector<FeatureFault> faults =
+              check_features(resolved.merged, entry->descriptor);
+          if (!faults.empty()) {
+            CheckFailure fail;
+            fail.name = row.name;
+            fail.code = faults[0].code;
+            fail.message = fault_messages(faults);
+            out.failed.push_back(fail);
+            continue;
+          }
+        }
+        sdk(row.name);
+        out.ok.push_back(row.name);
+      } catch (const StationError& err) {
+        CheckFailure fail;
+        fail.name = row.name;
+        fail.code = err.code();
+        fail.message = err.message();
+        out.failed.push_back(fail);
+      }
+    }
+    return out;
+  }
+
+  // Batch-resolve secrets (design 6.9).
+  //
+  // With no names it warms the ACTIVE declared instances only, because
+  // reaching for a credential belonging to a disabled integration is
+  // the wrong default. warm(names) warms exactly what it is given,
+  // inactive included, because an explicit name is an explicit request.
+  //
+  // THE REGISTRY IS THE AUTHORITY: a registered instance already
+  // carries the resolved name, in-code `secret` feature option
+  // included. A NAME NOBODY DECLARED OR REGISTERED IS A MISS, not a
+  // lookup - a wider fallback would let a typo like `stripe$prodd`
+  // derive a secret name, call the provider, and report a nonexistent
+  // instance `warmed` off a shared api-level credential. Registered OR
+  // declared, and nothing else.
+  //
+  // ONE RESOLUTION PER DISTINCT SECRET NAME. The broker's resolution
+  // cache is keyed by secret name (design 5.3), so several instances
+  // sharing one api-level `secret` cost one lookup. THE DEDUPLICATED
+  // SET IS RESOLVED SERIALLY HERE, and that is honest rather than a
+  // shortcut: this port is env-only (there is no sekreto C++ port), so
+  // a resolution is a getenv and there is no round-trip to overlap.
+  // README.md states it.
+  WarmResult warm(const std::vector<std::string>& names,
+                  bool all_active = false) {
+    std::vector<std::string> wanted = names;
+    if (all_active) {
+      wanted.clear();
+      for (const auto& row : instances()) {
+        if (row.active) {
+          wanted.push_back(row.name);
+        }
+      }
+    }
+
+    WarmResult out;
+    std::map<std::string, std::vector<std::string>> bysecret;
+    std::vector<std::string> order;
+
+    for (const auto& name : wanted) {
+      bool live = false;
+      std::string secretname;
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto found = registry_.find(name);
+        live = registry_.end() != found;
+        if (live) {
+          secretname = found->second.secretname;
+        }
+      }
+      bool declared = profile_.sdk.has(name);
+      if (!live && !declared) {
+        out.missed.push_back(name);
+        continue;
+      }
+      if (secretname.empty()) {
+        secretname = block_for(name).get("secret").str_or("");
+      }
+      if (secretname.empty()) {
+        secretname = secretname_default(declared_ref(name));
+      }
+      if (0 == bysecret.count(secretname)) {
+        order.push_back(secretname);
+      }
+      bysecret[secretname].push_back(name);
+    }
+
+    std::sort(order.begin(), order.end());
+    for (const auto& secretname : order) {
+      bool ok = true;
+      try {
+        broker_.value(bysecret[secretname][0], secretname);
+      } catch (const StationError&) {
+        ok = false;
+      }
+      for (const auto& name : bysecret[secretname]) {
+        (ok ? out.warmed : out.missed).push_back(name);
+      }
+    }
+
+    std::sort(out.warmed.begin(), out.warmed.end());
+    std::sort(out.missed.begin(), out.missed.end());
+    return out;
+  }
+
+  // warm() with no argument: the ACTIVE declared instances.
+  WarmResult warm() { return warm(std::vector<std::string>(), true); }
 
   // close(): flush (solo: nothing in flight), then warn on profile
   // plugin keys that matched no registered plugin - a typo'd key
@@ -3572,17 +4413,34 @@ class Station {
 
   void emit(const Jval& ev) { buffer_.emit(ev); }
 
-  void emit_warn(const std::string& slug, const std::string& warn) {
+  // The api an instance belongs to: what the registry recorded, else
+  // the lexical half of the ref. EVENTS CARRY BOTH `plugin` (the
+  // instance) and `api` (what groups its siblings) ON EVERY KIND -
+  // construction events carrying both while runtime events carried only
+  // one is grouping that works exactly until it is used.
+  std::string api_of(const std::string& name) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto found = registry_.find(name);
+    return registry_.end() == found ? refapi(name) : found->second.api;
+  }
+
+  void emit_warn(const std::string& name, const std::string& api,
+                 const std::string& warn) {
     Jval ev = Jval::map();
     ev.set("t", Jval::num(static_cast<double>(now_ms())));
     ev.set("kind", Jval::str("station"));
-    if (!slug.empty()) {
-      ev.set("plugin", Jval::str(slug));
+    if (!name.empty()) {
+      ev.set("plugin", Jval::str(name));
+      ev.set("api", Jval::str(api));
     }
     Jval meta = Jval::map();
     meta.set("warn", Jval::str(warn));
     ev.set("meta", meta);
     emit(ev);
+  }
+
+  void emit_warn(const std::string& name, const std::string& warn) {
+    emit_warn(name, name.empty() ? "" : api_of(name), warn);
   }
 
   // ( host-with-port, hostname, path ) from a URL, stdlib only. Mirrors
@@ -3639,14 +4497,15 @@ class Station {
     }
   }
 
-  void emit_http(const std::string& slug, const std::string& corr, const std::string& fullurl,
+  void emit_http(const std::string& name, const std::string& corr, const std::string& fullurl,
                  const std::string& method, int status, long long started, long long bytes) {
     std::string host, hostname, path;
     parse_url(fullurl, host, hostname, path);
     Jval ev = Jval::map();
     ev.set("t", Jval::num(static_cast<double>(started)));
     ev.set("kind", Jval::str("http"));
-    ev.set("plugin", Jval::str(slug));
+    ev.set("plugin", Jval::str(name));
+    ev.set("api", Jval::str(api_of(name)));
     if (!corr.empty()) {
       ev.set("corr", Jval::str(corr));
     }
@@ -3661,12 +4520,13 @@ class Station {
     emit(ev);
   }
 
-  void emit_err(const std::string& slug, const std::string& corr, const std::string& code,
+  void emit_err(const std::string& name, const std::string& corr, const std::string& code,
                 const std::string& message) {
     Jval ev = Jval::map();
     ev.set("t", Jval::num(static_cast<double>(now_ms())));
     ev.set("kind", Jval::str("error"));
-    ev.set("plugin", Jval::str(slug));
+    ev.set("plugin", Jval::str(name));
+    ev.set("api", Jval::str(api_of(name)));
     if (!corr.empty()) {
       ev.set("corr", Jval::str(corr));
     }
@@ -3681,12 +4541,13 @@ class Station {
     emit(ev);
   }
 
-  void emit_op(const std::string& slug, const std::string& corr, const std::string& entity,
+  void emit_op(const std::string& name, const std::string& corr, const std::string& entity,
                const std::string& op, const std::string& outcome, long long duration_ms) {
     Jval ev = Jval::map();
     ev.set("t", Jval::num(static_cast<double>(now_ms())));
     ev.set("kind", Jval::str("op"));
-    ev.set("plugin", Jval::str(slug));
+    ev.set("plugin", Jval::str(name));
+    ev.set("api", Jval::str(api_of(name)));
     if (!corr.empty()) {
       ev.set("corr", Jval::str(corr));
     }
@@ -3947,15 +4808,39 @@ class Station {
  private:
   mutable std::mutex mutex_;
   StationOptions opts_;
+  // DECLARATION ORDER IS INITIALIZATION ORDER: raw_ (which validates)
+  // before profile_ (which resolves from it) before broker_ (which
+  // takes its providers).
+  Jval raw_;
+  bool repo_scoped_ = true;
   ResolvedProfile profile_;
   SecretBroker broker_;
   EventBuffer buffer_;
+  // Keyed by INSTANCE NAME, not api slug (design 6.3).
   std::map<std::string, PluginEntry> registry_;
   std::vector<std::string> order_;
+  // sdk()'s cache, name -> client.
+  std::map<std::string, std::shared_ptr<void>> clients_;
+  // assigned tag -> declared ref.
+  std::map<std::string, std::string> alias_of_;
+  // api slug -> normalized descriptor + warnings (design 6.11).
+  std::map<std::string, Normalized> descriptor_cache_;
   std::set<const void*> wrapped_;
   bool require_proxy_ = false;
   bool closed_ = false;
 };
+
+inline std::vector<Station::FeatureRow> Station::features() const {
+  return features(Station::FeatureFilter());
+}
+
+inline Station::FeatureFilter Station::FeatureFilter::of(const std::string& text) {
+  Station::FeatureFilter out;
+  out.loose = true;
+  out.instance = text;
+  out.api = text;
+  return out;
+}
 
 #if defined(SDK_CORE_TYPES_HPP)
 // ---------------------------------------------------------------------

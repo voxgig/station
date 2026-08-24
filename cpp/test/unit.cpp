@@ -197,7 +197,9 @@ int main(int argc, char** argv) {
     vs::Station st(opts);
     int client = 0;
 
-    auto reg = st._register(&client, petconfig(), vs::Jval::absent(), "");
+    auto reg = st._register(&client, petconfig(), vs::Jval::absent());
+    checkeq(reg.name, "gnarly-pets", "instance name");
+    checkeq(reg.api, "gnarly-pets", "api");
     checkeq(reg.slug, "gnarly-pets", "slug");
     checkeq(reg.rung, "R1", "rung");
     checkeq(reg.placeholder, "[station:gnarly-pets]", "placeholder");
@@ -205,8 +207,8 @@ int main(int argc, char** argv) {
     check(st._bound(&client), "client bound");
 
     int client2 = 0;
-    checkeq(thrown_code([&] { st._register(&client2, petconfig(), vs::Jval::absent(), ""); }),
-            "station_bound_twice", "duplicate slug refused");
+    checkeq(thrown_code([&] { st._register(&client2, petconfig(), vs::Jval::absent()); }),
+            "station_bound_twice", "duplicate instance refused");
 
     std::string canonical = st.canonical_descriptor("gnarly-pets");
     check(0 == canonical.rfind("{\"auth\":", 0), "canonical keys sorted");
@@ -214,7 +216,7 @@ int main(int argc, char** argv) {
           "canonical carries envtoken");
 
     checkeq(thrown_code([&st] { st.descriptor_of("nope"); }), "station_no_plugin",
-            "unknown plugin code");
+            "unknown instance code");
   });
 
   testcase("register-secret-name-precedence", [] {
@@ -225,22 +227,51 @@ int main(int argc, char** argv) {
              "sdk": { "gnarly-pets": { "secret": "profile.name" } } } } })");
     vs::Station st(o1);
     int c1 = 0;
-    auto reg1 = st._register(&c1, petconfig(), vs::Jval::absent(), "code.name");
+    vs::Jval incode = vs::Jval::map();
+    incode.set("secret", vs::Jval::str("code.name"));
+    auto reg1 = st._register(&c1, petconfig(), incode);
     checkeq(reg1.secretname, "code.name", "feature option beats profile");
 
     vs::Station st2(o1);
     int c2 = 0;
-    auto reg2 = st2._register(&c2, petconfig(), vs::Jval::absent(), "");
-    checkeq(reg2.secretname, "profile.name", "profile beats descriptor default");
+    auto reg2 = st2._register(&c2, petconfig(), vs::Jval::absent());
+    checkeq(reg2.secretname, "profile.name", "profile beats the instance default");
+
+    // A TAGGED instance derives from the DECLARED ref, not the api, so
+    // two live instances of one api never share a credential by
+    // accident (design 5.1).
+    vs::StationOptions o2;
+    o2.has_config = true;
+    o2.config = vs::parse_json(
+        R"({ "station": 1, "profiles": { "default": {
+             "sdk": { "gnarly-pets$eu": {} } } } })");
+    vs::Station st3(o2);
+    int c3 = 0;
+    vs::Jval tagged = vs::Jval::map();
+    tagged.set("instance", vs::Jval::str("gnarly-pets$eu"));
+    auto reg3 = st3._register(&c3, petconfig(), tagged);
+    checkeq(reg3.name, "gnarly-pets$eu", "tagged instance name");
+    checkeq(reg3.secretname, "gnarly_pets_eu.apikey", "secret derives from the ref");
+    checkeq(reg3.placeholder, "[station:gnarly-pets$eu]", "placeholder keys on the ref");
   });
 
   testcase("profile-bad-secret-name-at-load", [] {
+    vs::Jval config = vs::parse_json(R"({ "station": 1, "profiles": { "default": {
+      "sdk": { "a": { "secret": "Not A Name" } } } } })");
+
+    // open() now VALIDATES FIRST (design 4.2), so the design 5.2 scan
+    // reaches it before the profile resolver does - and for the whole
+    // file at once rather than one instance at a time.
     vs::StationOptions opts;
     opts.has_config = true;
-    opts.config = vs::parse_json(R"({ "station": 1, "profiles": { "default": {
-      "sdk": { "a": { "secret": "Not A Name" } } } } })");
-    checkeq(thrown_code([&opts] { vs::Station st(opts); }), "station_secret_name",
-            "malformed secret name caught at profile load");
+    opts.config = config;
+    checkeq(thrown_code([&opts] { vs::Station st(opts); }), "station_config_secret",
+            "malformed secret name caught at open, by the config scan");
+
+    // The per-instance check is still the profile resolver's, and still
+    // raises its own code when reached directly.
+    checkeq(thrown_code([&config] { vs::resolve_profile(config, "default"); }),
+            "station_secret_name", "resolve_profile keeps its own check");
   });
 
   testcase("close-warns-on-typo-plugin-key", [] {
@@ -294,8 +325,8 @@ int main(int argc, char** argv) {
     vs::Jval legacy = vs::parse_json(R"({
       "main": { "name": "VoxgigSolardemo" },
       "feature": {}, "options": { "base": "http://x", "auth": {} }, "entity": {} })");
-    auto reg = st._register(&client, legacy, vs::Jval::absent(), "");
-    checkeq(reg.slug, "voxgigsolardemo", "legacy slug");
+    auto reg = st._register(&client, legacy, vs::Jval::absent());
+    checkeq(reg.name, "voxgigsolardemo", "legacy slug");
     bool warned = false;
     for (const auto& ev : st.events()) {
       if (std::string::npos !=

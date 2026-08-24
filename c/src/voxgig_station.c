@@ -5,6 +5,14 @@
  * source: voxgig/station c/src/; vendored copy: sdkgen-station
  * .sdk/tm/c/feature/station/ - byte-identical, edit HERE first).
  *
+ * THIS FILE is the core: the value model and JSON, the canonical
+ * serializer, identity, the descriptor normalizer, profile resolution,
+ * the event ring, the env-only broker, the instance registry, and the
+ * declarative front door (design 6), which lives here because it reads
+ * the station's own state. The config grammar (4), feature management
+ * (8) and the factory table with the ref grammar (6.1/6.2) are the
+ * other three sources beside it.
+ *
  * Port of the canonical typescript/src sources. Behaviour must match,
  * case for case; the shared conformance corpus (spec/station.json, run
  * through voxgig/omni) pins the pure-contract half.
@@ -2745,16 +2753,21 @@ bool vxstn_require_proxy(vxstn_station* st) {
   return NULL != st && st->require_proxy;
 }
 
-const vxstn_val* vxstn_profile_sdk(vxstn_station* st, const char* slug) {
-  if (NULL == st || NULL == slug) {
+const vxstn_val* vxstn_profile_sdk(vxstn_station* st, const char* name) {
+  if (NULL == st || NULL == name) {
     return NULL;
   }
-  return vxstn_getk(vxstn_map_get(st->profile, "sdk"), slug);
+  return vxstn_getk(vxstn_map_get(st->profile, "sdk"), name);
 }
 
-bool vxstn_host_allowed(vxstn_station* st, const char* slug,
+bool vxstn_host_allowed(vxstn_station* st, const char* name,
                         const char* fullurl, bool* has_policy) {
-  const vxstn_val* pp = vxstn_profile_sdk(st, slug);
+  /* THROUGH vxstn_block_for, not the sdk map directly: an imperative
+     instance - named with `as` but never written into config - has no
+     block of its own, and reading only `profile.sdk` left it with no
+     `policy.hosts` at all, so a profile that denied egress everywhere
+     denied nothing for a tagged client. */
+  const vxstn_val* pp = vxstn_block_for(st, name);
   const vxstn_val* hosts = vxstn_getk(vxstn_getk(pp, "policy"), "hosts");
   char* host;
   char* hostname;
@@ -3776,6 +3789,13 @@ static void* build(vxstn_station* st, const char* name, const char* as,
     alias_set(st, as, name);
   }
 
+  /* NO `extend` SEAM IN C. The dynamic ports carry the adapter on
+     `extend` so that an SDK generated BEFORE the station feature still
+     gets bound; a C SDK has no runtime composition to carry it with, so
+     the declarative path requires a regenerated SDK that carries
+     feature/station.c - which is the same requirement the imperative
+     path already has here. The activation entry below is what that
+     feature reads. */
   options = vxstn_options(st, NULL == as ? name : as, opts);
   vxstn_val_free(opts);
   vxstn_val_free(resolved);
