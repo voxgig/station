@@ -88,11 +88,33 @@ function normalizeDescriptor(config, activeFeatures) {
     entities[ename] = { fields, ops }
   }
 
+  // §7.4: the features list gains `options` and `transport`, because
+  // it was throwing away what the SDK already embeds -
+  // `config.feature[name].options` is the feature's own declared key
+  // set WITH TYPED DEFAULTS, which is the schema §8.5 validates
+  // against, and `transport` is the role §8.4 orders by.
+  //
+  // Both are already inside the SDK; the descriptor stops discarding
+  // them. ADDITIVE, so descriptor v1 consumers are unaffected.
+  //
+  // `transport` is carried rather than inferred: the obvious signal, an
+  // empty `hook: {}`, is wrong for station, which both wraps AND
+  // dispatches hooks. Absent until sdkgen emits it (§11 items 6-7), and
+  // §8.4's role checks degrade to nothing until then rather than
+  // guessing.
   const features = []
   const fdefs = config?.feature || {}
   const factive = activeFeatures || {}
   for (const fname of Object.keys(fdefs).sort()) {
-    features.push({ name: fname, active: true === factive[fname]?.active })
+    const fdef = fdefs[fname] || {}
+    const row = { name: fname, active: true === factive[fname]?.active }
+    if (null != fdef.options && 'object' === typeof fdef.options) {
+      row.options = fdef.options
+    }
+    if (null != fdef.transport && '' !== fdef.transport) {
+      row.transport = String(fdef.transport)
+    }
+    features.push(row)
   }
 
   const descriptor = {

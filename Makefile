@@ -6,7 +6,7 @@
 # test runs the ports whose toolchains are commonly present; each port
 # also has its own Makefile or test script (see <lang>/README.md).
 
-RUNNABLE = typescript javascript go python ruby php perl java rust c cpp
+RUNNABLE = typescript javascript go python ruby php perl java rust c cpp csharp swift dart elixir lua
 
 test: $(addprefix test-,$(RUNNABLE))
 

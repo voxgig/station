@@ -1,4 +1,4 @@
-.PHONY: build build-clean test clean inspect
+.PHONY: build build-clean test clean inspect go.work go.noomni.work
 
 # voxgig/omni and voxgig/sekreto are sibling checkouts, not published
 # modules, and they may sit anywhere. Find them, then use a go workspace
@@ -27,9 +27,16 @@ SEKRETO := $(shell \
     fi; \
   done)
 
+# PHONY, and it has to be: go.work is gitignored but survives on a
+# developer's disk, so a file target would leave a workspace written
+# before the testutil module existed looking up to date - and `go test
+# ./testutil/...` then fails with "directory prefix testutil does not
+# contain modules listed in go.work". Regenerating is cheap; being
+# stale is not.
 go.work:
 	@test -n "$(OMNI)" || { echo "station: voxgig/omni not found - set OMNI_HOME" >&2; exit 1; }
 	@test -n "$(SEKRETO)" || { echo "station: voxgig/sekreto not found - set SEKRETO_HOME" >&2; exit 1; }
+	@rm -f go.work go.work.sum
 	go work init . ./testutil $(OMNI)/go $(SEKRETO)/go
 
 build: go.work

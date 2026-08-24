@@ -1,8 +1,16 @@
 // @voxgig/station-js - one control surface for outbound integrations.
 //
-// A port of typescript/src/index.ts, which is canonical.
+// A port of typescript/src/index.ts, which is canonical. The TS browser
+// entry (index.browser.ts) is a TypeScript-only split and has no
+// counterpart here.
 
-const { Station } = require('./Station')
+const { Station, checkInstanceName, checkInstanceTag, instanceRef } =
+  require('./Station')
+const { factoryFor, provide, provided, resetFactories } = require('./factory')
+const {
+  DEFAULT_EXPORT, camelify, checkPackage, factoryFromModule, loadAsync,
+  loadSync,
+} = require('./loader')
 const { adapterFeature, featureBinding } = require('./adapter')
 const { StationError } = require('./error')
 const {
@@ -13,14 +21,50 @@ const {
 } = require('./descriptor')
 const { placeholderFor } = require('./secrets')
 const {
+  configScope,
   findConfigFile,
   loadConfig,
+  refapi,
   resolveProfile,
   selectProfile,
 } = require('./profile')
+const {
+  BLOCK_DEFAULTS,
+  MERGE_SENSITIVE,
+  PROFILE_DEFAULTS,
+  configShape,
+  normalizeConfig,
+  validateConfig,
+} = require('./shape')
+const {
+  BAND_DEFAULT,
+  BAND_STATION,
+  BAND_TEST,
+  RESERVED_KEYS,
+  checkfeatures,
+  checkpin,
+  composefeatures,
+  defaultband,
+  featuresources,
+  mergefeatures,
+  resolveorder,
+} = require('./feature')
 
 module.exports = {
   Station,
+  checkInstanceName,
+  checkInstanceTag,
+  instanceRef,
+  factoryFor,
+  provide,
+  provided,
+  resetFactories,
+  DEFAULT_EXPORT,
+  camelify,
+  checkPackage,
+  factoryFromModule,
+  loadAsync,
+  loadSync,
   adapterFeature,
   featureBinding,
   StationError,
@@ -29,8 +73,27 @@ module.exports = {
   normalizeDescriptor,
   secretnameDefault,
   placeholderFor,
+  configScope,
   findConfigFile,
   loadConfig,
+  refapi,
   resolveProfile,
   selectProfile,
+  BLOCK_DEFAULTS,
+  MERGE_SENSITIVE,
+  PROFILE_DEFAULTS,
+  configShape,
+  normalizeConfig,
+  validateConfig,
+  BAND_DEFAULT,
+  BAND_STATION,
+  BAND_TEST,
+  RESERVED_KEYS,
+  checkfeatures,
+  checkpin,
+  composefeatures,
+  defaultband,
+  featuresources,
+  mergefeatures,
+  resolveorder,
 }
