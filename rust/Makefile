@@ -1,4 +1,4 @@
-.PHONY: build build-clean test clean inspect vendor vendor-sekreto
+.PHONY: build build-clean test clean inspect sync-shape vendor vendor-runtime
 
 # voxgig/sekreto and voxgig/omni are sibling checkouts, not published
 # crates, and they may sit anywhere. Link them under vendor/ so the
@@ -26,28 +26,56 @@ OMNI := $(shell \
     fi; \
   done)
 
-vendor-sekreto:
+# voxgig/struct backs validateConfig (design §4, §9). Unlike omni it is a
+# RUNTIME dependency - validateConfig runs at open(), not only under test -
+# so it is a dependency of the PUBLISHED crate and has to resolve for
+# build-clean too. Found by the same convention as the other two siblings:
+# $STRUCT_HOME, then a sibling checkout, then two fixed fallbacks.
+STRUCT := $(shell \
+  for d in "$$STRUCT_HOME" ../../struct ../../../struct /workspace/struct /home/user/struct; do \
+    if [ -n "$$d" ] && [ -f "$$d/rust/Cargo.toml" ]; then \
+      (cd "$$d" && pwd); break; \
+    fi; \
+  done)
+
+# The two the LIBRARY itself needs: sekreto resolves secrets (design §10)
+# and struct validates the config grammar (§4). omni is the suite's, and
+# only the suite's.
+vendor-runtime:
 	@test -n "$(SEKRETO)" || { echo "station: voxgig/sekreto not found - set SEKRETO_HOME" >&2; exit 1; }
+	@test -n "$(STRUCT)" || { echo "station: voxgig/struct not found - set STRUCT_HOME" >&2; exit 1; }
 	mkdir -p vendor
 	ln -sfn $(SEKRETO)/rust vendor/sekreto
+	ln -sfn $(STRUCT)/rust vendor/struct
 
-vendor: vendor-sekreto
+vendor: vendor-runtime
 	@test -n "$(OMNI)" || { echo "station: voxgig/omni not found - set OMNI_HOME" >&2; exit 1; }
 	ln -sfn $(OMNI)/rust vendor/omni
 
-build: vendor-sekreto
+build: vendor-runtime
 	cargo build --release
 
 # Register 4.13 proof: the library (every target of it - the unit tests
 # included) must build with NO omni checkout and NO vendor/omni link. Only
-# sekreto is linked, because the library genuinely depends on it (design
-# §10). CI runs this before omni is fetched.
-build-clean: vendor-sekreto
+# sekreto and struct are linked, because the library genuinely depends on
+# both - sekreto resolves secrets (design §10) and struct validates the
+# config grammar at open() (design §4). CI runs this before omni is
+# fetched.
+build-clean: vendor-runtime
 	cargo build --all-targets
 
 test: vendor
 	cargo test
 	cd corpus && cargo test
+
+# The shape artifact is DATA (design §4.3), and spec/config-shape.json is
+# the copy every port reads. This crate is published and compiled: it
+# cannot see spec/ at run time, and validateConfig runs at open() rather
+# than only under test - so src/config-shape.json is a MIRROR, embedded
+# with include_str!. Re-run this after editing the spec;
+# tests/unit.rs::config_shape_mirror_matches_the_spec fails on drift.
+sync-shape:
+	cp ../spec/config-shape.json src/config-shape.json
 
 clean:
 	cargo clean
@@ -57,4 +85,5 @@ clean:
 inspect:
 	@cargo --version
 	@echo "sekreto: $(SEKRETO)"
+	@echo "struct:  $(STRUCT)"
 	@echo "omni:    $(OMNI)"
