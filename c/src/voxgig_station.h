@@ -433,6 +433,17 @@ typedef struct vxstn_open_opts {
   const char* config_json; /* station.json content, in code (tier C: no
                             * file lookup); NULL -> no config */
   int event_max;           /* ring capacity; 0 -> default 1000 */
+  /* design 6.3's review boundary. 0 = unset, which means TRUE here: a
+   * config that arrives in code was written by the application, so it
+   * is repo-scoped by construction, and this tier reads no user-level
+   * file to distrust. 1 = yes, -1 = no. THE EXPLICIT VALUE IS READ
+   * FIRST - inferring before reading it makes -1 unsettable for the one
+   * caller that can set it. */
+  int repo_scoped;
+  /* Accepted and INERT (design 5.4 item 4): this port has no loader, so
+   * there is nothing to switch off. Kept so a caller that writes
+   * `load: false` for its js sibling is not refused here. */
+  bool no_load;
 } vxstn_open_opts;
 
 /* Ambient instance (design station.md 10.2): open() is the idempotent
@@ -467,10 +478,22 @@ void vxstn_close(vxstn_station* st);
 /* --- registration (design station.md 3 item 1, called by the adapter) --- */
 
 typedef struct vxstn_binding {
-  char* plugin;      /* slug */
-  char* placeholder; /* NULL when auth is inactive */
+  char* plugin;      /* THE INSTANCE NAME - "stripe" or "stripe$test".
+                      * Every later seam (rung, host policy, secret
+                      * value, events) takes this, not the api slug. */
+  char* api;         /* the api slug, which groups an instance with its
+                      * siblings; equal to `plugin` when untagged */
+  char* placeholder; /* NULL when auth is inactive; keyed on the INSTANCE
+                      * so two live instances of one api never share one */
   char* secretname;  /* effective secret name; NULL when auth inactive */
   char* rung;        /* "R1" | "none" */
+  /* design 16's solo half: the profile policy's allowlists, joined with
+   * "," for the SDK's own `options.allow`, or NULL when the block sets
+   * none. An allowlist is ENFORCEMENT, not a default: the adapter
+   * applies these OVER whatever the options already carry, unlike
+   * `base`, which the caller may override. */
+  char* allow_op;
+  char* allow_method;
 } vxstn_binding;
 
 void vxstn_binding_free(vxstn_binding* b);
