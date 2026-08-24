@@ -496,19 +496,29 @@ public class Station {
       options.put("base", block.get("base"));
     }
 
-    // Design 16's allowlist half, applied at binding time. Unlike `base`,
-    // which is a DEFAULT the caller may override, an allowlist is
-    // ENFORCEMENT: policy wins on exactly the keys it sets.
-    Object allow = Descriptor.getprop(block.get("policy"), "allow");
-    if (allow instanceof Map && null != options) {
-      Object ops = Descriptor.getprop(allow, "op");
+    // Policy allowlists (design 16): `allow.op` / `allow.method` are the
+    // same vocabulary the SDKs already enforce - `options.allow`, and the
+    // raw-access gate every target implements - so station sets those SDK
+    // options FROM policy and enforcement stays in the SDK's own pipeline.
+    // The SDK's own option form is a comma-separated string, so the
+    // policy's list joins into it.
+    //
+    // Unlike `base` above, which is a DEFAULT the caller may override, an
+    // allowlist is ENFORCEMENT: policy wins over whatever the options
+    // carry, on exactly the keys it sets.
+    Object policyAllow = Descriptor.getprop(block.get("policy"), "allow");
+    if (policyAllow instanceof Map && null != options) {
+      Map<String, Object> allow = new LinkedHashMap<>(
+          Descriptor.asmap(options.get("allow")));
+      Object ops = Descriptor.getprop(policyAllow, "op");
       if (ops instanceof List) {
-        options.put("allow", joinlist((List<Object>) ops));
+        allow.put("op", joinlist((List<Object>) ops));
       }
-      Object methods = Descriptor.getprop(allow, "method");
+      Object methods = Descriptor.getprop(policyAllow, "method");
       if (methods instanceof List) {
-        options.put("allowmethod", joinlist((List<Object>) methods));
+        allow.put("method", joinlist((List<Object>) methods));
       }
+      options.put("allow", allow);
     }
 
     if (!"none".equals(rung) && null != options) {

@@ -420,8 +420,10 @@ public final class StationTest {
 
     testcase("shape: the mirror has not drifted", () -> {
       Object spec = parsefile(specfile("config-shape.json"));
-      checkeq(Descriptor.canonicalSerialize(Shape.configShape()),
-          Descriptor.canonicalSerialize(spec),
+      // Canonical bytes, not a dump of both: a drift report that prints two
+      // 4KB shapes buries the one line that says what to do about it.
+      check(Descriptor.canonicalSerialize(Shape.configShape())
+              .equals(Descriptor.canonicalSerialize(spec)),
           "the classpath config shape has drifted from spec/config-shape.json "
               + "- run `make sync-shape`");
     });
@@ -969,10 +971,12 @@ public final class StationTest {
           "test-plug", map("policy", map(
               "allow", map("op", List.of("list", "load"),
                   "method", List.of("GET"))))));
-      Map<String, Object> options = st.options(map("allow", "everything"));
+      Map<String, Object> options = st.options(map("allow", map("op", "everything")));
       bind(st, new Object(), options);
-      check("list,load".equals(options.get("allow")), "policy wins on the keys it sets");
-      check("GET".equals(options.get("allowmethod")), "and on the method list");
+      checkeq(Descriptor.getprop(options.get("allow"), "op"), "list,load",
+          "policy wins on the keys it sets");
+      checkeq(Descriptor.getprop(options.get("allow"), "method"), "GET",
+          "and on the method list");
     });
 
     testcase("transport: copy-on-inject swaps only the sent copy", () -> {
