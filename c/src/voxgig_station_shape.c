@@ -715,6 +715,43 @@ static void checkpolicy(const vxstn_val* policy, const char* path, vxstn_val* in
   }
 }
 
+/* The `$CHILD` MAP-MODE SPELLING, and why this port states it itself.
+ *
+ * struct's `$CHILD` installs its template across the data's keys, and
+ * when the data at that level is not a map it reports the type error -
+ * canonically as "Expected field profiles to be object, but found
+ * list: [].", naming the FIELD. The C build vendored here names the
+ * spec key instead: "Expected field profiles.`$CHILD` to be object...",
+ * so the corpus's pinned substring is absent from a message that is
+ * otherwise about exactly the right thing.
+ *
+ * Same reasoning as the design 4.4 workarounds beside it, and the same
+ * remedy: produce the PINNED message here, so behaviour is identical
+ * whatever struct build is vendored, and pin it in the corpus so the
+ * workaround is removed deliberately rather than forgotten
+ * (config#profiles-must-be-a-map, config#feature-must-be-a-map).
+ *
+ * A present null is NOT an error: `$CHILD` treats an absent or null
+ * node as an empty map at that level, in every struct port. */
+static void childmap(const vxstn_val* node, const char* path, vxstn_val* invalid) {
+  vxstn_sb sb;
+  char* shown;
+  if (NULL == node || vxstn_is_map(node)) {
+    return;
+  }
+  shown = jsonof(node);
+  vxstn_sb_init(&sb);
+  vxstn_sb_put(&sb, "Expected field ");
+  vxstn_sb_put(&sb, path);
+  vxstn_sb_put(&sb, " to be object, but found ");
+  vxstn_sb_put(&sb, shape_kindof(node));
+  vxstn_sb_put(&sb, ": ");
+  vxstn_sb_put(&sb, shown);
+  vxstn_sb_put(&sb, ".");
+  free(shown);
+  push_str(invalid, sb.buf);
+}
+
 /* A feature map at any level. `station` is reserved: station composes
  * its own wrap and a config that reconfigures it is asking for a state
  * the ordering rules cannot express (design 8.4). */
@@ -767,6 +804,7 @@ static void scanconfig(const vxstn_val* cfg, vxstn_val* secrets, vxstn_val* rese
   size_t p, b, r;
   static const char* const BLOCKKEYS[] = {"api", "sdk"};
 
+  childmap(profiles, "profiles", invalid);
   if (!vxstn_is_map(profiles)) {
     return;
   }
@@ -786,11 +824,15 @@ static void scanconfig(const vxstn_val* cfg, vxstn_val* secrets, vxstn_val* rese
     ppath = pp.buf;
 
     fpath = joinpath(ppath, "feature");
+    childmap(vxstn_getk(prof, "feature"), fpath, invalid);
     checkfeatures_scan(vxstn_getk(prof, "feature"), fpath, secrets, reserved, invalid);
     free(fpath);
 
     for (b = 0; b < sizeof(BLOCKKEYS) / sizeof(BLOCKKEYS[0]); b++) {
       const vxstn_val* blocks = vxstn_getk(prof, BLOCKKEYS[b]);
+      char* blockspath = joinpath(ppath, BLOCKKEYS[b]);
+      childmap(blocks, blockspath, invalid);
+      free(blockspath);
       if (!vxstn_is_map(blocks)) {
         continue;
       }
@@ -827,6 +869,7 @@ static void scanconfig(const vxstn_val* cfg, vxstn_val* secrets, vxstn_val* rese
         free(sub);
 
         sub = joinpath(bpath, "feature");
+        childmap(vxstn_getk(block, "feature"), sub, invalid);
         checkfeatures_scan(vxstn_getk(block, "feature"), sub, secrets, reserved, invalid);
         free(sub);
 

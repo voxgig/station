@@ -4,10 +4,18 @@
  * The station conformance suite: the pure-contract half of the design's
  * (station.md 13) corpus, from spec/station.json, through voxgig/omni -
  * the same file every port runs. Sections that need live SDK machinery
- * (inject, order, event correlation) live in the generated-SDK
- * integration flow; the corpus carries what a port can prove with no
- * SDK present. Seven sections: canonical, descriptor,
- * descriptorwarnings, errors, placeholder, profile, secretname.
+ * (inject, event correlation) live in the generated-SDK integration
+ * flow; the corpus carries what a port can prove with no SDK present.
+ *
+ * TEN SECTIONS, ONE PENDING. The tests are REGISTERED FROM THE `DRIVERS`
+ * TABLE below rather than written out by hand, so a section named there
+ * cannot silently fail to run; `sections-covered` closes the other
+ * direction by reading spec/station.json AS RAW JSON - not through the
+ * runner, which resolves a named section and would hide one it never
+ * resolved - and asserting that the sections it carries are exactly
+ * DRIVERS plus PENDING. A section added to the corpus and not picked up
+ * here fails loudly instead of never running; a section renamed or
+ * deleted while this port still lists it fails too.
  *
  * Values cross the omni/station boundary through direct converters
  * (omni_json <-> vxstn_val), with omni_flags_nonull so a spec null
@@ -24,6 +32,11 @@
 #include "omni.h"
 
 #include "../src/voxgig_station.h"
+
+/* The completeness guard reads the spec file itself and sorts its
+ * section names; the library's own internal helpers do exactly that and
+ * are already linked here. */
+#include "../src/voxgig_station_int.h"
 
 static omni_pool *POOL = NULL;
 static const char *ONLY = NULL;
@@ -182,12 +195,7 @@ static omni_result subject_canonical(omni_subject *self, omni_json **args, size_
   return out;
 }
 
-/* The 3.3 merge, and the whole of this port's profile contract.
-
-   The `profile` section is NOT run: it pins the pre-Stage-1 `plugin`
-   grammar, which this port no longer speaks. It stays in the corpus for
-   the ports that have not crossed the rename yet and is deleted when the
-   last one does - see spec/README.md. */
+/* The 3.3 merge, and the whole of this port's profile contract. */
 static omni_result subject_instance(omni_subject *self, omni_json **args, size_t nargs) {
   omni_result out = {NULL, NULL};
   const omni_json *vin = 0 < nargs ? args[0] : NULL;
@@ -208,6 +216,112 @@ static omni_result subject_instance(omni_subject *self, omni_json **args, size_t
   return out;
 }
 
+/* design 4.2's pipeline, and the whole of this port's config contract:
+   the entry is a RAW config in, and either the normalized output or the
+   expected error out. THE TWO STEPS ARE ONE PIPELINE - a port that
+   split them would be free to validate the wrong form, which is the
+   exact mistake 4.2 exists to prevent (an all-optional block is an OPEN
+   map until normalization makes its keys present). */
+static omni_result subject_config(omni_subject *self, omni_json **args, size_t nargs) {
+  omni_result out = {NULL, NULL};
+  vxstn_val *raw = to_station(0 < nargs ? args[0] : NULL);
+  vxstn_val *normalized = vxstn_normalize_config(raw);
+  vxstn_error *err = NULL;
+  vxstn_val *validated = vxstn_validate_config(normalized, &err);
+  (void)self;
+
+  vxstn_val_free(raw);
+  vxstn_val_free(normalized);
+  if (NULL == validated) {
+    out.err = omni_pool_strdup(POOL, NULL == err ? "validate failed" : err->message);
+    vxstn_error_free(err);
+    return out;
+  }
+  out.val = to_omni(validated);
+  vxstn_val_free(validated);
+  return out;
+}
+
+/* design 6.1's `as` rule: pure over (api, opts), so it is corpus-shaped
+   rather than driver-shaped even though it decides a registry key. */
+static omni_result subject_instanceref(omni_subject *self, omni_json **args, size_t nargs) {
+  omni_result out = {NULL, NULL};
+  const omni_json *vin = 0 < nargs ? args[0] : NULL;
+  const char *api = omni_strval(omni_map_get(vin, "api"));
+  vxstn_val *opts = to_station(omni_map_get(vin, "opts"));
+  vxstn_error *err = NULL;
+  char *ref = vxstn_instance_ref(NULL == api ? "" : api, opts, &err);
+  (void)self;
+
+  vxstn_val_free(opts);
+  if (NULL == ref) {
+    out.err = omni_pool_strdup(POOL, NULL == err ? "instanceref failed" : err->message);
+    vxstn_error_free(err);
+    return out;
+  }
+  out.val = omni_str(POOL, ref);
+  free(ref);
+  return out;
+}
+
+/* design 8's pure half (design 10.1): the three-level merge with its
+   depth boundary, and the 8.4 order resolution. ONE DRIVER, TWO ENTRY
+   SHAPES - `merged` selects the resolver, anything else the merge -
+   because a port that guessed from looser cues would run the wrong
+   subject on a mistyped entry. */
+static omni_result subject_feature(omni_subject *self, omni_json **args, size_t nargs) {
+  omni_result out = {NULL, NULL};
+  const omni_json *vin = 0 < nargs ? args[0] : NULL;
+  const omni_json *mergedin = omni_map_get(vin, "merged");
+  vxstn_error *err = NULL;
+  (void)self;
+
+  if (!omni_isnone(mergedin)) {
+    vxstn_val *merged = to_station(mergedin);
+    vxstn_val *ordered = vxstn_resolve_order(merged, &err);
+    omni_json *names;
+    size_t i;
+
+    vxstn_val_free(merged);
+    if (NULL == ordered) {
+      out.err = omni_pool_strdup(POOL, NULL == err ? "order failed" : err->message);
+      vxstn_error_free(err);
+      return out;
+    }
+    err = vxstn_check_pin(ordered);
+    if (NULL != err) {
+      out.err = omni_pool_strdup(POOL, err->message);
+      vxstn_error_free(err);
+      vxstn_val_free(ordered);
+      return out;
+    }
+    names = omni_list(POOL);
+    for (i = 0; i < ordered->len; i++) {
+      omni_list_push(names,
+                     omni_str(POOL, vxstn_strval(vxstn_map_get(ordered->items[i], "name"))));
+    }
+    vxstn_val_free(ordered);
+    out.val = names;
+    return out;
+  }
+
+  {
+    vxstn_val *base = to_station(omni_map_get(vin, "base"));
+    vxstn_val *overlay = to_station(omni_map_get(vin, "overlay"));
+    const char *api = omni_strval(omni_map_get(vin, "api"));
+    const char *ref = omni_strval(omni_map_get(vin, "ref"));
+    vxstn_val *sources = vxstn_feature_sources(base, overlay, api, ref);
+    vxstn_val *merged = vxstn_merge_features(sources);
+
+    out.val = to_omni(merged);
+    vxstn_val_free(base);
+    vxstn_val_free(overlay);
+    vxstn_val_free(sources);
+    vxstn_val_free(merged);
+    return out;
+  }
+}
+
 static omni_result subject_errors(omni_subject *self, omni_json **args, size_t nargs) {
   omni_result out = {NULL, NULL};
   const char *code = 0 < nargs ? omni_strval(args[0]) : NULL;
@@ -222,6 +336,54 @@ static omni_subject *makesubject(omni_result (*call)(omni_subject *, omni_json *
   subject->data = NULL;
   return subject;
 }
+
+/* ---- the two tables: what runs, and what deliberately does not ----
+ *
+ * DRIVERS is the opt-in surface: a section runs if and only if it has a
+ * row here, and the runs below are generated from it. PENDING is a
+ * recorded DECISION not to run one, with the reason in the row - an
+ * entry here is visible in review, where a section quietly dropped from
+ * DRIVERS to make a red test go away is not. `sections-covered` then
+ * asserts the two together are exactly what the corpus carries.
+ *
+ * C has no dynamic test registry, so the table is a static array
+ * iterated by main() - the same two properties the dynamic ports get
+ * from generating their tests. */
+
+typedef struct {
+  const char *name;
+  omni_result (*call)(omni_subject *, omni_json **, size_t);
+} driver_row;
+
+static const driver_row DRIVERS[] = {
+    {"secretname", subject_secretname},
+    {"placeholder", subject_placeholder},
+    {"descriptor", subject_descriptor},
+    {"descriptorwarnings", subject_descriptorwarnings},
+    {"canonical", subject_canonical},
+    {"config", subject_config},
+    {"instance", subject_instance},
+    {"instanceref", subject_instanceref},
+    {"feature", subject_feature},
+    {"errors", subject_errors},
+};
+
+typedef struct {
+  const char *name;
+  const char *reason;
+} pending_row;
+
+static const pending_row PENDING[] = {
+    /* Pins the pre-Stage-1 `plugin` grammar, which this port no longer
+       speaks. It stays in the corpus for the ports that have not crossed
+       the rename yet and is deleted when the last one does - see
+       spec/README.md. Everything it pins is restated in the sdk/api
+       grammar the `instance` section runs. */
+    {"profile", "pre-rename plugin grammar; superseded by the instance section"},
+};
+
+#define DRIVER_COUNT (sizeof(DRIVERS) / sizeof(DRIVERS[0]))
+#define PENDING_COUNT (sizeof(PENDING) / sizeof(PENDING[0]))
 
 /* ---- harness (the omni c fib harness pattern) ---------------------- */
 
@@ -271,15 +433,119 @@ static char *specfile(const char *name) {
 static void rungroup(omni_runpack *pack, const char *name, omni_subject *subject) {
   char *err = NULL;
   int failed;
+  omni_json *set;
 
   if (!wanted(name)) {
     return;
   }
 
+  /* The corpus must actually carry a set of this name - a renamed
+   * section quietly matching nothing is the failure mode a table-driven
+   * suite would otherwise hide. */
+  set = omni_set(pack, name);
+  if (NULL == set) {
+    report(name, 1, "corpus section missing");
+    return;
+  }
+
   /* nonull: spec nulls arrive as real nulls, which is what the station
    * subjects mean (the ts port denulls by hand; same effect). */
-  failed = omni_runsetflags(pack, omni_set(pack, name), omni_flags_nonull(), subject, &err);
+  failed = omni_runsetflags(pack, set, omni_flags_nonull(), subject, &err);
   report(name, failed, err);
+}
+
+/* Section completeness (design 13). Reads spec/station.json AS RAW
+   JSON - not through the runner, which resolves and normalizes a named
+   section and would hide one it never resolved - and asserts that the
+   section names it carries are EXACTLY the DRIVERS rows plus the
+   PENDING rows. Not a subset either way: a section added to the corpus
+   and not picked up here fails loudly instead of never running, and a
+   stale driver or a stale pending pin fails rather than rotting. */
+static int cmp_names(const void *a, const void *b) {
+  return strcmp(*(const char *const *)a, *(const char *const *)b);
+}
+
+static void sections_covered(const char *specpath) {
+  FILE *f = fopen(specpath, "rb");
+  char *text;
+  long size;
+  vxstn_val *spec;
+  const vxstn_val *sections;
+  const char **present;
+  const char **covered;
+  size_t npresent, ncovered = DRIVER_COUNT + PENDING_COUNT;
+  size_t i;
+  vxstn_sb msg;
+  int failed = 0;
+
+  if (!wanted("sections-covered")) {
+    return;
+  }
+  if (NULL == f) {
+    report("sections-covered", 1, "cannot read spec/station.json");
+    return;
+  }
+  fseek(f, 0, SEEK_END);
+  size = ftell(f);
+  fseek(f, 0, SEEK_SET);
+  text = (char *)malloc((size_t)size + 1);
+  if (1 != fread(text, (size_t)size, 1, f)) {
+    fclose(f);
+    free(text);
+    report("sections-covered", 1, "cannot read spec/station.json");
+    return;
+  }
+  text[size] = '\0';
+  fclose(f);
+
+  spec = vxstn_parse_json(text, NULL);
+  free(text);
+  if (NULL == spec) {
+    report("sections-covered", 1, "cannot parse spec/station.json");
+    return;
+  }
+
+  sections = vxstn_map_get(vxstn_map_get(spec, "primary"), "station");
+  present = vxstn_sortedkeys(sections, &npresent);
+
+  covered = (const char **)malloc(ncovered * sizeof(char *));
+  for (i = 0; i < DRIVER_COUNT; i++) {
+    covered[i] = DRIVERS[i].name;
+  }
+  for (i = 0; i < PENDING_COUNT; i++) {
+    covered[DRIVER_COUNT + i] = PENDING[i].name;
+  }
+  qsort(covered, ncovered, sizeof(char *), cmp_names);
+
+  vxstn_sb_init(&msg);
+  if (npresent != ncovered) {
+    failed = 1;
+  } else {
+    for (i = 0; i < npresent; i++) {
+      if (0 != strcmp(present[i], covered[i])) {
+        failed = 1;
+        break;
+      }
+    }
+  }
+  if (failed) {
+    vxstn_sb_put(&msg, "  corpus:  ");
+    for (i = 0; i < npresent; i++) {
+      vxstn_sb_put(&msg, 0 == i ? "" : ", ");
+      vxstn_sb_put(&msg, present[i]);
+    }
+    vxstn_sb_put(&msg, "\n  covered: ");
+    for (i = 0; i < ncovered; i++) {
+      vxstn_sb_put(&msg, 0 == i ? "" : ", ");
+      vxstn_sb_put(&msg, covered[i]);
+    }
+  }
+  report("sections-covered", failed, msg.buf);
+
+  free(msg.buf);
+  free(present);
+  free((void *)covered);
+  vxstn_val_free(spec);
 }
 
 int main(int argc, char **argv) {
@@ -315,13 +581,16 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  rungroup(pack, "secretname", makesubject(subject_secretname));
-  rungroup(pack, "placeholder", makesubject(subject_placeholder));
-  rungroup(pack, "descriptor", makesubject(subject_descriptor));
-  rungroup(pack, "descriptorwarnings", makesubject(subject_descriptorwarnings));
-  rungroup(pack, "canonical", makesubject(subject_canonical));
-  rungroup(pack, "instance", makesubject(subject_instance));
-  rungroup(pack, "errors", makesubject(subject_errors));
+  sections_covered(path);
+
+  /* REGISTERED FROM THE TABLE, never written out by hand: a section
+     named in DRIVERS cannot silently fail to execute. */
+  {
+    size_t i;
+    for (i = 0; i < DRIVER_COUNT; i++) {
+      rungroup(pack, DRIVERS[i].name, makesubject(DRIVERS[i].call));
+    }
+  }
 
   printf("\n%d passed, %d failed\n", PASSCOUNT, FAILCOUNT);
 
