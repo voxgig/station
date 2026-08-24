@@ -11,8 +11,13 @@ import "sync"
 
 // Event is StationEvent v1 (design §6).
 type Event struct {
-	T      int64          `json:"t"`
+	T int64 `json:"t"`
+	// Plugin is the INSTANCE; API is what groups its siblings. §7.3's
+	// grouping contract wants BOTH on EVERY kind: construction events
+	// carrying both while runtime events carried only one is grouping
+	// that works exactly until it is used.
 	Plugin string         `json:"plugin,omitempty"`
+	API    string         `json:"api,omitempty"`
 	Corr   string         `json:"corr,omitempty"`
 	Kind   string         `json:"kind"` // construct | op | http | error | feature | station
 	Op     *OpEvent       `json:"op,omitempty"`

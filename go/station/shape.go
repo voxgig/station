@@ -294,7 +294,7 @@ var nonAlnum = regexp.MustCompile(`[^a-z0-9]+`)
 // every caller goes through NormalizeConfig first.
 func ValidateConfig(normalized any) (any, error) {
 	errsref := voxgigstruct.ListRefCreate[any]()
-	voxgigstruct.Validate(normalized, ConfigShape(),
+	voxgigstruct.Validate(jsonnumbers(normalized), ConfigShape(),
 		&voxgigstruct.Injection{Errs: errsref})
 
 	errs := make([]string, 0, len(errsref.List))
@@ -599,6 +599,39 @@ func userinfo(val string, path string, secrets *[]string) {
 	*secrets = append(*secrets, path+" is a URL carrying userinfo, which puts "+
 		"a credential in the config file; use the proxy feature's `fromEnv` "+
 		"option instead (§8.6)")
+}
+
+// JSON HAS ONE NUMBER TYPE AND GO HAS FIFTEEN, and struct's `$EXACT`
+// compares with reflect.DeepEqual - so a config written in code with
+// `"station": 1` (a Go int) does not equal the shape's JSON 1 and would
+// fail a rule it plainly satisfies. Every number is therefore normalized
+// to the kind encoding/json produces before the validator sees it.
+//
+// A COPY, and only the validator sees it: the scans, the corpus's
+// expected output and every caller downstream read the normalized config
+// itself, unchanged. Nothing else in struct is type-strict this way -
+// `$INTEGER` accepts a Go int and a whole float alike.
+func jsonnumbers(node any) any {
+	switch v := node.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(v))
+		for k, one := range v {
+			out[k] = jsonnumbers(one)
+		}
+		return out
+	case []any:
+		out := make([]any, len(v))
+		for i, one := range v {
+			out[i] = jsonnumbers(one)
+		}
+		return out
+	case float64, string, bool, nil:
+		return node
+	}
+	if num, is := tonum(node); is {
+		return num
+	}
+	return node
 }
 
 // The SHAPE kindof, which must agree with struct's own spellings. NOT
