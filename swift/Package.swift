@@ -23,7 +23,16 @@ let package = Package(
     .target(name: "VoxgigStation", path: "Sources/VoxgigStation"),
     .testTarget(
       name: "VoxgigStationTests",
-      dependencies: ["VoxgigStation", "Omni"],
+      // The omni product must be named in the explicit
+      // `.product(name:package:)` form: a bare "Omni" resolves only
+      // against targets in THIS package and against dependency package
+      // *identities*, and neither matches. For a path dependency the
+      // identity is the last path component lowercased - `vendor/omni`
+      // gives `omni` - not the manifest's `name:` (VoxgigOmni).
+      dependencies: [
+        "VoxgigStation",
+        .product(name: "Omni", package: "omni"),
+      ],
       path: "Tests/VoxgigStationTests"),
   ]
 )
