@@ -37,6 +37,7 @@ from voxgig_station import (  # noqa: E402
     factory_for,
     factory_from_module,
     feature_binding,
+    normalize_descriptor,
     placeholder_for,
     provide,
     provided,
