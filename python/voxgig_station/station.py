@@ -1048,11 +1048,13 @@ class Station:
                     r['name'] == f['instance'] or r['api'] == f['api']
             else:
                 keep = True
+                # Both narrow when both are given: an `instance` that
+                # matches does not excuse the row from the `api` filter.
                 if f.get('instance') is not None and \
                         r['name'] != f['instance'] and \
                         r['api'] != f['instance']:
                     keep = False
-                elif f.get('api') is not None and r['api'] != f['api']:
+                if f.get('api') is not None and r['api'] != f['api']:
                     keep = False
             if not keep:
                 continue
