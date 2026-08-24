@@ -14,8 +14,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "../src/voxgig_station.h"
+
+/* The tests build a few strings and copy a few of their own; the
+ * library's internal helpers are already linked here. */
+#include "../src/voxgig_station_int.h"
 
 static int FAILS = 0;
 
@@ -498,6 +503,813 @@ static void test_emit_http(void) {
   vxstn_station_free(st);
 }
 
+/* ---- Stage 5: the config shape, the mirror, and its invariants ---- */
+
+/* The mirror is only honest if something compares it to the spec. Walk
+   up from the working directory for spec/, the way the conformance
+   suite finds station.json. */
+static char* specpath(const char* name) {
+  static char path[4200];
+  char dir[4096];
+  int step;
+
+  if (NULL == getcwd(dir, sizeof(dir))) {
+    return NULL;
+  }
+  for (step = 0; step < 8; step++) {
+    FILE* probe;
+    snprintf(path, sizeof(path), "%s/spec/%s", dir, name);
+    probe = fopen(path, "rb");
+    if (NULL != probe) {
+      fclose(probe);
+      return path;
+    }
+    {
+      char* slash = strrchr(dir, '/');
+      if (NULL == slash || dir == slash) {
+        break;
+      }
+      *slash = '\0';
+    }
+  }
+  return NULL;
+}
+
+static void test_shape_mirror(void) {
+  char* path = specpath("config-shape.json");
+  FILE* f;
+  long size;
+  char* text;
+  vxstn_val* shape;
+  const vxstn_val* profile;
+  const vxstn_val* apiblock;
+  const vxstn_val* sdkblock;
+  char* a;
+  char* b;
+
+  /* THE DRIFT GUARD: src/config_shape.h is a verbatim mirror of
+     spec/config-shape.json, so the check is a byte compare. Regenerate
+     with `make sync-shape` when the spec moves. */
+  CHECK(NULL != path);
+  if (NULL == path) {
+    return;
+  }
+  f = fopen(path, "rb");
+  CHECK(NULL != f);
+  if (NULL == f) {
+    return;
+  }
+  fseek(f, 0, SEEK_END);
+  size = ftell(f);
+  fseek(f, 0, SEEK_SET);
+  text = (char*)malloc((size_t)size + 1);
+  CHECK(1 == fread(text, (size_t)size, 1, f));
+  text[size] = '\0';
+  fclose(f);
+  CHECK_STR(vxstn_config_shape_json(), text);
+  free(text);
+
+  /* A FRESH DEEP COPY every call: struct's validate consumes the spec
+     it walks, so two calls must not hand back one tree. */
+  {
+    vxstn_val* one = vxstn_config_shape();
+    vxstn_val* two = vxstn_config_shape();
+    CHECK(one != two);
+    a = vxstn_canonical(one);
+    b = vxstn_canonical(two);
+    CHECK_STR(a, b);
+    free(a);
+    free(b);
+    vxstn_val_free(one);
+    vxstn_val_free(two);
+  }
+
+  shape = vxstn_config_shape();
+  profile = vxstn_map_get(vxstn_map_get(shape, "profiles"), "`$CHILD`");
+
+  /* The two block specs are IDENTICAL: an api block and an sdk block
+     take the same keys, and a difference between them would be a
+     grammar that means one thing at one level and another at the
+     other. */
+  apiblock = vxstn_map_get(vxstn_map_get(profile, "api"), "`$CHILD`");
+  sdkblock = vxstn_map_get(vxstn_map_get(profile, "sdk"), "`$CHILD`");
+  a = vxstn_canonical(apiblock);
+  b = vxstn_canonical(sdkblock);
+  CHECK_STR(a, b);
+  free(a);
+  free(b);
+  vxstn_val_free(shape);
+
+  /* MERGE_SENSITIVE is exactly {"active"}, it is a block default, and
+     every non-container block default is in it - the timing rule stated
+     as an assertion rather than left to a reader to infer. */
+  {
+    vxstn_val* defaults = vxstn_block_defaults();
+    size_t i;
+    CHECK_STR(VXSTN_MERGE_SENSITIVE[0], "active");
+    CHECK(NULL == VXSTN_MERGE_SENSITIVE[1]);
+    CHECK(NULL != vxstn_map_get(defaults, "active"));
+    for (i = 0; i < defaults->mlen; i++) {
+      bool container = VXSTN_MAP == defaults->vals[i]->kind ||
+                       VXSTN_LIST == defaults->vals[i]->kind;
+      bool sensitive = 0 == strcmp("active", defaults->keys[i]);
+      CHECK(container || sensitive);
+    }
+    vxstn_val_free(defaults);
+  }
+}
+
+static void test_normalize_config(void) {
+  const char* rawtext =
+      "{\"station\":1,\"profiles\":{\"default\":{\"sdk\":{\"solar\":"
+      "{\"feature\":{\"retry\":{\"retries\":3}}}}}}}";
+  vxstn_val* raw = vxstn_parse_json(rawtext, NULL);
+  char* before = vxstn_canonical(raw);
+  vxstn_val* out = vxstn_normalize_config(raw);
+  char* after = vxstn_canonical(raw);
+  const vxstn_val* prof;
+  const vxstn_val* block;
+
+  /* NEVER MUTATES THE INPUT. */
+  CHECK_STR(before, after);
+  free(before);
+  free(after);
+
+  prof = vxstn_map_get(vxstn_map_get(out, "profiles"), "default");
+  CHECK(NULL != vxstn_map_get(prof, "api"));
+  CHECK(NULL != vxstn_map_get(prof, "feature"));
+  CHECK_STR(vxstn_strval(vxstn_map_get(
+                vxstn_list_get(vxstn_map_get(vxstn_map_get(prof, "secrets"),
+                                             "providers"),
+                               0),
+                "kind")),
+            "env");
+
+  block = vxstn_map_get(vxstn_map_get(prof, "sdk"), "solar");
+  CHECK(vxstn_map_get(block, "active")->b);
+  /* A FEATURE NAMED IN THE CONFIG IS ONE YOU ARE ASKING FOR. */
+  CHECK(vxstn_map_get(vxstn_map_get(vxstn_map_get(block, "feature"), "retry"),
+                      "active")
+            ->b);
+  vxstn_val_free(out);
+  vxstn_val_free(raw);
+
+  /* A non-map is returned untouched, for validation to reject by
+     path. */
+  raw = vxstn_parse_json("[1]", NULL);
+  out = vxstn_normalize_config(raw);
+  CHECK(vxstn_is_list(out));
+  vxstn_val_free(out);
+  vxstn_val_free(raw);
+}
+
+static vxstn_error* validate_text(const char* text) {
+  vxstn_val* raw = vxstn_parse_json(text, NULL);
+  vxstn_val* normalized = vxstn_normalize_config(raw);
+  vxstn_error* err = NULL;
+  vxstn_val* out = vxstn_validate_config(normalized, &err);
+  vxstn_val_free(out);
+  vxstn_val_free(normalized);
+  vxstn_val_free(raw);
+  return err;
+}
+
+static void test_validate_config(void) {
+  vxstn_error* err;
+
+  err = validate_text("{\"station\":1,\"profiles\":{\"default\":{\"sdk\":"
+                      "{\"solar\":{}}}}}");
+  CHECK(NULL == err);
+  vxstn_error_free(err);
+
+  /* EVERY ERROR AT ONCE, in encounter order. */
+  err = validate_text("{\"station\":1,\"profiles\":{\"default\":{\"sdk\":"
+                      "{\"a\":{\"bass\":1},\"b\":{\"tuba\":2}}}}}");
+  CHECK(NULL != err);
+  if (NULL != err) {
+    CHECK_STR(err->code, "station_config_invalid");
+    CHECK(NULL != strstr(err->message, "sdk.a: bass"));
+    CHECK(NULL != strstr(err->message, "sdk.b: tuba"));
+  }
+  vxstn_error_free(err);
+
+  /* The `plugin` -> `sdk` rename hint, on the error that rejects it. */
+  err = validate_text("{\"station\":1,\"profiles\":{\"default\":{\"plugin\":{}}}}");
+  CHECK(NULL != err && NULL != strstr(err->message, "rename `plugin` to `sdk`"));
+  vxstn_error_free(err);
+
+  /* station is reserved at every feature level. */
+  err = validate_text("{\"station\":1,\"profiles\":{\"default\":{\"feature\":"
+                      "{\"station\":{}}}}}");
+  CHECK(NULL != err && 0 == strcmp(err->code, "station_feature_reserved"));
+  vxstn_error_free(err);
+
+  /* A credential-shaped key inside `options`, one level down. */
+  err = validate_text("{\"station\":1,\"profiles\":{\"default\":{\"sdk\":{\"solar\":"
+                      "{\"options\":{\"deep\":{\"apikey\":\"v\"}}}}}}}");
+  CHECK(NULL != err && 0 == strcmp(err->code, "station_config_secret"));
+  CHECK(NULL != strstr(err->message, "options.deep.apikey"));
+  vxstn_error_free(err);
+
+  /* A `secret` holding a NAME is exempt; one holding a token is not. */
+  err = validate_text("{\"station\":1,\"profiles\":{\"default\":{\"sdk\":{\"solar\":"
+                      "{\"secret\":\"acme_internal_billing_service.apikey\"}}}}}");
+  CHECK(NULL == err);
+  vxstn_error_free(err);
+
+  err = validate_text("{\"station\":1,\"profiles\":{\"default\":{\"sdk\":{\"solar\":"
+                      "{\"secret\":\"550e8400e29b41d4a716446655440000\"}}}}}");
+  CHECK(NULL != err && 0 == strcmp(err->code, "station_config_secret"));
+  CHECK(NULL != strstr(err->message, "unbroken alphanumeric run of 24"));
+  vxstn_error_free(err);
+}
+
+/* ---- Stage 5: feature merge, order, composition, the 8.5 check ---- */
+
+static void test_feature_merge(void) {
+  const char* basetext =
+      "{\"feature\":{\"retry\":{\"max\":1,\"wait\":100}},"
+      "\"api\":{\"solar\":{\"feature\":{\"retry\":{\"max\":2}}}},"
+      "\"sdk\":{\"solar$eu\":{\"feature\":{\"audit\":{\"sink\":{\"kind\":\"file\","
+      "\"path\":\"/tmp/a\"}}}}}}";
+  const char* overtext =
+      "{\"feature\":{\"audit\":{\"sink\":{\"kind\":\"stdout\"}}}}";
+  vxstn_val* base = vxstn_parse_json(basetext, NULL);
+  vxstn_val* overlay = vxstn_parse_json(overtext, NULL);
+  vxstn_val* sources = vxstn_feature_sources(base, overlay, "solar", "solar$eu");
+  vxstn_val* merged = vxstn_merge_features(sources);
+  char* json;
+
+  /* Six sources, always, so the provenance labels line up. */
+  CHECK(6 == sources->len);
+
+  json = vxstn_canonical(merged);
+  /* Per key within a feature (max from the api block, wait from the
+     profile level), and a map-valued option REPLACES wholesale - the
+     depth boundary. */
+  CHECK_STR(json, "{\"audit\":{\"sink\":{\"kind\":\"stdout\"}},"
+                  "\"retry\":{\"max\":2,\"wait\":100}}");
+  free(json);
+  vxstn_val_free(merged);
+  vxstn_val_free(sources);
+  vxstn_val_free(base);
+  vxstn_val_free(overlay);
+}
+
+static char* ordernames(const char* mergedtext, vxstn_error** err) {
+  vxstn_val* merged = vxstn_parse_json(mergedtext, NULL);
+  vxstn_val* ordered = vxstn_resolve_order(merged, err);
+  vxstn_sb sb;
+  size_t i;
+
+  vxstn_val_free(merged);
+  if (NULL == ordered) {
+    return NULL;
+  }
+  if (NULL != err) {
+    vxstn_error* pin = vxstn_check_pin(ordered);
+    if (NULL != pin) {
+      *err = pin;
+      vxstn_val_free(ordered);
+      return NULL;
+    }
+  }
+  vxstn_sb_init(&sb);
+  for (i = 0; i < ordered->len; i++) {
+    vxstn_sb_put(&sb, 0 == i ? "" : ",");
+    vxstn_sb_put(&sb, vxstn_strval(vxstn_map_get(ordered->items[i], "name")));
+  }
+  vxstn_val_free(ordered);
+  return sb.buf;
+}
+
+static void test_feature_order(void) {
+  vxstn_error* err = NULL;
+  char* names;
+
+  /* Bands: lower is outermost, and the default bands are today's
+     nesting expressed in the new model. */
+  names = ordernames("{\"debug\":{},\"station\":{},\"test\":{}}", &err);
+  CHECK_STR(names, "debug,station,test");
+  free(names);
+
+  /* Constraints beat bands. */
+  names = ordernames("{\"x\":{\"order\":{\"band\":10}},"
+                     "\"y\":{\"order\":{\"after\":\"x\",\"band\":1}}}",
+                     &err);
+  CHECK_STR(names, "x,y");
+  free(names);
+
+  /* A constraint naming an ABSENT feature is satisfied vacuously. */
+  names = ordernames("{\"a\":{\"order\":{\"after\":\"ghost\"}},\"b\":{}}", &err);
+  CHECK_STR(names, "a,b");
+  free(names);
+
+  /* Inactive entries are excluded, not ordered. */
+  names = ordernames("{\"a\":{},\"b\":{\"active\":false}}", &err);
+  CHECK_STR(names, "a");
+  free(names);
+
+  /* A cycle is an error naming the sorted stuck set. */
+  err = NULL;
+  names = ordernames("{\"a\":{\"order\":{\"after\":\"b\"}},"
+                     "\"b\":{\"order\":{\"after\":\"a\"}}}",
+                     &err);
+  CHECK(NULL == names);
+  CHECK(NULL != err && 0 == strcmp(err->code, "station_feature_order"));
+  CHECK(NULL != err && NULL != strstr(err->message, "form a cycle among [a, b]"));
+  vxstn_error_free(err);
+
+  /* THE PIN IS INNERMOST: immediately outside the base transport. */
+  err = NULL;
+  names = ordernames("{\"station\":{\"order\":{\"band\":0}},\"test\":{},"
+                     "\"wrap\":{\"order\":{\"band\":150}}}",
+                     &err);
+  CHECK(NULL == names);
+  CHECK(NULL != err && NULL != strstr(err->message, "pinned innermost"));
+  vxstn_error_free(err);
+
+  /* ...and last when there is no base transport. */
+  err = NULL;
+  names = ordernames("{\"retry\":{},\"station\":{}}", &err);
+  CHECK_STR(names, "retry,station");
+  free(names);
+}
+
+static void test_compose_and_check(void) {
+  vxstn_val* merged = vxstn_parse_json(
+      "{\"retry\":{\"active\":true,\"max\":2,\"order\":{\"band\":5}}}", NULL);
+  vxstn_val* ordered = vxstn_resolve_order(merged, NULL);
+  vxstn_val* composed = vxstn_compose_features(ordered);
+  vxstn_val* config = vxstn_parse_json(
+      "{\"main\":{\"name\":\"Solar\",\"slug\":\"solar\",\"version\":\"1\","
+      "\"target\":\"c\"},\"feature\":{\"retry\":{\"options\":{\"max\":3},"
+      "\"transport\":\"base\"}}}",
+      NULL);
+  vxstn_val* descriptor = vxstn_normalize_descriptor(config, NULL, NULL);
+  vxstn_val* faults;
+  char* json;
+
+  /* The ARRAY FORM the constructor takes, with the reserved keys
+     dropped: they are not options. */
+  json = vxstn_canonical(composed);
+  CHECK_STR(json, "[{\"active\":true,\"max\":2,\"name\":\"retry\"}]");
+  free(json);
+
+  /* design 7.4: the descriptor now carries the feature's declared
+     options and its transport role. ADDITIVE - the `descriptor` corpus
+     fixtures carry neither and are unaffected. */
+  {
+    const vxstn_val* row = vxstn_list_get(vxstn_map_get(descriptor, "features"), 0);
+    CHECK_STR(vxstn_strval(vxstn_map_get(row, "transport")), "base");
+    CHECK(3 == vxstn_map_get(vxstn_map_get(row, "options"), "max")->i);
+  }
+
+  /* Known option, right kind: no fault. */
+  faults = vxstn_check_features(merged, descriptor);
+  CHECK(0 == faults->len);
+  vxstn_val_free(faults);
+
+  /* THE CASE THAT ACTUALLY BITES: a typo'd option name. */
+  {
+    vxstn_val* typo = vxstn_parse_json("{\"retry\":{\"retires\":5}}", NULL);
+    faults = vxstn_check_features(typo, descriptor);
+    CHECK(1 == faults->len);
+    CHECK_STR(vxstn_strval(vxstn_map_get(faults->items[0], "code")),
+              "station_feature_option");
+    CHECK(NULL != strstr(vxstn_strval(vxstn_map_get(faults->items[0], "message")),
+                         "declares no option \"retires\""));
+    vxstn_val_free(faults);
+    vxstn_val_free(typo);
+  }
+
+  /* A kind mismatch on a declared option. */
+  {
+    vxstn_val* wrong = vxstn_parse_json("{\"retry\":{\"max\":\"two\"}}", NULL);
+    faults = vxstn_check_features(wrong, descriptor);
+    CHECK(1 == faults->len);
+    CHECK(NULL != strstr(vxstn_strval(vxstn_map_get(faults->items[0], "message")),
+                         "expects number, but found string"));
+    vxstn_val_free(faults);
+    vxstn_val_free(wrong);
+  }
+
+  /* A feature the SDK does not declare at all. */
+  {
+    vxstn_val* unknown = vxstn_parse_json("{\"nope\":{}}", NULL);
+    faults = vxstn_check_features(unknown, descriptor);
+    CHECK(1 == faults->len);
+    CHECK_STR(vxstn_strval(vxstn_map_get(faults->items[0], "code")),
+              "station_feature_unknown");
+    vxstn_val_free(faults);
+    vxstn_val_free(unknown);
+  }
+
+  vxstn_val_free(descriptor);
+  vxstn_val_free(config);
+  vxstn_val_free(composed);
+  vxstn_val_free(ordered);
+  vxstn_val_free(merged);
+}
+
+/* ---- Stage 5: the factory table and the package validator ---- */
+
+static const char* SOLAR_CONFIG =
+    "{\"main\":{\"name\":\"Solar\",\"slug\":\"solar\",\"version\":\"1.0.0\","
+    "\"target\":\"c\"},"
+    "\"feature\":{\"retry\":{\"options\":{\"max\":3}},\"log\":{\"options\":{}},"
+    "\"ratelimit\":{\"options\":{\"rate\":1,\"burst\":1}}},"
+    "\"options\":{\"base\":\"https://solar.example.com\","
+    "\"auth\":{\"prefix\":\"Bearer \"}}}";
+
+typedef struct {
+  char* instance;
+  vxstn_val* options;
+} fake_client;
+
+static fake_client* LAST_CLIENT = NULL;
+static int CONSTRUCTED = 0;
+
+/* A generated C SDK's constructor, in miniature: it takes the options
+   station composed and binds through the ambient station, exactly as
+   the generated feature/station.c adapter does. */
+static void* fake_construct(const vxstn_val* options, void* ud) {
+  fake_client* c = (fake_client*)calloc(1, sizeof(fake_client));
+  vxstn_station* st = vxstn_current();
+  char* fjson = vxstn_canonical(vxstn_map_get(options, "feature"));
+  vxstn_binding* binding = vxstn_register(st, c, SOLAR_CONFIG, fjson, NULL, NULL);
+  (void)ud;
+  c->options = vxstn_clone(options);
+  c->instance = vxstn_sdup(NULL == binding ? "" : binding->plugin);
+  vxstn_binding_free(binding);
+  free(fjson);
+  CONSTRUCTED++;
+  LAST_CLIENT = c;
+  return c;
+}
+
+static void fake_free(void* client) {
+  fake_client* c = (fake_client*)client;
+  if (NULL == c) {
+    return;
+  }
+  free(c->instance);
+  vxstn_val_free(c->options);
+  free(c);
+}
+
+static void test_factory_table(void) {
+  vxstn_val* config = vxstn_parse_json(SOLAR_CONFIG, NULL);
+  vxstn_val* same = vxstn_parse_json(SOLAR_CONFIG, NULL);
+  vxstn_error* err = NULL;
+  const vxstn_factory* one;
+  const vxstn_factory* two;
+  vxstn_val* slugs;
+
+  vxstn_reset_factories();
+
+  one = vxstn_provide("solar", fake_construct, NULL, config, &err);
+  CHECK(NULL != one && NULL == err);
+  /* NORMALIZED AT PROVIDE TIME: check() can validate a feature config
+     without constructing anything. */
+  CHECK_STR(vxstn_strval(vxstn_map_get(one->descriptor, "slug")), "solar");
+
+  /* Idempotent for the same pair - a generated registrar plus an
+     explicit provide is an ordinary thing to end up with. */
+  two = vxstn_provide("solar", fake_construct, NULL, same, &err);
+  CHECK(one == two && NULL == err);
+
+  /* A DIFFERENT factory is a conflict, not a silent replacement. */
+  two = vxstn_provide("solar", NULL, NULL, same, &err);
+  CHECK(NULL == two);
+  CHECK(NULL != err && 0 == strcmp(err->code, "station_factory_conflict"));
+  vxstn_error_free(err);
+  err = NULL;
+
+  slugs = vxstn_provided();
+  CHECK(1 == slugs->len);
+  CHECK_STR(vxstn_strval(slugs->items[0]), "solar");
+  vxstn_val_free(slugs);
+
+  vxstn_reset_factories();
+  CHECK(NULL == vxstn_factory_for("solar"));
+
+  vxstn_val_free(config);
+  vxstn_val_free(same);
+}
+
+static void test_check_package(void) {
+  vxstn_error* err = NULL;
+
+  CHECK(vxstn_check_package("solar", "@acme-sdk/solar-sdk", &err));
+  CHECK(NULL == err);
+
+  /* THE SEGMENT CHECK IS NOT IMPLIED BY THE PREFIX CHECKS: this one
+     starts with neither `.` nor `/` and still escapes the dependency. */
+  CHECK(!vxstn_check_package("solar", "pkg/../../escape", &err));
+  CHECK(NULL != err && 0 == strcmp(err->code, "station_sdk_load"));
+  vxstn_error_free(err);
+  err = NULL;
+
+  CHECK(!vxstn_check_package("solar", "./local", &err));
+  vxstn_error_free(err);
+  err = NULL;
+  CHECK(!vxstn_check_package("solar", "https://example.com/x.js", &err));
+  vxstn_error_free(err);
+  err = NULL;
+  CHECK(!vxstn_check_package("solar", "", &err));
+  vxstn_error_free(err);
+}
+
+/* ---- Stage 5: the declarative front door ---- */
+
+static const char* FLEET_CONFIG =
+    "{\"station\":1,\"profiles\":{\"default\":{"
+    "\"api\":{\"solar\":{\"package\":\"@acme-sdk/solar-sdk\","
+    "\"feature\":{\"retry\":{\"max\":2}}}},"
+    "\"sdk\":{\"solar\":{},"
+    "\"solar$eu\":{\"base\":\"https://eu.solar.example.com\","
+    "\"secret\":\"solar_eu.apikey\","
+    "\"policy\":{\"hosts\":[\"eu.solar.example.com\"],"
+    "\"budget\":{\"rps\":10,\"concurrency\":4}}},"
+    "\"solar$off\":{\"active\":false}}}}}";
+
+static void test_declarative(void) {
+  vxstn_open_opts opts;
+  vxstn_station* st;
+  vxstn_error* err = NULL;
+  vxstn_val* config;
+  vxstn_val* rows;
+  vxstn_val* resolved;
+  fake_client* a;
+  fake_client* b;
+
+  vxstn_reset_factories();
+  vxstn_reset();
+
+  memset(&opts, 0, sizeof(opts));
+  opts.proxy = "off";
+  opts.config_json = FLEET_CONFIG;
+  st = vxstn_open(&opts, &err);
+  CHECK(NULL != st && NULL == err);
+  if (NULL == st) {
+    return;
+  }
+
+  /* design 6.3's review boundary: an in-code config is repo-scoped by
+     construction. */
+  CHECK(vxstn_repo_scoped(st));
+
+  /* design 5.4 item 2: `package` stays in the grammar and is WARNED
+     ABOUT at open, once per api, rather than imported or refused. */
+  {
+    vxstn_val* events = vxstn_events(st);
+    bool saw = false;
+    size_t i;
+    for (i = 0; i < events->len; i++) {
+      const char* warn =
+          vxstn_strval(vxstn_map_get(vxstn_map_get(events->items[i], "meta"), "warn"));
+      if (NULL != strstr(warn, "`package` is not honoured in the c port")) {
+        saw = true;
+        CHECK_STR(vxstn_strval(vxstn_map_get(events->items[i], "api")), "solar");
+      }
+    }
+    CHECK(saw);
+    vxstn_val_free(events);
+  }
+
+  /* Every DECLARED instance, sorted, whether or not it is live. */
+  rows = vxstn_instances(st);
+  CHECK(3 == rows->len);
+  CHECK_STR(vxstn_strval(vxstn_map_get(rows->items[0], "name")), "solar");
+  CHECK_STR(vxstn_strval(vxstn_map_get(rows->items[1], "api")), "solar");
+  CHECK(!vxstn_map_get(rows->items[2], "active")->b);
+  CHECK(!vxstn_map_get(rows->items[0], "live")->b);
+  vxstn_val_free(rows);
+
+  /* No factory yet: the message names the remedies THIS port offers,
+     and says `package` is not one of them. */
+  CHECK(NULL == vxstn_sdk(st, "solar", &err));
+  CHECK(NULL != err && 0 == strcmp(err->code, "station_no_factory"));
+  CHECK(NULL != err && NULL != strstr(err->message, "vxstn_provide"));
+  CHECK(NULL != err && NULL != strstr(err->message, "not honoured here"));
+  vxstn_error_free(err);
+  err = NULL;
+
+  config = vxstn_parse_json(SOLAR_CONFIG, NULL);
+  CHECK(NULL != vxstn_provide("solar", fake_construct, NULL, config, &err));
+  CHECK(NULL == err);
+
+  /* An undeclared name, and an instance barred from running. */
+  CHECK(NULL == vxstn_sdk(st, "solar$nope", &err));
+  CHECK(NULL != err && 0 == strcmp(err->code, "station_no_instance"));
+  CHECK(NULL != strstr(err->message, "declared: [solar, solar$eu, solar$off]"));
+  vxstn_error_free(err);
+  err = NULL;
+
+  CHECK(NULL == vxstn_sdk(st, "solar$off", &err));
+  CHECK(NULL != err && 0 == strcmp(err->code, "station_instance_inactive"));
+  vxstn_error_free(err);
+  err = NULL;
+
+  /* CONSTRUCTED ON FIRST ASK AND CACHED: same name, same object. */
+  CONSTRUCTED = 0;
+  a = (fake_client*)vxstn_sdk(st, "solar$eu", &err);
+  CHECK(NULL != a && NULL == err);
+  CHECK(1 == CONSTRUCTED);
+  CHECK(a == (fake_client*)vxstn_sdk(st, "solar$eu", &err));
+  CHECK(1 == CONSTRUCTED);
+  CHECK_STR(a->instance, "solar$eu");
+
+  /* The block's `base` reaches the constructor, and the composed
+     feature map does too - with the api-level `retry` in it. */
+  CHECK_STR(vxstn_strval(vxstn_map_get(a->options, "base")),
+            "https://eu.solar.example.com");
+  CHECK(2 == vxstn_map_get(vxstn_map_get(vxstn_map_get(a->options, "feature"),
+                                         "retry"),
+                           "max")
+                 ->i);
+  /* Station's own entry is composed AFTER the user merge and always
+     wins, so it is added by vxstn_options rather than by the config. */
+  CHECK(vxstn_map_get(vxstn_map_get(vxstn_map_get(a->options, "feature"), "station"),
+                      "active")
+            ->b);
+
+  /* The declared `secret` wins over the derived default, and the
+     registry stores the effective name. */
+  {
+    vxstn_val* plugins = vxstn_plugins(st);
+    CHECK(1 == plugins->len);
+    CHECK_STR(vxstn_strval(vxstn_map_get(plugins->items[0], "name")), "solar$eu");
+    CHECK_STR(vxstn_strval(vxstn_map_get(plugins->items[0], "api")), "solar");
+    CHECK_STR(vxstn_strval(vxstn_map_get(plugins->items[0], "secretname")),
+              "solar_eu.apikey");
+    vxstn_val_free(plugins);
+  }
+
+  /* design 8.7: provenance per (feature, key), and the policy budget
+     composed into `ratelimit` with `policy.budget` as its level. */
+  resolved = vxstn_features_of(st, "solar$eu", &err);
+  CHECK(NULL != resolved && NULL == err);
+  CHECK_STR(vxstn_strval(vxstn_map_get(
+                vxstn_map_get(vxstn_map_get(resolved, "from"), "retry"), "max")),
+            "default.api");
+  CHECK(vxstn_map_get(vxstn_map_get(vxstn_map_get(resolved, "merged"), "ratelimit"),
+                      "active")
+            ->b);
+  CHECK(10 == vxstn_map_get(vxstn_map_get(vxstn_map_get(resolved, "merged"),
+                                          "ratelimit"),
+                            "rate")
+                  ->i);
+  CHECK(4 == vxstn_map_get(vxstn_map_get(vxstn_map_get(resolved, "merged"),
+                                         "ratelimit"),
+                           "burst")
+                 ->i);
+  CHECK_STR(vxstn_strval(vxstn_map_get(
+                vxstn_map_get(vxstn_map_get(resolved, "from"), "ratelimit"), "rate")),
+            "policy.budget");
+  /* The implicit station row is in the ORDER and not in `merged`. */
+  CHECK(NULL == vxstn_map_get(vxstn_map_get(resolved, "merged"), "station"));
+  {
+    const vxstn_val* ordered = vxstn_map_get(resolved, "ordered");
+    CHECK_STR(vxstn_strval(ordered->items[ordered->len - 1]), "station");
+  }
+  vxstn_val_free(resolved);
+
+  /* An UNCACHED client under an auto-assigned tag; the secret name
+     follows the DECLARED instance, not the tag. */
+  b = (fake_client*)vxstn_create(st, "solar$eu", NULL, &err);
+  CHECK(NULL != b && NULL == err);
+  CHECK(b != a);
+  CHECK_STR(b->instance, "solar$1");
+  CHECK_STR(vxstn_declared_ref(st, "solar$1"), "solar$eu");
+  /* ...and so does everything else the declared block carries: the
+     alias is recorded, not the fields. */
+  CHECK_STR(vxstn_strval(vxstn_map_get(vxstn_block_for(st, "solar$1"), "base")),
+            "https://eu.solar.example.com");
+
+  /* The fleet view, narrowed to one feature. */
+  {
+    vxstn_val* filter = vxstn_map();
+    vxstn_val* view;
+    vxstn_map_set(filter, "feature", vxstn_str("ratelimit"));
+    view = vxstn_features(st, filter);
+    CHECK(1 == view->len);
+    CHECK_STR(vxstn_strval(vxstn_map_get(view->items[0], "instance")), "solar$eu");
+    CHECK(1 == vxstn_map_get(view->items[0], "merged")->mlen);
+    vxstn_val_free(view);
+    vxstn_val_free(filter);
+  }
+
+  /* check(): every ACTIVE declared instance, constructed or refused,
+     and the inactive one skipped rather than failed. */
+  {
+    vxstn_val* result = vxstn_check(st);
+    const vxstn_val* ok = vxstn_map_get(result, "ok");
+    const vxstn_val* failed = vxstn_map_get(result, "failed");
+    CHECK(2 == ok->len);
+    CHECK(0 == failed->len);
+    vxstn_val_free(result);
+  }
+
+  /* warm(): a name nobody declared or registered is a MISS, never a
+     lookup, and the active declared set is what a bare call warms. */
+  {
+    vxstn_val* names = vxstn_list();
+    vxstn_val* result;
+    vxstn_list_push(names, vxstn_str("solar$prodd"));
+    result = vxstn_warm(st, names);
+    CHECK(0 == vxstn_map_get(result, "warmed")->len);
+    CHECK(1 == vxstn_map_get(result, "missed")->len);
+    vxstn_val_free(result);
+    vxstn_val_free(names);
+
+    result = vxstn_warm(st, NULL);
+    /* No environment variable is set for either, so both miss - the
+       point here is the PLAN: two active declared instances, and the
+       barred one left alone. */
+    CHECK(2 == vxstn_map_get(result, "missed")->len);
+    CHECK_STR(vxstn_strval(vxstn_map_get(result, "missed")->items[0]), "solar");
+    vxstn_val_free(result);
+  }
+
+  fake_free(a);
+  fake_free(b);
+  vxstn_reset_factories();
+  vxstn_station_free(st);
+  vxstn_reset();
+}
+
+static void test_declarative_feature_faults(void) {
+  vxstn_open_opts opts;
+  vxstn_station* st;
+  vxstn_error* err = NULL;
+  vxstn_val* config;
+  void* client;
+
+  vxstn_reset_factories();
+  vxstn_reset();
+
+  memset(&opts, 0, sizeof(opts));
+  opts.proxy = "off";
+  /* A typo'd option name: accepted by the grammar (a feature entry is
+     `$OPEN`) and caught by the descriptor-derived checker. */
+  opts.config_json = "{\"station\":1,\"profiles\":{\"default\":{\"sdk\":{\"solar\":"
+                     "{\"feature\":{\"retry\":{\"retires\":5}}}}}}}";
+  st = vxstn_open(&opts, &err);
+  CHECK(NULL != st && NULL == err);
+
+  config = vxstn_parse_json(SOLAR_CONFIG, NULL);
+  vxstn_provide("solar", fake_construct, NULL, config, NULL);
+
+  client = vxstn_sdk(st, "solar", &err);
+  CHECK(NULL == client);
+  CHECK(NULL != err && 0 == strcmp(err->code, "station_feature_option"));
+  CHECK(NULL != err && NULL != strstr(err->message, "declares no option \"retires\""));
+  vxstn_error_free(err);
+
+  /* ...and check() reports it WITHOUT constructing anything. */
+  {
+    vxstn_val* result = vxstn_check(st);
+    CHECK(0 == vxstn_map_get(result, "ok")->len);
+    CHECK(1 == vxstn_map_get(result, "failed")->len);
+    CHECK_STR(vxstn_strval(vxstn_map_get(vxstn_map_get(result, "failed")->items[0],
+                                         "code")),
+              "station_feature_option");
+    vxstn_val_free(result);
+  }
+
+  vxstn_val_free(config);
+  vxstn_reset_factories();
+  vxstn_station_free(st);
+  vxstn_reset();
+}
+
+/* A malformed config fails open() with EVERY error at once, rather than
+   at the first request that touches the bad key. */
+static void test_open_validates(void) {
+  vxstn_open_opts opts;
+  vxstn_station* st;
+  vxstn_error* err = NULL;
+
+  memset(&opts, 0, sizeof(opts));
+  opts.proxy = "off";
+  opts.config_json = "{\"station\":1,\"profiles\":{\"default\":{\"sdk\":{\"solar\":"
+                     "{\"bass\":1}}}}}";
+  st = vxstn_station_new(&opts, &err);
+  CHECK(NULL == st);
+  CHECK(NULL != err && 0 == strcmp(err->code, "station_config_invalid"));
+  CHECK(NULL != err && NULL != strstr(err->message, "sdk.solar: bass"));
+  vxstn_error_free(err);
+  err = NULL;
+
+  opts.config_json = "{not json";
+  st = vxstn_station_new(&opts, &err);
+  CHECK(NULL == st);
+  CHECK(NULL != err && 0 == strcmp(err->code, "station_config_invalid"));
+  vxstn_error_free(err);
+}
+
 int main(void) {
   test_identity();
   test_canonical();
@@ -513,6 +1325,17 @@ int main(void) {
   test_close_warns();
   test_outcome();
   test_emit_http();
+  test_shape_mirror();
+  test_normalize_config();
+  test_validate_config();
+  test_feature_merge();
+  test_feature_order();
+  test_compose_and_check();
+  test_factory_table();
+  test_check_package();
+  test_declarative();
+  test_declarative_feature_faults();
+  test_open_validates();
 
   if (0 == FAILS) {
     printf("station c unit: all tests passed\n");
