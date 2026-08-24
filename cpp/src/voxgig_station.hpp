@@ -3399,6 +3399,14 @@ class Station {
     return detail::ambient_ref();
   }
 
+  // The static front door onto the ONE process-global factory table
+  // (design 6.2). Station-independent: it holds no configuration, only
+  // "here is how to construct this api", so it is deliberately not a
+  // per-instance method.
+  static void provide(const std::string& api, const Factory& factory) {
+    ::vstation::provide(api, factory);
+  }
+
   // Test seam: drop the ambient instance.
   static void reset() {
     std::lock_guard<std::mutex> lock(detail::ambient_mutex());
@@ -4065,7 +4073,7 @@ class Station {
   // optional argument the way the canonical `options(instanceName?,
   // extra?)` does, so the name gets its own entry point and every
   // existing options({...}) call is unchanged.
-  Jval build_options(const std::string& instance, const Jval& extra) const {
+  Jval options_for(const std::string& instance, const Jval& extra) const {
     // calleropts snapshots what the CALLER passed - never the built
     // options map, which would make feature.station.calleropts a cycle
     // the SDK's own deep clone cannot survive.
@@ -4130,7 +4138,7 @@ class Station {
     // Compose the merged map into the ordered form the constructor
     // takes. Station's own entry is composed AFTER the user merge and
     // always wins, which is why `station` is dropped here and re-added
-    // by build_options: a config file that can switch off the component
+    // by options_for: a config file that can switch off the component
     // reading it is not a surface, it is a trap. `feature.station` is
     // already station_feature_reserved at validation, so this is the
     // second half of one rule rather than a second rule.
@@ -4199,7 +4207,7 @@ class Station {
     // C++ SDK (see the header's design delta) - so the retrofit path
     // here is regeneration with the station feature installed, and the
     // constructor's own feature is what binds.
-    return entry->construct(build_options(register_as, opts));
+    return entry->construct(options_for(register_as, opts));
   }
 
   // Construct on first ask and CACHE by name. Synchronous - the caching
@@ -4573,6 +4581,16 @@ class Station {
   // the design 3.5 base-precedence rule. The binding itself is to the
   // AMBIENT station (see the header comment's design delta).
   ::sdk::Value options(const ::sdk::Value& extra = ::sdk::Value()) const {
+    return options(std::string(), extra);
+  }
+
+  // options() with the INSTANCE NAME the construction registers under
+  // (design 6.1). C++ cannot overload on a LEADING optional argument
+  // the way the canonical `options(instanceName?, extra?)` does, so the
+  // name gets its own overload and every existing options({...}) call
+  // is unchanged. The core's factory path builds the same map as Jval
+  // (options_for) - this is its SDK-Value spelling.
+  ::sdk::Value options(const std::string& instance, const ::sdk::Value& extra) const {
     ::sdk::Value out = extra.is_map() ? ::sdk::Struct::clone(extra) : ::sdk::vmap();
     ::sdk::Value fmap = ::sdk::Helpers::toMapAny(::sdk::getp(out, "feature"));
     if (!fmap.is_map()) {
@@ -4587,6 +4605,9 @@ class Station {
     ::sdk::map_put(entry, "active", ::sdk::Value(true));
     ::sdk::map_put(entry, "calleropts",
                    extra.is_map() ? ::sdk::Struct::clone(extra) : ::sdk::vmap());
+    if (!instance.empty()) {
+      ::sdk::map_put(entry, "instance", ::sdk::Value(instance));
+    }
     return out;
   }
 
@@ -4622,8 +4643,15 @@ class Station {
   // the transport that was current at init time. Failure follows the
   // C++ SDK convention: thrown SdkErrorPtr - a wrap must catch to
   // observe, then rethrow unchanged.
+  //
+  // KEYED ON THE INSTANCE NAME, not the api slug: two live instances of
+  // one api must have distinct placeholders or this seam cannot tell
+  // which credential a header wants, and the block that governs the
+  // instance is block_for()'s answer, never profile.sdk[slug] (which
+  // has no entry at all for an imperative tagged instance - so its
+  // policy.hosts would silently not apply).
   ::sdk::Value _transport(
-      const std::string& slug,
+      const std::string& name,
       const std::function<::sdk::Value(::sdk::CtxPtr, const std::string&,
                                        const ::sdk::Value&)>& inner,
       ::sdk::CtxPtr fctx, const std::string& fullurl, const ::sdk::Value& fetchdef) {
@@ -4634,7 +4662,7 @@ class Station {
     // here - the operation path, never the constructor.
     if (require_proxy_) {
       const char* MSG = "proxy: \"require\" is set and no proxy is attached";
-      emit_err(slug, corr, "station_no_proxy", MSG);
+      emit_err(name, corr, "station_no_proxy", MSG);
       throw fctx->makeError("station_no_proxy", std::string("station_no_proxy: ") + MSG);
     }
 
@@ -4642,16 +4670,16 @@ class Station {
     std::string rung = "none";
     {
       std::lock_guard<std::mutex> lock(mutex_);
-      auto it = registry_.find(slug);
+      auto it = registry_.find(name);
       if (it != registry_.end()) {
         has_entry = true;
         rung = it->second.rung;
       }
     }
 
-    std::string placeholder = placeholder_for(slug);
+    std::string placeholder = placeholder_for(name);
     bool live = nullptr != fctx->client && "live" == fctx->client->mode;
-    Jval profile_plugin = profile_.sdk.get(slug);
+    Jval block = block_for(name);
 
     // Egress policy (design station.md 16), solo half: the hosts
     // allowlist is enforced at the seam every request crosses. When a
@@ -4661,7 +4689,7 @@ class Station {
     // host (design 8.2's rule at the library seam). NOTE the generated
     // C++ SDK has no built-in live transport; an app-supplied
     // options.system.fetch should honour the redirect slot.
-    Jval hosts = profile_plugin.get("policy").get("hosts");
+    Jval hosts = block.get("policy").get("hosts");
     bool has_hosts = hosts.islist();
 
     if (has_hosts && live) {
@@ -4676,8 +4704,8 @@ class Station {
       }
       if (!allowed) {
         std::string msg = "egress to \"" + hostname +
-                          "\" denied by the hosts policy of plugin \"" + slug + "\"";
-        emit_err(slug, corr, "station_host_allow", msg);
+                          "\" denied by the hosts policy of instance \"" + name + "\"";
+        emit_err(name, corr, "station_host_allow", msg);
         throw fctx->makeError("station_host_allow", "station_host_allow: " + msg);
       }
     }
@@ -4715,9 +4743,9 @@ class Station {
     if (live && has_entry && "R1" == rung) {
       std::string value;
       try {
-        value = _secret_value(slug);
+        value = _secret_value(name);
       } catch (const StationError& e) {
-        emit_err(slug, corr, e.code(), e.message());
+        emit_err(name, corr, e.code(), e.message());
         throw fctx->makeError(e.code(), e.what());
       }
 
@@ -4749,12 +4777,12 @@ class Station {
     try {
       res = inner(fctx, fullurl, senddef);
     } catch (const ::sdk::SdkErrorPtr& err) {
-      emit_http(slug, corr, fullurl, method, 0, started, 0);
-      emit_err(slug, corr, err ? err->code : "", err ? err->getMessage() : "");
+      emit_http(name, corr, fullurl, method, 0, started, 0);
+      emit_err(name, corr, err ? err->code : "", err ? err->getMessage() : "");
       throw;
     } catch (const std::exception& err) {
-      emit_http(slug, corr, fullurl, method, 0, started, 0);
-      emit_err(slug, corr, "", err.what());
+      emit_http(name, corr, fullurl, method, 0, started, 0);
+      emit_err(name, corr, "", err.what());
       throw;
     }
 
@@ -4775,13 +4803,13 @@ class Station {
         }
       }
     }
-    emit_http(slug, corr, fullurl, method, status, started, bytes);
+    emit_http(name, corr, fullurl, method, status, started, bytes);
 
     return res;
   }
 
   // Op events from the hook bridge (design station.md 3 item 3).
-  void _op_event(const std::string& slug, const ::sdk::CtxPtr& ctx,
+  void _op_event(const std::string& name, const ::sdk::CtxPtr& ctx,
                  const std::string& outcome) {
     std::string corr = _corr_of(ctx);
     long long start = _start_of(ctx);
@@ -4800,7 +4828,7 @@ class Station {
       opname = "";
     }
 
-    emit_op(slug, corr, entity, opname, outcome,
+    emit_op(name, corr, entity, opname, outcome,
             0 != start ? now_ms() - start : 0);
   }
 #endif  // SDK_CORE_TYPES_HPP
@@ -4894,10 +4922,12 @@ inline Jval to_jval(const ::sdk::Value& v) {
 // slot in ctx->shared, id-guarded).
 class FeatureBinding {
  public:
-  FeatureBinding(std::shared_ptr<Station> station, const std::string& slug)
-      : station_(std::move(station)), slug_(slug) {}
+  FeatureBinding(std::shared_ptr<Station> station, const std::string& name)
+      : station_(std::move(station)), name_(name) {}
 
-  const std::string& slug() const { return slug_; }
+  // The INSTANCE this binding is for. Op events, http events and error
+  // events all key on it (design 6.3).
+  const std::string& name() const { return name_; }
 
   void PrePoint(const ::sdk::CtxPtr& ctx) {
     if (!ctx || !ctx->shared.is_map()) {
@@ -4912,11 +4942,11 @@ class FeatureBinding {
   }
 
   void PreDone(const ::sdk::CtxPtr& ctx) {
-    station_->_op_event(slug_, ctx, result_outcome(ctx));
+    station_->_op_event(name_, ctx, result_outcome(ctx));
   }
 
   void PreUnexpected(const ::sdk::CtxPtr& ctx) {
-    station_->_op_event(slug_, ctx, "unexpected");
+    station_->_op_event(name_, ctx, "unexpected");
   }
 
   static std::string result_outcome(const ::sdk::CtxPtr& ctx) {
@@ -4934,7 +4964,7 @@ class FeatureBinding {
 
  private:
   std::shared_ptr<Station> station_;
-  std::string slug_;
+  std::string name_;
 };
 
 // Resolve the station this activation binds to: the ambient instance
@@ -5004,16 +5034,19 @@ inline std::shared_ptr<FeatureBinding> feature_binding(const ::sdk::CtxPtr& ctx,
 
   // Registration (design station.md 3 item 1): descriptor from the
   // embedded config, converted at the seam.
+  //
+  // `fopts` is the station feature's own option map, and station put
+  // the INSTANCE NAME there before construction began (design 6.1), so
+  // registration has one spelling on both entry paths. A bare build
+  // with no name falls back to the api slug, which is today's
+  // behaviour and why the single-instance case is unchanged.
   Station::Reg reg;
   try {
-    reg = station->_register(
-        client, to_jval(ctx->config),
-        to_jval(::sdk::Helpers::toMapAny(::sdk::getp(options, "feature"))),
-        ::sdk::as_str(::sdk::getp(fopts, "secret")));
+    reg = station->_register(client, to_jval(ctx->config), to_jval(fopts));
   } catch (const StationError& e) {
     throw ctx->makeError(e.code(), e.what());
   }
-  std::string slug = reg.slug;
+  const std::string& name = reg.name;
 
   // Base URL precedence (design station.md 3.5): caller opts (7) beat
   // the profile (4), which beats the SDK's config default (1) already
@@ -5022,10 +5055,41 @@ inline std::shared_ptr<FeatureBinding> feature_binding(const ::sdk::CtxPtr& ctx,
   ::sdk::Value calleropts = ::sdk::Helpers::toMapAny(::sdk::getp(fopts, "calleropts"));
   if (calleropts.is_map()) {
     ::sdk::Value cbase = ::sdk::getp(calleropts, "base");
-    Jval pbase = reg.profile_plugin.get("base");
+    Jval pbase = reg.block.get("base");
     if (::sdk::is_nullish(cbase) && !pbase.isnone() && !pbase.isabsent()) {
       ::sdk::map_put(options, "base", ::sdk::Value(pbase.str_or("")));
     }
+  }
+
+  // Policy allowlists (design station.md 16): `allow.op` / `allow.method`
+  // are the same vocabulary the SDKs already enforce through
+  // `options.allow`, so station sets those SDK options from policy and
+  // enforcement stays in the SDK's own pipeline. The SDK's option form
+  // is a comma-separated string, so the policy's list joins into it.
+  //
+  // Unlike `base` above, which is a DEFAULT the caller may override, an
+  // allowlist is ENFORCEMENT: policy wins over whatever the options
+  // carry, on exactly the keys it sets. Applied at binding time, which
+  // is inside the constructor, and on the one path both entry points
+  // delegate to.
+  Jval pallow = reg.block.get("policy").get("allow");
+  if (pallow.ismap()) {
+    ::sdk::Value allow = ::sdk::Helpers::toMapAny(::sdk::getp(options, "allow"));
+    if (!allow.is_map()) {
+      allow = ::sdk::vmap();
+    }
+    for (const char* key : {"op", "method"}) {
+      Jval list = pallow.get(key);
+      if (!list.islist()) {
+        continue;
+      }
+      std::vector<std::string> parts;
+      for (const auto& item : list.lval) {
+        parts.push_back(scalar_str(item));
+      }
+      ::sdk::map_put(allow, key, ::sdk::Value(join_strings(parts, ",")));
+    }
+    ::sdk::map_put(options, "allow", allow);
   }
 
   if ("none" != reg.rung) {
@@ -5038,7 +5102,7 @@ inline std::shared_ptr<FeatureBinding> feature_binding(const ::sdk::CtxPtr& ctx,
     ::sdk::Value resident = ::sdk::getp(options, "apikey");
     if (resident.is_string() && !resident.as_string().empty() &&
         resident.as_string() != placeholder) {
-      station->_hoist(slug, resident.as_string());
+      station->_hoist(name, resident.as_string());
     }
     ::sdk::map_put(options, "apikey", ::sdk::Value(placeholder));
   }
@@ -5048,18 +5112,19 @@ inline std::shared_ptr<FeatureBinding> feature_binding(const ::sdk::CtxPtr& ctx,
   // planning but the wrap still observes.
   if (station->_wrapped(utility.get())) {
     throw ctx->makeError("station_bound_twice",
-                         "station_bound_twice: plugin \"" + slug +
+                         "station_bound_twice: instance \"" + name +
                              "\" already carries a station wrap");
   }
   auto inner = utility->fetcher;
   std::shared_ptr<Station> held = station;
-  utility->fetcher = [held, slug, inner](::sdk::CtxPtr fctx, const std::string& fullurl,
-                                         const ::sdk::Value& fetchdef) -> ::sdk::Value {
-    return held->_transport(slug, inner, fctx, fullurl, fetchdef);
+  std::string bound = name;
+  utility->fetcher = [held, bound, inner](::sdk::CtxPtr fctx, const std::string& fullurl,
+                                          const ::sdk::Value& fetchdef) -> ::sdk::Value {
+    return held->_transport(bound, inner, fctx, fullurl, fetchdef);
   };
   station->_mark_wrapped(utility.get());
 
-  return std::make_shared<FeatureBinding>(station, slug);
+  return std::make_shared<FeatureBinding>(station, name);
 }
 #endif  // SDK_CORE_TYPES_HPP
 

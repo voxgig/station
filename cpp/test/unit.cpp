@@ -494,11 +494,8 @@ int main(int argc, char** argv) {
     check(1 == vs::provided().size() && "gnarly-pets" == vs::provided()[0],
           "provided() lists the slug");
 
-    vs::Factory other;
-    other.config = petconfig();
-    other.config.get("main").set("version", vs::Jval::str("9.9.9"));
-    other.construct = factory.construct;
-    // A different config IS a different factory.
+    // A different config IS a different factory, even with the same
+    // constructor: a process has one build of an SDK.
     vs::Factory changed;
     changed.construct = factory.construct;
     changed.config = vs::parse_json(R"({ "main": { "name": "Other", "slug": "other" } })");
