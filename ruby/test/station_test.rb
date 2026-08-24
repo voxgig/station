@@ -1109,4 +1109,41 @@ class TestStation < Minitest::Test
     assert_equal true, named['feature']['station']['active']
   end
 
+
+  # THE IMPLICIT STATION ROW IS WHAT MAKES THE PIN REAL: `station` is
+  # never in `merged` (feature.station is reserved at validation), so
+  # without it check_pin finds no station row and is a permanent no-op -
+  # `after: 'station'` would be treated as vacuous rather than rejected.
+  def test_an_order_against_station_is_rejected_not_shrugged_at
+    st = solar_station('sdk' => { 'solar' => {
+      'feature' => { 'retry' => { 'order' => { 'after' => 'station' } } },
+    } })
+
+    err = assert_raises(VoxgigStation::StationError) { st.features_of('solar') }
+    assert_equal 'station_feature_order', err.code
+    assert_includes err.message, 'pinned innermost'
+  end
+
+  # 7.4/7.2: the descriptor describes the API rather than any use of it,
+  # so every instance of one api shares ONE normalization - while the
+  # placeholder and the derived secret name are per INSTANCE, or the
+  # injection seam cannot tell which credential a header wants.
+  def test_two_instances_of_one_api_share_a_descriptor_and_not_a_placeholder
+    VoxgigStation::Station.provide('solar', SOLAR_FACTORY)
+    st = solar_station('sdk' => { 'solar' => {}, 'solar$eu' => {} })
+
+    a = st.sdk('solar')
+    b = st.sdk('solar$eu')
+
+    assert_same st.descriptor_of('solar'), st.descriptor_of('solar$eu')
+    assert_equal '[station:solar]', a.options['apikey']
+    assert_equal '[station:solar$eu]', b.options['apikey']
+    assert_equal ['solar.apikey', 'solar_eu.apikey'],
+      st.plugins.map { |p| p['secretname'] }
+    # status() projects the instance AND the api: a page that showed only
+    # `slug` would show two indistinguishable rows.
+    assert_equal [%w[solar solar], ['solar$eu', 'solar']],
+      st.status['plugins'].map { |p| [p['name'], p['api']] }
+  end
+
 end
