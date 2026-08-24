@@ -10,6 +10,7 @@ from voxgig_sekreto import validname
 
 from .descriptor import secretname_default
 from .error import StationError
+from .shape import BLOCK_DEFAULTS
 
 
 def find_config_file(from_dir=None):
@@ -35,7 +36,32 @@ def load_config(from_dir=None):
     if file is None:
         return None
     with open(file, encoding='utf-8') as handle:
-        return json.load(handle)
+        text = handle.read()
+    # A file that is not JSON is a config error, not a raw decode error
+    # escaping open(): the reader found station.json and could not use
+    # it, which is exactly what station_config_invalid exists to say.
+    try:
+        return json.loads(text)
+    except ValueError as e:
+        raise StationError(
+            'station_config_invalid',
+            'station.json at ' + file + ' is not valid JSON: ' + str(e))
+
+
+def config_scope(from_dir=None):
+    """Which side of the review boundary the config came from
+    (design station.md 6.3).
+
+    `package` and `export` are honoured only from REPO-SCOPED config,
+    because a user-level file is outside the repo's review boundary and a
+    `package` key arriving from it names code to import. Everything else
+    in a user-level config still applies - this narrows one key rather
+    than distrusting the file."""
+    file = find_config_file(from_dir)
+    if file is None:
+        return 'none'
+    home = os.path.join(os.path.expanduser('~'), '.voxgig', 'station.json')
+    return 'user' if file == home else 'repo'
 
 
 def select_profile(opt_profile=None):
@@ -49,16 +75,6 @@ def select_profile(opt_profile=None):
     if env is not None and '' != env:
         return env
     return 'default'
-
-
-BLOCK_DEFAULTS = {
-    'active': lambda: True,
-    'feature': lambda: {},
-}
-
-# The one block key carrying the timing rule: applied AFTER the merge,
-# never before (design 3.3, 4.2).
-MERGE_SENSITIVE = ['active']
 
 
 def refapi(ref):

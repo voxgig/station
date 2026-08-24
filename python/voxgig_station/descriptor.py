@@ -94,15 +94,36 @@ def normalize_descriptor(config, active_features=None):
             ops[opname] = {'points': points}
         entities[ename] = {'fields': fields, 'ops': ops}
 
+    # The features list gains `options` and `transport` (design
+    # station.md 7.4), because it was throwing away what the SDK already
+    # embeds - `config.feature[name].options` is the feature's own
+    # declared key set WITH TYPED DEFAULTS, which is the schema 8.5
+    # validates against, and `transport` is the role 8.4 orders by.
+    #
+    # Both are already inside the SDK; the descriptor stops discarding
+    # them. ADDITIVE, so descriptor v1 consumers are unaffected.
+    #
+    # `transport` is CARRIED rather than inferred: the obvious signal, an
+    # empty `hook: {}`, is wrong for station, which both wraps AND
+    # dispatches hooks. Absent until sdkgen emits it, and 8.4's role
+    # checks degrade to nothing until then rather than guessing.
     features = []
     fdefs = config.get('feature') or {}
     factive = active_features or {}
     for fname in sorted(fdefs.keys()):
         fao = factive.get(fname)
-        features.append({
+        fdef = fdefs.get(fname) or {}
+        row = {
             'name': fname,
             'active': isinstance(fao, dict) and True is fao.get('active'),
-        })
+        }
+        if isinstance(fdef, dict):
+            if isinstance(fdef.get('options'), dict):
+                row['options'] = fdef['options']
+            transport = fdef.get('transport')
+            if transport is not None and '' != transport:
+                row['transport'] = str(transport)
+        features.append(row)
 
     descriptor = {
         'station': 1,

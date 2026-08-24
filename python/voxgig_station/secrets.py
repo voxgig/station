@@ -13,8 +13,12 @@ from voxgig_sekreto import Sekreto, SekretoError
 from .error import StationError
 
 
-def placeholder_for(slug):
-    return '[station:' + slug + ']'
+def placeholder_for(name):
+    """Keyed by INSTANCE (design station.md 7.2). Two live instances of
+    one api must have distinct placeholders or the injection seam cannot
+    tell which credential a header wants. For an untagged instance this
+    is the api slug, so the single-instance case is unchanged."""
+    return '[station:' + name + ']'
 
 
 class SecretBroker:
@@ -28,23 +32,33 @@ class SecretBroker:
         self._held = []
         self._lock = threading.Lock()
 
-    def hoist(self, slug, value):
+    def hoist(self, instance, value):
         with self._lock:
-            self._overrides[slug] = value
+            self._overrides[instance] = value
             self._held.append(value)
 
-    def value(self, slug, name):
-        """Resolve the value for a plugin's secret name. Misses and store
-        errors keep sekreto's distinction (design station.md 5.2): a miss
-        is station_secret_no_value, a store that could not answer is
-        station_secret_error with sekreto's message intact - and never a
-        retry against a weaker store (sekreto owns the chain)."""
+    def value(self, instance, name):
+        """Resolve the value for an instance's secret name. Misses and
+        store errors keep sekreto's distinction (design station.md 5.2):
+        a miss is station_secret_no_value, a store that could not answer
+        is station_secret_error with sekreto's message intact - and never
+        a retry against a weaker store (sekreto owns the chain).
+
+        OVERRIDES ARE KEYED BY INSTANCE; THE RESOLUTION CACHE IS KEYED BY
+        SECRET NAME (design 5.3). A hoisted credential belongs to the one
+        instance it was resident in, but a resolved VALUE belongs to the
+        name it was resolved for - so several instances sharing one
+        api-level `secret` cost one lookup rather than one each, and
+        every client an auto-tagged create() produces shares the declared
+        instance's entry instead of re-resolving per request. Keying the
+        cache by instance instead is the defect this replaces: at 26
+        instances over 20 apis it turns one store round-trip into 26."""
         with self._lock:
-            override = self._overrides.get(slug)
+            override = self._overrides.get(instance)
             if override is not None:
                 return override
 
-            cached = self._cache.get(slug)
+            cached = self._cache.get(name)
             if cached is not None:
                 return cached
 
@@ -54,13 +68,13 @@ class SecretBroker:
             if 'unknown secret' in str(e):
                 raise StationError(
                     'station_secret_no_value',
-                    'no store had "' + name + '" for plugin "' + slug + '"')
+                    'no store had "' + name + '" for plugin "' + instance + '"')
             raise StationError('station_secret_error', str(e))
         except Exception as e:
             raise StationError('station_secret_error', str(e))
 
         with self._lock:
-            self._cache[slug] = value
+            self._cache[name] = value
             self._held.append(value)
         return value
 
