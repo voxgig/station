@@ -2046,7 +2046,7 @@ static void station_emit(vxstn_station* st, vxstn_val* ev) {
   events_emit(&st->events, ev);
 }
 
-void vxstn_emit_warn(vxstn_station* st, const char* slug, const char* warn) {
+void vxstn_emit_warn(vxstn_station* st, const char* name, const char* warn) {
   vxstn_val* ev;
   vxstn_val* meta;
   if (NULL == st) {
@@ -2055,8 +2055,11 @@ void vxstn_emit_warn(vxstn_station* st, const char* slug, const char* warn) {
   ev = vxstn_map();
   vxstn_map_set(ev, "t", vxstn_int(vxstn_now_ms()));
   vxstn_map_set(ev, "kind", vxstn_str("station"));
-  if (NULL != slug && '\0' != slug[0]) {
-    vxstn_map_set(ev, "plugin", vxstn_str(slug));
+  if (NULL != name && '\0' != name[0]) {
+    char* api = vxstn_refapi(name);
+    vxstn_map_set(ev, "plugin", vxstn_str(name));
+    vxstn_map_set(ev, "api", vxstn_str(api));
+    free(api);
   }
   meta = vxstn_map();
   vxstn_map_set(meta, "warn", vxstn_str(warn));
@@ -2885,12 +2888,19 @@ vxstn_error* vxstn_wrap_order_check(const char* const* names, size_t n) {
 
 /* --- event emission --- */
 
+/* design 7.5: BOTH identities on EVERY kind - `plugin` is the instance
+   the event came from and `api` is what groups it with its siblings.
+   Construction events carrying both while runtime events carried only
+   one is grouping that works exactly until it is used. */
 static void ev_common(vxstn_val* ev, int64_t t, const char* kind,
-                      const char* slug, const char* corr) {
+                      const char* name, const char* corr) {
   vxstn_map_set(ev, "t", vxstn_int(t));
   vxstn_map_set(ev, "kind", vxstn_str(kind));
-  if (NULL != slug && '\0' != slug[0]) {
-    vxstn_map_set(ev, "plugin", vxstn_str(slug));
+  if (NULL != name && '\0' != name[0]) {
+    char* api = vxstn_refapi(name);
+    vxstn_map_set(ev, "plugin", vxstn_str(name));
+    vxstn_map_set(ev, "api", vxstn_str(api));
+    free(api);
   }
   if (NULL != corr && '\0' != corr[0]) {
     vxstn_map_set(ev, "corr", vxstn_str(corr));
@@ -3139,3 +3149,905 @@ void vxstn_refresh_secrets(vxstn_station* st) {
     broker_refresh(&st->broker);
   }
 }
+
+/* =========================================================================
+ * The declarative front door (design station.md 6)
+ *
+ * "Write it once in station.json, get it where you need it." The
+ * instance table comes from the resolved profile, the CONSTRUCTOR comes
+ * from the factory table (voxgig_station_factory.c), and everything
+ * between them - the feature merge, the order, the design 8.5 check,
+ * the options - is composed here.
+ *
+ * THE C DIVERGENCE, stated once: there is no loader (design 5.4). An
+ * api reaches the table through vxstn_provide and nothing else, and
+ * `package` is warned about at open rather than imported. Everything
+ * else in design 6 is here.
+ * =========================================================================*/
+
+static void alias_set(vxstn_station* st, const char* tag, const char* declared) {
+  size_t i;
+  for (i = 0; i < st->naliases; i++) {
+    if (0 == strcmp(st->aliases[i].tag, tag)) {
+      free(st->aliases[i].declared);
+      st->aliases[i].declared = vxstn_sdup(declared);
+      return;
+    }
+  }
+  st->aliases = (vxstn_alias_entry*)realloc(
+      st->aliases, (st->naliases + 1) * sizeof(vxstn_alias_entry));
+  st->aliases[st->naliases].tag = vxstn_sdup(tag);
+  st->aliases[st->naliases].declared = vxstn_sdup(declared);
+  st->naliases++;
+}
+
+static void* client_get(vxstn_station* st, const char* name) {
+  size_t i;
+  for (i = 0; i < st->nclients; i++) {
+    if (0 == strcmp(st->clients[i].name, name)) {
+      return st->clients[i].client;
+    }
+  }
+  return NULL;
+}
+
+static void client_set(vxstn_station* st, const char* name, void* client) {
+  st->clients = (vxstn_client_entry*)realloc(
+      st->clients, (st->nclients + 1) * sizeof(vxstn_client_entry));
+  st->clients[st->nclients].name = vxstn_sdup(name);
+  st->clients[st->nclients].client = client;
+  st->nclients++;
+}
+
+/* Inverted binding (design 3.1): the plain options map a generated
+   constructor already accepts, carrying the activation entry and the
+   instance name station resolved before construction began.
+   `instance` is OPTIONAL AND LEADING, so an existing
+   vxstn_options(st, NULL, extra) call is unchanged.
+
+   The station HANDLE does not ride the map, because a C value tree
+   holds JSON and not pointers: the generated station feature binds to
+   the ambient instance (vxstn_current) or to a handle the host gave it,
+   which is what design 3.1 already says about C. Owned. */
+vxstn_val* vxstn_options(vxstn_station* st, const char* instance,
+                         const vxstn_val* extra) {
+  vxstn_val* out = vxstn_is_map(extra) ? vxstn_clone(extra) : vxstn_map();
+  const vxstn_val* infeature = vxstn_getk(extra, "feature");
+  vxstn_val* fmap = vxstn_is_map(infeature) ? vxstn_clone(infeature) : vxstn_map();
+  const vxstn_val* prior = vxstn_getk(fmap, "station");
+  vxstn_val* entry = vxstn_is_map(prior) ? vxstn_clone(prior) : vxstn_map();
+  (void)st;
+
+  vxstn_map_set(entry, "active", vxstn_bool(true));
+  if (NULL != instance && '\0' != instance[0]) {
+    vxstn_map_set(entry, "instance", vxstn_str(instance));
+  }
+  vxstn_map_set(fmap, "station", entry);
+  vxstn_map_set(out, "feature", fmap);
+  return out;
+}
+
+/* Every DECLARED instance (design 6.1), sorted by name - a different
+   question from vxstn_plugins(), and the answers differ routinely: a
+   lazily-started instance is active and not yet live. Owned. */
+vxstn_val* vxstn_instances(vxstn_station* st) {
+  vxstn_val* out = vxstn_list();
+  const vxstn_val* sdk;
+  const char** names;
+  size_t n, i;
+
+  if (NULL == st) {
+    return out;
+  }
+  sdk = vxstn_map_get(st->profile, "sdk");
+  names = vxstn_sortedkeys(sdk, &n);
+  for (i = 0; i < n; i++) {
+    const vxstn_val* block = vxstn_map_get(sdk, names[i]);
+    const vxstn_val* activev = vxstn_map_get(block, "active");
+    const vxstn_plugin_entry* live = find_plugin(st, names[i]);
+    char* api = vxstn_refapi(names[i]);
+    vxstn_val* row = vxstn_map();
+    vxstn_map_set(row, "name", vxstn_str(names[i]));
+    vxstn_map_set(row, "api", vxstn_str(api));
+    /* `active: false` means BARRED FROM RUNNING - a declaration that
+       stays in the file and here while being refused a client. */
+    vxstn_map_set(row, "active",
+                  vxstn_bool(!(NULL != activev && VXSTN_BOOL == activev->kind &&
+                               !activev->b)));
+    vxstn_map_set(row, "live", vxstn_bool(NULL != live));
+    vxstn_map_set(row, "rung", vxstn_str(NULL == live ? "none" : live->rung));
+    vxstn_map_set(row, "block", vxstn_clone(block));
+    vxstn_list_push(out, row);
+    free(api);
+  }
+  free(names);
+  return out;
+}
+
+/* The merged, ordered feature set for one instance, WITH PROVENANCE
+   (design 8.7): which config level set each value. Provenance is the
+   half that makes a fleet view usable rather than merely correct - at
+   26 instances "why is retry off here" is the question, and a merged
+   map alone cannot answer it.
+
+   Returns { ordered: [name...], merged, from }, owned, or NULL + *err
+   (station_feature_order) when the order cannot be resolved. */
+vxstn_val* vxstn_features_of(vxstn_station* st, const char* name, vxstn_error** err) {
+  char* api;
+  const vxstn_val* profiles;
+  const vxstn_val* base;
+  const vxstn_val* overlay = NULL;
+  const char* pname;
+  vxstn_val* sources;
+  vxstn_val* from = vxstn_map();
+  vxstn_val* merged;
+  const vxstn_val* budget;
+  vxstn_val* fororder;
+  vxstn_val* ordered;
+  vxstn_val* names;
+  vxstn_val* out;
+  vxstn_error* perr;
+  char* levels[6];
+  size_t i, j, k;
+
+  if (NULL != err) {
+    *err = NULL;
+  }
+  api = vxstn_refapi(name);
+  pname = NULL == st ? "default" : vxstn_strval(vxstn_map_get(st->profile, "name"));
+  profiles = NULL == st ? NULL : vxstn_getk(st->raw, "profiles");
+  base = vxstn_getk(profiles, "default");
+  if (0 != strcmp("default", pname)) {
+    overlay = vxstn_getk(profiles, pname);
+  }
+
+  /* One label per source, in design 3.3's order. */
+  levels[0] = vxstn_sdup("default.feature");
+  levels[1] = vxstn_sdup("default.api");
+  levels[2] = vxstn_sdup("default.sdk");
+  for (i = 0; i < 3; i++) {
+    static const char* const TAIL[3] = {".feature", ".api", ".sdk"};
+    vxstn_sb sb;
+    vxstn_sb_init(&sb);
+    vxstn_sb_put(&sb, pname);
+    vxstn_sb_put(&sb, TAIL[i]);
+    levels[3 + i] = sb.buf;
+  }
+
+  sources = vxstn_feature_sources(base, overlay, api, name);
+
+  /* LAST WRITER PER (feature, key) WINS, and the level that wrote it is
+     what `from` records. */
+  for (i = 0; i < sources->len && i < 6; i++) {
+    const vxstn_val* src = sources->items[i];
+    if (!vxstn_is_map(src)) {
+      continue;
+    }
+    for (j = 0; j < src->mlen; j++) {
+      const vxstn_val* entry = src->vals[j];
+      vxstn_val* keys;
+      if (!vxstn_is_map(entry)) {
+        continue;
+      }
+      keys = vxstn_map_get(from, src->keys[j]);
+      if (!vxstn_is_map(keys)) {
+        keys = vxstn_map();
+        vxstn_map_set(from, src->keys[j], keys);
+      }
+      for (k = 0; k < entry->mlen; k++) {
+        vxstn_map_set(keys, entry->keys[k], vxstn_str(levels[i]));
+      }
+    }
+  }
+
+  merged = vxstn_merge_features(sources);
+  vxstn_val_free(sources);
+  for (i = 0; i < 6; i++) {
+    free(levels[i]);
+  }
+
+  /* design 16's policy budget: rps/concurrency ceilings ride "the SDK
+     `ratelimit` feature, configured by station". Composed HERE, into
+     the merged map every consumer reads, rather than patched in at
+     construction alone - so vxstn_build orders it with the ordinary
+     constraint-and-band rules, vxstn_check's 8.5 pass catches a budget
+     on an SDK with no ratelimit feature as station_feature_unknown
+     rather than a setting that quietly did nothing, and the fleet view
+     answers "is ratelimit on?" truthfully.
+
+     `rps` maps to the token bucket's refill `rate` (per second - the
+     same unit); `concurrency` to its capacity `burst`, the number of
+     requests that can be in flight from a full bucket. POLICY WINS over
+     a `feature.ratelimit` config entry on the keys it sets - it is
+     enforcement, not a default - and other tuning keys survive beside
+     it. */
+  budget = vxstn_getk(vxstn_getk(vxstn_block_for(st, name), "policy"), "budget");
+  if (vxstn_is_map(budget)) {
+    const vxstn_val* prior = vxstn_map_get(merged, "ratelimit");
+    vxstn_val* entry = vxstn_is_map(prior) ? vxstn_clone(prior) : vxstn_map();
+    vxstn_val* keys = vxstn_map_get(from, "ratelimit");
+    const vxstn_val* rps = vxstn_getk(budget, "rps");
+    const vxstn_val* concurrency = vxstn_getk(budget, "concurrency");
+    if (!vxstn_is_map(keys)) {
+      keys = vxstn_map();
+      vxstn_map_set(from, "ratelimit", keys);
+    }
+    vxstn_map_set(entry, "active", vxstn_bool(true));
+    vxstn_map_set(keys, "active", vxstn_str("policy.budget"));
+    if (NULL != rps) {
+      vxstn_map_set(entry, "rate", vxstn_clone(rps));
+      vxstn_map_set(keys, "rate", vxstn_str("policy.budget"));
+    }
+    if (NULL != concurrency) {
+      vxstn_map_set(entry, "burst", vxstn_clone(concurrency));
+      vxstn_map_set(keys, "burst", vxstn_str("policy.budget"));
+    }
+    vxstn_map_set(merged, "ratelimit", entry);
+  }
+
+  /* THE IMPLICIT STATION ENTRY, added for ORDERING ONLY. `station` is
+     never in `merged` - feature.station is reserved and rejected at
+     validation (8.4) - so without it vxstn_check_pin finds no station
+     row and is a PERMANENT NO-OP: a constraint like
+     `retry.order.after: "station"` would be treated as vacuous rather
+     than rejected, and the reported order would omit the one feature
+     whose position is supposedly pinned. `merged` itself stays the
+     user's own merge result. */
+  fororder = vxstn_clone(merged);
+  {
+    vxstn_val* stationentry = vxstn_map();
+    vxstn_map_set(stationentry, "active", vxstn_bool(true));
+    vxstn_map_set(fororder, "station", stationentry);
+  }
+  ordered = vxstn_resolve_order(fororder, err);
+  vxstn_val_free(fororder);
+  free(api);
+  if (NULL == ordered) {
+    vxstn_val_free(merged);
+    vxstn_val_free(from);
+    return NULL;
+  }
+  perr = vxstn_check_pin(ordered);
+  if (NULL != perr) {
+    if (NULL != err) {
+      *err = perr;
+    } else {
+      vxstn_error_free(perr);
+    }
+    vxstn_val_free(ordered);
+    vxstn_val_free(merged);
+    vxstn_val_free(from);
+    return NULL;
+  }
+
+  names = vxstn_list();
+  for (i = 0; i < ordered->len; i++) {
+    vxstn_list_push(names,
+                    vxstn_str(vxstn_strval(vxstn_map_get(ordered->items[i], "name"))));
+  }
+  vxstn_val_free(ordered);
+
+  out = vxstn_map();
+  vxstn_map_set(out, "ordered", names);
+  vxstn_map_set(out, "merged", merged);
+  vxstn_map_set(out, "from", from);
+  return out;
+}
+
+/* The fleet feature view: instance x feature, effective options, and
+   which config level set each (design 8.7).
+
+   The filter is either a STRING - shorthand for "this instance or this
+   api", loose - or a map { instance?, api?, feature? }. Only the map
+   form can express the question the view exists for: {feature:
+   "debug"}, "is debug on anywhere?", the one that is twenty greps
+   today. Owned. */
+vxstn_val* vxstn_features(vxstn_station* st, const vxstn_val* filter) {
+  vxstn_val* out = vxstn_list();
+  vxstn_val* rows;
+  const char* want_instance = NULL;
+  const char* want_api = NULL;
+  const char* want_feature = NULL;
+  bool loose = false;
+  size_t i;
+
+  if (NULL == st) {
+    return out;
+  }
+  if (vxstn_is_str(filter)) {
+    want_instance = filter->str;
+    want_api = filter->str;
+    loose = true;
+  } else if (vxstn_is_map(filter)) {
+    const vxstn_val* v = vxstn_getk(filter, "instance");
+    want_instance = vxstn_is_str(v) ? v->str : NULL;
+    v = vxstn_getk(filter, "api");
+    want_api = vxstn_is_str(v) ? v->str : NULL;
+    v = vxstn_getk(filter, "feature");
+    want_feature = vxstn_is_str(v) ? v->str : NULL;
+  }
+
+  rows = vxstn_instances(st);
+  for (i = 0; i < rows->len; i++) {
+    const char* name = vxstn_strval(vxstn_map_get(rows->items[i], "name"));
+    const char* api = vxstn_strval(vxstn_map_get(rows->items[i], "api"));
+    vxstn_val* resolved;
+    vxstn_val* row;
+
+    if (loose) {
+      if (NULL != want_instance && 0 != strcmp(name, want_instance) &&
+          0 != strcmp(api, want_api)) {
+        continue;
+      }
+    } else {
+      if (NULL != want_instance && 0 != strcmp(name, want_instance) &&
+          0 != strcmp(api, want_instance)) {
+        continue;
+      }
+      if (NULL != want_api && 0 != strcmp(api, want_api)) {
+        continue;
+      }
+    }
+
+    resolved = vxstn_features_of(st, name, NULL);
+    if (NULL == resolved) {
+      continue;
+    }
+
+    /* `feature` filters the ROWS, not the instances: an instance that
+       does not carry the named feature is not part of the answer, and
+       the rows that remain are narrowed to it, so the view answers
+       "where is debug on, and with what" rather than "here is
+       everything, go and look". */
+    if (NULL != want_feature) {
+      const vxstn_val* merged = vxstn_map_get(resolved, "merged");
+      const vxstn_val* hit = vxstn_map_get(merged, want_feature);
+      vxstn_val* narrowed;
+      vxstn_val* onemerged;
+      vxstn_val* onefrom;
+      const vxstn_val* ordered;
+      const vxstn_val* fromall;
+      size_t j;
+      if (NULL == hit) {
+        vxstn_val_free(resolved);
+        continue;
+      }
+      narrowed = vxstn_list();
+      ordered = vxstn_map_get(resolved, "ordered");
+      for (j = 0; NULL != ordered && j < ordered->len; j++) {
+        if (0 == strcmp(want_feature, vxstn_strval(ordered->items[j]))) {
+          vxstn_list_push(narrowed, vxstn_str(want_feature));
+        }
+      }
+      onemerged = vxstn_map();
+      vxstn_map_set(onemerged, want_feature, vxstn_clone(hit));
+      onefrom = vxstn_map();
+      fromall = vxstn_map_get(vxstn_map_get(resolved, "from"), want_feature);
+      vxstn_map_set(onefrom, want_feature,
+                    vxstn_is_map(fromall) ? vxstn_clone(fromall) : vxstn_map());
+      vxstn_val_free(resolved);
+      resolved = vxstn_map();
+      vxstn_map_set(resolved, "ordered", narrowed);
+      vxstn_map_set(resolved, "merged", onemerged);
+      vxstn_map_set(resolved, "from", onefrom);
+    }
+
+    row = vxstn_map();
+    vxstn_map_set(row, "instance", vxstn_str(name));
+    vxstn_map_set(row, "api", vxstn_str(api));
+    vxstn_map_set(row, "ordered", vxstn_clone(vxstn_map_get(resolved, "ordered")));
+    vxstn_map_set(row, "merged", vxstn_clone(vxstn_map_get(resolved, "merged")));
+    vxstn_map_set(row, "from", vxstn_clone(vxstn_map_get(resolved, "from")));
+    vxstn_val_free(resolved);
+    vxstn_list_push(out, row);
+  }
+  vxstn_val_free(rows);
+  return out;
+}
+
+/* The lowest positive integer tag not already taken, by a LIVE instance
+   or a DECLARED one.
+
+   THE REGISTRY ALONE IS NOT ENOUGH: a profile may declare `stripe$1`,
+   and until something constructs it the registry says false - so
+   vxstn_create("stripe$prod") would take that identity, vxstn_instances
+   would report the declared `stripe$1` as live with the wrong client,
+   and a later vxstn_sdk("stripe$1") would fail station_bound_twice
+   against a binding that was never its own. Declaration reserves the
+   name whether or not it has been built. Owned. */
+char* vxstn_autotag(vxstn_station* st, const char* name) {
+  char* api = vxstn_refapi(name);
+  const vxstn_val* sdk = NULL == st ? NULL : vxstn_map_get(st->profile, "sdk");
+  long n;
+  for (n = 1;; n++) {
+    vxstn_sb sb;
+    vxstn_sb_init(&sb);
+    vxstn_sb_put(&sb, api);
+    vxstn_sb_putc(&sb, '$');
+    vxstn_sb_putf(&sb, "%ld", n);
+    if (NULL == find_plugin(st, sb.buf) && NULL == vxstn_map_get(sdk, sb.buf)) {
+      free(api);
+      return sb.buf;
+    }
+    free(sb.buf);
+  }
+}
+
+/* design 6.2's paths, in order of preference - and in C there are TWO,
+   not three: the registered factory, then the error. THE MESSAGE NAMES
+   ONLY THE REMEDIES THIS PORT OFFERS, and says that `package` is not
+   honoured here: a message telling a C user to set `api.<slug>.package`
+   is a message that sends them down a road with no end. Borrowed, or
+   NULL + *err. */
+const vxstn_factory* vxstn_resolve_factory(vxstn_station* st, const char* api,
+                                           const vxstn_val* block,
+                                           vxstn_error** err) {
+  const vxstn_factory* direct = vxstn_factory_for(api);
+  vxstn_sb msg;
+  (void)st;
+  (void)block;
+
+  if (NULL != err) {
+    *err = NULL;
+  }
+  if (NULL != direct) {
+    return direct;
+  }
+
+  vxstn_sb_init(&msg);
+  vxstn_sb_put(&msg, "no factory for api \"");
+  vxstn_sb_put(&msg, NULL == api ? "" : api);
+  vxstn_sb_put(&msg, "\"; link the generated package and call vxstn_provide(\"");
+  vxstn_sb_put(&msg, NULL == api ? "" : api);
+  vxstn_sb_put(&msg, "\", ...) before the first vxstn_sdk() - the c port has no "
+                     "runtime module loading, so `api.");
+  vxstn_sb_put(&msg, NULL == api ? "" : api);
+  vxstn_sb_put(&msg, ".package` is not honoured here (design 6.3)");
+  vxstn_seterr(err, "station_no_factory", msg.buf);
+  free(msg.buf);
+  return NULL;
+}
+
+/* The shared construction path behind vxstn_sdk and vxstn_create.
+   `as` is the ASSIGNED tag (vxstn_create's) or NULL. */
+static void* build(vxstn_station* st, const char* name, const char* as,
+                   const vxstn_val* overrides, vxstn_error** err) {
+  const vxstn_val* sdk;
+  const vxstn_val* block;
+  const vxstn_val* activev;
+  const vxstn_factory* entry;
+  vxstn_val* resolved;
+  vxstn_val* faults;
+  vxstn_val* ordered;
+  vxstn_val* composed;
+  vxstn_val* fmap;
+  vxstn_val* opts;
+  vxstn_val* options;
+  char* api;
+  void* client;
+  size_t i;
+
+  if (NULL != err) {
+    *err = NULL;
+  }
+  if (NULL == st || st->closed) {
+    vxstn_seterr(err, "station_no_plugin", "station is closed");
+    return NULL;
+  }
+
+  sdk = vxstn_map_get(st->profile, "sdk");
+  block = vxstn_map_get(sdk, name);
+  if (NULL == block) {
+    const char** declared;
+    size_t n;
+    vxstn_sb msg;
+    declared = vxstn_sortedkeys(sdk, &n);
+    vxstn_sb_init(&msg);
+    vxstn_sb_put(&msg, "no declared instance \"");
+    vxstn_sb_put(&msg, NULL == name ? "" : name);
+    vxstn_sb_put(&msg, "\"; declared: [");
+    for (i = 0; i < n; i++) {
+      vxstn_sb_put(&msg, 0 == i ? "" : ", ");
+      vxstn_sb_put(&msg, declared[i]);
+    }
+    vxstn_sb_put(&msg, "]");
+    vxstn_seterr(err, "station_no_instance", msg.buf);
+    free(msg.buf);
+    free(declared);
+    return NULL;
+  }
+
+  activev = vxstn_map_get(block, "active");
+  if (NULL != activev && VXSTN_BOOL == activev->kind && !activev->b) {
+    vxstn_sb msg;
+    vxstn_sb_init(&msg);
+    vxstn_sb_put(&msg, "instance \"");
+    vxstn_sb_put(&msg, name);
+    vxstn_sb_put(&msg, "\" is declared with `active: false`, which bars it from "
+                       "running while keeping it visible in instances()");
+    vxstn_seterr(err, "station_instance_inactive", msg.buf);
+    free(msg.buf);
+    return NULL;
+  }
+
+  api = vxstn_refapi(name);
+  entry = vxstn_resolve_factory(st, api, block, err);
+  free(api);
+  if (NULL == entry) {
+    return NULL;
+  }
+
+  resolved = vxstn_features_of(st, name, err);
+  if (NULL == resolved) {
+    return NULL;
+  }
+
+  /* design 8.5 VALIDATES HERE, not only in vxstn_check. The schema
+     arrives with the factory, so the moment a factory is resolved is
+     the first moment validation is possible - and running it in
+     check() alone left production vxstn_sdk silently ignoring an
+     unknown option like `retry.retires`. One call here closes it,
+     because EVERY path to a constructor comes through this line. */
+  faults = vxstn_check_features(vxstn_map_get(resolved, "merged"), entry->descriptor);
+  if (0 < faults->len) {
+    vxstn_sb msg;
+    vxstn_sb_init(&msg);
+    for (i = 0; i < faults->len; i++) {
+      vxstn_sb_put(&msg, 0 == i ? "" : "; ");
+      vxstn_sb_put(&msg, vxstn_strval(vxstn_map_get(faults->items[i], "message")));
+    }
+    vxstn_seterr(err, vxstn_strval(vxstn_map_get(faults->items[0], "code")), msg.buf);
+    free(msg.buf);
+    vxstn_val_free(faults);
+    vxstn_val_free(resolved);
+    return NULL;
+  }
+  vxstn_val_free(faults);
+
+  /* design 8.4: compose the merged map into the ORDERED form and hand
+     it to the constructor. Station's own entry is composed AFTER the
+     user merge and always wins, which is why `station` is dropped here
+     and re-added by vxstn_options: a config file that can switch off
+     the component reading it is not a surface, it is a trap.
+     feature.station is already station_feature_reserved at validation,
+     so this is the second half of one rule rather than a second rule. */
+  ordered = vxstn_resolve_order(vxstn_map_get(resolved, "merged"), err);
+  if (NULL == ordered) {
+    vxstn_val_free(resolved);
+    return NULL;
+  }
+  composed = vxstn_compose_features(ordered);
+  vxstn_val_free(ordered);
+
+  fmap = vxstn_map();
+  for (i = 0; i < composed->len; i++) {
+    const vxstn_val* row = composed->items[i];
+    const char* fname = vxstn_strval(vxstn_map_get(row, "name"));
+    vxstn_val* body = vxstn_map();
+    size_t k;
+    if (0 == strcmp("station", fname)) {
+      continue;
+    }
+    for (k = 0; k < row->mlen; k++) {
+      if (0 == strcmp("name", row->keys[k])) {
+        continue;
+      }
+      vxstn_map_set(body, row->keys[k], vxstn_clone(row->vals[k]));
+    }
+    vxstn_map_set(fmap, fname, body);
+  }
+  vxstn_val_free(composed);
+
+  opts = vxstn_map();
+  {
+    const vxstn_val* blockopts = vxstn_getk(block, "options");
+    const vxstn_val* base = vxstn_getk(block, "base");
+    size_t k;
+    for (k = 0; vxstn_is_map(blockopts) && k < blockopts->mlen; k++) {
+      vxstn_map_set(opts, blockopts->keys[k], vxstn_clone(blockopts->vals[k]));
+    }
+    if (NULL != base) {
+      vxstn_map_set(opts, "base", vxstn_clone(base));
+    }
+    for (k = 0; vxstn_is_map(overrides) && k < overrides->mlen; k++) {
+      if (0 == strcmp("feature", overrides->keys[k])) {
+        continue;
+      }
+      vxstn_map_set(opts, overrides->keys[k], vxstn_clone(overrides->vals[k]));
+    }
+    {
+      const vxstn_val* overfeature = vxstn_getk(overrides, "feature");
+      for (k = 0; vxstn_is_map(overfeature) && k < overfeature->mlen; k++) {
+        vxstn_map_set(fmap, overfeature->keys[k], vxstn_clone(overfeature->vals[k]));
+      }
+    }
+    vxstn_map_set(opts, "feature", fmap);
+  }
+
+  /* THE ALIAS IS RECORDED, NOT THE FIELDS (design 5.3). Carrying the
+     declared `secret` through the feature options and stopping there
+     leaves `policy`, `base` and everything else behind, so an
+     auto-tagged client silently loses its declared instance's HOSTS
+     ALLOWLIST and falls back to the wider api-level one. Recording what
+     the tag STANDS FOR is one rule that every lookup already goes
+     through. Only when the tag was ASSIGNED: a caller naming its own is
+     naming an instance, not aliasing one. */
+  if (NULL != as && 0 != strcmp(as, name)) {
+    alias_set(st, as, name);
+  }
+
+  options = vxstn_options(st, NULL == as ? name : as, opts);
+  vxstn_val_free(opts);
+  vxstn_val_free(resolved);
+
+  /* The instance name reaches the adapter the same way it does on the
+     imperative path, so registration has one spelling (design 7.5). */
+  client = entry->construct(options, entry->ud);
+  vxstn_val_free(options);
+  return client;
+}
+
+/* The instance, constructed on first call and CACHED: same name, same
+   object. That caching is what makes "get it where you need it" a real
+   instruction - call it in a request handler, in a worker, in a test,
+   and the first call pays construction while the rest are a lookup.
+   SYNCHRONOUS, like every other seam in this port. */
+void* vxstn_sdk(vxstn_station* st, const char* name, vxstn_error** err) {
+  void* cached;
+  void* client;
+  if (NULL != err) {
+    *err = NULL;
+  }
+  if (NULL == st || NULL == name) {
+    vxstn_seterr(err, "station_no_plugin", "no station");
+    return NULL;
+  }
+  cached = client_get(st, name);
+  if (NULL != cached) {
+    return cached;
+  }
+  client = build(st, name, NULL, NULL, err);
+  if (NULL == client) {
+    return NULL;
+  }
+  client_set(st, name, client);
+  return client;
+}
+
+/* An UNCACHED client from the same resolved config plus overrides, for
+   the case that genuinely wants a distinct one - a per-request
+   credential scope, a test double. Deliberately the longer name.
+
+   It registers under an AUTO-ASSIGNED TAG, because registration is per
+   instance and station_bound_twice fires on a second binding of one
+   name: a second vxstn_create("stripe") would otherwise fail, which is
+   exactly the per-request case this exists for. The SECRET NAME does
+   not follow the assigned tag - it resolves from the DECLARED instance
+   the tag was assigned under, so every client of one instance shares
+   one broker cache entry (design 5.3). */
+void* vxstn_create(vxstn_station* st, const char* name, const vxstn_val* overrides,
+                   vxstn_error** err) {
+  char* as;
+  void* client;
+  if (NULL != err) {
+    *err = NULL;
+  }
+  if (NULL == st || NULL == name) {
+    vxstn_seterr(err, "station_no_plugin", "no station");
+    return NULL;
+  }
+  as = vxstn_autotag(st, name);
+  client = build(st, name, as, overrides, err);
+  free(as);
+  return client;
+}
+
+/* Eagerly validate and construct every ACTIVE declared instance - for
+   CI (design 6.6). The point is to turn availability errors, which are
+   deliberately deferred to first use, into ONE failure at a moment
+   somebody is watching. Returns { ok: [name...], failed: [{name, code,
+   message}] }, owned. */
+vxstn_val* vxstn_check(vxstn_station* st) {
+  vxstn_val* out = vxstn_map();
+  vxstn_val* ok = vxstn_list();
+  vxstn_val* failed = vxstn_list();
+  vxstn_val* rows;
+  size_t i;
+
+  if (NULL == st) {
+    vxstn_map_set(out, "ok", ok);
+    vxstn_map_set(out, "failed", failed);
+    return out;
+  }
+
+  rows = vxstn_instances(st);
+  for (i = 0; i < rows->len; i++) {
+    const char* name = vxstn_strval(vxstn_map_get(rows->items[i], "name"));
+    const char* api = vxstn_strval(vxstn_map_get(rows->items[i], "api"));
+    const vxstn_val* activev = vxstn_map_get(rows->items[i], "active");
+    const vxstn_factory* entry;
+    vxstn_error* err = NULL;
+    vxstn_val* resolved;
+
+    if (NULL != activev && VXSTN_BOOL == activev->kind && !activev->b) {
+      continue;
+    }
+
+    /* design 8.5 runs FIRST and needs no construction: the schema
+       arrives with the factory, not with a live client, so a feature
+       typo is a CI failure rather than a setting that quietly did
+       nothing in production. */
+    entry = vxstn_factory_for(api);
+    resolved = vxstn_features_of(st, name, &err);
+    if (NULL == resolved) {
+      vxstn_val* row = vxstn_map();
+      vxstn_map_set(row, "name", vxstn_str(name));
+      vxstn_map_set(row, "code", vxstn_str(NULL == err ? "" : err->code));
+      vxstn_map_set(row, "message", vxstn_str(NULL == err ? "" : err->message));
+      vxstn_list_push(failed, row);
+      vxstn_error_free(err);
+      continue;
+    }
+    if (NULL != entry) {
+      vxstn_val* faults =
+          vxstn_check_features(vxstn_map_get(resolved, "merged"), entry->descriptor);
+      if (0 < faults->len) {
+        vxstn_sb msg;
+        vxstn_val* row = vxstn_map();
+        size_t j;
+        vxstn_sb_init(&msg);
+        for (j = 0; j < faults->len; j++) {
+          vxstn_sb_put(&msg, 0 == j ? "" : "; ");
+          vxstn_sb_put(&msg, vxstn_strval(vxstn_map_get(faults->items[j], "message")));
+        }
+        vxstn_map_set(row, "name", vxstn_str(name));
+        vxstn_map_set(row, "code",
+                      vxstn_str(vxstn_strval(vxstn_map_get(faults->items[0], "code"))));
+        vxstn_map_set(row, "message", vxstn_str(msg.buf));
+        free(msg.buf);
+        vxstn_list_push(failed, row);
+        vxstn_val_free(faults);
+        vxstn_val_free(resolved);
+        continue;
+      }
+      vxstn_val_free(faults);
+    }
+    vxstn_val_free(resolved);
+
+    if (NULL == vxstn_sdk(st, name, &err)) {
+      vxstn_val* row = vxstn_map();
+      vxstn_map_set(row, "name", vxstn_str(name));
+      vxstn_map_set(row, "code", vxstn_str(NULL == err ? "" : err->code));
+      vxstn_map_set(row, "message", vxstn_str(NULL == err ? "" : err->message));
+      vxstn_list_push(failed, row);
+      vxstn_error_free(err);
+      continue;
+    }
+    vxstn_list_push(ok, vxstn_str(name));
+  }
+  vxstn_val_free(rows);
+
+  vxstn_map_set(out, "ok", ok);
+  vxstn_map_set(out, "failed", failed);
+  return out;
+}
+
+/* Batch-resolve secrets (design 5.5). With no argument it warms the
+   ACTIVE declared instances only, because reaching for a credential
+   belonging to a disabled integration is the wrong default;
+   vxstn_warm(st, names) warms exactly what it is given, inactive
+   included, because an explicit name is an explicit request.
+
+   NO ASYNC IDIOM IN C, so this resolves SERIALLY over the DEDUPLICATED
+   secret names rather than concurrently - the deduplication is the half
+   that matters here, since the broker's cache is keyed by secret name
+   and several instances sharing one api-level `secret` must cost one
+   read, not several. README.md says so.
+
+   THE REGISTRY IS THE AUTHORITY: a name nobody declared or registered
+   is a MISS, not a lookup - a wider fallback would let a typo like
+   `stripe$prodd` derive a secret name, call the provider, and report a
+   nonexistent instance `warmed` off a shared api-level credential.
+   Returns { warmed, missed }, both sorted. Owned. */
+vxstn_val* vxstn_warm(vxstn_station* st, const vxstn_val* names) {
+  vxstn_val* out = vxstn_map();
+  vxstn_val* warmed = vxstn_list();
+  vxstn_val* missed = vxstn_list();
+  vxstn_val* wanted = vxstn_list();
+  vxstn_val* plan = vxstn_map(); /* secret name -> [instance name...] */
+  size_t i, j;
+
+  if (NULL == st) {
+    vxstn_map_set(out, "warmed", warmed);
+    vxstn_map_set(out, "missed", missed);
+    vxstn_val_free(wanted);
+    vxstn_val_free(plan);
+    return out;
+  }
+
+  if (vxstn_is_list(names)) {
+    for (i = 0; i < names->len; i++) {
+      vxstn_list_push(wanted, vxstn_clone(names->items[i]));
+    }
+  } else {
+    vxstn_val* rows = vxstn_instances(st);
+    for (i = 0; i < rows->len; i++) {
+      const vxstn_val* activev = vxstn_map_get(rows->items[i], "active");
+      if (NULL != activev && VXSTN_BOOL == activev->kind && !activev->b) {
+        continue;
+      }
+      vxstn_list_push(wanted,
+                      vxstn_str(vxstn_strval(vxstn_map_get(rows->items[i], "name"))));
+    }
+    vxstn_val_free(rows);
+  }
+
+  for (i = 0; i < wanted->len; i++) {
+    const char* name = vxstn_strval(wanted->items[i]);
+    const vxstn_plugin_entry* live = find_plugin(st, name);
+    const vxstn_val* block = vxstn_getk(vxstn_map_get(st->profile, "sdk"), name);
+    char* secretname;
+    vxstn_val* group;
+
+    if (NULL == live && NULL == block) {
+      vxstn_list_push(missed, vxstn_str(name));
+      continue;
+    }
+    if (NULL != live) {
+      secretname = vxstn_sdup(live->secretname);
+    } else {
+      const vxstn_val* written = vxstn_getk(vxstn_block_for(st, name), "secret");
+      secretname = (vxstn_is_str(written) && '\0' != written->str[0])
+                       ? vxstn_sdup(written->str)
+                       : vxstn_secretname_default(vxstn_declared_ref(st, name));
+    }
+    group = vxstn_map_get(plan, secretname);
+    if (!vxstn_is_list(group)) {
+      group = vxstn_list();
+      vxstn_map_set(plan, secretname, group);
+    }
+    vxstn_list_push(group, vxstn_str(name));
+    free(secretname);
+  }
+
+  /* One resolution per DISTINCT secret name; the per-instance results
+     are mapped back afterwards so the reported shape is unchanged. */
+  for (i = 0; i < plan->mlen; i++) {
+    const vxstn_val* group = plan->vals[i];
+    const char* first = vxstn_strval(group->items[0]);
+    vxstn_error* err = NULL;
+    bool got = NULL != broker_value(&st->broker, first, plan->keys[i], &err);
+    vxstn_error_free(err);
+    for (j = 0; j < group->len; j++) {
+      vxstn_list_push(got ? warmed : missed, vxstn_clone(group->items[j]));
+    }
+  }
+  vxstn_val_free(wanted);
+  vxstn_val_free(plan);
+
+  /* Both sorted: a stable answer is what a fleet report needs. */
+  {
+    vxstn_val* lists[2];
+    lists[0] = warmed;
+    lists[1] = missed;
+    for (i = 0; i < 2; i++) {
+      size_t a;
+      for (a = 1; a < lists[i]->len; a++) {
+        vxstn_val* cur = lists[i]->items[a];
+        size_t k = a;
+        while (0 < k && 0 < strcmp(vxstn_strval(lists[i]->items[k - 1]),
+                                   vxstn_strval(cur))) {
+          lists[i]->items[k] = lists[i]->items[k - 1];
+          k--;
+        }
+        lists[i]->items[k] = cur;
+      }
+    }
+  }
+
+  vxstn_map_set(out, "warmed", warmed);
+  vxstn_map_set(out, "missed", missed);
+  return out;
+}
+
+bool vxstn_repo_scoped(vxstn_station* st) { return NULL != st && st->repo_scoped; }

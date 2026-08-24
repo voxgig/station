@@ -633,6 +633,102 @@ void vxstn_refresh_secrets(vxstn_station* st);
  * for tests and status surfaces. */
 const vxstn_val* vxstn_profile_sdk(vxstn_station* st, const char* slug);
 
+/* =========================================================================
+ * The declarative front door (design station.md 6). Stage 5.
+ *
+ * "Write it once in station.json, get it where you need it": the
+ * instance table comes from the resolved profile, the CONSTRUCTOR from
+ * the factory table, and the feature merge, the order, the 8.5 check
+ * and the options are composed between them.
+ *
+ * THE C DIVERGENCE (design 6.3, 5.4): there is no loader. An api
+ * reaches the table through vxstn_provide and nothing else, and a
+ * declared `package` is a warning event at open, never an import.
+ * =========================================================================*/
+
+/* The instance, constructed on FIRST call and CACHED by name.
+ * Synchronous. NULL + *err: station_no_instance (nothing declares it),
+ * station_instance_inactive (`active: false`), station_no_factory (no
+ * vxstn_provide for its api), station_feature_unknown /
+ * station_feature_option (design 8.5), station_feature_order.
+ * The client is owned by whatever the factory's constructor returns;
+ * the station only caches the pointer. */
+void* vxstn_sdk(vxstn_station* st, const char* name, vxstn_error** err);
+
+/* An UNCACHED client of a declared instance, registered under an
+ * auto-assigned integer tag - the per-request or test-double case.
+ * `overrides` (may be NULL) is merged over the block's options, and its
+ * `feature` map over the composed one. */
+void* vxstn_create(vxstn_station* st, const char* name, const vxstn_val* overrides,
+                   vxstn_error** err);
+
+/* The lowest positive integer tag not taken by a LIVE or a DECLARED
+ * instance of that api. Owned. */
+char* vxstn_autotag(vxstn_station* st, const char* name);
+
+/* The registered factory for an api, or NULL + *err
+ * (station_no_factory) - naming only the remedies THIS port offers.
+ * Borrowed. */
+const vxstn_factory* vxstn_resolve_factory(vxstn_station* st, const char* api,
+                                           const vxstn_val* block,
+                                           vxstn_error** err);
+
+/* The merged feature set for one instance with PER-VALUE PROVENANCE
+ * (design 8.7), the policy.budget -> ratelimit composition, and the
+ * implicit `station` row used for the pin check:
+ * { ordered: [name...], merged, from: { feature: { key: level } } }.
+ * Owned, or NULL + *err (station_feature_order). */
+vxstn_val* vxstn_features_of(vxstn_station* st, const char* name, vxstn_error** err);
+
+/* The fleet view: one row per instance passing the filter, each
+ * { instance, api, ordered, merged, from }. `filter` may be NULL, a
+ * STRING (loose "this instance or this api") or a map
+ * { instance?, api?, feature? }; a `feature` filter narrows both the
+ * rows and each row's contents. Owned. */
+vxstn_val* vxstn_features(vxstn_station* st, const vxstn_val* filter);
+
+/* Eagerly validate and construct every ACTIVE declared instance:
+ * { ok: [name...], failed: [{ name, code, message }] }. Owned. */
+vxstn_val* vxstn_check(vxstn_station* st);
+
+/* Batch-resolve secrets: { warmed, missed }, both sorted. With NULL it
+ * warms the ACTIVE declared instances; with a list of names it warms
+ * exactly those, inactive included. Deduplicated by SECRET NAME, and
+ * resolved SERIALLY - C has no async idiom, and the deduplication is
+ * the half that matters (the broker's cache is keyed by secret name).
+ * A name neither registered nor declared is a MISS, never a lookup.
+ * Owned. */
+vxstn_val* vxstn_warm(vxstn_station* st, const vxstn_val* names);
+
+/* Every DECLARED instance, sorted by name:
+ * { name, api, active, live, rung, block }. A different question from
+ * vxstn_plugins(), which lists the LIVE ones. Owned. */
+vxstn_val* vxstn_instances(vxstn_station* st);
+
+/* The profile block that governs an instance: its own if the profile
+ * declares it, otherwise its API's. ONE RULE, ONE PLACE - registration
+ * and the transport seam both ask here. Borrowed; NULL when neither
+ * level declares anything. */
+const vxstn_val* vxstn_block_for(vxstn_station* st, const char* name);
+
+/* The DECLARED instance an auto-assigned tag stands for, else the name
+ * itself. Borrowed. */
+const char* vxstn_declared_ref(vxstn_station* st, const char* name);
+
+/* The inverted binding (design 3.1): the options map a generated
+ * constructor accepts, with the station activation entry and the
+ * instance name in it. `instance` is OPTIONAL (NULL) and LEADING.
+ * The station HANDLE does not ride the map - a C value tree holds JSON,
+ * not pointers - so the generated feature binds to the ambient instance
+ * or to a handle the host gives it. Owned. */
+vxstn_val* vxstn_options(vxstn_station* st, const char* instance,
+                         const vxstn_val* extra);
+
+/* design 6.3's review boundary: true unless the caller set
+ * `repo_scoped = -1`. This tier reads no station.json file, so there is
+ * no user-level config to distrust and no scope to discover. */
+bool vxstn_repo_scoped(vxstn_station* st);
+
 /* Milliseconds since the epoch (event timestamps). */
 int64_t vxstn_now_ms(void);
 
