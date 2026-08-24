@@ -58,11 +58,16 @@ func (g *Grants) purgeLocked() {
 	}
 }
 
-// Validate checks a presented grant token for an instance. The reason
+// Validate checks a presented grant token for an instance AND for the
+// session spending it. The session half is not decoration: a grant is
+// documented as bound to the registration session (§5.3), and checking
+// only the ref would let a grant outlive its issuing session - after
+// that session expired or was deleted, any new session registered under
+// the same ref could keep spending it until the grant TTL. The reason
 // distinguishes the failure for the error message; all failures are
 // station_grant_expired on the wire (§14: the grant is gone and
 // re-registration is the remedy in every case).
-func (g *Grants) Validate(token string, ref string) (*Grant, string) {
+func (g *Grants) Validate(token string, ref string, session string) (*Grant, string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	grant, ok := g.byToken[token]
@@ -75,6 +80,9 @@ func (g *Grants) Validate(token string, ref string) (*Grant, string) {
 	}
 	if grant.Ref != ref {
 		return nil, "grant is bound to another instance"
+	}
+	if grant.Session != session {
+		return nil, "grant is bound to another session; re-register"
 	}
 	return grant, ""
 }

@@ -120,6 +120,18 @@ func envelopeHeaders(raw map[string]any) (http.Header, error) {
 	return h, nil
 }
 
+// envelopeHost returns the envelope's Host override, if any. Go's
+// http.Header canonicalizes the name, so a client's `host:` and `Host:`
+// are one key here; the FIRST value is the one the request would carry.
+func envelopeHost(h http.Header) string {
+	for k, vs := range h {
+		if strings.EqualFold(k, "Host") && len(vs) > 0 {
+			return vs[0]
+		}
+	}
+	return ""
+}
+
 // injectCredential swaps the resolved value in for the placeholder,
 // wherever the placeholder appears (§5.3 R2: the proxy swaps in the
 // real credential on the outbound hop). When no placeholder is present
@@ -205,6 +217,15 @@ func (s *Server) handleForward(w http.ResponseWriter, r *http.Request) {
 	// yet: capture and library-resolved traffic work (§8.3), and
 	// nothing proxy-side is injected for it.
 	eff := s.policy.EffectiveFor(ref)
+	// §16's kill switch, enforced at the proxy data-plane seam. It is
+	// checked BEFORE the allowlist and before any credential is
+	// resolved, and it does not care whether the instance is approved:
+	// `block` in the proxy-side profile means this instance sends
+	// nothing, whatever the client believes or whether it checks at all.
+	if eff.Mode == ModeBlock {
+		writeError(w, http.StatusForbidden, CodeHostAllow, blockedMessage(ref))
+		return
+	}
 	if eff.State == StateApproved {
 		hosts := narrowHosts(eff.Hosts, descriptorBase(sess.Descriptor))
 		if !hostAllowed(hosts, target.Hostname(), target.Port()) {
@@ -213,6 +234,24 @@ func (s *Server) handleForward(w http.ResponseWriter, r *http.Request) {
 					target.Hostname(), ref, strings.Join(hosts, ", ")))
 			return
 		}
+	}
+
+	// The envelope may name an outbound Host, and that authority - not
+	// the URL's - is what a reverse proxy or virtual-hosted server
+	// routes on. Only the URL's hostname was policed above, so an
+	// override that disagrees with it would move an injected credential
+	// to an unapproved virtual host while the checked network
+	// destination stayed put. The override must therefore name the
+	// target's own authority; anything else is refused, not silently
+	// dropped, because the client asked for a destination it may not
+	// have.
+	if host := envelopeHost(upHeaders); host != "" &&
+		!strings.EqualFold(host, target.Host) && !strings.EqualFold(host, target.Hostname()) {
+		writeError(w, http.StatusForbidden, CodeHostAllow,
+			fmt.Sprintf("envelope Host %q does not match the target authority %q for %q: "+
+				"only the URL's authority is policed, so an override cannot re-aim the request",
+				host, target.Host, ref))
+		return
 	}
 
 	// Transient scrub set (§15): the values of the envelope headers
@@ -241,7 +280,7 @@ func (s *Server) handleForward(w http.ResponseWriter, r *http.Request) {
 	// never from anything the client sent.
 	injected := false
 	if token := r.Header.Get("Station-Grant"); token != "" {
-		grant, reason := s.grants.Validate(token, ref)
+		grant, reason := s.grants.Validate(token, ref, id)
 		if grant == nil {
 			writeError(w, http.StatusForbidden, CodeGrantExpired, reason)
 			return
@@ -368,6 +407,57 @@ func hasUnscrubbableCredential(headers http.Header, redactNames map[string]bool,
 	return false
 }
 
+// bodyCredentialRe finds credential-shaped assignments in a request
+// body - `client_secret=...` in a form post, `"refresh_token": "..."`
+// in JSON - covering the token-exchange shape §15's header rule cannot
+// see. It is the body analogue of redactHeaderList: a shape test, not a
+// value test, because the proxy has no other way to know.
+var bodyCredentialRe = regexp.MustCompile(
+	`(?i)"?\b(client[_-]?secret|client[_-]?assertion|refresh[_-]?token|` +
+		`access[_-]?token|id[_-]?token|session[_-]?token|private[_-]?key|` +
+		`api[_-]?key|apikey|password|passwd|passcode|credential|assertion|` +
+		`secret|token|bearer)"?\s*[:=]\s*"?([^"'&,\s}\]]+)"?`)
+
+// hasUnscrubbableBodyCredential extends §15's missing-marker rule to
+// the REQUEST BODY.
+//
+// Under R1-attached the proxy learns transient secret values only from
+// the headers Station-Redact names, so an integration that puts its
+// credential solely in the body - a token exchange is the ordinary case
+// - leaves the proxy with neither a transient value nor a broker-held
+// one, and `capture: full` would store it verbatim. So: any
+// credential-shaped body assignment whose value is not already covered
+// by the scrub set (and is not the inert placeholder) means the proxy
+// cannot prove this body is scrub-safe, and the capture degrades to
+// `headers` exactly as an unmarked credential header does. That also
+// drops the RESPONSE body, which is the right conservative answer for
+// the token exchange whose response carries the minted credential.
+//
+// body is the prefix that would actually be stored (already cut to the
+// capture-body limit), because bytes truncation drops cannot leak.
+func hasUnscrubbableBodyCredential(body string, values []string) bool {
+	if body == "" {
+		return false
+	}
+	for _, m := range bodyCredentialRe.FindAllStringSubmatch(body, -1) {
+		value := m[2]
+		if value == "" || placeholderRe.MatchString(value) {
+			continue
+		}
+		covered := false
+		for _, v := range values {
+			if v != "" && strings.Contains(value, v) {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			return true
+		}
+	}
+	return false
+}
+
 // recordCapture stores one exchange at the instance's capture depth,
 // scrubbed at capture time (§15: never retroactively).
 func (s *Server) recordCapture(x *exchange) {
@@ -381,19 +471,28 @@ func (s *Server) recordCapture(x *exchange) {
 	// guarantee holds for the request side without scrubbing.
 	envHdr, _ := envelopeHeaders(x.envHeaders)
 
+	// Scrub set: this exchange's transient Station-Redact values plus
+	// every value the proxy's broker ever resolved (§5.3, §7 - exact
+	// match, no length floor). Computed before the degrade check
+	// because that check asks exactly what this set can cover.
+	values := append(append([]string(nil), x.transient...), s.broker.heldValues()...)
+
+	storedReqBody := x.env.Body
+	if len(storedReqBody) > s.cfg.CaptureBodyLimit {
+		storedReqBody = storedReqBody[:s.cfg.CaptureBodyLimit]
+	}
+
 	degraded := false
-	if depth == "full" && hasUnscrubbableCredential(envHdr, x.redactNames, x.injected) {
-		// §15: an older library sent no Station-Redact marker for a real
-		// credential - degrade this plugin's capture to headers rather
-		// than store a body the proxy cannot scrub, and say so in status.
+	if depth == "full" &&
+		(hasUnscrubbableCredential(envHdr, x.redactNames, x.injected) ||
+			hasUnscrubbableBodyCredential(storedReqBody, values)) {
+		// §15: the library sent no Station-Redact marker for a real
+		// credential, in a header or in the body - degrade this plugin's
+		// capture to headers rather than store bytes the proxy cannot
+		// scrub, and say so in status.
 		depth = "headers"
 		degraded = true
 	}
-
-	// Scrub set: this exchange's transient Station-Redact values plus
-	// every value the proxy's broker ever resolved (§5.3, §7 - exact
-	// match, no length floor).
-	values := append(append([]string(nil), x.transient...), s.broker.heldValues()...)
 
 	entry := &CaptureEntry{
 		T:        s.cfg.Now().UTC().Format(time.RFC3339),
@@ -424,12 +523,8 @@ func (s *Server) recordCapture(x *exchange) {
 		}
 	}
 	if depth == "full" {
-		reqBody := x.env.Body
-		if len(reqBody) > s.cfg.CaptureBodyLimit {
-			reqBody = reqBody[:s.cfg.CaptureBodyLimit]
-			entry.ReqTruncated = true
-		}
-		scrubbed, changed := scrubText(reqBody, values)
+		entry.ReqTruncated = len(storedReqBody) < len(x.env.Body)
+		scrubbed, changed := scrubText(storedReqBody, values)
 		entry.ReqBody = scrubbed
 
 		// §8.5: replayable is false when the request body was truncated

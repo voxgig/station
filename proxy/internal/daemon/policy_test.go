@@ -408,3 +408,144 @@ func TestPolicyLongPoll(t *testing.T) {
 		t.Errorf("post-revoke version = %v, want 3", view["version"])
 	}
 }
+
+// --- §5.3: a grant is bound to its SESSION, not just its ref ----------
+
+// TestGrantSessionBinding: each grant records the registration session
+// it was issued to and is documented as bound to it. Validating only
+// the instance ref would let a grant outlive that session - after it
+// expired or was deleted, any new session registered under the same ref
+// could keep spending it for the rest of the grant TTL.
+func TestGrantSessionBinding(t *testing.T) {
+	up := newUpstream(t)
+	cfgPath := stationJSONFor(t, `"127.0.0.1"`, "proxy", "meta")
+	ts, _ := newTestProxyServer(t, func(c *Config) {
+		c.StationConfigPath = cfgPath
+	})
+	if resp := call(t, ts, http.MethodPost, "/v1/approve/voxgig-solardemo", "", nil, ""); resp.StatusCode != http.StatusOK {
+		t.Fatalf("approve: %d", resp.StatusCode)
+	}
+	authed := func() string {
+		return envelope(t, up.ts.URL+"/bound", "GET", map[string]any{
+			"Authorization": "Bearer [station:voxgig-solardemo]",
+		}, "")
+	}
+
+	sessionA, bindingA := registerInstance(t, ts, "voxgig-solardemo", up.ts.URL)
+	grantA, _ := bindingA["grant"].(string)
+	if grantA == "" {
+		t.Fatal("approved resolve:proxy binding must carry a grant")
+	}
+	if resp := forward(t, ts, sessionA, map[string]string{"Station-Grant": grantA}, authed()); resp.StatusCode != http.StatusOK {
+		t.Fatalf("issuing session forward = %d, want 200", resp.StatusCode)
+	}
+
+	// Session A ends. B registers under the SAME ref and is issued its
+	// own grant - A's is not B's to spend.
+	call(t, ts, http.MethodDelete, "/v1/session", "",
+		map[string]string{"Station-Session": sessionA}, "")
+	sessionB, bindingB := registerInstance(t, ts, "voxgig-solardemo", up.ts.URL)
+	grantB, _ := bindingB["grant"].(string)
+	if grantB == "" || grantB == grantA {
+		t.Fatalf("re-registration must mint a fresh grant, got %q", grantB)
+	}
+
+	before := up.count()
+	resp := forward(t, ts, sessionB, map[string]string{"Station-Grant": grantA}, authed())
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("another session's grant = %d, want 403", resp.StatusCode)
+	}
+	if got := errCode(t, resp); got != CodeGrantExpired {
+		t.Errorf("code = %q, want %q", got, CodeGrantExpired)
+	}
+	if up.count() != before {
+		t.Error("a refused grant must not have reached the upstream")
+	}
+
+	// B's own grant works, so the binding narrows rather than breaks.
+	if resp := forward(t, ts, sessionB, map[string]string{"Station-Grant": grantB}, authed()); resp.StatusCode != http.StatusOK {
+		t.Fatalf("own-session forward = %d, want 200", resp.StatusCode)
+	}
+}
+
+// --- §16: `policy.mode: block`, enforced proxy-side --------------------
+
+// TestPolicyModeBlock: `block` is the per-plugin kill switch, and the
+// proxy loads the authoritative profile - so the proxy is the seam that
+// must enforce it. The library checks it too, but a client that
+// bypasses or predates that check, or that speaks to /v1/forward
+// directly, must still send nothing.
+func TestPolicyModeBlock(t *testing.T) {
+	up := newUpstream(t)
+	text := fmt.Sprintf(`{"station":1,"profiles":{"default":{
+	  "secrets":{"providers":[{"kind":"memory","values":{"VOXGIG_SOLARDEMO_APIKEY":%q}}]},
+	  "sdk":{"voxgig-solardemo":{"resolve":"proxy","capture":"meta",
+	    "policy":{"hosts":["127.0.0.1"],"mode":"block"},"agent":{"write":true}}}}}}`, testSecret)
+	cfgPath := filepath.Join(t.TempDir(), "station.json")
+	if err := os.WriteFile(cfgPath, []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ts, _ := newTestProxyServer(t, func(c *Config) {
+		c.StationConfigPath = cfgPath
+		c.AgentWrite = true
+	})
+	if resp := call(t, ts, http.MethodPost, "/v1/approve/voxgig-solardemo", "", nil, ""); resp.StatusCode != http.StatusOK {
+		t.Fatalf("approve: %d", resp.StatusCode)
+	}
+	session := registerDescriptor(t, ts, "voxgig-solardemo", fullDescriptor(up.ts.URL))
+
+	t.Run("the data plane refuses, to an allowlisted host", func(t *testing.T) {
+		before := up.count()
+		resp := forward(t, ts, session, nil,
+			envelope(t, up.ts.URL+"/planet", "GET", nil, ""))
+		if resp.StatusCode != http.StatusForbidden {
+			t.Fatalf("blocked forward = %d, want 403", resp.StatusCode)
+		}
+		if got := errCode(t, resp); got != CodeHostAllow {
+			t.Errorf("code = %q, want %q", got, CodeHostAllow)
+		}
+		if up.count() != before {
+			t.Error("a blocked instance still reached the upstream")
+		}
+	})
+
+	t.Run("the agent surface refuses too", func(t *testing.T) {
+		before := up.count()
+		payload, isErr := agentTool(t, ts, "station_call", map[string]any{
+			"plugin": "voxgig-solardemo", "entity": "planet", "op": "list",
+		})
+		code, _ := toolErrCode(t, payload)
+		if !isErr || code != CodeHostAllow {
+			t.Fatalf("isErr=%v code=%q, want %q (MCP calls are egress too)",
+				isErr, code, CodeHostAllow)
+		}
+		if up.count() != before {
+			t.Error("a blocked instance still reached the upstream through station_call")
+		}
+	})
+
+	t.Run("the policy view carries the mode", func(t *testing.T) {
+		view := decode(t, call(t, ts, http.MethodGet, "/v1/policy/voxgig-solardemo", "", nil, ""))
+		if view["mode"] != "block" {
+			t.Errorf("policy view mode = %v, want block", view["mode"])
+		}
+	})
+}
+
+// TestPolicyModeLiveDefault: an entry that declares no mode is `live`,
+// and the kill switch does not fire for it.
+func TestPolicyModeLiveDefault(t *testing.T) {
+	up := newUpstream(t)
+	cfgPath := stationJSONFor(t, `"127.0.0.1"`, "proxy", "meta")
+	ts, _ := newTestProxyServer(t, func(c *Config) {
+		c.StationConfigPath = cfgPath
+	})
+	session, _ := registerInstance(t, ts, "voxgig-solardemo", up.ts.URL)
+	if resp := forward(t, ts, session, nil, envelope(t, up.ts.URL+"/live", "GET", nil, "")); resp.StatusCode != http.StatusOK {
+		t.Fatalf("unblocked forward = %d, want 200", resp.StatusCode)
+	}
+	view := decode(t, call(t, ts, http.MethodGet, "/v1/policy/voxgig-solardemo", "", nil, ""))
+	if view["mode"] != "live" {
+		t.Errorf("policy view mode = %v, want live", view["mode"])
+	}
+}

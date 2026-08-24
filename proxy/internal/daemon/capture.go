@@ -64,8 +64,17 @@ type CaptureEntry struct {
 	size int64 // accounting for the byte bound
 }
 
+// accounting is the entry's charge against the store's byte bound. It
+// counts EVERY retained string, not just the big ones: `Corr` comes
+// straight off a client-supplied Station-Corr header and is held for
+// the life of the entry, so a fixed metadata estimate would let a
+// stream of large correlation ids consume far more memory than
+// CaptureMaxBytes reports or enforces. The 128 is what remains: the
+// fixed-size fields and the per-entry slice/struct overhead.
 func (e *CaptureEntry) accounting() int64 {
 	n := int64(len(e.ReqURL) + len(e.ReqBody) + len(e.ResBody) + len(e.Reason) + 128)
+	n += int64(len(e.T) + len(e.Session) + len(e.Plugin) + len(e.Corr) +
+		len(e.Depth) + len(e.ReqMethod))
 	for k, vs := range e.ReqHeaders {
 		n += int64(len(k))
 		for _, v := range vs {

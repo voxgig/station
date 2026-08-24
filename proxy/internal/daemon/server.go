@@ -248,14 +248,31 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // routeRef dispatches a /v1/<verb>/{ref} path, handing the handler the
 // instance ref (D-2026-08-24-1: grants and policy address instances).
+//
+// The ref is read off the ESCAPED path, not r.URL.Path. An instance
+// NAME is a package-ish specifier and explicitly admits `/` (§6.1's
+// `^[a-zA-Z@][a-zA-Z0-9.~_\-/]*$` - `@scope/pkg` is a valid ref), and
+// the CLI duly sends it as `%2F`; but Go decodes that into r.URL.Path
+// before any handler sees it, so a check for `/` there cannot tell the
+// segment separator from an escaped character and would make every
+// scoped ref permanently unaddressable. EscapedPath keeps them apart: a
+// literal `/` is still a separator and still a 404, `%2F` is part of
+// the ref and is unescaped into it.
 func (s *Server) routeRef(w http.ResponseWriter, r *http.Request, method string, prefix string, h func(http.ResponseWriter, *http.Request, string)) {
 	if r.Method != method {
 		writeError(w, http.StatusMethodNotAllowed, CodeNoRoute,
 			fmt.Sprintf("use %s %s{ref}", method, prefix))
 		return
 	}
-	ref := strings.TrimPrefix(r.URL.Path, prefix)
-	if ref == "" || strings.Contains(ref, "/") {
+	escaped := r.URL.EscapedPath()
+	if !strings.HasPrefix(escaped, prefix) {
+		writeError(w, http.StatusNotFound, CodeNoRoute,
+			fmt.Sprintf("unknown path %q", r.URL.Path))
+		return
+	}
+	segment := strings.TrimPrefix(escaped, prefix)
+	ref, err := url.PathUnescape(segment)
+	if segment == "" || strings.Contains(segment, "/") || err != nil || ref == "" {
 		writeError(w, http.StatusNotFound, CodeNoRoute,
 			fmt.Sprintf("unknown path %q", r.URL.Path))
 		return
@@ -580,6 +597,7 @@ func policyView(eff Effective) map[string]any {
 		"covered": eff.Covered,
 		"resolve": eff.Resolve,
 		"capture": eff.Capture,
+		"mode":    eff.Mode,
 	}
 	if eff.State == StateApproved {
 		view["hosts"] = eff.Hosts

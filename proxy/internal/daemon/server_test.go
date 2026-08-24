@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -769,4 +770,58 @@ func waitFor(t *testing.T, cond func() bool) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("condition never became true")
+}
+
+// TestRouteRefWithSlash: an instance NAME is a package-ish specifier and
+// explicitly admits `/` (§6.1's `^[a-zA-Z@][a-zA-Z0-9.~_\-/]*$` -
+// `@scope/pkg` is a valid ref), which the CLI duly sends percent-
+// encoded. Go decodes `%2F` into r.URL.Path before any handler runs, so
+// a router that looks for `/` there cannot tell a segment separator
+// from an escaped character and makes every scoped ref permanently
+// unaddressable: approve, policy polling and grant revocation could
+// never name one.
+func TestRouteRefWithSlash(t *testing.T) {
+	up := newUpstream(t)
+	ts := newTestProxy(t, nil)
+
+	const ref = "@scope/pkg"
+	escaped := url.PathEscape(ref) // @scope%2Fpkg
+	registerInstance(t, ts, ref, up.ts.URL)
+
+	t.Run("approve addresses the ref", func(t *testing.T) {
+		resp := call(t, ts, http.MethodPost, "/v1/approve/"+escaped, "", nil, "")
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("status = %d, want 200", resp.StatusCode)
+		}
+		approval := decode(t, resp)["approval"].(map[string]any)
+		if approval["ref"] != ref {
+			t.Errorf("approved ref = %v, want %q (the escape must be undone, not kept)",
+				approval["ref"], ref)
+		}
+	})
+
+	t.Run("policy addresses the ref", func(t *testing.T) {
+		view := decode(t, call(t, ts, http.MethodGet, "/v1/policy/"+escaped, "", nil, ""))
+		if view["ref"] != ref || view["state"] != StateApproved {
+			t.Errorf("policy view = %v, want approved %q", view, ref)
+		}
+	})
+
+	t.Run("grant revocation addresses the ref", func(t *testing.T) {
+		resp := call(t, ts, http.MethodDelete, "/v1/grants/"+escaped, "", nil, "")
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("status = %d, want 200", resp.StatusCode)
+		}
+	})
+
+	t.Run("a literal slash is still a path separator", func(t *testing.T) {
+		resp := call(t, ts, http.MethodPost, "/v1/approve/"+ref, "", nil, "")
+		if resp.StatusCode != http.StatusNotFound {
+			t.Fatalf("status = %d, want 404 - an unescaped `/` is not part of the ref",
+				resp.StatusCode)
+		}
+		if got := errCode(t, resp); got != CodeNoRoute {
+			t.Errorf("code = %q, want %q", got, CodeNoRoute)
+		}
+	})
 }

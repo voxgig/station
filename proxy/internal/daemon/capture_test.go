@@ -285,3 +285,108 @@ func TestCaptureStoreByteBound(t *testing.T) {
 		t.Fatalf("post-overflow stats = %+v, want entries 2 bytes 600 evicted 1", st)
 	}
 }
+
+// TestCaptureAccountingCountsMetadata: the byte bound must charge for
+// the VARIABLE metadata an entry retains, not stand a fixed estimate in
+// for all of it. `Corr` in particular comes straight off a client-
+// supplied Station-Corr header and is referenced for the entry's whole
+// life, so a store that charges it nothing can hold far more memory
+// than CaptureMaxBytes reports or enforces.
+func TestCaptureAccountingCountsMetadata(t *testing.T) {
+	t.Run("every retained string is charged", func(t *testing.T) {
+		e := &CaptureEntry{
+			T: "2026-08-24T09:00:00Z", Session: "sess-1",
+			Plugin: "voxgig-solardemo", Corr: "corr-1",
+			Depth: "full", ReqMethod: "POST",
+		}
+		want := int64(128 + len(e.T) + len(e.Session) + len(e.Plugin) +
+			len(e.Corr) + len(e.Depth) + len(e.ReqMethod))
+		if got := e.accounting(); got != want {
+			t.Errorf("accounting = %d, want %d (the metadata strings are retained, so they count)",
+				got, want)
+		}
+	})
+
+	t.Run("a large corr is bounded like a body", func(t *testing.T) {
+		// Each entry: 172-byte Corr + 128 fixed overhead = 300 bytes,
+		// so the third overflows a 700-byte store exactly as a body of
+		// the same size would.
+		entry := func() *CaptureEntry { return &CaptureEntry{Corr: strings.Repeat("c", 172)} }
+		cs := NewCaptureStore(100, 700)
+		cs.Add(entry())
+		cs.Add(entry())
+		if st := cs.Stats(); st.Entries != 2 || st.Bytes != 600 || st.Evicted != 0 {
+			t.Fatalf("pre-overflow stats = %+v, want entries 2 bytes 600 evicted 0", st)
+		}
+		cs.Add(entry())
+		st := cs.Stats()
+		if st.Entries != 2 || st.Bytes != 600 || st.Evicted != 1 {
+			t.Fatalf("post-overflow stats = %+v, want entries 2 bytes 600 evicted 1 - "+
+				"the advertised bound must be the one enforced", st)
+		}
+	})
+}
+
+// TestCaptureDegradeBodyCredential extends §15's missing-marker rule to
+// the REQUEST BODY. Under R1-attached the proxy learns transient secret
+// values only from the headers Station-Redact names, so an integration
+// that carries its credential solely in the body - a token exchange is
+// the ordinary case - leaves the proxy with neither a transient value
+// nor a broker-held one, and `capture: full` would store the credential
+// verbatim.
+func TestCaptureDegradeBodyCredential(t *testing.T) {
+	const bodyOnly = "sk-body-only-31"
+	up := newUpstream(t)
+	cfgPath := stationJSONFor(t, `"127.0.0.1"`, "library", "full")
+	ts, srv := newTestProxyServer(t, func(c *Config) {
+		c.StationConfigPath = cfgPath
+	})
+	session, _ := registerInstance(t, ts, "voxgig-solardemo", up.ts.URL)
+
+	t.Run("a body-only credential degrades the capture", func(t *testing.T) {
+		up.respond = func(w http.ResponseWriter, r *http.Request) {
+			// The exchange's whole point: the response mints another one.
+			fmt.Fprintf(w, `{"access_token":"minted-%s"}`, bodyOnly)
+		}
+		// No Station-Redact: nothing names the body, and no header
+		// carries a credential for the header rule to catch.
+		resp := forward(t, ts, session, nil,
+			envelope(t, up.ts.URL+"/oauth/token", "POST", map[string]any{
+				"Content-Type": "application/x-www-form-urlencoded",
+			}, "grant_type=client_credentials&client_id=app&client_secret="+bodyOnly))
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("forward status = %d", resp.StatusCode)
+		}
+
+		entries := srv.captures.Snapshot()
+		last := entries[len(entries)-1]
+		if last.Depth != "headers" || !last.Degraded {
+			t.Fatalf("depth=%q degraded=%v, want headers/true", last.Depth, last.Degraded)
+		}
+		if last.ReqBody != "" || last.ResBody != "" {
+			t.Error("a degraded capture must not store bodies")
+		}
+		if strings.Contains(srv.captures.DumpForScan(), bodyOnly) {
+			t.Fatal("the body-only credential entered the capture store")
+		}
+	})
+
+	t.Run("an ordinary body still captures at full", func(t *testing.T) {
+		// The rule is a credential-SHAPE test, not a "there is a body"
+		// test: degrading every POST would cost §8.5 its whole point.
+		up.respond = nil
+		resp := forward(t, ts, session, nil,
+			envelope(t, up.ts.URL+"/planet", "POST", nil, `{"name":"pluto","mass":1}`))
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("forward status = %d", resp.StatusCode)
+		}
+		entries := srv.captures.Snapshot()
+		last := entries[len(entries)-1]
+		if last.Depth != "full" || last.Degraded {
+			t.Errorf("depth=%q degraded=%v, want full/false", last.Depth, last.Degraded)
+		}
+		if !strings.Contains(last.ReqBody, "pluto") {
+			t.Errorf("captured request body = %q, want the body verbatim", last.ReqBody)
+		}
+	})
+}

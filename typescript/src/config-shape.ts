@@ -55,116 +55,20 @@ export const CONFIG_SHAPE: any = {
               "proxy"
             ]
           ],
-          "policy": [
-            "`$ONE`",
-            "`$NIL`",
-            {
-              "allow": [
-                "`$ONE`",
-                "`$NIL`",
-                {
-                  "method": [
-                    "`$CHILD`",
-                    "`$STRING`"
-                  ],
-                  "op": [
-                    "`$CHILD`",
-                    "`$STRING`"
-                  ]
-                }
-              ],
-              "budget": [
-                "`$ONE`",
-                "`$NIL`",
-                {
-                  "concurrency": [
-                    "`$ONE`",
-                    "`$NIL`",
-                    "`$INTEGER`"
-                  ],
-                  "rps": [
-                    "`$ONE`",
-                    "`$NIL`",
-                    "`$NUMBER`"
-                  ]
-                }
-              ],
-              "hosts": [
-                "`$CHILD`",
-                "`$STRING`"
-              ],
-              "mode": [
-                "`$ONE`",
-                "`$NIL`",
-                [
-                  "`$EXACT`",
-                  "live"
-                ],
-                [
-                  "`$EXACT`",
-                  "record"
-                ],
-                [
-                  "`$EXACT`",
-                  "replay"
-                ],
-                [
-                  "`$EXACT`",
-                  "mock"
-                ],
-                [
-                  "`$EXACT`",
-                  "block"
-                ]
-              ]
-            }
-          ],
-          "options": [
-            "`$ONE`",
-            "`$NIL`",
-            "`$MAP`"
-          ],
-          "feature": {
-            "`$CHILD`": {
-              "active": "`$BOOLEAN`",
-              "`$OPEN`": true
-            }
-          }
-        }
-      },
-      "sdk": {
-        "`$CHILD`": {
-          "active": "`$BOOLEAN`",
-          "package": [
-            "`$ONE`",
-            "`$NIL`",
-            "`$STRING`"
-          ],
-          "export": [
-            "`$ONE`",
-            "`$NIL`",
-            "`$STRING`"
-          ],
-          "base": [
-            "`$ONE`",
-            "`$NIL`",
-            "`$STRING`"
-          ],
-          "secret": [
-            "`$ONE`",
-            "`$NIL`",
-            "`$STRING`"
-          ],
-          "resolve": [
+          "capture": [
             "`$ONE`",
             "`$NIL`",
             [
               "`$EXACT`",
-              "library"
+              "meta"
             ],
             [
               "`$EXACT`",
-              "proxy"
+              "headers"
+            ],
+            [
+              "`$EXACT`",
+              "full"
             ]
           ],
           "policy": [
@@ -229,6 +133,148 @@ export const CONFIG_SHAPE: any = {
                   "block"
                 ]
               ]
+            }
+          ],
+          "agent": [
+            "`$ONE`",
+            "`$NIL`",
+            {
+              "write": "`$BOOLEAN`"
+            }
+          ],
+          "options": [
+            "`$ONE`",
+            "`$NIL`",
+            "`$MAP`"
+          ],
+          "feature": {
+            "`$CHILD`": {
+              "active": "`$BOOLEAN`",
+              "`$OPEN`": true
+            }
+          }
+        }
+      },
+      "sdk": {
+        "`$CHILD`": {
+          "active": "`$BOOLEAN`",
+          "package": [
+            "`$ONE`",
+            "`$NIL`",
+            "`$STRING`"
+          ],
+          "export": [
+            "`$ONE`",
+            "`$NIL`",
+            "`$STRING`"
+          ],
+          "base": [
+            "`$ONE`",
+            "`$NIL`",
+            "`$STRING`"
+          ],
+          "secret": [
+            "`$ONE`",
+            "`$NIL`",
+            "`$STRING`"
+          ],
+          "resolve": [
+            "`$ONE`",
+            "`$NIL`",
+            [
+              "`$EXACT`",
+              "library"
+            ],
+            [
+              "`$EXACT`",
+              "proxy"
+            ]
+          ],
+          "capture": [
+            "`$ONE`",
+            "`$NIL`",
+            [
+              "`$EXACT`",
+              "meta"
+            ],
+            [
+              "`$EXACT`",
+              "headers"
+            ],
+            [
+              "`$EXACT`",
+              "full"
+            ]
+          ],
+          "policy": [
+            "`$ONE`",
+            "`$NIL`",
+            {
+              "allow": [
+                "`$ONE`",
+                "`$NIL`",
+                {
+                  "method": [
+                    "`$CHILD`",
+                    "`$STRING`"
+                  ],
+                  "op": [
+                    "`$CHILD`",
+                    "`$STRING`"
+                  ]
+                }
+              ],
+              "budget": [
+                "`$ONE`",
+                "`$NIL`",
+                {
+                  "concurrency": [
+                    "`$ONE`",
+                    "`$NIL`",
+                    "`$INTEGER`"
+                  ],
+                  "rps": [
+                    "`$ONE`",
+                    "`$NIL`",
+                    "`$NUMBER`"
+                  ]
+                }
+              ],
+              "hosts": [
+                "`$CHILD`",
+                "`$STRING`"
+              ],
+              "mode": [
+                "`$ONE`",
+                "`$NIL`",
+                [
+                  "`$EXACT`",
+                  "live"
+                ],
+                [
+                  "`$EXACT`",
+                  "record"
+                ],
+                [
+                  "`$EXACT`",
+                  "replay"
+                ],
+                [
+                  "`$EXACT`",
+                  "mock"
+                ],
+                [
+                  "`$EXACT`",
+                  "block"
+                ]
+              ]
+            }
+          ],
+          "agent": [
+            "`$ONE`",
+            "`$NIL`",
+            {
+              "write": "`$BOOLEAN`"
             }
           ],
           "options": [

@@ -271,3 +271,62 @@ func TestForwardSemantics(t *testing.T) {
 		}
 	})
 }
+
+// --- §8.2/§16: the outbound Host authority ------------------------------
+
+// TestForwardHostOverride: the hosts policy approves the ENVELOPE URL's
+// hostname, but the outbound HTTP `Host` is the authority a reverse
+// proxy or a virtual-hosted server actually routes on. An override that
+// disagrees with the target would aim the request - injected credential
+// and all - at an unapproved virtual host behind an approved network
+// destination, with the checked destination unchanged.
+func TestForwardHostOverride(t *testing.T) {
+	up := newUpstream(t)
+	cfgPath := stationJSONFor(t, `"127.0.0.1"`, "proxy", "meta")
+	ts, _ := newTestProxyServer(t, func(c *Config) {
+		c.StationConfigPath = cfgPath
+	})
+	if resp := call(t, ts, http.MethodPost, "/v1/approve/voxgig-solardemo", "", nil, ""); resp.StatusCode != http.StatusOK {
+		t.Fatalf("approve: %d", resp.StatusCode)
+	}
+	session, binding := registerInstance(t, ts, "voxgig-solardemo", up.ts.URL)
+	grant, _ := binding["grant"].(string)
+
+	t.Run("an unapproved Host authority is refused", func(t *testing.T) {
+		before := up.count()
+		resp := forward(t, ts, session, map[string]string{"Station-Grant": grant},
+			envelope(t, up.ts.URL+"/vhost", "GET", map[string]any{
+				"Host":          "unapproved.example",
+				"Authorization": "Bearer [station:voxgig-solardemo]",
+			}, ""))
+		if resp.StatusCode != http.StatusForbidden {
+			t.Fatalf("status = %d, want 403", resp.StatusCode)
+		}
+		if got := errCode(t, resp); got != CodeHostAllow {
+			t.Errorf("code = %q, want %q", got, CodeHostAllow)
+		}
+		if up.count() != before {
+			t.Error("the re-aimed envelope still reached the upstream, credential attached")
+		}
+	})
+
+	t.Run("a Host naming the target authority is a no-op", func(t *testing.T) {
+		host := strings.TrimPrefix(up.ts.URL, "http://")
+		resp := forward(t, ts, session, nil,
+			envelope(t, up.ts.URL+"/same", "GET", map[string]any{"Host": host}, ""))
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("status = %d, want 200", resp.StatusCode)
+		}
+		if got := up.last(t).Path; got != "/same" {
+			t.Errorf("upstream path = %q, want /same", got)
+		}
+	})
+
+	t.Run("a bare hostname matching the target is a no-op too", func(t *testing.T) {
+		resp := forward(t, ts, session, nil,
+			envelope(t, up.ts.URL+"/bare", "GET", map[string]any{"Host": "127.0.0.1"}, ""))
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("status = %d, want 200", resp.StatusCode)
+		}
+	})
+}

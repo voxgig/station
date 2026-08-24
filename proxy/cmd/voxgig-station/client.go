@@ -87,7 +87,26 @@ func resolveClient(urlFlag string, tokenFlag string, tokenFileFlag string) (*cli
 		}
 	}
 
-	return &client{base: base, token: token, http: &http.Client{}}, nil
+	return &client{base: base, token: token, http: newDaemonHTTPClient()}, nil
+}
+
+// newDaemonHTTPClient builds the verb client. It NEVER follows
+// redirects, and that is a §8.1 requirement rather than a preference:
+// the proof-of-token handshake is only worth anything if the endpoint
+// that produced the proof is the endpoint that will receive the bearer
+// token. A default client follows 3xx, so an imposter squatting the
+// configured address could bounce /v1/health to the genuine daemon on
+// another local address, relay its valid Station-Proof, pass
+// verification - and then receive the token itself on the next request,
+// which still goes to the imposter's own URL. With redirects off, a 3xx
+// comes back as an ordinary response and the verbs reject it: the proof
+// is necessarily the answering endpoint's own.
+func newDaemonHTTPClient() *http.Client {
+	return &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 }
 
 // verifyProof performs the §8.1 challenge-response BEFORE any bearer
@@ -110,6 +129,13 @@ func (c *client) verifyProof() error {
 	}
 	defer resp.Body.Close()
 	io.Copy(io.Discard, resp.Body)
+	if resp.StatusCode/100 == 3 {
+		return fmt.Errorf(
+			"health probe on %s answered %d redirecting to %q: this client does not follow "+
+				"redirects - a relayed proof would be produced by an endpoint other than the one "+
+				"that receives the bearer token (§8.1); nothing sensitive was sent",
+			c.base, resp.StatusCode, resp.Header.Get("Location"))
+	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("health probe on %s returned %d", c.base, resp.StatusCode)
 	}

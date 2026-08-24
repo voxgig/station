@@ -209,7 +209,7 @@ functions, no references, no expressions, no environment interpolation
 }
 ```
 
-A **block** — the same eight keys in both positions:
+A **block** — the same keys in both positions:
 
 | key | type | meaning |
 |---|---|---|
@@ -218,10 +218,21 @@ A **block** — the same eight keys in both positions:
 | `base` | string | base URL override |
 | `secret` | string | sekreto secret **name** — never a value (§5) |
 | `resolve` | `"library"` \| `"proxy"` | R1 in-process, or R2 proxy-side (`station.md` §5.3) |
-| `policy` | `{ "hosts": [string] }` | egress allowlist |
+| `policy` | `{ "hosts": [string], "mode": ... }` | egress allowlist, and §16's `mode` kill switch |
+| `capture` | `"meta"` \| `"headers"` \| `"full"` | capture depth for this instance, read by the proxy (`station.md` §8.5) |
+| `agent` | `{ "write": boolean }` | §16's per-instance opt-in for mutating agent operations, read by the proxy |
 | `feature` | map | SDK features to activate and configure (§8) |
 | `options` | map | extra options passed to the SDK constructor (§5.2 restricts it) |
 | `active` | boolean | default `true`; `false` declares an instance without allowing it to be built |
+
+`capture` and `agent` are read by the **proxy**, out of this same
+file: it loads profiles itself (`station.md` §8.3) rather than taking
+policy from anything a client registers. They are part of the shared
+shape precisely because one `station.json` serves both the application
+and the proxy — a shape admitting only the library's keys would make
+the documented single file impossible, since the library validates it
+at `open()` and would reject it as `station_config_invalid` before the
+application could register at all.
 
 `active` here means **barred from running** — a declaration that stays
 in the file and in `instances()` while being refused a client. It is

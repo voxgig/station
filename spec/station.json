@@ -1166,6 +1166,131 @@
        },
        "station": 1
       }
+     },
+     {
+      "doc": true,
+      "id": "config#proxy-control-keys",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "voxgig-solardemo": {
+           "agent": {
+            "write": true
+           },
+           "capture": "full",
+           "resolve": "proxy"
+          }
+         }
+        }
+       },
+       "station": 1
+      },
+      "out": {
+       "profiles": {
+        "default": {
+         "api": {},
+         "feature": {},
+         "sdk": {
+          "voxgig-solardemo": {
+           "active": true,
+           "agent": {
+            "write": true
+           },
+           "capture": "full",
+           "feature": {},
+           "resolve": "proxy"
+          }
+         },
+         "secrets": {
+          "providers": [
+           {
+            "kind": "env"
+           }
+          ]
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "id": "config#proxy-control-keys-on-the-api-block",
+      "in": {
+       "profiles": {
+        "default": {
+         "api": {
+          "stripe": {
+           "agent": {
+            "write": false
+           },
+           "capture": "headers"
+          }
+         }
+        }
+       },
+       "station": 1
+      },
+      "out": {
+       "profiles": {
+        "default": {
+         "api": {
+          "stripe": {
+           "active": true,
+           "agent": {
+            "write": false
+           },
+           "capture": "headers",
+           "feature": {}
+          }
+         },
+         "feature": {},
+         "sdk": {},
+         "secrets": {
+          "providers": [
+           {
+            "kind": "env"
+           }
+          ]
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "err": "capture to be one of nil, [exact,meta], [exact,headers], [exact,full]",
+      "id": "config#capture-depth-must-be-a-known-depth",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "capture": "everything"
+          }
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "err": "agent to be one of nil, {write:boolean}",
+      "id": "config#agent-block-stays-closed",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "agent": {
+            "writ": true
+           }
+          }
+         }
+        }
+       },
+       "station": 1
+      }
      }
     ]
    },

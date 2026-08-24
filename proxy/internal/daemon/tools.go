@@ -268,6 +268,21 @@ func isReadOp(op string) bool {
 	return false
 }
 
+// mutatingMethod is the HTTP-method mutation classification - the one
+// replay already applies to a capture (§7): everything but GET and HEAD
+// mutates. It exists because the op NAME is client-supplied through an
+// explicitly untrusted descriptor (§8.3), so "the op is called list"
+// proves nothing about what the request does. The two rules compose:
+// an operation is read-only only when its name AND its canonical
+// point's method both say so.
+func mutatingMethod(method string) bool {
+	switch strings.ToUpper(method) {
+	case http.MethodGet, http.MethodHead:
+		return false
+	}
+	return true
+}
+
 // --- the tools ----------------------------------------------------------
 
 func (s *Server) toolStatus(_ json.RawMessage) (any, *toolError) {
@@ -396,21 +411,6 @@ func (s *Server) toolCall(raw json.RawMessage) (any, *toolError) {
 		}
 	}
 
-	// §7 safety defaults: load/list by default; a mutating op needs the
-	// daemon gate AND the instance's own policy opt-in - writes are a
-	// policy grant, not a default (§12).
-	eff := s.policy.EffectiveFor(ref)
-	if !isReadOp(opName) {
-		if !s.cfg.AgentWrite {
-			return nil, &toolError{Code: CodeAgentAllow,
-				Message: fmt.Sprintf("op %q mutates and this daemon was started without --agent-write", opName)}
-		}
-		if !eff.AgentWrite {
-			return nil, &toolError{Code: CodeAgentAllow,
-				Message: fmt.Sprintf("op %q mutates and instance %q has no agent.write policy opt-in (§16)", opName, ref)}
-		}
-	}
-
 	points := entity.Ops[opName].Points
 	if len(points) == 0 {
 		return nil, &toolError{Code: CodeNoOp,
@@ -422,6 +422,38 @@ func (s *Server) toolCall(raw json.RawMessage) (any, *toolError) {
 	method := strings.ToUpper(point.Method)
 	if method == "" {
 		method = http.MethodGet
+	}
+
+	// §7 safety defaults: load/list by default; a mutating op needs the
+	// daemon gate AND the instance's own policy opt-in - writes are a
+	// policy grant, not a default (§12).
+	//
+	// The name alone does not decide it. The descriptor is untrusted
+	// input (§8.3), so a hostile or merely wrong one can declare a
+	// `list` op whose canonical point is a POST/PUT/PATCH/DELETE; the
+	// method carries the truth about what the request does, and both
+	// halves must read as a read for the call to skip the gate.
+	eff := s.policy.EffectiveFor(ref)
+	// §16's kill switch reaches the agent surface too: station_call is
+	// egress through the same data plane, so `block` refuses it for the
+	// same reason and with the same code as a library forward.
+	if eff.Mode == ModeBlock {
+		return nil, &toolError{Code: CodeHostAllow, Message: blockedMessage(ref)}
+	}
+	if !isReadOp(opName) || mutatingMethod(method) {
+		why := fmt.Sprintf("op %q mutates", opName)
+		if isReadOp(opName) {
+			why = fmt.Sprintf("op %q is read-named but its canonical point is %s %s, which mutates",
+				opName, method, point.Path)
+		}
+		if !s.cfg.AgentWrite {
+			return nil, &toolError{Code: CodeAgentAllow,
+				Message: why + " and this daemon was started without --agent-write"}
+		}
+		if !eff.AgentWrite {
+			return nil, &toolError{Code: CodeAgentAllow,
+				Message: fmt.Sprintf("%s and instance %q has no agent.write policy opt-in (§16)", why, ref)}
+		}
 	}
 
 	base := eff.Base
@@ -591,27 +623,52 @@ func (s *Server) toolTraffic(raw json.RawMessage) (any, *toolError) {
 	}
 	grep := argString(args, "grep")
 
-	// Over-fetch, then apply the tool-only since/grep filters; the
-	// cursor stays capture-id based so pagination is stable.
-	candidates, more := s.captures.Query(argUint(args, "cursor"), 500, argString(args, "plugin"), "")
+	// Fetch in batches and apply the tool-only since/grep filters,
+	// CONTINUING PAST A BATCH THAT MATCHES NOTHING. A single over-fetch
+	// would strand the caller: with more captures behind the cursor
+	// than one batch holds and the first match after it, the answer was
+	// no captures, `more: true` and no `next` - a cursor the client
+	// cannot advance, and matches it can never reach. The scan runs to
+	// the requested limit or the end of the store (itself bounded by
+	// CaptureMaxEntries), and reports the last examined id as `next` so
+	// a caller can always move forward.
+	plugin := argString(args, "plugin")
+	cursor := argUint(args, "cursor")
+	examined := cursor
 	out := []*CaptureEntry{}
-	for _, e := range candidates {
-		if !cutoff.IsZero() {
-			if t, err := time.Parse(time.RFC3339, e.T); err != nil || t.Before(cutoff) {
-				continue
-			}
-		}
-		if grep != "" {
-			text, _ := json.Marshal(e)
-			if !strings.Contains(string(text), grep) {
-				continue
-			}
-		}
-		if len(out) >= limit {
-			more = true
+	more := false
+
+scan:
+	for {
+		batch, _ := s.captures.Query(cursor, trafficScanBatch, plugin, "")
+		if len(batch) == 0 {
 			break
 		}
-		out = append(out, e)
+		for _, e := range batch {
+			if !cutoff.IsZero() {
+				if t, err := time.Parse(time.RFC3339, e.T); err != nil || t.Before(cutoff) {
+					examined = e.ID
+					continue
+				}
+			}
+			if grep != "" {
+				text, _ := json.Marshal(e)
+				if !strings.Contains(string(text), grep) {
+					examined = e.ID
+					continue
+				}
+			}
+			if len(out) >= limit {
+				// A match beyond the limit: stop here, and leave
+				// `examined` on the last RETURNED entry so the cursor
+				// the caller gets back does not skip this one.
+				more = true
+				break scan
+			}
+			examined = e.ID
+			out = append(out, e)
+		}
+		cursor = batch[len(batch)-1].ID
 	}
 
 	result := map[string]any{
@@ -621,9 +678,17 @@ func (s *Server) toolTraffic(raw json.RawMessage) (any, *toolError) {
 	}
 	if len(out) > 0 {
 		result["next"] = out[len(out)-1].ID
+	} else if examined > 0 {
+		result["next"] = examined
 	}
 	return result, nil
 }
+
+// trafficScanBatch is how many captures one store read pulls back
+// before the tool-only filters run over them. It bounds the working
+// set, not the scan: the loop keeps reading until the limit is filled
+// or the store is exhausted.
+const trafficScanBatch = 500
 
 // toolReplay enforces §7's gates and §8.5's replayability refusal for
 // real, and reports the v1 truth about execution: the replay engine
@@ -646,7 +711,7 @@ func (s *Server) toolReplay(raw json.RawMessage) (any, *toolError) {
 	}
 	// §7: replay of a mutating capture sits behind the same write gate
 	// as mutating station_call.
-	if capture.ReqMethod != http.MethodGet && capture.ReqMethod != http.MethodHead {
+	if mutatingMethod(capture.ReqMethod) {
 		if !argBool(args, "mutate") {
 			return nil, &toolError{Code: CodeAgentAllow,
 				Message: fmt.Sprintf("capture %d is a mutating %s; pass mutate:true (and both write gates must be open)", id, capture.ReqMethod)}

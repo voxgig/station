@@ -38,6 +38,16 @@ const (
 	StateApproved = "approved"
 )
 
+// Policy modes (§16). `live` is the default; `block` is the per-plugin
+// kill switch. The proxy enforces `block` itself at the data-plane seam
+// rather than trusting the library's own check: a client that predates
+// the check, or that talks to /v1/forward directly, must not be able to
+// keep an instance running that the proxy-side profile has switched off.
+const (
+	ModeLive  = "live"
+	ModeBlock = "block"
+)
+
 var envtokenRe = regexp.MustCompile(`[^A-Z0-9]+`)
 
 // envtoken normalizes a name the way sdkgen's envToken does (§5.1: one
@@ -110,6 +120,14 @@ func (e instanceEntry) agentWrite() bool {
 	agent, _ := e["agent"].(map[string]any)
 	write, _ := agent["write"].(bool)
 	return write
+}
+
+// mode reads the §16 `policy.mode` kill switch. Empty means the entry
+// does not declare one and the caller's default (`live`) stands.
+func (e instanceEntry) mode() string {
+	policy, _ := e["policy"].(map[string]any)
+	m, _ := policy["mode"].(string)
+	return m
 }
 
 func (e instanceEntry) hosts() []string {
@@ -271,6 +289,7 @@ type Effective struct {
 	Base       string
 	Resolve    string // library | proxy
 	Capture    string // meta | headers | full
+	Mode       string // §16 policy.mode: live | record | replay | mock | block
 	AgentWrite bool   // the instance's §16 agent.write opt-in
 	Version    int
 	Approved   *Approval
@@ -402,6 +421,7 @@ func (p *PolicyStore) effectiveLocked(ref string) Effective {
 		Secret:  p.secretNameFor(ref),
 		Resolve: "library",
 		Capture: "meta",
+		Mode:    ModeLive,
 		Version: p.versionLocked(ref),
 	}
 	entry, covered := p.entryFor(ref)
@@ -412,6 +432,11 @@ func (p *PolicyStore) effectiveLocked(ref string) Effective {
 		}
 		if c := entry.str("capture"); c != "" {
 			eff.Capture = c
+		}
+		// §16's kill switch is carried, not discarded: the proxy loads
+		// the authoritative profile and is the seam that must enforce it.
+		if m := entry.mode(); m != "" {
+			eff.Mode = m
 		}
 		eff.Base = entry.str("base")
 		eff.AgentWrite = entry.agentWrite()
@@ -482,6 +507,16 @@ func hostOfURL(raw string) string {
 		return ""
 	}
 	return strings.ToLower(u.Hostname())
+}
+
+// blockedMessage is the §16 kill-switch refusal, worded like the
+// library's own (typescript/src/Station.ts): §14 names no mode-specific
+// code, so `block` raises station_host_allow - the same `_allow` gate
+// grammar, the same seam, the same meaning (egress denied by this
+// instance's policy), with the message naming the mode.
+func blockedMessage(ref string) string {
+	return fmt.Sprintf(
+		"egress denied: instance %q is policy mode %q, the kill switch (§16)", ref, ModeBlock)
 }
 
 // HostAllowed checks an egress hostname against an approved allowlist

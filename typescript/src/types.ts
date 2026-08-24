@@ -37,7 +37,7 @@ export type Profile = {
   sdk?: Record<string, SdkBlock>
 }
 
-// The same eight keys in both block positions. The two differ in what
+// The same key set in both block positions. The two differ in what
 // they KEY, not in what they hold, which is why the two spec objects in
 // config-shape.json are identical and a guard test asserts it (§3.1).
 // Per-plugin policy (design §16). The solo-expressible keys:
@@ -62,6 +62,15 @@ export type SdkBlock = {
   secret?: string
   resolve?: 'library' | 'proxy'
   policy?: PolicyBlock
+  // Read by the PROXY out of this very file (design §8.3: the proxy
+  // loads profiles ITSELF): the capture depth it records this
+  // instance's exchanges at (§8.5), and §16's per-instance agent write
+  // opt-in, which a mutating agent operation needs alongside the
+  // daemon's own --agent-write flag. They belong to the SHARED shape
+  // because one station.json serves both the application and the
+  // proxy; a shape that rejected them would make that impossible.
+  capture?: 'meta' | 'headers' | 'full'
+  agent?: { write: boolean }
   feature?: Record<string, any>
   options?: Record<string, any>
   // `active: false` means BARRED FROM RUNNING - a declaration that stays
