@@ -17,6 +17,7 @@ use Scalar::Util qw(refaddr);
 use Test::More;
 
 use Voxgig::Station;
+use Voxgig::Station::Error qw(is_known_code);
 use Voxgig::Station::Adapter qw(adapter_feature feature_binding);
 use Voxgig::Station::Secrets qw(placeholder_for);
 use Voxgig::Station::Profile qw(select_profile);
@@ -547,6 +548,21 @@ subtest 'env profile selected unless opt wins' => sub {
         is( select_profile('stage'), 'stage', 'opt wins' );
     }
     is( select_profile(undef), 'default', 'default' );
+};
+
+# The error catalog is built from a LIST, not a qw(), and the reason is
+# a real bug this pins shut: `my @CODES = qw( ... # comment ... )` takes
+# every word of every comment as a code, so is_known_code once answered
+# true for "#", "Features", "(design" and "8.4,". The corpus's negative
+# cases ("station_made_up", "no_such_code") could never catch that - no
+# spec would think to enumerate comment fragments - so the guard belongs
+# here, beside the declaration it protects.
+subtest 'the error catalog admits no comment fragments' => sub {
+    ok( is_known_code('station_no_proxy'),      'a real code is known' );
+    ok( is_known_code('station_feature_order'), 'the last real code is known' );
+    for my $junk ( '#', 'Features', '(design', '8.4,', '8.5).', 'the', 'design' ) {
+        ok( !is_known_code($junk), "\"$junk\" is not a code" );
+    }
 };
 
 done_testing();
