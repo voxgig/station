@@ -11,7 +11,7 @@
 // written by the parent Makefile supplies all three from local checkouts.
 module github.com/voxgig/station/go/testutil
 
-go 1.21
+go 1.23
 
 require (
 	github.com/voxgig/omni/go v0.0.0
