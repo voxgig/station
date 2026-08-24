@@ -1,4 +1,10 @@
-// RUN: make test  (cargo test, after `make vendor`)
+// RUN: make test  (from the port root, after `make vendor`)
+// RUN-SOME: cd corpus && cargo test <name>
+//
+// Both name this SEPARATE package deliberately: the suite lives outside
+// the published crate (omni register 4.13), so `cargo test` from the
+// port root runs only the library's unit tests - a green that ran no
+// conformance at all.
 //
 // The station conformance suite: the pure-contract half of the design's
 // §13 corpus, from spec/station.json, through voxgig/omni - the same

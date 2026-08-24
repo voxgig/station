@@ -1,5 +1,10 @@
 // RUN: make test
-// RUN-SOME: go test -run 'TestStation/secretname'
+// RUN-SOME: cd testutil && go test -run 'TestStation/secretname'
+//
+// RUN-SOME names this NESTED module deliberately: the suite lives
+// outside the published module (omni register 4.13), so the same
+// command from the port root matches nothing and reports a green that
+// ran no conformance at all.
 //
 // The station conformance suite: the pure-contract half of the design's
 // §13 corpus, from spec/station.json, through voxgig/omni - the same
