@@ -75,7 +75,7 @@ dynamic DESCRIPTORWARNINGS(List<dynamic> args) {
 
 dynamic CANONICAL(List<dynamic> args) => canonicalSerialize(denull(args[0]));
 
-dynamic PROFILE(List<dynamic> args) {
+dynamic INSTANCE(List<dynamic> args) {
   final vin = args[0];
   return resolveProfile(denull(vin['config']), vin['profile'].toString());
 }
@@ -92,6 +92,10 @@ void conformCases(void Function(String, FutureOr<void> Function()) testcase) {
   testcase('conform: descriptorwarnings',
       () => R.runset(R.set('descriptorwarnings'), DESCRIPTORWARNINGS));
   testcase('conform: canonical', () => R.runset(R.set('canonical'), CANONICAL));
-  testcase('conform: profile', () => R.runset(R.set('profile'), PROFILE));
+  // The 3.3 merge, and the whole of this port's profile contract. The
+  // `profile` section is NOT run: it pins the pre-Stage-1 `plugin`
+  // grammar, which this port no longer speaks. It stays in the corpus
+  // for the ports that have not crossed yet - see spec/README.md.
+  testcase('conform: instance', () => R.runset(R.set('instance'), INSTANCE));
   testcase('conform: errors', () => R.runset(R.set('errors'), ERRORS));
 }

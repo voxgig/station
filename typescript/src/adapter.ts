@@ -78,6 +78,29 @@ export function featureBinding(ctx: any, fopts: any): FeatureBinding | null {
     options.base = profilePlugin.base
   }
 
+  // Policy allowlists (design §16): `allow.op` / `allow.method` are
+  // "the same vocabulary the SDKs already enforce (`options.allow`, and
+  // the raw-access gate every target implements); station sets these
+  // SDK options from policy so enforcement is in the SDK's own
+  // pipeline" - the point_op_allow / spec_method_allow gates. The SDK's
+  // own option form is a comma-separated string, so the policy's list
+  // joins into it. Applied at binding time, which is inside the
+  // constructor, and on BOTH entry paths - connect/adopt and the
+  // declarative build both delegate here. Unlike `base` above, which is
+  // a default the caller may override, an allowlist is ENFORCEMENT:
+  // policy wins over whatever the options carry, on exactly the keys it
+  // sets.
+  const pallow = profilePlugin?.policy?.allow
+  if (null != pallow && 'object' === typeof pallow) {
+    const allow = {
+      ...(null != options.allow && 'object' === typeof options.allow
+        ? options.allow : {}),
+    }
+    if (Array.isArray(pallow.op)) { allow.op = pallow.op.join(',') }
+    if (Array.isArray(pallow.method)) { allow.method = pallow.method.join(',') }
+    options.allow = allow
+  }
+
   if ('none' !== binding.rung) {
     const placeholder = binding.placeholder!
 

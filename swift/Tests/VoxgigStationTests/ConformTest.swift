@@ -40,11 +40,10 @@ func denull(_ val: OJson) -> OJson {
     return .list(items.map(denull))
   }
   if case .map(let entries) = val {
-    var out: [String: OJson] = [:]
-    for (key, entry) in entries {
-      out[key] = denull(entry)
-    }
-    return .map(out)
+    // omni's map is an INSERTION-ORDERED association list, not a Swift
+    // Dictionary (Omni/Json.swift): rebuild it in place so the spec's
+    // own key order survives the walk.
+    return .map(entries.map { ($0.0, denull($0.1)) })
   }
   return val
 }
@@ -75,11 +74,12 @@ func omniJson(_ val: SJson) -> OJson {
   case .str(let text): return .str(text)
   case .list(let items): return .list(items.map(omniJson))
   case .map(let entries):
-    var out: [String: OJson] = [:]
-    for (key, entry) in entries {
-      out[key] = omniJson(entry)
-    }
-    return .map(out)
+    // The station library's map IS a Swift Dictionary and so carries no
+    // order; omni's is an association list. Sort by key so what this
+    // port hands back is stable from run to run - omni's deepequal is
+    // order-independent, but a stable order keeps failure output
+    // readable and diffable.
+    return .map(entries.keys.sorted().map { ($0, omniJson(entries[$0]!)) })
   }
 }
 
@@ -146,10 +146,16 @@ final class ConformTest: XCTestCase {
       })
   }
 
-  func testProfile() throws {
+  // The 3.3 merge, and the whole of this port's profile contract.
+  //
+  // The `profile` section is NOT run: it pins the pre-Stage-1 `plugin`
+  // grammar, which this port no longer speaks. It stays in the corpus
+  // for the ports that have not crossed the rename yet and is deleted
+  // when the last one does - see spec/README.md.
+  func testInstance() throws {
     let R = try pack()
     try R.runset(
-      R.set("profile"),
+      R.set("instance"),
       { args in
         let out = try Profile.resolveProfile(
           stationJson(denull(args[0].get("config"))),

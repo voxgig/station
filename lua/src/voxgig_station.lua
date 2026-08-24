@@ -189,6 +189,30 @@ local CODES = {
   'station_replay_lossy',
   'station_open_conflict',
   'station_bound_twice',
+
+  -- Declarative config (design 6.4). Only the reference ports raise
+  -- the config-validation codes so far (Stage 1); the catalog is
+  -- repo-wide, so every port knows them.
+  'station_config_invalid',
+  'station_config_secret',
+  'station_secret_collision',
+  'station_feature_reserved',
+
+  -- Instances (design 6.4). `as` is a tag, not a free name.
+  'station_instance_api',
+
+  -- The declarative front door (design 6.4). Availability errors are
+  -- fatal at first use, not at open().
+  'station_no_instance',
+  'station_instance_inactive',
+  'station_sdk_load',
+  'station_no_factory',
+  'station_factory_conflict',
+
+  -- Features (design 8.4, 8.5).
+  'station_feature_unknown',
+  'station_feature_option',
+  'station_feature_order',
 }
 
 local CODESET = {}
@@ -762,7 +786,15 @@ function M.load_config(from)
   end
   local text = handle:read('a')
   handle:close()
-  return json_parse(text)
+  -- A file that is not JSON is a config error, not a raw parser error
+  -- escaping open(): the reader found station.json and could not use
+  -- it, which is exactly what station_config_invalid exists to say.
+  local ok, parsed = pcall(json_parse, text)
+  if not ok then
+    fail('station_config_invalid',
+      'station.json at ' .. file .. ' is not valid JSON: ' .. tostring(parsed))
+  end
+  return parsed
 end
 
 -- Profile selection: the open() option, else VOXGIG_STATION_PROFILE,
@@ -778,51 +810,222 @@ function M.select_profile(opt_profile)
   return 'default'
 end
 
--- Merge the base profile ('default') with the selected overlay:
--- deep-merge per plugin, EXCEPT secrets.providers which replaces
--- wholesale (design station.md 3.5, 5.2 - chain order decides which
--- store wins, so a positional merge would be actively dangerous). The
--- `profile` corpus section pins this. Raises station_secret_name for a
--- configured name the sekreto grammar rejects - caught at profile load,
--- not first request (design station.md 14).
-function M.resolve_profile(config, profile_name)
-  local profiles = getk(config, 'profiles') or {}
-  local base = getk(profiles, 'default') or {}
-  local overlay = {}
-  if 'default' ~= profile_name then
-    overlay = getk(profiles, profile_name) or {}
+-- Block-level defaults, applied ONCE to the fully merged instance,
+-- never to a block before the merge (design 3.3, 4.2). Factories, so
+-- every application gets a FRESH feature map - and `active` is a real
+-- JSON boolean true, which the canonical serializer keeps as `true`.
+local BLOCK_DEFAULTS = {
+  active = function()
+    return true
+  end,
+  feature = function()
+    return M.map({})
+  end,
+}
+
+-- The one block key carrying the timing rule: applied AFTER the merge,
+-- never before (design 3.3, 4.2). Named rather than inferred, so a
+-- reader does not have to work out which of the two it is.
+M.MERGE_SENSITIVE = { 'active' }
+
+-- The api half of a ref is the substring before the first `$`, and an
+-- untagged ref IS an api slug (design 3.4). LEXICAL, and that is the
+-- point: under the old free-form identity which api an instance used
+-- was itself a merged value, so a port that got the phasing wrong
+-- silently picked another api's defaults.
+function M.refapi(ref)
+  local s = tostring(ref == nil and '' or ref)
+  local at = string.find(s, '$', 1, true)
+  if at == nil then
+    return s
+  end
+  return string.sub(s, 1, at - 1)
+end
+
+-- Shallow merge, per key, left to right - each source over the one
+-- before it; non-map sources are skipped. ONE level only: an overlay's
+-- `policy` REPLACES the base's entirely rather than merging `hosts`
+-- into it; an allowlist that widens because two precedence levels
+-- merged is the failure this rule prevents.
+local function shallow(...)
+  local out = M.map({})
+  for i = 1, select('#', ...) do
+    local src = select(i, ...)
+    if M.ismap(src) then
+      for k, v in pairs(src) do
+        out[k] = v
+      end
+    end
+  end
+  return out
+end
+
+-- Sorted distinct string keys across several maps (byte order,
+-- non-maps skipped). The single-map sortedkeys above predates this
+-- union form, so the union helper is named distinctly.
+local function mergedkeys(...)
+  local seen = {}
+  local keys = {}
+  for i = 1, select('#', ...) do
+    local m = select(i, ...)
+    if M.ismap(m) then
+      for k in pairs(m) do
+        if type(k) == 'string' and not seen[k] then
+          seen[k] = true
+          keys[#keys + 1] = k
+        end
+      end
+    end
+  end
+  table.sort(keys)
+  return keys
+end
+
+-- The providers list of one profile, or nil - only an actual list
+-- counts (wholesale replacement, never a positional merge).
+local function providers_of(profile)
+  local secrets = getk(profile, 'secrets')
+  if not M.ismap(secrets) then
+    return nil
+  end
+  local p = getk(secrets, 'providers')
+  if type(p) == 'table' and M.islist(p) then
+    return p
+  end
+  return nil
+end
+
+-- A configured secret name sekreto would reject is caught at profile
+-- load, not first request (design station.md 14 station_secret_name) -
+-- and then the DERIVED names are checked for uniqueness, because
+-- envtoken is LOSSY: it collapses any run of non-alphanumerics to `_`,
+-- so `stripe$test` and an untagged instance of a `stripe-test` api both
+-- derive `stripe_test.apikey` and would silently share one credential.
+--
+-- Two instances that EXPLICITLY name one secret are not a collision -
+-- that is the shared-key case the api-level `secret` exists for.
+local function checksecrets(sdk, profile_name)
+  local refs = sortedkeys(sdk)
+
+  for _, ref in ipairs(refs) do
+    local name = getk(sdk[ref], 'secret')
+    if name ~= nil and not M.validname(name) then
+      fail('station_secret_name',
+        'profile "' .. profile_name .. '" sdk "' .. ref ..
+        '": secret name rejected by sekreto: ' .. M.canonical_serialize(tostring(name)))
+    end
   end
 
-  local providers = getk(getk(overlay, 'secrets'), 'providers')
+  local seen = {}
+  for _, ref in ipairs(refs) do
+    local written = getk(sdk[ref], 'secret')
+    local derived = written == nil or written == ''
+    local name = derived and M.secretname_default(ref) or written
+
+    local prior = seen[name]
+    if prior ~= nil and (derived or prior.derived) then
+      fail('station_secret_collision',
+        'profile "' .. profile_name .. '": instances "' .. prior.ref .. '" and "' ..
+        ref .. '" both resolve to secret name "' .. name ..
+        '", so they would share one credential; name it explicitly on ' ..
+        'each, or at the api level to share it deliberately (5.1)')
+    end
+    if prior == nil then
+      seen[name] = { ref = ref, derived = derived }
+    end
+  end
+end
+
+-- Merge the base profile ('default') with the selected overlay.
+--
+-- Design 3.3's total order for the two block levels, lowest first:
+--
+--   base.api[<api>] + base.sdk[<ref>] + overlay.api[<api>] + overlay.sdk[<ref>]
+--
+-- PROFILE SPECIFICITY OUTRANKS BLOCK SPECIFICITY, and this is ONE FLAT
+-- LEFT-TO-RIGHT MERGE. It must not be reorganized into "collapse each
+-- namespace, then put instance over api" - that lets every instance
+-- value beat every api value, so a production `api.stripe.policy` would
+-- fail to override a default profile's `sdk.stripe$test.policy`,
+-- silently keeping the wider allowlist in production.
+--
+-- `secrets.providers` replaces wholesale, never merges (design
+-- station.md 3.5, 5.2 - chain order decides which store wins, so a
+-- positional merge would be actively dangerous). The `instance` corpus
+-- section pins all of this.
+function M.resolve_profile(config, profile_name)
+  local profiles = getk(config, 'profiles')
+  if not M.ismap(profiles) then
+    profiles = {}
+  end
+  local base = getk(profiles, 'default')
+  if not M.ismap(base) then
+    base = {}
+  end
+  local overlay = {}
+  if 'default' ~= profile_name then
+    overlay = getk(profiles, profile_name)
+    if not M.ismap(overlay) then
+      overlay = {}
+    end
+  end
+
+  local providers = providers_of(overlay)
   if providers == nil then
-    providers = getk(getk(base, 'secrets'), 'providers')
+    providers = providers_of(base)
   end
   if providers == nil then
     providers = M.list({ M.map({ kind = 'env' }) })
   end
 
-  local plugin = M.map({})
-  for _, src in ipairs({ getk(base, 'plugin') or {}, getk(overlay, 'plugin') or {} }) do
-    for _, slug in ipairs(sortedkeys(src)) do
-      local merged = M.map(shallowcopy(plugin[slug]))
-      local add = getk(src, slug) or {}
-      for _, k in ipairs(sortedkeys(add)) do
-        merged[k] = add[k]
+  local base_api = getk(base, 'api')
+  if not M.ismap(base_api) then
+    base_api = {}
+  end
+  local over_api = getk(overlay, 'api')
+  if not M.ismap(over_api) then
+    over_api = {}
+  end
+  local base_sdk = getk(base, 'sdk')
+  if not M.ismap(base_sdk) then
+    base_sdk = {}
+  end
+  local over_sdk = getk(overlay, 'sdk')
+  if not M.ismap(over_sdk) then
+    over_sdk = {}
+  end
+
+  -- The api-level defaults in effect for this profile. A REPORT, not an
+  -- input to the instance merge below, and never defaulted.
+  local api = M.map({})
+  for _, slug in ipairs(mergedkeys(base_api, over_api)) do
+    api[slug] = shallow(base_api[slug], over_api[slug])
+  end
+
+  -- An api block declares no instance of its own (design 3.1), so the
+  -- ref set comes from the two `sdk` maps alone.
+  local sdk = M.map({})
+  for _, ref in ipairs(mergedkeys(base_sdk, over_sdk)) do
+    local a = M.refapi(ref)
+    local merged = shallow(base_api[a], base_sdk[ref], over_api[a], over_sdk[ref])
+
+    -- Defaults are applied ONCE, to the fully merged instance, and only
+    -- where the key is ABSENT (an explicit false or {} survives). Had
+    -- the overlay block carried a synthesized `active` into the merge,
+    -- a one-key environment override would silently re-enable an
+    -- integration the base declared inactive.
+    for k, default in pairs(BLOCK_DEFAULTS) do
+      if merged[k] == nil then
+        merged[k] = default()
       end
-      plugin[slug] = merged
     end
+
+    sdk[ref] = merged
   end
 
-  for _, slug in ipairs(sortedkeys(plugin)) do
-    local name = getk(plugin[slug], 'secret')
-    if name ~= nil and not M.validname(name) then
-      fail('station_secret_name',
-        'profile "' .. profile_name .. '" plugin "' .. slug ..
-        '": secret name rejected by sekreto: ' .. M.canonical_serialize(tostring(name)))
-    end
-  end
+  checksecrets(sdk, profile_name)
 
-  return M.map({ name = profile_name, providers = providers, plugin = plugin })
+  return M.map({ name = profile_name, providers = providers, api = api, sdk = sdk })
 end
 
 
@@ -1217,7 +1420,7 @@ function Station:_register(client, config, options, _calleropts, fopts)
       'twice is an error (10.2)')
   end
 
-  local profile_plugin = self.profile.plugin[slug]
+  local profile_plugin = self.profile.sdk[slug]
 
   -- Secret name precedence: the feature option (in-code, design
   -- station.md 9 config.options.secret) beats the profile, which beats
@@ -1343,7 +1546,7 @@ function Station:_transport(slug, inner, fctx, fullurl, fetchdef)
   local mode = type(fctx) == 'table' and type(fctx.client) == 'table' and
     fctx.client.mode or ''
   local live = 'live' == mode
-  local profile_plugin = self.profile.plugin[slug]
+  local profile_plugin = self.profile.sdk[slug]
 
   -- Egress policy (design station.md 16), solo half: the hosts
   -- allowlist is enforced at the seam every request crosses. When a
@@ -1567,7 +1770,7 @@ function Station:close()
   if self.closed then
     return
   end
-  for _, slug in ipairs(sortedkeys(self.profile.plugin)) do
+  for _, slug in ipairs(sortedkeys(self.profile.sdk)) do
     if self.registry[slug] == nil then
       self:_emit({
         t = now_ms(), kind = 'station',

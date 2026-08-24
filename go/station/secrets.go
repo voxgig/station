@@ -16,8 +16,13 @@ import (
 
 // PlaceholderFor is the inert value planted in options.apikey (design
 // §5.3 R1). The `placeholder` corpus section pins the exact string.
-func PlaceholderFor(slug string) string {
-	return "[station:" + slug + "]"
+//
+// §7.2: KEYED BY INSTANCE. Two live instances of one api must have
+// distinct placeholders or the injection seam cannot tell which
+// credential a header wants. For an untagged instance this is the api
+// slug, so the single-instance case is unchanged.
+func PlaceholderFor(name string) string {
+	return "[station:" + name + "]"
 }
 
 type secretBroker struct {
@@ -54,26 +59,36 @@ func newSecretBroker(providers []any) (*secretBroker, error) {
 	}, nil
 }
 
-func (broker *secretBroker) hoist(slug string, value string) {
+func (broker *secretBroker) hoist(instance string, value string) {
 	broker.mu.Lock()
 	defer broker.mu.Unlock()
-	broker.overrides[slug] = value
+	broker.overrides[instance] = value
 	broker.held = append(broker.held, value)
 }
 
-// value resolves the value for a plugin's secret name. Misses and store
-// errors keep sekreto's distinction (design §5.2): a miss is
+// value resolves the value for an instance's secret name. Misses and
+// store errors keep sekreto's distinction (design §5.2): a miss is
 // station_secret_no_value, a store that could not answer is
 // station_secret_error with sekreto's message intact - and never a
 // retry against a weaker store (sekreto owns the chain).
-func (broker *secretBroker) value(slug string, name string) (string, error) {
+//
+// OVERRIDES ARE KEYED BY INSTANCE; THE RESOLUTION CACHE IS KEYED BY
+// SECRET NAME (§5.3). A hoisted credential belongs to the one instance
+// it was resident in, but a resolved VALUE belongs to the name it was
+// resolved for - so several instances sharing one api-level `secret`
+// cost one lookup rather than one each, and every client an auto-tagged
+// Create() produces shares the declared instance's entry instead of
+// re-resolving per request. Keying the cache by instance instead is the
+// defect this replaces: at 26 instances over 20 apis it turns one store
+// round-trip into 26.
+func (broker *secretBroker) value(instance string, name string) (string, error) {
 	broker.mu.Lock()
 	defer broker.mu.Unlock()
 
-	if override, has := broker.overrides[slug]; has {
+	if override, has := broker.overrides[instance]; has {
 		return override, nil
 	}
-	if cached, has := broker.cache[slug]; has {
+	if cached, has := broker.cache[name]; has {
 		return cached, nil
 	}
 
@@ -82,12 +97,12 @@ func (broker *secretBroker) value(slug string, name string) (string, error) {
 		var sekerr *sekreto.SekretoError
 		if errors.As(err, &sekerr) && strings.Contains(sekerr.Message, "unknown secret") {
 			return "", fail("station_secret_no_value",
-				"no store had \""+name+"\" for plugin \""+slug+"\"")
+				"no store had \""+name+"\" for plugin \""+instance+"\"")
 		}
 		return "", fail("station_secret_error", err.Error())
 	}
 
-	broker.cache[slug] = found
+	broker.cache[name] = found
 	broker.held = append(broker.held, found)
 	return found, nil
 }

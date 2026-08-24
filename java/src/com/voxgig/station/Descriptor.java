@@ -169,13 +169,35 @@ public final class Descriptor {
       entities.put(ename, entout);
     }
 
+    // Design 8.5: the features list gains `options` and `transport`, because
+    // it was throwing away what the SDK already embeds.
+    // `config.feature[name].options` is the feature's own declared key set
+    // WITH TYPED DEFAULTS, which is the schema design 8.5 validates
+    // against, and `transport` is the role design 8.4 orders by.
+    //
+    // Both are already inside the SDK; the descriptor stops discarding
+    // them. ADDITIVE, so descriptor v1 consumers are unaffected and the
+    // `descriptor` corpus section still passes unchanged.
+    //
+    // `transport` is CARRIED rather than inferred: the obvious signal, an
+    // empty `hook: {}`, is wrong for station, which both wraps AND
+    // dispatches hooks. Until sdkgen emits it, the design 8.4 role checks
+    // degrade to nothing rather than guessing.
     List<Object> features = new ArrayList<>();
     Map<String, Object> fdefs = asmap(getprop(config, "feature"));
     Map<String, Object> factive = asmap(activeFeatures);
     for (String fname : new TreeMap<>(fdefs).keySet()) {
+      Map<String, Object> fdef = asmap(fdefs.get(fname));
       Map<String, Object> feature = new LinkedHashMap<>();
       feature.put("name", fname);
       feature.put("active", Boolean.TRUE.equals(getprop(factive.get(fname), "active")));
+      if (fdef.get("options") instanceof Map) {
+        feature.put("options", fdef.get("options"));
+      }
+      Object transport = fdef.get("transport");
+      if (null != transport && !"".equals(String.valueOf(transport))) {
+        feature.put("transport", String.valueOf(transport));
+      }
       features.add(feature);
     }
 

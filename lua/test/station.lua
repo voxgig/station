@@ -207,23 +207,28 @@ testcase('profile', function()
     "profiles": {
       "default": {
         "secrets": { "providers": [ { "kind": "env" }, { "kind": "dotenv" } ] },
-        "plugin": { "a": { "base": "http://a" }, "b": { "base": "http://b" } }
+        "sdk": { "a": { "base": "http://a" }, "b": { "base": "http://b" } }
       },
       "prod": {
         "secrets": { "providers": [ { "kind": "hashicorp" } ] },
-        "plugin": { "a": { "secret": "custom.name" } }
+        "sdk": { "a": { "secret": "custom.name" } }
       }
     }
   }]])
 
-  -- secrets.providers replaces wholesale; plugin maps deep-merge per
-  -- plugin (design station.md 3.5).
+  -- secrets.providers replaces wholesale; sdk instances merge per ref,
+  -- shallow, base then overlay (design station.md 3.3, 3.5).
   local prod = st.resolve_profile(config, 'prod')
   checkeq(#prod.providers, 1)
   checkeq(prod.providers[1].kind, 'hashicorp')
-  checkeq(prod.plugin.a.base, 'http://a')
-  checkeq(prod.plugin.a.secret, 'custom.name')
-  checkeq(prod.plugin.b.base, 'http://b')
+  checkeq(prod.sdk.a.base, 'http://a')
+  checkeq(prod.sdk.a.secret, 'custom.name')
+  checkeq(prod.sdk.b.base, 'http://b')
+
+  -- Block defaults land AFTER the merge, only where the key is absent,
+  -- and `active` is a real boolean (design 3.3, 4.2).
+  checkeq(prod.sdk.b.active, true)
+  check(st.ismap(prod.sdk.b.feature), 'feature defaults to an empty map')
 
   local dflt = st.resolve_profile(config, 'default')
   checkeq(#dflt.providers, 2)
@@ -237,7 +242,7 @@ testcase('profile', function()
   -- request (design station.md 14).
   checkfails('station_secret_name', function()
     st.resolve_profile({ station = 1, profiles = {
-      default = { plugin = { a = { secret = 'Not A Name' } } } } }, 'default')
+      default = { sdk = { a = { secret = 'Not A Name' } } } } }, 'default')
   end)
 end)
 
@@ -496,7 +501,7 @@ end)
 testcase('hosts-policy', function()
   local station = st.new({ proxy = 'off', config = {
     station = 1,
-    profiles = { default = { plugin = { taskpad = {
+    profiles = { default = { sdk = { taskpad = {
       policy = { hosts = { 'api.good.example' } } } } } },
   } })
   local b = bind(station)
@@ -587,7 +592,7 @@ end)
 testcase('close', function()
   local station = st.new({ proxy = 'off', config = {
     station = 1,
-    profiles = { default = { plugin = { typo = { base = 'http://x' } } } },
+    profiles = { default = { sdk = { typo = { base = 'http://x' } } } },
   } })
   station:close()
   local warned = false
@@ -607,7 +612,7 @@ end)
 testcase('profile-base', function()
   local station = st.new({ proxy = 'off', config = {
     station = 1,
-    profiles = { default = { plugin = { taskpad = {
+    profiles = { default = { sdk = { taskpad = {
       base = 'http://from-profile' } } } },
   } })
   -- No caller base: the profile's per-plugin base wins over the SDK
@@ -619,7 +624,7 @@ testcase('profile-base', function()
   -- Caller base (rung 7) beats the profile.
   local station2 = st.new({ proxy = 'off', config = {
     station = 1,
-    profiles = { default = { plugin = { taskpad = {
+    profiles = { default = { sdk = { taskpad = {
       base = 'http://from-profile' } } } },
   } })
   local b2 = bind(station2, { calleropts = { base = 'http://mine' },

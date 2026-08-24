@@ -10,30 +10,50 @@ is the agreed position between the two designs: what they share, where
 they disagreed, and which side moved.
 
 References of the form **P§n** are to plugin's design **as merged by
-[voxgig/plugin#6](https://github.com/voxgig/plugin/pull/6), commit
-[`56f48e1`](https://github.com/voxgig/plugin/blob/56f48e1e3d14956cb26f9282a1c3438408cc33bf/docs/design/plugin.md)**
-— the revision that renames the lifecycle status to `live` (§2.10). A
-merge commit rather than a branch head, because an agreement whose
-references move is not reproducible: every section number and every
-"plugin adopted this" claim below is against that revision.
+[voxgig/plugin#15](https://github.com/voxgig/plugin/pull/15), commit
+[`153c878`](https://github.com/voxgig/plugin/blob/153c8785a996940e80e5a626ec978fc5e1c07bc5/docs/design/plugin.md)**
+— plugin's `main` as of 2026-08-24, with P0–P4 complete and five
+implementations green against the 527-entry corpus. A merge commit
+rather than a branch head, because an agreement whose references move
+is not reproducible: every section number and every "plugin adopted
+this" claim below is against that revision.
 
-This pin has now advanced twice, and the second time is the instructive
-one. Step 0 set it to `0ea4c4f` (voxgig/plugin#3). The status rename
-then made this document assert `live` while the pinned revision still
-said `active` — precisely the failure the pin exists to prevent, caught
-in review rather than by the discipline meant to prevent it. **The
-obligation below is standing, not a step that was completed once.**
+This pin has now advanced three times, and the second advance is the
+instructive one. Step 0 set it to `0ea4c4f` (voxgig/plugin#3). The
+`live` status rename (to `56f48e1`) then made this document assert
+`live` while the previously pinned revision still said `active` —
+precisely the failure the pin exists to prevent, caught in review
+rather than by the discipline meant to prevent it. **The obligation
+below is standing, not a step that was completed once.**
 
-The claims were re-checked rather than assumed, as that obligation
-requires: the rename is purely lexical — no section was added, removed
-or renumbered — so all sixteen P§ references still resolve, and the only
-substantive claim it touches is §2.10's, which this change rewrites.
+The third advance spans the five design-touching commits between
+`56f48e1` and `153c878` — `fe30bbd`, `3a285cb`, `740e9aa`, `79f4462`,
+`950f41c` — and the claims were re-checked rather than assumed, as the
+obligation requires. No section was added, removed or renumbered, so
+every P§ reference below still resolves. Two of the five are
+substantive here. `fe30bbd` corrects P§15.3's section assignments —
+auto-tag and `seq` move from the pure `ref` section to the `declare`
+driver section, and `pos` assignment to `config` — which leaves the
+"`ref` and `config` are pure data" claims intact while sharpening
+where each half is pinned. `740e9aa` adds `plugin_inactive` to P§12's
+catalog: the error a document-barred `active: false` instance now
+fails with, plugin's counterpart to station's
+`station_instance_inactive`, which strengthens rather than changes
+§2.10's settlement. The other three (`bail`'s null-declines rule,
+`hold` reading cardinality rather than the cascade's set, reluctance
+as a remembered choice) touch nothing this document asserts. One
+erratum runs the other way: P§17.1 repeats the thirteen-in-CI
+over-count this document corrects in §2.1 — station's CI matrix runs
+eleven ports — and the fix belongs in plugin's next design touch, not
+in this pin.
 
-Earlier drafts of this line tracked
-[the branch](https://github.com/voxgig/plugin/blob/claude/voxgig-plugin-architecture-h6cly0/docs/design/plugin.md)
-and went stale three times in a day, which is the argument for pinning
-rather than a theory about it. Re-pin when plugin's design advances
-again, and re-check the claims rather than assuming they still hold.
+Earlier drafts of this line tracked the working branch
+(`claude/voxgig-plugin-architecture-h6cly0`) by URL and went stale
+three times in a day, which is the argument for pinning rather than a
+theory about it — and the branch itself is gone now, so the URL those
+drafts carried dangles; its final head survives as commit `0ea4c4f`,
+the pin's own first value. Re-pin when plugin's design advances again,
+and re-check the claims rather than assuming they still hold.
 
 Bare **§n** are to [`station-declarative-config.md`](./station-declarative-config.md);
 **S§n** to [`station.md`](./station.md).
@@ -52,9 +72,13 @@ plugin from quietly becoming station-shaped.
 
 Station builds its Stages 2–3 natively against plugin's semantics;
 plugin extracts the implementation afterwards. This is P§17.1's plan
-rather than its fallback, for the reason in §2.1 below: station has
-sixteen written ports and plugin has none, and a library cannot lead
-its only consumer across sixteen languages.
+rather than its fallback, for the reason in §2.1 below: station had
+sixteen written ports when this was settled and plugin had none, and a
+library cannot lead its only consumer across sixteen languages. Both
+sides have since run the plan — station's Stages 1–3b are merged,
+built natively to plugin's semantics, and plugin has five green
+implementations with P3's extraction target discharged — which is the
+settled position working, not a reason to revisit it.
 
 What that costs is drift between two implementations before they meet,
 and the mitigation is the corpus — plugin ships `ref` and `config` as
@@ -103,9 +127,14 @@ would have turned into defects in station.
 
 ### 2.1 The sixteen-port constraint
 
-Station has sixteen written ports, thirteen green in CI. Plugin has
-none, and P§16.1 rolls out in four tiers. A station port cannot depend
-on a plugin library absent from its language, so adoption-as-dependency
+Station has sixteen written ports, eleven green in CI (the
+`.github/workflows/build.yml` matrix; an earlier revision of this
+line said thirteen, over-counting the toolchain-gated ports). Plugin
+had none when this was settled, and P§16.1 rolls out in four tiers —
+five implementations are green as of the current pin (typescript
+canonical, go, python, javascript, ruby), which is that rollout under
+way rather than a changed premise. A station port cannot depend on a
+plugin library absent from its language, so adoption-as-dependency
 means waiting for sixteen ports or carrying two instance models in one
 repo — the outcome P§17.1 exists to avoid.
 
@@ -445,7 +474,9 @@ stay station's:
 ## 4. What each repo does next
 
 **station** — unchanged from the original recommendation except where
-§2 settles a question it left open:
+§2 settles a question it left open. Items 1–5 have since landed with
+Stages 1–3b ([`station-and-plugin-plan.md`](./station-and-plugin-plan.md)
+tracks the state); item 6 stays deliberately deferred:
 
 1. **Stage 1 proceeds immediately.** Grammar, shape file, normalizer,
    corpus sections — station's own data, dependent on nothing here.
@@ -471,7 +502,10 @@ stay station's:
    have something to depend on, sdkgen's P§17.2 decision is likelier to
    have landed, and the trade is being made for two consumers.
 
-**plugin** —
+**plugin** — items 1 and 2 are discharged (C1 and C2 shipped with
+voxgig/plugin#7, leading P1 rather than trailing it), and item 3
+holds: the P3.2 bridge is in, and P3.1's extraction now has a working
+station to run against:
 
 1. Ship `ref` and `config` corpus sections early as pure data, and
    `lifecycle` and `order` with P§15.2's driver contract in draft.

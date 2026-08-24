@@ -284,8 +284,8 @@ class Station {
   }
 
   Map<String, dynamic>? _pluginProfile(String slug) {
-    final plugin = _profile['plugin'];
-    final entry = plugin is Map ? plugin[slug] : null;
+    final sdk = _profile['sdk'];
+    final entry = sdk is Map ? sdk[slug] : null;
     if (entry is Map) {
       final out = <String, dynamic>{};
       entry.forEach((k, v) => out[k.toString()] = v);
@@ -634,9 +634,9 @@ class Station {
     if (_closed) {
       return;
     }
-    final plugin = _profile['plugin'];
-    if (plugin is Map) {
-      final keys = plugin.keys.map((k) => k.toString()).toList()..sort();
+    final sdk = _profile['sdk'];
+    if (sdk is Map) {
+      final keys = sdk.keys.map((k) => k.toString()).toList()..sort();
       for (final slug in keys) {
         if (!_registry.containsKey(slug)) {
           emit(<String, dynamic>{

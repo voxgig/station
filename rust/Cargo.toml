@@ -18,6 +18,22 @@ path = "src/lib.rs"
 # exception to "no transitive dependencies" (§10).
 voxgig_sekreto = { path = "vendor/sekreto" }
 
-# voxgig/omni drives the conformance suite only. Same vendor-link scheme.
-[dev-dependencies]
-voxgig_omni = { path = "vendor/omni" }
+# voxgig/struct backs validateConfig (design §4): the config grammar is
+# `spec/config-shape.json`, run through struct's collecting validator.
+# THE SECOND RUNTIME DEPENDENCY, and the only other one - sanctioned by
+# design §9, because validateConfig runs at open(), not only under test.
+# A sibling checkout like sekreto, linked by `make vendor-runtime` from
+# wherever $STRUCT_HOME points, so this path works on any machine.
+voxgig-struct = { path = "vendor/struct" }
+
+# voxgig/omni drives the conformance suite only, and the suite is its own
+# package (`corpus/`, same vendor-link scheme), so that omni - which it
+# needs and this library does not - stays out of this manifest entirely.
+# Cargo resolves dev-dependencies even for `cargo build`, so a
+# dev-dependency here broke a checkout with no omni link under vendor/.
+# Omni register 4.13; the same shape as voxgig/struct#97.
+# `vendor` is excluded as well: the links under it point at whole sibling
+# checkouts, which are workspace roots of their own - unexcluded, Cargo
+# reads them as nested roots of THIS workspace and refuses to build.
+[workspace]
+exclude = ["corpus", "vendor"]

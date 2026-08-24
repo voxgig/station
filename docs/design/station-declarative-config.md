@@ -1,7 +1,14 @@
 # Design: declarative station config and dynamic SDK instances
 
-Status: **proposal** (2026-08-22). An extension of
-[`station.md`](./station.md), not a replacement.
+Status: **implemented in the canonical** (2026-08-24; proposed
+2026-08-22). An extension of [`station.md`](./station.md), not a
+replacement. Stages 1–3b of §12 are merged in TypeScript, Stage 4 is
+partial (the feature model declares `transport` and `instance`;
+adapter self-registration waits on sdkgen's injection machinery), and
+all eleven CI ports speak the §3 grammar — Stage 5's first tranche.
+§1's inventory describes the shipped system as it stood before this
+work — the posture the design set out to change, kept as the record
+of why.
 
 > **Reconciled with voxgig/plugin.**
 > [`station-and-plugin.md`](./station-and-plugin.md) now holds the
@@ -202,7 +209,7 @@ functions, no references, no expressions, no environment interpolation
 }
 ```
 
-A **block** — the same eight keys in both positions:
+A **block** — the same keys in both positions:
 
 | key | type | meaning |
 |---|---|---|
@@ -211,10 +218,21 @@ A **block** — the same eight keys in both positions:
 | `base` | string | base URL override |
 | `secret` | string | sekreto secret **name** — never a value (§5) |
 | `resolve` | `"library"` \| `"proxy"` | R1 in-process, or R2 proxy-side (`station.md` §5.3) |
-| `policy` | `{ "hosts": [string] }` | egress allowlist |
+| `policy` | `{ "hosts": [string], "mode": ... }` | egress allowlist, and §16's `mode` kill switch |
+| `capture` | `"meta"` \| `"headers"` \| `"full"` | capture depth for this instance, read by the proxy (`station.md` §8.5) |
+| `agent` | `{ "write": boolean }` | §16's per-instance opt-in for mutating agent operations, read by the proxy |
 | `feature` | map | SDK features to activate and configure (§8) |
 | `options` | map | extra options passed to the SDK constructor (§5.2 restricts it) |
 | `active` | boolean | default `true`; `false` declares an instance without allowing it to be built |
+
+`capture` and `agent` are read by the **proxy**, out of this same
+file: it loads profiles itself (`station.md` §8.3) rather than taking
+policy from anything a client registers. They are part of the shared
+shape precisely because one `station.json` serves both the application
+and the proxy — a shape admitting only the library's keys would make
+the documented single file impossible, since the library validates it
+at `open()` and would reject it as `station_config_invalid` before the
+application could register at all.
 
 `active` here means **barred from running** — a declaration that stays
 in the file and in `instances()` while being refused a client. It is
@@ -1319,6 +1337,11 @@ Amended: `station_bound_twice` is now keyed by **instance name**. Two
 clients of one api is the normal case; two bindings of one instance is
 still the error it was.
 
+With `station.md` §14's sixteen — `station_open_conflict` and
+`station_bound_twice` included, and five codes reserved for the proxy
+— the two tables are the complete 29-code catalog, pinned exactly by
+the `errors` corpus section.
+
 ### 6.5 What `open()` costs
 
 Stated as a budget because 20 SDKs is the design point:
@@ -2202,10 +2225,9 @@ corpus green, its own README updated. The corpus is what makes them
 parallelizable and what makes "it works in every language" checkable
 rather than claimed.
 
-**Docs.** `station.md` gets its §16 amendments applied in the same
-change as Stage 3, so the two documents never disagree in `main`. The
-repo README's status table gains a declarative-config column as ports
-land.
+**Docs.** `station.md`'s §16 amendments are applied (2026-08-24), so
+the two documents agree in `main`. The repo README's status table
+carries a declarative-config column, updated as ports land.
 
 
 ## 13. Risks
@@ -2329,7 +2351,9 @@ Everything in `station.md` §19 still holds. Added:
 
 ## 16. Amendments to `station.md`
 
-Applied in the same change as Stage 3, so the documents never disagree:
+**Applied** (2026-08-24) — `station.md` now carries every row below in
+its own prose, so the two documents agree in `main`; the table stays
+as the record of what moved and why:
 
 | section | amendment |
 |---|---|
@@ -2344,7 +2368,7 @@ Applied in the same change as Stage 3, so the documents never disagree:
 | §9 | two items listed as pending are already shipped (the `makeOptions` station featureorder case, the three `configDefinition` fields); feature models gain `transport` and `configDefinition` carries it — retained for the native phase, and removed once features are bindings and position carries the role (§8.4, §11 items 6–7) |
 | §11 | the declarative quickstart leads; the two-line imperative form stays as the retrofit path; features are configured in `station.json` rather than per call site (§8) |
 | §13 | the `config`, `instance` and `feature` corpus sections; `profile`, `secretname`, `placeholder` amended |
-| §14 | eleven new error codes (§6.4); `station_bound_twice` re-keyed to the instance, and explicitly not a cap on clients per instance (§6.1) |
+| §14 | thirteen new error codes (§6.4); `station_bound_twice` re-keyed to the instance, and explicitly not a cap on clients per instance (§6.1); `station_open_conflict` and `station_bound_twice` join the catalog, which §6.4's table and §14's are jointly complete over |
 | §17 | Phase 1 gains Stages 1–4 of §12; Phase 2's `station.json` schema item is satisfied by the struct shape |
 
 **Amendments to this document, from the voxgig/plugin reconciliation**

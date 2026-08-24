@@ -5,6 +5,14 @@
  * source: voxgig/station c/src/; vendored copy: sdkgen-station
  * .sdk/tm/c/feature/station/ - byte-identical, edit HERE first).
  *
+ * THIS FILE is the core: the value model and JSON, the canonical
+ * serializer, identity, the descriptor normalizer, profile resolution,
+ * the event ring, the env-only broker, the instance registry, and the
+ * declarative front door (design 6), which lives here because it reads
+ * the station's own state. The config grammar (4), feature management
+ * (8) and the factory table with the ref grammar (6.1/6.2) are the
+ * other three sources beside it.
+ *
  * Port of the canonical typescript/src sources. Behaviour must match,
  * case for case; the shared conformance corpus (spec/station.json, run
  * through voxgig/omni) pins the pure-contract half.
@@ -16,6 +24,8 @@
 
 #include "voxgig_station.h"
 
+#include "voxgig_station_int.h"
+
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -26,7 +36,7 @@
  * Small helpers
  * =========================================================================*/
 
-static char* sdup(const char* s) {
+char* vxstn_sdup(const char* s) {
   size_t n;
   char* d;
   if (NULL == s) {
@@ -38,21 +48,14 @@ static char* sdup(const char* s) {
   return d;
 }
 
-/* A growable string builder. */
-typedef struct {
-  char* buf;
-  size_t len;
-  size_t cap;
-} vxstn_sb;
-
-static void sb_init(vxstn_sb* sb) {
+void vxstn_sb_init(vxstn_sb* sb) {
   sb->cap = 64;
   sb->len = 0;
   sb->buf = (char*)malloc(sb->cap);
   sb->buf[0] = '\0';
 }
 
-static void sb_need(vxstn_sb* sb, size_t extra) {
+static void vxstn_sb_need(vxstn_sb* sb, size_t extra) {
   if (sb->len + extra + 1 > sb->cap) {
     while (sb->len + extra + 1 > sb->cap) {
       sb->cap *= 2;
@@ -61,18 +64,18 @@ static void sb_need(vxstn_sb* sb, size_t extra) {
   }
 }
 
-static void sb_putn(vxstn_sb* sb, const char* s, size_t n) {
-  sb_need(sb, n);
+void vxstn_sb_putn(vxstn_sb* sb, const char* s, size_t n) {
+  vxstn_sb_need(sb, n);
   memcpy(sb->buf + sb->len, s, n);
   sb->len += n;
   sb->buf[sb->len] = '\0';
 }
 
-static void sb_put(vxstn_sb* sb, const char* s) { sb_putn(sb, s, strlen(s)); }
+void vxstn_sb_put(vxstn_sb* sb, const char* s) { vxstn_sb_putn(sb, s, strlen(s)); }
 
-static void sb_putc(vxstn_sb* sb, char c) { sb_putn(sb, &c, 1); }
+void vxstn_sb_putc(vxstn_sb* sb, char c) { vxstn_sb_putn(sb, &c, 1); }
 
-static void sb_putf(vxstn_sb* sb, const char* fmt, ...) {
+void vxstn_sb_putf(vxstn_sb* sb, const char* fmt, ...) {
   char tmp[64];
   va_list ap;
   int n;
@@ -80,7 +83,7 @@ static void sb_putf(vxstn_sb* sb, const char* fmt, ...) {
   n = vsnprintf(tmp, sizeof(tmp), fmt, ap);
   va_end(ap);
   if (0 < n) {
-    sb_putn(sb, tmp, (size_t)n);
+    vxstn_sb_putn(sb, tmp, (size_t)n);
   }
 }
 
@@ -90,17 +93,17 @@ static char* replaceall(const char* s, const char* find, const char* rep) {
   const char* p = s;
   size_t flen = strlen(find);
   if (0 == flen) {
-    return sdup(s);
+    return vxstn_sdup(s);
   }
-  sb_init(&sb);
+  vxstn_sb_init(&sb);
   for (;;) {
     const char* hit = strstr(p, find);
     if (NULL == hit) {
-      sb_put(&sb, p);
+      vxstn_sb_put(&sb, p);
       break;
     }
-    sb_putn(&sb, p, (size_t)(hit - p));
-    sb_put(&sb, rep);
+    vxstn_sb_putn(&sb, p, (size_t)(hit - p));
+    vxstn_sb_put(&sb, rep);
     p = hit + flen;
   }
   return sb.buf;
@@ -179,11 +182,11 @@ bool vxstn_known_code(const char* code) {
 vxstn_error* vxstn_error_new(const char* code, const char* msg) {
   vxstn_error* err = (vxstn_error*)calloc(1, sizeof(vxstn_error));
   vxstn_sb sb;
-  err->code = sdup(code);
-  sb_init(&sb);
-  sb_put(&sb, NULL == code ? "" : code);
-  sb_put(&sb, ": ");
-  sb_put(&sb, NULL == msg ? "" : msg);
+  err->code = vxstn_sdup(code);
+  vxstn_sb_init(&sb);
+  vxstn_sb_put(&sb, NULL == code ? "" : code);
+  vxstn_sb_put(&sb, ": ");
+  vxstn_sb_put(&sb, NULL == msg ? "" : msg);
   err->message = sb.buf;
   return err;
 }
@@ -198,7 +201,7 @@ void vxstn_error_free(vxstn_error* err) {
 }
 
 /* Set *out (when non-NULL) to a fresh error. */
-static void seterr(vxstn_error** out, const char* code, const char* msg) {
+void vxstn_seterr(vxstn_error** out, const char* code, const char* msg) {
   if (NULL != out) {
     *out = vxstn_error_new(code, msg);
   }
@@ -245,7 +248,7 @@ vxstn_val* vxstn_num(double n) {
 
 vxstn_val* vxstn_str(const char* s) {
   vxstn_val* v = val_new(VXSTN_STR);
-  v->str = sdup(s);
+  v->str = vxstn_sdup(s);
   return v;
 }
 
@@ -282,7 +285,7 @@ void vxstn_map_set(vxstn_val* map, const char* key, vxstn_val* val) {
     map->keys = (char**)realloc(map->keys, map->mcap * sizeof(char*));
     map->vals = (vxstn_val**)realloc(map->vals, map->mcap * sizeof(vxstn_val*));
   }
-  map->keys[map->mlen] = sdup(key);
+  map->keys[map->mlen] = vxstn_sdup(key);
   map->vals[map->mlen] = val;
   map->mlen++;
 }
@@ -377,7 +380,7 @@ void vxstn_val_free(vxstn_val* v) {
 
 /* Map read treating a present null as absent (the ts `null == v`
  * config-surface reads). Borrowed. */
-static vxstn_val* getk(const vxstn_val* map, const char* key) {
+vxstn_val* vxstn_getk(const vxstn_val* map, const char* key) {
   vxstn_val* v = vxstn_map_get(map, key);
   return vxstn_is_nil(v) ? NULL : v;
 }
@@ -388,7 +391,7 @@ static int cmp_keys(const void* a, const void* b) {
   return strcmp(*(const char* const*)a, *(const char* const*)b);
 }
 
-static const char** sortedkeys(const vxstn_val* map, size_t* n_out) {
+const char** vxstn_sortedkeys(const vxstn_val* map, size_t* n_out) {
   const char** keys;
   size_t i, n;
   n = vxstn_is_map(map) ? map->mlen : 0;
@@ -402,26 +405,26 @@ static const char** sortedkeys(const vxstn_val* map, size_t* n_out) {
 }
 
 /* String() of a scalar config value (descriptor normalization). Owned. */
-static char* val_to_string(const vxstn_val* v) {
+char* vxstn_val_to_string(const vxstn_val* v) {
   vxstn_sb sb;
   if (NULL == v) {
-    return sdup("");
+    return vxstn_sdup("");
   }
   switch (v->kind) {
   case VXSTN_STR:
-    return sdup(v->str);
+    return vxstn_sdup(v->str);
   case VXSTN_BOOL:
-    return sdup(v->b ? "true" : "false");
+    return vxstn_sdup(v->b ? "true" : "false");
   case VXSTN_NUM:
-    sb_init(&sb);
+    vxstn_sb_init(&sb);
     if (v->isint) {
-      sb_putf(&sb, "%lld", (long long)v->i);
+      vxstn_sb_putf(&sb, "%lld", (long long)v->i);
     } else {
-      sb_putf(&sb, "%g", v->num);
+      vxstn_sb_putf(&sb, "%g", v->num);
     }
     return sb.buf;
   default:
-    return sdup("");
+    return vxstn_sdup("");
   }
 }
 
@@ -441,9 +444,9 @@ static void jp_err(jparse* jp, const char* msg) {
   if (NULL != jp->err) {
     return;
   }
-  sb_init(&sb);
-  sb_putf(&sb, "station: invalid JSON at %lld: ", (long long)(jp->pos + 1));
-  sb_put(&sb, msg);
+  vxstn_sb_init(&sb);
+  vxstn_sb_putf(&sb, "station: invalid JSON at %lld: ", (long long)(jp->pos + 1));
+  vxstn_sb_put(&sb, msg);
   jp->err = sb.buf;
 }
 
@@ -462,22 +465,22 @@ static void jp_utf8(vxstn_sb* sb, long cp) {
   char b[4];
   if (cp < 0x80) {
     b[0] = (char)cp;
-    sb_putn(sb, b, 1);
+    vxstn_sb_putn(sb, b, 1);
   } else if (cp < 0x800) {
     b[0] = (char)(0xC0 | (cp >> 6));
     b[1] = (char)(0x80 | (cp & 0x3F));
-    sb_putn(sb, b, 2);
+    vxstn_sb_putn(sb, b, 2);
   } else if (cp < 0x10000) {
     b[0] = (char)(0xE0 | (cp >> 12));
     b[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
     b[2] = (char)(0x80 | (cp & 0x3F));
-    sb_putn(sb, b, 3);
+    vxstn_sb_putn(sb, b, 3);
   } else {
     b[0] = (char)(0xF0 | (cp >> 18));
     b[1] = (char)(0x80 | ((cp >> 12) & 0x3F));
     b[2] = (char)(0x80 | ((cp >> 6) & 0x3F));
     b[3] = (char)(0x80 | (cp & 0x3F));
-    sb_putn(sb, b, 4);
+    vxstn_sb_putn(sb, b, 4);
   }
 }
 
@@ -509,7 +512,7 @@ static int jp_hex4(jparse* jp, long* out) {
 static char* jp_string(jparse* jp) {
   vxstn_sb sb;
   jp->pos++; /* opening quote */
-  sb_init(&sb);
+  vxstn_sb_init(&sb);
   for (;;) {
     char c;
     if (jp->pos >= jp->n) {
@@ -552,24 +555,24 @@ static char* jp_string(jparse* jp) {
         }
         jp_utf8(&sb, cp);
       } else if ('"' == e || '\\' == e || '/' == e) {
-        sb_putc(&sb, e);
+        vxstn_sb_putc(&sb, e);
       } else if ('b' == e) {
-        sb_putc(&sb, '\b');
+        vxstn_sb_putc(&sb, '\b');
       } else if ('f' == e) {
-        sb_putc(&sb, '\f');
+        vxstn_sb_putc(&sb, '\f');
       } else if ('n' == e) {
-        sb_putc(&sb, '\n');
+        vxstn_sb_putc(&sb, '\n');
       } else if ('r' == e) {
-        sb_putc(&sb, '\r');
+        vxstn_sb_putc(&sb, '\r');
       } else if ('t' == e) {
-        sb_putc(&sb, '\t');
+        vxstn_sb_putc(&sb, '\t');
       } else {
         jp_err(jp, "bad escape");
         free(sb.buf);
         return NULL;
       }
     } else {
-      sb_putc(&sb, c);
+      vxstn_sb_putc(&sb, c);
       jp->pos++;
     }
   }
@@ -757,7 +760,7 @@ vxstn_val* vxstn_parse_json(const char* text, char** errmsg) {
   }
   if (NULL == out) {
     if (NULL != errmsg) {
-      *errmsg = NULL != jp.err ? jp.err : sdup("station: invalid JSON");
+      *errmsg = NULL != jp.err ? jp.err : vxstn_sdup("station: invalid JSON");
     } else {
       free(jp.err);
     }
@@ -777,32 +780,32 @@ static void canon_escape(vxstn_sb* sb, const char* s) {
     unsigned char c = *p;
     switch (c) {
     case '"':
-      sb_put(sb, "\\\"");
+      vxstn_sb_put(sb, "\\\"");
       break;
     case '\\':
-      sb_put(sb, "\\\\");
+      vxstn_sb_put(sb, "\\\\");
       break;
     case '\b':
-      sb_put(sb, "\\b");
+      vxstn_sb_put(sb, "\\b");
       break;
     case '\f':
-      sb_put(sb, "\\f");
+      vxstn_sb_put(sb, "\\f");
       break;
     case '\n':
-      sb_put(sb, "\\n");
+      vxstn_sb_put(sb, "\\n");
       break;
     case '\r':
-      sb_put(sb, "\\r");
+      vxstn_sb_put(sb, "\\r");
       break;
     case '\t':
-      sb_put(sb, "\\t");
+      vxstn_sb_put(sb, "\\t");
       break;
     default:
       if (c < 0x20) {
-        sb_putf(sb, "\\u%04x", (unsigned)c);
+        vxstn_sb_putf(sb, "\\u%04x", (unsigned)c);
       } else {
         /* Minimal escaping: UTF-8 bytes ride through verbatim. */
-        sb_putn(sb, (const char*)p, 1);
+        vxstn_sb_putn(sb, (const char*)p, 1);
       }
     }
   }
@@ -814,7 +817,7 @@ static void canon_number(vxstn_sb* sb, const vxstn_val* v) {
   char tmp[40];
   int prec;
   if (v->isint) {
-    sb_putf(sb, "%lld", (long long)v->i);
+    vxstn_sb_putf(sb, "%lld", (long long)v->i);
     return;
   }
   for (prec = 1; prec <= 17; prec++) {
@@ -823,42 +826,42 @@ static void canon_number(vxstn_sb* sb, const vxstn_val* v) {
       break;
     }
   }
-  sb_put(sb, tmp);
+  vxstn_sb_put(sb, tmp);
 }
 
 static void canon_val(vxstn_sb* sb, const vxstn_val* v) {
   size_t i;
   if (NULL == v || VXSTN_UNDEF == v->kind || VXSTN_NULL == v->kind) {
-    sb_put(sb, "null");
+    vxstn_sb_put(sb, "null");
     return;
   }
   switch (v->kind) {
   case VXSTN_BOOL:
-    sb_put(sb, v->b ? "true" : "false");
+    vxstn_sb_put(sb, v->b ? "true" : "false");
     return;
   case VXSTN_NUM:
     canon_number(sb, v);
     return;
   case VXSTN_STR:
-    sb_putc(sb, '"');
+    vxstn_sb_putc(sb, '"');
     canon_escape(sb, v->str);
-    sb_putc(sb, '"');
+    vxstn_sb_putc(sb, '"');
     return;
   case VXSTN_LIST:
-    sb_putc(sb, '[');
+    vxstn_sb_putc(sb, '[');
     for (i = 0; i < v->len; i++) {
       if (0 < i) {
-        sb_putc(sb, ',');
+        vxstn_sb_putc(sb, ',');
       }
       canon_val(sb, v->items[i]);
     }
-    sb_putc(sb, ']');
+    vxstn_sb_putc(sb, ']');
     return;
   case VXSTN_MAP: {
     size_t n = 0;
-    const char** keys = sortedkeys(v, &n);
+    const char** keys = vxstn_sortedkeys(v, &n);
     bool first = true;
-    sb_putc(sb, '{');
+    vxstn_sb_putc(sb, '{');
     for (i = 0; i < n; i++) {
       /* An UNDEF value means "absent": the key is skipped, matching
        * the ts serializer's undefined filter. */
@@ -867,26 +870,26 @@ static void canon_val(vxstn_sb* sb, const vxstn_val* v) {
         continue;
       }
       if (!first) {
-        sb_putc(sb, ',');
+        vxstn_sb_putc(sb, ',');
       }
       first = false;
-      sb_putc(sb, '"');
+      vxstn_sb_putc(sb, '"');
       canon_escape(sb, keys[i]);
-      sb_put(sb, "\":");
+      vxstn_sb_put(sb, "\":");
       canon_val(sb, item);
     }
     free(keys);
-    sb_putc(sb, '}');
+    vxstn_sb_putc(sb, '}');
     return;
   }
   default:
-    sb_put(sb, "null");
+    vxstn_sb_put(sb, "null");
   }
 }
 
 char* vxstn_canonical(const vxstn_val* v) {
   vxstn_sb sb;
-  sb_init(&sb);
+  vxstn_sb_init(&sb);
   canon_val(&sb, v);
   return sb.buf;
 }
@@ -900,7 +903,7 @@ char* vxstn_envtoken(const char* name) {
   const unsigned char* p;
   bool pending = false; /* a pending '_' between alnum runs */
   bool any = false;
-  sb_init(&sb);
+  vxstn_sb_init(&sb);
   if (NULL == name) {
     name = "";
   }
@@ -911,11 +914,11 @@ char* vxstn_envtoken(const char* name) {
     }
     if (('A' <= c && c <= 'Z') || ('0' <= c && c <= '9')) {
       if (pending && any) {
-        sb_putc(&sb, '_');
+        vxstn_sb_putc(&sb, '_');
       }
       pending = false;
       any = true;
-      sb_putc(&sb, (char)c);
+      vxstn_sb_putc(&sb, (char)c);
     } else {
       pending = true; /* runs of non-alnum collapse; edges trim */
     }
@@ -932,9 +935,9 @@ char* vxstn_secretname_default(const char* slug) {
       *p = (char)(*p - 'A' + 'a');
     }
   }
-  sb_init(&sb);
-  sb_put(&sb, token);
-  sb_put(&sb, ".apikey");
+  vxstn_sb_init(&sb);
+  vxstn_sb_put(&sb, token);
+  vxstn_sb_put(&sb, ".apikey");
   free(token);
   return sb.buf;
 }
@@ -969,22 +972,22 @@ char* vxstn_envkey(const char* name, vxstn_error** err) {
   }
   if (!vxstn_validname(name)) {
     vxstn_sb msg;
-    sb_init(&msg);
-    sb_put(&msg, "invalid secret name: ");
-    sb_put(&msg, NULL == name ? "" : name);
-    seterr(err, "station_secret_error", msg.buf);
+    vxstn_sb_init(&msg);
+    vxstn_sb_put(&msg, "invalid secret name: ");
+    vxstn_sb_put(&msg, NULL == name ? "" : name);
+    vxstn_seterr(err, "station_secret_error", msg.buf);
     free(msg.buf);
     return NULL;
   }
-  sb_init(&sb);
+  vxstn_sb_init(&sb);
   for (p = name; *p; p++) {
     char c = *p;
     if ('.' == c) {
-      sb_putc(&sb, '_');
+      vxstn_sb_putc(&sb, '_');
     } else if ('a' <= c && c <= 'z') {
-      sb_putc(&sb, (char)(c - 'a' + 'A'));
+      vxstn_sb_putc(&sb, (char)(c - 'a' + 'A'));
     } else {
-      sb_putc(&sb, c);
+      vxstn_sb_putc(&sb, c);
     }
   }
   return sb.buf;
@@ -992,10 +995,10 @@ char* vxstn_envkey(const char* name, vxstn_error** err) {
 
 char* vxstn_placeholder(const char* slug) {
   vxstn_sb sb;
-  sb_init(&sb);
-  sb_put(&sb, "[station:");
-  sb_put(&sb, NULL == slug ? "" : slug);
-  sb_putc(&sb, ']');
+  vxstn_sb_init(&sb);
+  vxstn_sb_put(&sb, "[station:");
+  vxstn_sb_put(&sb, NULL == slug ? "" : slug);
+  vxstn_sb_putc(&sb, ']');
   return sb.buf;
 }
 
@@ -1009,7 +1012,7 @@ char* vxstn_placeholder(const char* slug) {
  * 'voxgig-solardemo' - callers surface a warning event when this path
  * is taken. */
 static char* legacy_slug(const char* name) {
-  char* out = sdup(name);
+  char* out = vxstn_sdup(name);
   char* p;
   for (p = out; *p; p++) {
     if ('A' <= *p && *p <= 'Z') {
@@ -1023,8 +1026,8 @@ vxstn_val* vxstn_normalize_descriptor(const vxstn_val* config,
                                       const vxstn_val* active_features,
                                       vxstn_val** warnings_out) {
   vxstn_val* warnings = vxstn_list();
-  const vxstn_val* main_ = getk(config, "main");
-  const vxstn_val* options = getk(config, "options");
+  const vxstn_val* main_ = vxstn_getk(config, "main");
+  const vxstn_val* options = vxstn_getk(config, "options");
   const vxstn_val* slugv;
   const vxstn_val* optauth;
   const vxstn_val* entdefs;
@@ -1043,38 +1046,38 @@ vxstn_val* vxstn_normalize_descriptor(const vxstn_val* config,
   const char** keys;
   size_t nkeys, i;
 
-  name = vxstn_is_str(getk(main_, "name")) ? sdup(vxstn_strval(getk(main_, "name")))
-                                           : val_to_string(getk(main_, "name"));
+  name = vxstn_is_str(vxstn_getk(main_, "name")) ? vxstn_sdup(vxstn_strval(vxstn_getk(main_, "name")))
+                                           : vxstn_val_to_string(vxstn_getk(main_, "name"));
 
-  slugv = getk(main_, "slug");
+  slugv = vxstn_getk(main_, "slug");
   if (NULL == slugv || (vxstn_is_str(slugv) && '\0' == slugv->str[0])) {
     vxstn_sb warn;
     slug = legacy_slug(name);
-    sb_init(&warn);
-    sb_put(&warn, "descriptor: legacy config has no main.slug; derived \"");
-    sb_put(&warn, slug);
-    sb_put(&warn, "\" from the camel name - hyphens in the original name are lost");
+    vxstn_sb_init(&warn);
+    vxstn_sb_put(&warn, "descriptor: legacy config has no main.slug; derived \"");
+    vxstn_sb_put(&warn, slug);
+    vxstn_sb_put(&warn, "\" from the camel name - hyphens in the original name are lost");
     {
       vxstn_val* w = val_new(VXSTN_STR);
       w->str = warn.buf;
       vxstn_list_push(warnings, w);
     }
   } else {
-    slug = val_to_string(slugv);
+    slug = vxstn_val_to_string(slugv);
   }
 
-  version = NULL == getk(main_, "version") ? sdup("0.0.0")
-                                           : val_to_string(getk(main_, "version"));
-  target = NULL == getk(main_, "target") ? sdup("unknown")
-                                         : val_to_string(getk(main_, "target"));
+  version = NULL == vxstn_getk(main_, "version") ? vxstn_sdup("0.0.0")
+                                           : vxstn_val_to_string(vxstn_getk(main_, "version"));
+  target = NULL == vxstn_getk(main_, "target") ? vxstn_sdup("unknown")
+                                         : vxstn_val_to_string(vxstn_getk(main_, "target"));
 
   server = vxstn_list();
   {
-    const vxstn_val* svr = getk(options, "server");
-    keys = sortedkeys(svr, &nkeys);
+    const vxstn_val* svr = vxstn_getk(options, "server");
+    keys = vxstn_sortedkeys(svr, &nkeys);
     for (i = 0; i < nkeys; i++) {
       vxstn_val* entry = vxstn_map();
-      char* value = val_to_string(getk(svr, keys[i]));
+      char* value = vxstn_val_to_string(vxstn_getk(svr, keys[i]));
       vxstn_map_set(entry, "name", vxstn_str(keys[i]));
       {
         vxstn_val* vv = val_new(VXSTN_STR);
@@ -1086,13 +1089,13 @@ vxstn_val* vxstn_normalize_descriptor(const vxstn_val* config,
     free(keys);
   }
 
-  optauth = getk(options, "auth");
+  optauth = vxstn_getk(options, "auth");
   auth_active = NULL != optauth;
   auth = vxstn_map();
   vxstn_map_set(auth, "active", vxstn_bool(auth_active));
   vxstn_map_set(auth, "prefix",
-                auth_active && NULL != getk(optauth, "prefix")
-                    ? vxstn_str(vxstn_strval(getk(optauth, "prefix")))
+                auth_active && NULL != vxstn_getk(optauth, "prefix")
+                    ? vxstn_str(vxstn_strval(vxstn_getk(optauth, "prefix")))
                     : vxstn_str(""));
   {
     char* sn = vxstn_secretname_default(slug);
@@ -1102,16 +1105,16 @@ vxstn_val* vxstn_normalize_descriptor(const vxstn_val* config,
   }
 
   entities = vxstn_map();
-  entdefs = getk(config, "entity");
-  keys = sortedkeys(entdefs, &nkeys);
+  entdefs = vxstn_getk(config, "entity");
+  keys = vxstn_sortedkeys(entdefs, &nkeys);
   for (i = 0; i < nkeys; i++) {
     const char* ename = keys[i];
-    const vxstn_val* e = getk(entdefs, ename);
+    const vxstn_val* e = vxstn_getk(entdefs, ename);
     vxstn_val* fields = vxstn_map();
     vxstn_val* ops = vxstn_map();
     vxstn_val* ent = vxstn_map();
-    const vxstn_val* flist = getk(e, "fields");
-    const vxstn_val* opdefs = getk(e, "op");
+    const vxstn_val* flist = vxstn_getk(e, "fields");
+    const vxstn_val* opdefs = vxstn_getk(e, "op");
     const char** opkeys;
     size_t nops, j;
 
@@ -1119,21 +1122,21 @@ vxstn_val* vxstn_normalize_descriptor(const vxstn_val* config,
       size_t fi;
       for (fi = 0; fi < flist->len; fi++) {
         const vxstn_val* f = flist->items[fi];
-        const vxstn_val* fname = getk(f, "name");
+        const vxstn_val* fname = vxstn_getk(f, "name");
         if (NULL != fname) {
           vxstn_val* fd = vxstn_map();
-          const vxstn_val* kind = getk(f, "kind");
+          const vxstn_val* kind = vxstn_getk(f, "kind");
           if (NULL == kind || (vxstn_is_str(kind) && '\0' == kind->str[0])) {
-            kind = getk(f, "type"); /* ts: f.kind || f.type - '' falls through */
+            kind = vxstn_getk(f, "type"); /* ts: f.kind || f.type - '' falls through */
           }
           {
-            char* ks = val_to_string(kind);
+            char* ks = vxstn_val_to_string(kind);
             vxstn_val* kv = val_new(VXSTN_STR);
             kv->str = ks;
             vxstn_map_set(fd, "kind", kv);
           }
           {
-            char* fn = val_to_string(fname);
+            char* fn = vxstn_val_to_string(fname);
             vxstn_map_set(fields, fn, fd);
             free(fn);
           }
@@ -1141,10 +1144,10 @@ vxstn_val* vxstn_normalize_descriptor(const vxstn_val* config,
       }
     }
 
-    opkeys = sortedkeys(opdefs, &nops);
+    opkeys = vxstn_sortedkeys(opdefs, &nops);
     for (j = 0; j < nops; j++) {
-      const vxstn_val* op = getk(opdefs, opkeys[j]);
-      const vxstn_val* pdefs = getk(op, "points");
+      const vxstn_val* op = vxstn_getk(opdefs, opkeys[j]);
+      const vxstn_val* pdefs = vxstn_getk(op, "points");
       vxstn_val* points = vxstn_list();
       vxstn_val* opout = vxstn_map();
       if (vxstn_is_list(pdefs)) {
@@ -1161,7 +1164,7 @@ vxstn_val* vxstn_normalize_descriptor(const vxstn_val* config,
           }
           point = vxstn_map();
           params = vxstn_list();
-          parts = getk(p, "parts");
+          parts = vxstn_getk(p, "parts");
           if (vxstn_is_list(parts)) {
             size_t qi;
             for (qi = 0; qi < parts->len; qi++) {
@@ -1172,17 +1175,17 @@ vxstn_val* vxstn_normalize_descriptor(const vxstn_val* config,
             }
           }
           {
-            char* ms = val_to_string(getk(p, "method"));
+            char* ms = vxstn_val_to_string(vxstn_getk(p, "method"));
             vxstn_val* mv = val_new(VXSTN_STR);
             mv->str = ms;
             vxstn_map_set(point, "method", mv);
           }
-          pathv = getk(p, "orig");
+          pathv = vxstn_getk(p, "orig");
           if (NULL == pathv || (vxstn_is_str(pathv) && '\0' == pathv->str[0])) {
-            pathv = getk(p, "path"); /* ts: p.orig || p.path - '' falls through */
+            pathv = vxstn_getk(p, "path"); /* ts: p.orig || p.path - '' falls through */
           }
           {
-            char* ps = val_to_string(pathv);
+            char* ps = vxstn_val_to_string(pathv);
             vxstn_val* pv = val_new(VXSTN_STR);
             pv->str = ps;
             vxstn_map_set(point, "path", pv);
@@ -1207,15 +1210,41 @@ vxstn_val* vxstn_normalize_descriptor(const vxstn_val* config,
   free(keys);
 
   features = vxstn_list();
-  fdefs = getk(config, "feature");
-  keys = sortedkeys(fdefs, &nkeys);
+  fdefs = vxstn_getk(config, "feature");
+  keys = vxstn_sortedkeys(fdefs, &nkeys);
   for (i = 0; i < nkeys; i++) {
     vxstn_val* entry = vxstn_map();
-    const vxstn_val* fopts = getk(active_features, keys[i]);
-    const vxstn_val* activev = getk(fopts, "active");
+    const vxstn_val* fopts = vxstn_getk(active_features, keys[i]);
+    const vxstn_val* activev = vxstn_getk(fopts, "active");
+    const vxstn_val* fdef = vxstn_getk(fdefs, keys[i]);
+    const vxstn_val* declared = vxstn_getk(fdef, "options");
+    const vxstn_val* transport = vxstn_getk(fdef, "transport");
     bool active = NULL != activev && VXSTN_BOOL == activev->kind && activev->b;
     vxstn_map_set(entry, "name", vxstn_str(keys[i]));
     vxstn_map_set(entry, "active", vxstn_bool(active));
+
+    /* Stage 5 (design 7.4): the feature row stops discarding two fields
+       the SDK already embeds. `options` is the feature's own declared
+       key set WITH TYPED DEFAULTS - the schema design 8.5 validates
+       against - and `transport` is the role 8.4 orders by. Both are
+       ADDITIVE, so descriptor v1 consumers are unaffected and the
+       `descriptor` corpus section passes unchanged (its fixtures carry
+       neither).
+
+       `transport` is CARRIED rather than inferred: the obvious signal,
+       an empty `hook: {}`, is wrong for station, which both wraps AND
+       dispatches hooks. Until sdkgen emits it, the role checks degrade
+       to nothing rather than guessing. */
+    if (vxstn_is_map(declared)) {
+      vxstn_map_set(entry, "options", vxstn_clone(declared));
+    }
+    if (NULL != transport) {
+      char* role = vxstn_val_to_string(transport);
+      if ('\0' != role[0]) {
+        vxstn_map_set(entry, "transport", vxstn_str(role));
+      }
+      free(role);
+    }
     vxstn_list_push(features, entry);
   }
   free(keys);
@@ -1231,7 +1260,7 @@ vxstn_val* vxstn_normalize_descriptor(const vxstn_val* config,
   }
   {
     vxstn_val* sv = val_new(VXSTN_STR);
-    sv->str = sdup(slug);
+    sv->str = vxstn_sdup(slug);
     vxstn_map_set(descriptor, "slug", sv);
   }
   {
@@ -1250,8 +1279,8 @@ vxstn_val* vxstn_normalize_descriptor(const vxstn_val* config,
     vxstn_map_set(descriptor, "target", tv);
   }
   {
-    char* base = NULL == getk(options, "base") ? sdup("")
-                                               : val_to_string(getk(options, "base"));
+    char* base = NULL == vxstn_getk(options, "base") ? vxstn_sdup("")
+                                               : vxstn_val_to_string(vxstn_getk(options, "base"));
     vxstn_val* bv = val_new(VXSTN_STR);
     bv->str = base;
     vxstn_map_set(descriptor, "base", bv);
@@ -1278,13 +1307,13 @@ vxstn_val* vxstn_normalize_descriptor(const vxstn_val* config,
 char* vxstn_select_profile(const char* opt_profile) {
   const char* env;
   if (NULL != opt_profile && '\0' != opt_profile[0]) {
-    return sdup(opt_profile);
+    return vxstn_sdup(opt_profile);
   }
   env = getenv("VOXGIG_STATION_PROFILE");
   if (NULL != env && '\0' != env[0]) {
-    return sdup(env);
+    return vxstn_sdup(env);
   }
-  return sdup("default");
+  return vxstn_sdup("default");
 }
 
 /* The api half of a ref is the substring before the first `$`, and an
@@ -1324,14 +1353,21 @@ static void merge_into(vxstn_val* out, const vxstn_val* src) {
 /* Defaults are applied ONCE, to the fully merged instance (3.3, 4.2).
    Had the overlay block carried a synthesized `active` into the merge, a
    one-key environment override would silently re-enable an integration
-   the base declared inactive. */
+   the base declared inactive.
+
+   THE SAME TABLE vxstn_validate_config applies BEFORE the shape run
+   (voxgig_station_shape.c): one table, two callers, two moments. The
+   timing is the rule, so reading the table from both places is what
+   keeps the two from drifting apart. */
 static void apply_block_defaults(vxstn_val* merged) {
-  if (NULL == vxstn_map_get(merged, "active")) {
-    vxstn_map_set(merged, "active", vxstn_bool(1));
+  vxstn_val* defaults = vxstn_block_defaults();
+  size_t i;
+  for (i = 0; i < defaults->mlen; i++) {
+    if (NULL == vxstn_map_get(merged, defaults->keys[i])) {
+      vxstn_map_set(merged, defaults->keys[i], vxstn_clone(defaults->vals[i]));
+    }
   }
-  if (NULL == vxstn_map_get(merged, "feature")) {
-    vxstn_map_set(merged, "feature", vxstn_map());
-  }
+  vxstn_val_free(defaults);
 }
 
 /* Collect the sorted union of two maps' keys. Caller frees the array and
@@ -1359,7 +1395,7 @@ static char** merged_keys(const vxstn_val* a, const vxstn_val* b,
       }
       if (!seen) {
         keys = (char**)realloc(keys, (n + 1) * sizeof(char*));
-        keys[n] = sdup(m->keys[i]);
+        keys[n] = vxstn_sdup(m->keys[i]);
         n++;
       }
     }
@@ -1402,7 +1438,7 @@ static int checksecrets(const vxstn_val* sdk, const char* profile_name,
   int* derivedf = NULL;
 
   for (i = 0; i < sdk->mlen; i++) {
-    const vxstn_val* namev = getk(sdk->vals[i], "secret");
+    const vxstn_val* namev = vxstn_getk(sdk->vals[i], "secret");
     if (NULL != namev) {
       const char* name = vxstn_is_str(namev) ? namev->str : "";
       if (!vxstn_validname(name)) {
@@ -1410,14 +1446,14 @@ static int checksecrets(const vxstn_val* sdk, const char* profile_name,
         vxstn_val* asval = vxstn_str(name);
         char* shown = vxstn_canonical(asval);
         vxstn_val_free(asval);
-        sb_init(&msg);
-        sb_put(&msg, "profile \"");
-        sb_put(&msg, profile_name);
-        sb_put(&msg, "\" sdk \"");
-        sb_put(&msg, sdk->keys[i]);
-        sb_put(&msg, "\": secret name rejected by sekreto: ");
-        sb_put(&msg, shown);
-        seterr(err, "station_secret_name", msg.buf);
+        vxstn_sb_init(&msg);
+        vxstn_sb_put(&msg, "profile \"");
+        vxstn_sb_put(&msg, profile_name);
+        vxstn_sb_put(&msg, "\" sdk \"");
+        vxstn_sb_put(&msg, sdk->keys[i]);
+        vxstn_sb_put(&msg, "\": secret name rejected by sekreto: ");
+        vxstn_sb_put(&msg, shown);
+        vxstn_seterr(err, "station_secret_name", msg.buf);
         free(msg.buf);
         free(shown);
         return 0;
@@ -1428,30 +1464,30 @@ static int checksecrets(const vxstn_val* sdk, const char* profile_name,
   names = (char**)calloc(sdk->mlen ? sdk->mlen : 1, sizeof(char*));
   derivedf = (int*)calloc(sdk->mlen ? sdk->mlen : 1, sizeof(int));
   for (i = 0; i < sdk->mlen; i++) {
-    const vxstn_val* namev = getk(sdk->vals[i], "secret");
+    const vxstn_val* namev = vxstn_getk(sdk->vals[i], "secret");
     const char* written = (NULL != namev && vxstn_is_str(namev)) ? namev->str : "";
     derivedf[i] = ('\0' == written[0]) ? 1 : 0;
     names[i] = derivedf[i] ? vxstn_secretname_default(sdk->keys[i])
-                           : sdup(written);
+                           : vxstn_sdup(written);
   }
 
   for (i = 0; i < sdk->mlen; i++) {
     for (j = 0; j < i; j++) {
       if (0 == strcmp(names[i], names[j]) && (derivedf[i] || derivedf[j])) {
         vxstn_sb msg;
-        sb_init(&msg);
-        sb_put(&msg, "profile \"");
-        sb_put(&msg, profile_name);
-        sb_put(&msg, "\": instances \"");
-        sb_put(&msg, sdk->keys[j]);
-        sb_put(&msg, "\" and \"");
-        sb_put(&msg, sdk->keys[i]);
-        sb_put(&msg, "\" both resolve to secret name \"");
-        sb_put(&msg, names[i]);
-        sb_put(&msg,
+        vxstn_sb_init(&msg);
+        vxstn_sb_put(&msg, "profile \"");
+        vxstn_sb_put(&msg, profile_name);
+        vxstn_sb_put(&msg, "\": instances \"");
+        vxstn_sb_put(&msg, sdk->keys[j]);
+        vxstn_sb_put(&msg, "\" and \"");
+        vxstn_sb_put(&msg, sdk->keys[i]);
+        vxstn_sb_put(&msg, "\" both resolve to secret name \"");
+        vxstn_sb_put(&msg, names[i]);
+        vxstn_sb_put(&msg,
                "\", so they would share one credential; name it explicitly "
                "on each, or at the api level to share it deliberately (5.1)");
-        seterr(err, "station_secret_collision", msg.buf);
+        vxstn_seterr(err, "station_secret_collision", msg.buf);
         free(msg.buf);
         free_keys(names, sdk->mlen);
         free(derivedf);
@@ -1480,7 +1516,7 @@ static int checksecrets(const vxstn_val* sdk, const char* profile_name,
 vxstn_val* vxstn_resolve_profile(const vxstn_val* config,
                                  const char* profile_name,
                                  vxstn_error** err) {
-  const vxstn_val* profiles = getk(config, "profiles");
+  const vxstn_val* profiles = vxstn_getk(config, "profiles");
   const vxstn_val* base;
   const vxstn_val* overlay = NULL;
   const vxstn_val* providers;
@@ -1498,23 +1534,23 @@ vxstn_val* vxstn_resolve_profile(const vxstn_val* config,
     profile_name = "default";
   }
 
-  base = getk(profiles, "default");
+  base = vxstn_getk(profiles, "default");
   if (0 != strcmp("default", profile_name)) {
-    overlay = getk(profiles, profile_name);
+    overlay = vxstn_getk(profiles, profile_name);
   }
 
   /* secrets.providers replaces WHOLESALE, never merges by position
    * (design 3.5, 5.2): chain order decides which store wins, so a
    * positional merge would be actively dangerous. */
-  providers = getk(getk(overlay, "secrets"), "providers");
+  providers = vxstn_getk(vxstn_getk(overlay, "secrets"), "providers");
   if (NULL == providers) {
-    providers = getk(getk(base, "secrets"), "providers");
+    providers = vxstn_getk(vxstn_getk(base, "secrets"), "providers");
   }
 
-  base_api = getk(base, "api");
-  over_api = getk(overlay, "api");
-  base_sdk = getk(base, "sdk");
-  over_sdk = getk(overlay, "sdk");
+  base_api = vxstn_getk(base, "api");
+  over_api = vxstn_getk(overlay, "api");
+  base_sdk = vxstn_getk(base, "sdk");
+  over_sdk = vxstn_getk(overlay, "sdk");
 
   /* The api-level defaults in effect for this profile. A REPORT, not an
      input to the instance merge below. */
@@ -1589,9 +1625,9 @@ static void parse_url(const char* fullurl, char** host_out, char** hostname_out,
   char* pathstr;
 
   if (NULL == scheme_end) {
-    *host_out = sdup("");
-    *hostname_out = sdup("");
-    *path_out = sdup(p);
+    *host_out = vxstn_sdup("");
+    *hostname_out = vxstn_sdup("");
+    *path_out = vxstn_sdup(p);
     return;
   }
 
@@ -1656,7 +1692,7 @@ static void parse_url(const char* fullurl, char** host_out, char** hostname_out,
     memcpy(hostname, authority, hn);
     hostname[hn] = '\0';
     if (strlen(dflt) == plen && 0 == strncmp(port, dflt, plen)) {
-      host = sdup(hostname);
+      host = vxstn_sdup(hostname);
     } else {
       host = (char*)malloc(alen + 1);
       memcpy(host, authority, alen);
@@ -1666,7 +1702,7 @@ static void parse_url(const char* fullurl, char** host_out, char** hostname_out,
     hostname = (char*)malloc(alen + 1);
     memcpy(hostname, authority, alen);
     hostname[alen] = '\0';
-    host = sdup(hostname);
+    host = vxstn_sdup(hostname);
   }
 
   path = auth_end;
@@ -1676,7 +1712,7 @@ static void parse_url(const char* fullurl, char** host_out, char** hostname_out,
       path_end++;
     }
     if (path_end == path) {
-      pathstr = sdup("/");
+      pathstr = vxstn_sdup("/");
     } else {
       size_t pn = (size_t)(path_end - path);
       pathstr = (char*)malloc(pn + 1);
@@ -1787,19 +1823,19 @@ static void kv_set(vxstn_kv** kvs, size_t* n, const char* slug, const char* valu
   for (i = 0; i < *n; i++) {
     if (0 == strcmp((*kvs)[i].slug, slug)) {
       free((*kvs)[i].value);
-      (*kvs)[i].value = sdup(value);
+      (*kvs)[i].value = vxstn_sdup(value);
       return;
     }
   }
   *kvs = (vxstn_kv*)realloc(*kvs, (*n + 1) * sizeof(vxstn_kv));
-  (*kvs)[*n].slug = sdup(slug);
-  (*kvs)[*n].value = sdup(value);
+  (*kvs)[*n].slug = vxstn_sdup(slug);
+  (*kvs)[*n].value = vxstn_sdup(value);
   (*n)++;
 }
 
 static void broker_hold(vxstn_broker* b, const char* value) {
   b->held = (char**)realloc(b->held, (b->nheld + 1) * sizeof(char*));
-  b->held[b->nheld++] = sdup(value);
+  b->held[b->nheld++] = vxstn_sdup(value);
 }
 
 static void broker_hoist(vxstn_broker* b, const char* slug, const char* value) {
@@ -1825,11 +1861,18 @@ static const char* broker_value(vxstn_broker* b, const char* slug,
     *err = NULL;
   }
 
+  /* design 5.3's two keyings, and they are different on purpose. A
+     HOISTED override belongs to the one client it was resident in, so
+     it is keyed by INSTANCE. A RESOLVED VALUE belongs to the name it
+     was resolved for, so the cache is keyed by SECRET NAME: several
+     instances sharing one api-level `secret` then cost one lookup, and
+     at 26 instances over 20 apis keying the cache by instance would
+     turn one store round-trip into 26. */
   override_ = kv_get(b->overrides, b->noverrides, slug);
   if (NULL != override_) {
     return override_;
   }
-  cached = kv_get(b->cache, b->ncache, slug);
+  cached = kv_get(b->cache, b->ncache, name);
   if (NULL != cached) {
     return cached;
   }
@@ -1847,20 +1890,20 @@ static const char* broker_value(vxstn_broker* b, const char* slug,
   free(key);
   if (NULL == env) {
     vxstn_sb msg;
-    sb_init(&msg);
-    sb_put(&msg, "no store had \"");
-    sb_put(&msg, name);
-    sb_put(&msg, "\" for plugin \"");
-    sb_put(&msg, slug);
-    sb_putc(&msg, '"');
-    seterr(err, "station_secret_no_value", msg.buf);
+    vxstn_sb_init(&msg);
+    vxstn_sb_put(&msg, "no store had \"");
+    vxstn_sb_put(&msg, name);
+    vxstn_sb_put(&msg, "\" for plugin \"");
+    vxstn_sb_put(&msg, slug);
+    vxstn_sb_putc(&msg, '"');
+    vxstn_seterr(err, "station_secret_no_value", msg.buf);
     free(msg.buf);
     return NULL;
   }
 
-  kv_set(&b->cache, &b->ncache, slug, env);
+  kv_set(&b->cache, &b->ncache, name, env);
   broker_hold(b, env);
-  return kv_get(b->cache, b->ncache, slug);
+  return kv_get(b->cache, b->ncache, name);
 }
 
 /* Exact-value scrub, deliberately WITHOUT sekreto's four-character
@@ -1868,7 +1911,7 @@ static const char* broker_value(vxstn_broker* b, const char* slug,
  * promise is absolute, every held value is scrubbed whatever its
  * length. Owned result. */
 static char* broker_scrub(vxstn_broker* b, const char* text) {
-  char* out = sdup(text);
+  char* out = vxstn_sdup(text);
   size_t i;
   for (i = 0; i < b->nheld; i++) {
     if ('\0' != b->held[i][0]) {
@@ -1909,21 +1952,66 @@ static void broker_destroy(vxstn_broker* b) {
  * The Station
  * =========================================================================*/
 
+/* THE REGISTRY IS KEYED BY INSTANCE NAME, not api slug (design 6.1,
+   7.5). Two clients of one api is the NORMAL case now - `stripe` and
+   `stripe$test` - while two bindings of ONE instance is still
+   station_bound_twice. Everything downstream keys on the instance: the
+   placeholder (two live instances of one api must have distinct
+   placeholders or the injection seam cannot tell which credential a
+   header wants), the transport wrap, and every event. `api` is what
+   groups an instance with its siblings, and both ride every event. */
 typedef struct {
-  char* slug;
+  char* name; /* the instance ref: "stripe" or "stripe$test" */
+  char* api;  /* the api slug - the descriptor's own, shared by siblings */
   vxstn_val* descriptor;
   char* rung; /* "R1" | "none" */
   void* client;
-  vxstn_val* warnings;   /* list of strings */
-  char* secretname;      /* effective (fopt > profile > default) */
+  vxstn_val* warnings; /* list of strings */
+  char* secretname;    /* effective (fopt > profile block > default) */
 } vxstn_plugin_entry;
 
+/* The `vxstn_sdk` cache: one client per instance name. `create` is
+   deliberately NOT cached and does not appear here. */
+typedef struct {
+  char* name;
+  void* client;
+} vxstn_client_entry;
+
+/* An auto-assigned tag to the DECLARED instance it stands for (design
+   5.3). Kept beside the registry rather than inside it, because the
+   mapping exists BEFORE construction and vxstn_block_for needs it
+   during registration. */
+typedef struct {
+  char* tag;
+  char* declared;
+} vxstn_alias_entry;
+
+/* design 7.4: the per-API descriptor cache. THE DESCRIPTOR IS SHARED
+   because it describes the API rather than any use of it - at 26
+   instances over 20 apis that is 20 normalizations, not 26. */
+typedef struct {
+  char* api;
+  vxstn_val* descriptor;
+  vxstn_val* warnings;
+} vxstn_desc_entry;
+
 struct vxstn_station {
-  vxstn_val* profile; /* { name, providers, plugin } */
+  vxstn_val* profile; /* { name, providers, api, sdk } */
+  /* The RAW config, kept for design 8.7's provenance: the resolved
+     profile has already collapsed the levels provenance has to name.
+     resolveProfile reads this, never the normalized form. */
+  vxstn_val* raw;
   vxstn_broker broker;
   vxstn_events_buf events;
   vxstn_plugin_entry* plugins;
   size_t nplugins;
+  vxstn_client_entry* clients;
+  size_t nclients;
+  vxstn_alias_entry* aliases;
+  size_t naliases;
+  vxstn_desc_entry* descriptors;
+  size_t ndescriptors;
+  bool repo_scoped;
   bool require_proxy;
   bool closed;
   int64_t corr_seq;
@@ -1950,6 +2038,12 @@ static char* opts_key(const vxstn_open_opts* opts) {
     if (0 != opts->event_max) {
       vxstn_map_set(m, "event_max", vxstn_int(opts->event_max));
     }
+    if (0 != opts->repo_scoped) {
+      vxstn_map_set(m, "repo_scoped", vxstn_int(opts->repo_scoped));
+    }
+    if (opts->no_load) {
+      vxstn_map_set(m, "no_load", vxstn_bool(true));
+    }
   }
   out = vxstn_canonical(m);
   vxstn_val_free(m);
@@ -1960,7 +2054,7 @@ static void station_emit(vxstn_station* st, vxstn_val* ev) {
   events_emit(&st->events, ev);
 }
 
-void vxstn_emit_warn(vxstn_station* st, const char* slug, const char* warn) {
+void vxstn_emit_warn(vxstn_station* st, const char* name, const char* warn) {
   vxstn_val* ev;
   vxstn_val* meta;
   if (NULL == st) {
@@ -1969,8 +2063,11 @@ void vxstn_emit_warn(vxstn_station* st, const char* slug, const char* warn) {
   ev = vxstn_map();
   vxstn_map_set(ev, "t", vxstn_int(vxstn_now_ms()));
   vxstn_map_set(ev, "kind", vxstn_str("station"));
-  if (NULL != slug && '\0' != slug[0]) {
-    vxstn_map_set(ev, "plugin", vxstn_str(slug));
+  if (NULL != name && '\0' != name[0]) {
+    char* api = vxstn_refapi(name);
+    vxstn_map_set(ev, "plugin", vxstn_str(name));
+    vxstn_map_set(ev, "api", vxstn_str(api));
+    free(api);
   }
   meta = vxstn_map();
   vxstn_map_set(meta, "warn", vxstn_str(warn));
@@ -1993,9 +2090,44 @@ vxstn_station* vxstn_station_new(const vxstn_open_opts* opts, vxstn_error** err)
     char* jerr = NULL;
     config = vxstn_parse_json(opts->config_json, &jerr);
     if (NULL == config) {
-      seterr(err, "station_protocol", NULL == jerr ? "invalid config JSON" : jerr);
+      /* A parse failure is a config error, not a protocol one: the
+         caller wrote a station.json, so say so in the vocabulary the
+         rest of the config surface uses. */
+      vxstn_sb msg;
+      vxstn_sb_init(&msg);
+      vxstn_sb_put(&msg, "config is not valid JSON: ");
+      vxstn_sb_put(&msg, NULL == jerr ? "parse failed" : jerr);
+      vxstn_seterr(err, "station_config_invalid", msg.buf);
+      free(msg.buf);
       free(jerr);
       return NULL;
+    }
+
+    /* Normalize, then validate (design 4.2). A malformed config fails
+       open() with EVERY error at once - an eighteen-instance config
+       must not die because the eighteenth has a typo'd package name.
+
+       vxstn_resolve_profile then reads the RAW config, NOT the
+       normalized one: the normalized form is an input to validation and
+       to nothing else, and block defaults synthesized before the
+       profile merge would let a one-key overlay overwrite the base's
+       `active: false` and silently re-enable a barred integration
+       (design 3.3, 4.2). */
+    {
+      vxstn_val* normalized = vxstn_normalize_config(config);
+      vxstn_error* cerr = NULL;
+      vxstn_val* validated = vxstn_validate_config(normalized, &cerr);
+      vxstn_val_free(normalized);
+      if (NULL == validated) {
+        vxstn_val_free(config);
+        if (NULL != err) {
+          *err = cerr;
+        } else {
+          vxstn_error_free(cerr);
+        }
+        return NULL;
+      }
+      vxstn_val_free(validated);
     }
   }
 
@@ -2003,9 +2135,10 @@ vxstn_station* vxstn_station_new(const vxstn_open_opts* opts, vxstn_error** err)
 
   st = (vxstn_station*)calloc(1, sizeof(vxstn_station));
   st->profile = vxstn_resolve_profile(config, profile_name, &perr);
-  vxstn_val_free(config);
+  st->raw = config;
   free(profile_name);
   if (NULL == st->profile) {
+    vxstn_val_free(st->raw);
     free(st);
     if (NULL != err) {
       *err = perr;
@@ -2036,10 +2169,10 @@ vxstn_station* vxstn_station_new(const vxstn_open_opts* opts, vxstn_error** err)
     size_t nseen = 0;
     bool any = false;
     size_t i;
-    sb_init(&missing);
+    vxstn_sb_init(&missing);
     if (vxstn_is_list(providers)) {
       for (i = 0; i < providers->len; i++) {
-        const vxstn_val* kindv = getk(providers->items[i], "kind");
+        const vxstn_val* kindv = vxstn_getk(providers->items[i], "kind");
         const char* kind = vxstn_is_str(kindv) ? kindv->str : "?";
         bool dup = false;
         size_t j;
@@ -2054,24 +2187,102 @@ vxstn_station* vxstn_station_new(const vxstn_open_opts* opts, vxstn_error** err)
             seen[nseen++] = kind;
           }
           if (any) {
-            sb_put(&missing, ", ");
+            vxstn_sb_put(&missing, ", ");
           }
-          sb_put(&missing, kind);
+          vxstn_sb_put(&missing, kind);
           any = true;
         }
       }
     }
     if (any) {
       vxstn_sb warn;
-      sb_init(&warn);
-      sb_put(&warn, "c station is env-only (no sekreto c port): provider kind(s) [");
-      sb_put(&warn, missing.buf);
-      sb_put(&warn, "] are not available; secrets are read from the process "
+      vxstn_sb_init(&warn);
+      vxstn_sb_put(&warn, "c station is env-only (no sekreto c port): provider kind(s) [");
+      vxstn_sb_put(&warn, missing.buf);
+      vxstn_sb_put(&warn, "] are not available; secrets are read from the process "
                     "environment only (design 2.2)");
       vxstn_emit_warn(st, NULL, warn.buf);
       free(warn.buf);
     }
     free(missing.buf);
+  }
+
+  /* design 6.3: an in-code config is repo-scoped by construction - the
+     application wrote it - and this tier has NO station.json file
+     lookup, so there is no user-level file to distrust and no
+     configScope to compute. THE EXPLICIT OPTION IS READ FIRST anyway:
+     inferring before reading it is a real precedence bug, and it makes
+     `repo_scoped = -1` unsettable for exactly the caller that passes a
+     config in code, which is every test of the rule. */
+  st->repo_scoped = (NULL != opts && 0 != opts->repo_scoped) ? (0 < opts->repo_scoped)
+                                                             : true;
+
+  /* design 5.4 item 2: `package` STAYS IN THE GRAMMAR - the corpus
+     validates configs carrying it and one config file serves a polyglot
+     fleet - but C has no loader, so it is not honoured here. One
+     warning event per declared api, at open, once, rather than an error
+     that would refuse a config another port loads happily. */
+  {
+    const vxstn_val* api = vxstn_map_get(st->profile, "api");
+    const vxstn_val* sdk = vxstn_map_get(st->profile, "sdk");
+    const vxstn_val* levels[2];
+    const char* seen[64];
+    size_t nseen = 0;
+    size_t lv;
+    levels[0] = api;
+    levels[1] = sdk;
+    for (lv = 0; lv < 2; lv++) {
+      size_t i;
+      for (i = 0; NULL != levels[lv] && i < levels[lv]->mlen; i++) {
+        const vxstn_val* pkg = vxstn_getk(levels[lv]->vals[i], "package");
+        char* slug;
+        size_t j;
+        bool dup = false;
+        if (!vxstn_is_str(pkg) || '\0' == pkg->str[0]) {
+          continue;
+        }
+        slug = vxstn_refapi(levels[lv]->keys[i]);
+        for (j = 0; j < nseen; j++) {
+          if (0 == strcmp(seen[j], slug)) {
+            dup = true;
+            break;
+          }
+        }
+        if (dup || nseen >= sizeof(seen) / sizeof(seen[0])) {
+          free(slug);
+          continue;
+        }
+        {
+          vxstn_val* ev = vxstn_map();
+          vxstn_val* meta = vxstn_map();
+          vxstn_sb warn;
+          vxstn_sb_init(&warn);
+          vxstn_sb_put(&warn, "`package` is not honoured in the c port: it has no "
+                              "runtime module loading, so api \"");
+          vxstn_sb_put(&warn, slug);
+          vxstn_sb_put(&warn, "\" must arrive through vxstn_provide() before the "
+                              "first vxstn_sdk(); everything else in this config "
+                              "still applies (design 6.3)");
+          vxstn_map_set(ev, "t", vxstn_int(vxstn_now_ms()));
+          vxstn_map_set(ev, "kind", vxstn_str("station"));
+          vxstn_map_set(ev, "plugin", vxstn_str(slug));
+          vxstn_map_set(ev, "api", vxstn_str(slug));
+          vxstn_map_set(meta, "warn", vxstn_str(warn.buf));
+          vxstn_map_set(ev, "meta", meta);
+          free(warn.buf);
+          station_emit(st, ev);
+        }
+        /* One event per API, not per declaring block: `seen` holds the
+           api halves already warned about and is freed below. */
+        seen[nseen++] = slug;
+      }
+    }
+    {
+      size_t j;
+      for (j = 0; j < nseen; j++) {
+        free((void*)seen[j]);
+      }
+    }
   }
 
   return st;
@@ -2086,7 +2297,7 @@ vxstn_station* vxstn_open(const vxstn_open_opts* opts, vxstn_error** err) {
   key = opts_key(opts);
   if (NULL != AMBIENT) {
     if (0 != strcmp(key, AMBIENT_OPTS)) {
-      seterr(err, "station_open_conflict",
+      vxstn_seterr(err, "station_open_conflict",
              "vxstn_open() was already called with different options");
       free(key);
       return NULL;
@@ -2121,16 +2332,33 @@ void vxstn_station_free(vxstn_station* st) {
     vxstn_reset();
   }
   vxstn_val_free(st->profile);
+  vxstn_val_free(st->raw);
   broker_destroy(&st->broker);
   events_destroy(&st->events);
   for (i = 0; i < st->nplugins; i++) {
-    free(st->plugins[i].slug);
-    vxstn_val_free(st->plugins[i].descriptor);
+    /* `descriptor` and `warnings` are BORROWED from the per-api cache
+       below, which owns them: one descriptor, many instances. */
+    free(st->plugins[i].name);
+    free(st->plugins[i].api);
     free(st->plugins[i].rung);
-    vxstn_val_free(st->plugins[i].warnings);
     free(st->plugins[i].secretname);
   }
   free(st->plugins);
+  for (i = 0; i < st->nclients; i++) {
+    free(st->clients[i].name);
+  }
+  free(st->clients);
+  for (i = 0; i < st->naliases; i++) {
+    free(st->aliases[i].tag);
+    free(st->aliases[i].declared);
+  }
+  free(st->aliases);
+  for (i = 0; i < st->ndescriptors; i++) {
+    free(st->descriptors[i].api);
+    vxstn_val_free(st->descriptors[i].descriptor);
+    vxstn_val_free(st->descriptors[i].warnings);
+  }
+  free(st->descriptors);
   free(st);
 }
 
@@ -2145,22 +2373,22 @@ void vxstn_close(vxstn_station* st) {
    * typo'd key silently configuring nothing is the worst outcome for a
    * secrets-and-policy file (design 11). */
   plugin = vxstn_map_get(st->profile, "sdk");
-  keys = sortedkeys(plugin, &n);
+  keys = vxstn_sortedkeys(plugin, &n);
   for (i = 0; i < n; i++) {
     size_t j;
     bool found = false;
     for (j = 0; j < st->nplugins; j++) {
-      if (0 == strcmp(st->plugins[j].slug, keys[i])) {
+      if (0 == strcmp(st->plugins[j].name, keys[i])) {
         found = true;
         break;
       }
     }
     if (!found) {
       vxstn_sb warn;
-      sb_init(&warn);
-      sb_put(&warn, "profile plugin key \"");
-      sb_put(&warn, keys[i]);
-      sb_put(&warn, "\" matched no registered plugin");
+      vxstn_sb_init(&warn);
+      vxstn_sb_put(&warn, "profile plugin key \"");
+      vxstn_sb_put(&warn, keys[i]);
+      vxstn_sb_put(&warn, "\" matched no registered plugin");
       vxstn_emit_warn(st, NULL, warn.buf);
       free(warn.buf);
     }
@@ -2174,17 +2402,69 @@ void vxstn_close(vxstn_station* st) {
 
 /* --- registration --- */
 
-static vxstn_plugin_entry* find_plugin(vxstn_station* st, const char* slug) {
+/* By INSTANCE NAME (design 6.1): "stripe" and "stripe$test" are two
+   entries of one api, and every seam below asks by the name the binding
+   returned. */
+static vxstn_plugin_entry* find_plugin(vxstn_station* st, const char* name) {
   size_t i;
-  if (NULL == slug) {
+  if (NULL == name) {
     return NULL;
   }
   for (i = 0; i < st->nplugins; i++) {
-    if (0 == strcmp(st->plugins[i].slug, slug)) {
+    if (0 == strcmp(st->plugins[i].name, name)) {
       return &st->plugins[i];
     }
   }
   return NULL;
+}
+
+/* The DECLARED instance an assigned tag stands for, or the name itself.
+   `vxstn_create("stripe$prod")` registers under `stripe$1`, and every
+   question about that client's configuration - its secret, its base,
+   its egress policy - is a question about `stripe$prod`. Borrowed. */
+const char* vxstn_declared_ref(vxstn_station* st, const char* name) {
+  size_t i;
+  if (NULL == st || NULL == name) {
+    return name;
+  }
+  for (i = 0; i < st->naliases; i++) {
+    if (0 == strcmp(st->aliases[i].tag, name)) {
+      return st->aliases[i].declared;
+    }
+  }
+  return name;
+}
+
+/* The profile block that governs an instance - its own if the profile
+   declares it, otherwise its API's.
+
+   vxstn_resolve_profile builds `profile.sdk` from the DECLARED refs
+   alone ("an api block declares no instance, so the ref set comes from
+   the two `sdk` maps"). That is right for a declared instance and
+   leaves an IMPERATIVE one - registered with `as: "test"`, named but
+   never written into config - with no block at all, so the api-level
+   `secret`, `base` and most seriously `policy.hosts` did not reach it,
+   and a profile that denied egress everywhere denied nothing for a
+   tagged client.
+
+   ONE RULE, ONE PLACE: registration and the transport seam both ask
+   here, because their disagreeing is how the credential and the
+   allowlist came apart in the first place. Borrowed; NULL when neither
+   level declares anything. */
+const vxstn_val* vxstn_block_for(vxstn_station* st, const char* name) {
+  const vxstn_val* block;
+  char* api;
+  if (NULL == st) {
+    return NULL;
+  }
+  block = vxstn_getk(vxstn_map_get(st->profile, "sdk"), vxstn_declared_ref(st, name));
+  if (NULL != block) {
+    return block;
+  }
+  api = vxstn_refapi(name);
+  block = vxstn_getk(vxstn_map_get(st->profile, "api"), api);
+  free(api);
+  return block;
 }
 
 bool vxstn_bound(vxstn_station* st, void* client) {
@@ -2205,10 +2485,91 @@ void vxstn_binding_free(vxstn_binding* b) {
     return;
   }
   free(b->plugin);
+  free(b->api);
   free(b->placeholder);
   free(b->secretname);
   free(b->rung);
+  free(b->allow_op);
+  free(b->allow_method);
   free(b);
+}
+
+/* A policy list joined with "," for the SDK's own `options.allow`, or
+   NULL when the list is absent or empty. Owned. */
+static char* joinstrings(const vxstn_val* list) {
+  vxstn_sb sb;
+  size_t i;
+  if (!vxstn_is_list(list) || 0 == list->len) {
+    return NULL;
+  }
+  vxstn_sb_init(&sb);
+  for (i = 0; i < list->len; i++) {
+    char* item = vxstn_val_to_string(list->items[i]);
+    if (0 < i) {
+      vxstn_sb_putc(&sb, ',');
+    }
+    vxstn_sb_put(&sb, item);
+    free(item);
+  }
+  return sb.buf;
+}
+
+/* design 7.4: THE DESCRIPTOR IS SHARED, because it describes the api
+   rather than any use of it. It is normalized ONCE PER API and every
+   instance of that api holds the same value - at 26 instances over 20
+   apis that is 20 normalizations, not 26, and the canonical
+   serialization the proxy dedupes registrations by is computed once per
+   api too.
+
+   Normalized with NO per-instance features, so the shared value holds
+   only api-stable metadata - which is what the factory table already
+   does at provide time. Per-instance activation is
+   vxstn_features_of()'s answer; a cache keyed by slug but built from
+   the first instance's feature map would make vxstn_descriptor_of
+   construction-order-dependent. Borrowed - the station owns it. */
+static const vxstn_desc_entry* describe(vxstn_station* st, const vxstn_val* config) {
+  const char* slug = vxstn_strval(vxstn_getk(vxstn_getk(config, "main"), "slug"));
+  vxstn_desc_entry* entry;
+  vxstn_val* warnings = NULL;
+  size_t i;
+
+  if ('\0' != slug[0]) {
+    for (i = 0; i < st->ndescriptors; i++) {
+      if (0 == strcmp(st->descriptors[i].api, slug)) {
+        return &st->descriptors[i];
+      }
+    }
+  }
+
+  st->descriptors = (vxstn_desc_entry*)realloc(
+      st->descriptors, (st->ndescriptors + 1) * sizeof(vxstn_desc_entry));
+  entry = &st->descriptors[st->ndescriptors++];
+  memset(entry, 0, sizeof(*entry));
+  entry->descriptor = vxstn_normalize_descriptor(config, NULL, &warnings);
+  entry->warnings = warnings;
+  entry->api = vxstn_sdup(vxstn_strval(vxstn_map_get(entry->descriptor, "slug")));
+  return entry;
+}
+
+/* One event, both identities. design 7.5: events carry BOTH `plugin`
+   (the instance) and `api` (what groups its siblings) on EVERY kind -
+   construction events carrying both while runtime events carried only
+   one is grouping that works exactly until it is used. */
+static void station_event(vxstn_station* st, const char* kind, const char* name,
+                          vxstn_val* meta) {
+  vxstn_val* ev = vxstn_map();
+  char* api = vxstn_refapi(name);
+  vxstn_map_set(ev, "t", vxstn_int(vxstn_now_ms()));
+  vxstn_map_set(ev, "kind", vxstn_str(kind));
+  if (NULL != name && '\0' != name[0]) {
+    vxstn_map_set(ev, "plugin", vxstn_str(name));
+    vxstn_map_set(ev, "api", vxstn_str(api));
+  }
+  free(api);
+  if (NULL != meta) {
+    vxstn_map_set(ev, "meta", meta);
+  }
+  station_emit(st, ev);
 }
 
 vxstn_binding* vxstn_register(vxstn_station* st, void* client,
@@ -2218,34 +2579,37 @@ vxstn_binding* vxstn_register(vxstn_station* st, void* client,
                               vxstn_error** err) {
   vxstn_val* config;
   vxstn_val* features = NULL;
-  vxstn_val* warnings = NULL;
-  vxstn_val* descriptor;
+  const vxstn_desc_entry* shared;
+  const vxstn_val* descriptor;
   const vxstn_val* auth;
   const vxstn_val* activev;
-  const char* slug;
+  const vxstn_val* block;
+  const char* api;
+  char* name;
   bool auth_active;
   const char* profile_secret = NULL;
-  const char* effective_secret;
+  char* effective_secret;
   vxstn_plugin_entry* entry;
   vxstn_binding* binding;
   char* jerr = NULL;
+  vxstn_error* referr = NULL;
   size_t i;
 
   if (NULL != err) {
     *err = NULL;
   }
   if (NULL == st) {
-    seterr(err, "station_no_plugin", "no station");
+    vxstn_seterr(err, "station_no_plugin", "no station");
     return NULL;
   }
   if (st->closed) {
-    seterr(err, "station_no_plugin", "station is closed");
+    vxstn_seterr(err, "station_no_plugin", "station is closed");
     return NULL;
   }
 
   config = vxstn_parse_json(NULL == config_json ? "{}" : config_json, &jerr);
   if (NULL == config) {
-    seterr(err, "station_protocol", NULL == jerr ? "invalid config JSON" : jerr);
+    vxstn_seterr(err, "station_protocol", NULL == jerr ? "invalid config JSON" : jerr);
     free(jerr);
     return NULL;
   }
@@ -2253,23 +2617,42 @@ vxstn_binding* vxstn_register(vxstn_station* st, void* client,
     features = vxstn_parse_json(features_json, NULL);
   }
 
-  descriptor = vxstn_normalize_descriptor(config, features, &warnings);
+  shared = describe(st, config);
+  descriptor = shared->descriptor;
   vxstn_val_free(config);
+
+  api = vxstn_strval(vxstn_map_get(descriptor, "slug"));
+
+  /* design 7.5: station knows the instance name before construction
+     begins and passes it through the feature options - `as` is a TAG
+     resolved against the api here, because the api comes from the SDK
+     and is not knowable at the call site. A bare registration with no
+     name falls back to the descriptor slug, which is today's behaviour
+     and why the single-instance case is unchanged to the byte. */
+  name = vxstn_instance_ref(api, vxstn_getk(features, "station"), &referr);
   vxstn_val_free(features);
+  if (NULL == name) {
+    if (NULL != err) {
+      *err = referr;
+    } else {
+      vxstn_error_free(referr);
+    }
+    return NULL;
+  }
 
-  slug = vxstn_strval(vxstn_map_get(descriptor, "slug"));
-
-  if (NULL != find_plugin(st, slug)) {
+  /* design 7.1: the check moves to the INSTANCE key. Two clients of one
+     api is the NORMAL case now; two bindings of one instance is still
+     the error it was. */
+  if (NULL != find_plugin(st, name)) {
     vxstn_sb msg;
-    sb_init(&msg);
-    sb_put(&msg, "plugin \"");
-    sb_put(&msg, slug);
-    sb_put(&msg, "\" is already registered; binding one client twice is an "
-                 "error (10.2)");
-    seterr(err, "station_bound_twice", msg.buf);
+    vxstn_sb_init(&msg);
+    vxstn_sb_put(&msg, "instance \"");
+    vxstn_sb_put(&msg, name);
+    vxstn_sb_put(&msg, "\" is already registered; binding one client twice is an "
+                       "error (10.2)");
+    vxstn_seterr(err, "station_bound_twice", msg.buf);
     free(msg.buf);
-    vxstn_val_free(descriptor);
-    vxstn_val_free(warnings);
+    free(name);
     return NULL;
   }
 
@@ -2278,57 +2661,89 @@ vxstn_binding* vxstn_register(vxstn_station* st, void* client,
   auth_active = NULL != activev && VXSTN_BOOL == activev->kind && activev->b;
 
   /* Secret name precedence: the feature option (in-code, design 9
-   * config.options.secret) beats the profile, which beats the
-   * descriptor default. */
+     config.options.secret) beats the profile block, which beats the
+     INSTANCE-derived default.
+
+     design 5.1: the default takes the instance name, not the api slug -
+     and the DECLARED name rather than an assigned tag, so every
+     per-request client of one instance shares one broker cache entry
+     (5.3). For an untagged instance the two are the same string, so the
+     single-instance case is unchanged to the byte.
+
+     The descriptor's own `auth.secretname` stays the API-level default
+     and is NOT used here (7.4): one descriptor is shared by every
+     instance of an api and cannot hold two instance-derived names. */
+  block = vxstn_block_for(st, name);
   {
-    const vxstn_val* pp = getk(vxstn_map_get(st->profile, "sdk"), slug);
-    const vxstn_val* ps = getk(pp, "secret");
+    const vxstn_val* ps = vxstn_getk(block, "secret");
     if (vxstn_is_str(ps) && '\0' != ps->str[0]) {
       profile_secret = ps->str;
     }
   }
   if (NULL != secret_opt && '\0' != secret_opt[0]) {
-    effective_secret = secret_opt;
+    effective_secret = vxstn_sdup(secret_opt);
   } else if (NULL != profile_secret) {
-    effective_secret = profile_secret;
+    effective_secret = vxstn_sdup(profile_secret);
   } else {
-    effective_secret = vxstn_strval(vxstn_map_get(auth, "secretname"));
+    effective_secret = vxstn_secretname_default(vxstn_declared_ref(st, name));
   }
 
   st->plugins = (vxstn_plugin_entry*)realloc(
       st->plugins, (st->nplugins + 1) * sizeof(vxstn_plugin_entry));
   entry = &st->plugins[st->nplugins++];
   memset(entry, 0, sizeof(*entry));
-  entry->slug = sdup(slug);
-  entry->descriptor = descriptor;
-  entry->rung = sdup(auth_active ? "R1" : "none");
+  entry->name = vxstn_sdup(name);
+  entry->api = vxstn_sdup(api);
+  /* Borrowed: the per-api cache owns the descriptor and its warnings. */
+  entry->descriptor = (vxstn_val*)descriptor;
+  entry->rung = vxstn_sdup(auth_active ? "R1" : "none");
   entry->client = client;
-  entry->warnings = warnings;
-  entry->secretname = sdup(effective_secret);
+  entry->warnings = shared->warnings;
+  /* STORED ON THE ENTRY and read from there at the transport seam, with
+     NO FALLBACK: re-deriving it there is how a tagged instance with no
+     explicit `secret` reads `stripe.apikey` where registration recorded
+     `stripe_test.apikey`. */
+  entry->secretname = effective_secret;
 
-  for (i = 0; i < entry->warnings->len; i++) {
-    vxstn_emit_warn(st, slug, vxstn_strval(entry->warnings->items[i]));
+  for (i = 0; NULL != entry->warnings && i < entry->warnings->len; i++) {
+    vxstn_val* meta = vxstn_map();
+    vxstn_map_set(meta, "warn", vxstn_str(vxstn_strval(entry->warnings->items[i])));
+    station_event(st, "station", name, meta);
   }
   {
-    vxstn_val* ev = vxstn_map();
     vxstn_val* meta = vxstn_map();
-    vxstn_map_set(ev, "t", vxstn_int(vxstn_now_ms()));
-    vxstn_map_set(ev, "kind", vxstn_str("construct"));
-    vxstn_map_set(ev, "plugin", vxstn_str(slug));
     vxstn_map_set(meta, "name",
                   vxstn_str(vxstn_strval(vxstn_map_get(descriptor, "name"))));
     vxstn_map_set(meta, "version",
                   vxstn_str(vxstn_strval(vxstn_map_get(descriptor, "version"))));
     vxstn_map_set(meta, "rung", vxstn_str(entry->rung));
-    vxstn_map_set(ev, "meta", meta);
-    station_emit(st, ev);
+    station_event(st, "construct", name, meta);
   }
 
   binding = (vxstn_binding*)calloc(1, sizeof(vxstn_binding));
-  binding->plugin = sdup(slug);
-  binding->placeholder = auth_active ? vxstn_placeholder(slug) : NULL;
-  binding->secretname = auth_active ? sdup(effective_secret) : NULL;
-  binding->rung = sdup(entry->rung);
+  binding->plugin = vxstn_sdup(name);
+  binding->api = vxstn_sdup(api);
+  /* design 7.2: two live instances of one api MUST have distinct
+     placeholders, or the injection seam cannot tell which credential a
+     header wants. */
+  binding->placeholder = auth_active ? vxstn_placeholder(name) : NULL;
+  binding->secretname = auth_active ? vxstn_sdup(effective_secret) : NULL;
+  binding->rung = vxstn_sdup(entry->rung);
+
+  /* design 16, the solo half: the POLICY ALLOWLIST is enforcement, not
+     a default, so it wins on exactly the keys it sets. The DECISION is
+     here (the library owns every decision); the adapter applies the two
+     strings to the SDK's own `options.allow` at binding time, on both
+     entry paths, because both come through here. */
+  {
+    const vxstn_val* allow = vxstn_getk(vxstn_getk(block, "policy"), "allow");
+    if (vxstn_is_map(allow)) {
+      binding->allow_op = joinstrings(vxstn_getk(allow, "op"));
+      binding->allow_method = joinstrings(vxstn_getk(allow, "method"));
+    }
+  }
+
+  free(name);
   return binding;
 }
 
@@ -2338,17 +2753,22 @@ bool vxstn_require_proxy(vxstn_station* st) {
   return NULL != st && st->require_proxy;
 }
 
-const vxstn_val* vxstn_profile_sdk(vxstn_station* st, const char* slug) {
-  if (NULL == st || NULL == slug) {
+const vxstn_val* vxstn_profile_sdk(vxstn_station* st, const char* name) {
+  if (NULL == st || NULL == name) {
     return NULL;
   }
-  return getk(vxstn_map_get(st->profile, "sdk"), slug);
+  return vxstn_getk(vxstn_map_get(st->profile, "sdk"), name);
 }
 
-bool vxstn_host_allowed(vxstn_station* st, const char* slug,
+bool vxstn_host_allowed(vxstn_station* st, const char* name,
                         const char* fullurl, bool* has_policy) {
-  const vxstn_val* pp = vxstn_profile_sdk(st, slug);
-  const vxstn_val* hosts = getk(getk(pp, "policy"), "hosts");
+  /* THROUGH vxstn_block_for, not the sdk map directly: an imperative
+     instance - named with `as` but never written into config - has no
+     block of its own, and reading only `profile.sdk` left it with no
+     `policy.hosts` at all, so a profile that denied egress everywhere
+     denied nothing for a tagged client. */
+  const vxstn_val* pp = vxstn_block_for(st, name);
+  const vxstn_val* hosts = vxstn_getk(vxstn_getk(pp, "policy"), "hosts");
   char* host;
   char* hostname;
   char* path;
@@ -2383,35 +2803,42 @@ const char* vxstn_rung(vxstn_station* st, const char* slug) {
   return NULL == entry ? NULL : entry->rung;
 }
 
-const char* vxstn_secret_value(vxstn_station* st, const char* slug,
+const char* vxstn_secret_value(vxstn_station* st, const char* name,
                                vxstn_error** err) {
   vxstn_plugin_entry* entry;
   if (NULL != err) {
     *err = NULL;
   }
-  entry = NULL == st ? NULL : find_plugin(st, slug);
+  entry = NULL == st ? NULL : find_plugin(st, name);
   if (NULL == entry) {
-    seterr(err, "station_no_plugin", "unknown plugin");
+    vxstn_seterr(err, "station_no_plugin", "unknown instance");
     return NULL;
   }
-  return broker_value(&st->broker, slug, entry->secretname, err);
+  /* The effective name is READ FROM THE REGISTRY ENTRY, with NO
+     FALLBACK: re-deriving it here is how a tagged instance with no
+     explicit `secret` reads `stripe.apikey` where registration recorded
+     `stripe_test.apikey`. */
+  return broker_value(&st->broker, name, entry->secretname, err);
 }
 
-void vxstn_hoist(vxstn_station* st, const char* slug, const char* value) {
-  if (NULL == st || NULL == slug || NULL == value) {
+void vxstn_hoist(vxstn_station* st, const char* name, const char* value) {
+  vxstn_val* meta;
+  if (NULL == st || NULL == name || NULL == value) {
     return;
   }
-  broker_hoist(&st->broker, slug, value);
-  vxstn_emit_warn(st, slug,
-                  "a resident credential was hoisted into the broker and "
-                  "replaced by the placeholder; prefer configuring the secret "
-                  "name and letting the environment resolve it");
+  broker_hoist(&st->broker, name, value);
+  meta = vxstn_map();
+  vxstn_map_set(meta, "warn",
+                vxstn_str("a resident credential was hoisted into the broker and "
+                          "replaced by the placeholder; prefer configuring the "
+                          "secret name and letting the environment resolve it"));
+  station_event(st, "station", name, meta);
 }
 
 char* vxstn_next_corr(vxstn_station* st) {
   vxstn_sb sb;
-  sb_init(&sb);
-  sb_putf(&sb, "c%lld", (long long)(NULL == st ? 0 : ++st->corr_seq));
+  vxstn_sb_init(&sb);
+  vxstn_sb_putf(&sb, "c%lld", (long long)(NULL == st ? 0 : ++st->corr_seq));
   return sb.buf;
 }
 
@@ -2455,16 +2882,16 @@ vxstn_error* vxstn_wrap_order_check(const char* const* names, size_t n) {
   if (self_at != expected) {
     vxstn_sb msg;
     vxstn_error* err;
-    sb_init(&msg);
-    sb_put(&msg, "station must init immediately after the base transport; "
+    vxstn_sb_init(&msg);
+    vxstn_sb_put(&msg, "station must init immediately after the base transport; "
                  "feature order is [");
     for (i = 0; i < n; i++) {
       if (0 < i) {
-        sb_put(&msg, ", ");
+        vxstn_sb_put(&msg, ", ");
       }
-      sb_put(&msg, NULL == names[i] ? "" : names[i]);
+      vxstn_sb_put(&msg, NULL == names[i] ? "" : names[i]);
     }
-    sb_putc(&msg, ']');
+    vxstn_sb_putc(&msg, ']');
     err = vxstn_error_new("station_wrap_order", msg.buf);
     free(msg.buf);
     return err;
@@ -2474,12 +2901,19 @@ vxstn_error* vxstn_wrap_order_check(const char* const* names, size_t n) {
 
 /* --- event emission --- */
 
+/* design 7.5: BOTH identities on EVERY kind - `plugin` is the instance
+   the event came from and `api` is what groups it with its siblings.
+   Construction events carrying both while runtime events carried only
+   one is grouping that works exactly until it is used. */
 static void ev_common(vxstn_val* ev, int64_t t, const char* kind,
-                      const char* slug, const char* corr) {
+                      const char* name, const char* corr) {
   vxstn_map_set(ev, "t", vxstn_int(t));
   vxstn_map_set(ev, "kind", vxstn_str(kind));
-  if (NULL != slug && '\0' != slug[0]) {
-    vxstn_map_set(ev, "plugin", vxstn_str(slug));
+  if (NULL != name && '\0' != name[0]) {
+    char* api = vxstn_refapi(name);
+    vxstn_map_set(ev, "plugin", vxstn_str(name));
+    vxstn_map_set(ev, "api", vxstn_str(api));
+    free(api);
   }
   if (NULL != corr && '\0' != corr[0]) {
     vxstn_map_set(ev, "corr", vxstn_str(corr));
@@ -2628,7 +3062,12 @@ vxstn_val* vxstn_status(vxstn_station* st) {
   if (NULL != st) {
     for (i = 0; i < st->nplugins; i++) {
       vxstn_val* p = vxstn_map();
-      vxstn_map_set(p, "slug", vxstn_str(st->plugins[i].slug));
+      /* Truncation is a PRESENTATION decision and it belongs here, in
+         status(): name, api, the retained `slug` (equal to the api, and
+         what `slug` always meant on this row), and the rung. */
+      vxstn_map_set(p, "name", vxstn_str(st->plugins[i].name));
+      vxstn_map_set(p, "api", vxstn_str(st->plugins[i].api));
+      vxstn_map_set(p, "slug", vxstn_str(st->plugins[i].api));
       vxstn_map_set(p, "rung", vxstn_str(st->plugins[i].rung));
       vxstn_list_push(plugins, p);
     }
@@ -2648,11 +3087,21 @@ vxstn_val* vxstn_plugins(vxstn_station* st) {
   if (NULL == st) {
     return out;
   }
+  /* One entry per LIVE INSTANCE, and EXHAUSTIVE: auto-tagged entries
+     are NOT collapsed here, because inspection, health reporting and
+     cleanup all need to enumerate the clients vxstn_create produced,
+     which is exactly when you most want them. */
   for (i = 0; i < st->nplugins; i++) {
     vxstn_val* p = vxstn_map();
-    vxstn_map_set(p, "slug", vxstn_str(st->plugins[i].slug));
+    vxstn_map_set(p, "name", vxstn_str(st->plugins[i].name));
+    vxstn_map_set(p, "api", vxstn_str(st->plugins[i].api));
+    /* Retained: it is the api, which is what `slug` always meant here,
+       and dropping it would break every consumer for no gain while the
+       two are equal for untagged instances. */
+    vxstn_map_set(p, "slug", vxstn_str(st->plugins[i].api));
     vxstn_map_set(p, "descriptor", vxstn_clone(st->plugins[i].descriptor));
     vxstn_map_set(p, "rung", vxstn_str(st->plugins[i].rung));
+    vxstn_map_set(p, "secretname", vxstn_str(st->plugins[i].secretname));
     vxstn_map_set(p, "warnings", vxstn_clone(st->plugins[i].warnings));
     vxstn_list_push(out, p);
   }
@@ -2669,20 +3118,20 @@ vxstn_val* vxstn_descriptor_of(vxstn_station* st, const char* slug,
   if (NULL == entry) {
     vxstn_sb msg;
     size_t i;
-    sb_init(&msg);
-    sb_put(&msg, "unknown plugin \"");
-    sb_put(&msg, NULL == slug ? "" : slug);
-    sb_put(&msg, "\"; known: [");
+    vxstn_sb_init(&msg);
+    vxstn_sb_put(&msg, "unknown plugin \"");
+    vxstn_sb_put(&msg, NULL == slug ? "" : slug);
+    vxstn_sb_put(&msg, "\"; known: [");
     if (NULL != st) {
       for (i = 0; i < st->nplugins; i++) {
         if (0 < i) {
-          sb_put(&msg, ", ");
+          vxstn_sb_put(&msg, ", ");
         }
-        sb_put(&msg, st->plugins[i].slug);
+        vxstn_sb_put(&msg, st->plugins[i].name);
       }
     }
-    sb_putc(&msg, ']');
-    seterr(err, "station_no_plugin", msg.buf);
+    vxstn_sb_putc(&msg, ']');
+    vxstn_seterr(err, "station_no_plugin", msg.buf);
     free(msg.buf);
     return NULL;
   }
@@ -2703,7 +3152,7 @@ char* vxstn_canonical_descriptor(vxstn_station* st, const char* slug,
 
 char* vxstn_redact(vxstn_station* st, const char* text) {
   if (NULL == st) {
-    return sdup(text);
+    return vxstn_sdup(text);
   }
   return broker_scrub(&st->broker, NULL == text ? "" : text);
 }
@@ -2713,3 +3162,912 @@ void vxstn_refresh_secrets(vxstn_station* st) {
     broker_refresh(&st->broker);
   }
 }
+
+/* =========================================================================
+ * The declarative front door (design station.md 6)
+ *
+ * "Write it once in station.json, get it where you need it." The
+ * instance table comes from the resolved profile, the CONSTRUCTOR comes
+ * from the factory table (voxgig_station_factory.c), and everything
+ * between them - the feature merge, the order, the design 8.5 check,
+ * the options - is composed here.
+ *
+ * THE C DIVERGENCE, stated once: there is no loader (design 5.4). An
+ * api reaches the table through vxstn_provide and nothing else, and
+ * `package` is warned about at open rather than imported. Everything
+ * else in design 6 is here.
+ * =========================================================================*/
+
+static void alias_set(vxstn_station* st, const char* tag, const char* declared) {
+  size_t i;
+  for (i = 0; i < st->naliases; i++) {
+    if (0 == strcmp(st->aliases[i].tag, tag)) {
+      free(st->aliases[i].declared);
+      st->aliases[i].declared = vxstn_sdup(declared);
+      return;
+    }
+  }
+  st->aliases = (vxstn_alias_entry*)realloc(
+      st->aliases, (st->naliases + 1) * sizeof(vxstn_alias_entry));
+  st->aliases[st->naliases].tag = vxstn_sdup(tag);
+  st->aliases[st->naliases].declared = vxstn_sdup(declared);
+  st->naliases++;
+}
+
+static void* client_get(vxstn_station* st, const char* name) {
+  size_t i;
+  for (i = 0; i < st->nclients; i++) {
+    if (0 == strcmp(st->clients[i].name, name)) {
+      return st->clients[i].client;
+    }
+  }
+  return NULL;
+}
+
+static void client_set(vxstn_station* st, const char* name, void* client) {
+  st->clients = (vxstn_client_entry*)realloc(
+      st->clients, (st->nclients + 1) * sizeof(vxstn_client_entry));
+  st->clients[st->nclients].name = vxstn_sdup(name);
+  st->clients[st->nclients].client = client;
+  st->nclients++;
+}
+
+/* Inverted binding (design 3.1): the plain options map a generated
+   constructor already accepts, carrying the activation entry and the
+   instance name station resolved before construction began.
+   `instance` is OPTIONAL AND LEADING, so an existing
+   vxstn_options(st, NULL, extra) call is unchanged.
+
+   The station HANDLE does not ride the map, because a C value tree
+   holds JSON and not pointers: the generated station feature binds to
+   the ambient instance (vxstn_current) or to a handle the host gave it,
+   which is what design 3.1 already says about C. Owned. */
+vxstn_val* vxstn_options(vxstn_station* st, const char* instance,
+                         const vxstn_val* extra) {
+  vxstn_val* out = vxstn_is_map(extra) ? vxstn_clone(extra) : vxstn_map();
+  const vxstn_val* infeature = vxstn_getk(extra, "feature");
+  vxstn_val* fmap = vxstn_is_map(infeature) ? vxstn_clone(infeature) : vxstn_map();
+  const vxstn_val* prior = vxstn_getk(fmap, "station");
+  vxstn_val* entry = vxstn_is_map(prior) ? vxstn_clone(prior) : vxstn_map();
+  (void)st;
+
+  vxstn_map_set(entry, "active", vxstn_bool(true));
+  if (NULL != instance && '\0' != instance[0]) {
+    vxstn_map_set(entry, "instance", vxstn_str(instance));
+  }
+  vxstn_map_set(fmap, "station", entry);
+  vxstn_map_set(out, "feature", fmap);
+  return out;
+}
+
+/* Every DECLARED instance (design 6.1), sorted by name - a different
+   question from vxstn_plugins(), and the answers differ routinely: a
+   lazily-started instance is active and not yet live. Owned. */
+vxstn_val* vxstn_instances(vxstn_station* st) {
+  vxstn_val* out = vxstn_list();
+  const vxstn_val* sdk;
+  const char** names;
+  size_t n, i;
+
+  if (NULL == st) {
+    return out;
+  }
+  sdk = vxstn_map_get(st->profile, "sdk");
+  names = vxstn_sortedkeys(sdk, &n);
+  for (i = 0; i < n; i++) {
+    const vxstn_val* block = vxstn_map_get(sdk, names[i]);
+    const vxstn_val* activev = vxstn_map_get(block, "active");
+    const vxstn_plugin_entry* live = find_plugin(st, names[i]);
+    char* api = vxstn_refapi(names[i]);
+    vxstn_val* row = vxstn_map();
+    vxstn_map_set(row, "name", vxstn_str(names[i]));
+    vxstn_map_set(row, "api", vxstn_str(api));
+    /* `active: false` means BARRED FROM RUNNING - a declaration that
+       stays in the file and here while being refused a client. */
+    vxstn_map_set(row, "active",
+                  vxstn_bool(!(NULL != activev && VXSTN_BOOL == activev->kind &&
+                               !activev->b)));
+    vxstn_map_set(row, "live", vxstn_bool(NULL != live));
+    vxstn_map_set(row, "rung", vxstn_str(NULL == live ? "none" : live->rung));
+    vxstn_map_set(row, "block", vxstn_clone(block));
+    vxstn_list_push(out, row);
+    free(api);
+  }
+  free(names);
+  return out;
+}
+
+/* The merged, ordered feature set for one instance, WITH PROVENANCE
+   (design 8.7): which config level set each value. Provenance is the
+   half that makes a fleet view usable rather than merely correct - at
+   26 instances "why is retry off here" is the question, and a merged
+   map alone cannot answer it.
+
+   Returns { ordered: [name...], merged, from }, owned, or NULL + *err
+   (station_feature_order) when the order cannot be resolved. */
+vxstn_val* vxstn_features_of(vxstn_station* st, const char* name, vxstn_error** err) {
+  char* api;
+  const vxstn_val* profiles;
+  const vxstn_val* base;
+  const vxstn_val* overlay = NULL;
+  const char* pname;
+  vxstn_val* sources;
+  vxstn_val* from = vxstn_map();
+  vxstn_val* merged;
+  const vxstn_val* budget;
+  vxstn_val* fororder;
+  vxstn_val* ordered;
+  vxstn_val* names;
+  vxstn_val* out;
+  vxstn_error* perr;
+  char* levels[6];
+  size_t i, j, k;
+
+  if (NULL != err) {
+    *err = NULL;
+  }
+  api = vxstn_refapi(name);
+  pname = NULL == st ? "default" : vxstn_strval(vxstn_map_get(st->profile, "name"));
+  profiles = NULL == st ? NULL : vxstn_getk(st->raw, "profiles");
+  base = vxstn_getk(profiles, "default");
+  if (0 != strcmp("default", pname)) {
+    overlay = vxstn_getk(profiles, pname);
+  }
+
+  /* One label per source, in design 3.3's order. */
+  levels[0] = vxstn_sdup("default.feature");
+  levels[1] = vxstn_sdup("default.api");
+  levels[2] = vxstn_sdup("default.sdk");
+  for (i = 0; i < 3; i++) {
+    static const char* const TAIL[3] = {".feature", ".api", ".sdk"};
+    vxstn_sb sb;
+    vxstn_sb_init(&sb);
+    vxstn_sb_put(&sb, pname);
+    vxstn_sb_put(&sb, TAIL[i]);
+    levels[3 + i] = sb.buf;
+  }
+
+  sources = vxstn_feature_sources(base, overlay, api, name);
+
+  /* LAST WRITER PER (feature, key) WINS, and the level that wrote it is
+     what `from` records. */
+  for (i = 0; i < sources->len && i < 6; i++) {
+    const vxstn_val* src = sources->items[i];
+    if (!vxstn_is_map(src)) {
+      continue;
+    }
+    for (j = 0; j < src->mlen; j++) {
+      const vxstn_val* entry = src->vals[j];
+      vxstn_val* keys;
+      if (!vxstn_is_map(entry)) {
+        continue;
+      }
+      keys = vxstn_map_get(from, src->keys[j]);
+      if (!vxstn_is_map(keys)) {
+        keys = vxstn_map();
+        vxstn_map_set(from, src->keys[j], keys);
+      }
+      for (k = 0; k < entry->mlen; k++) {
+        vxstn_map_set(keys, entry->keys[k], vxstn_str(levels[i]));
+      }
+    }
+  }
+
+  merged = vxstn_merge_features(sources);
+  vxstn_val_free(sources);
+  for (i = 0; i < 6; i++) {
+    free(levels[i]);
+  }
+
+  /* design 16's policy budget: rps/concurrency ceilings ride "the SDK
+     `ratelimit` feature, configured by station". Composed HERE, into
+     the merged map every consumer reads, rather than patched in at
+     construction alone - so vxstn_build orders it with the ordinary
+     constraint-and-band rules, vxstn_check's 8.5 pass catches a budget
+     on an SDK with no ratelimit feature as station_feature_unknown
+     rather than a setting that quietly did nothing, and the fleet view
+     answers "is ratelimit on?" truthfully.
+
+     `rps` maps to the token bucket's refill `rate` (per second - the
+     same unit); `concurrency` to its capacity `burst`, the number of
+     requests that can be in flight from a full bucket. POLICY WINS over
+     a `feature.ratelimit` config entry on the keys it sets - it is
+     enforcement, not a default - and other tuning keys survive beside
+     it. */
+  budget = vxstn_getk(vxstn_getk(vxstn_block_for(st, name), "policy"), "budget");
+  if (vxstn_is_map(budget)) {
+    const vxstn_val* prior = vxstn_map_get(merged, "ratelimit");
+    vxstn_val* entry = vxstn_is_map(prior) ? vxstn_clone(prior) : vxstn_map();
+    vxstn_val* keys = vxstn_map_get(from, "ratelimit");
+    const vxstn_val* rps = vxstn_getk(budget, "rps");
+    const vxstn_val* concurrency = vxstn_getk(budget, "concurrency");
+    if (!vxstn_is_map(keys)) {
+      keys = vxstn_map();
+      vxstn_map_set(from, "ratelimit", keys);
+    }
+    vxstn_map_set(entry, "active", vxstn_bool(true));
+    vxstn_map_set(keys, "active", vxstn_str("policy.budget"));
+    if (NULL != rps) {
+      vxstn_map_set(entry, "rate", vxstn_clone(rps));
+      vxstn_map_set(keys, "rate", vxstn_str("policy.budget"));
+    }
+    if (NULL != concurrency) {
+      vxstn_map_set(entry, "burst", vxstn_clone(concurrency));
+      vxstn_map_set(keys, "burst", vxstn_str("policy.budget"));
+    }
+    vxstn_map_set(merged, "ratelimit", entry);
+  }
+
+  /* THE IMPLICIT STATION ENTRY, added for ORDERING ONLY. `station` is
+     never in `merged` - feature.station is reserved and rejected at
+     validation (8.4) - so without it vxstn_check_pin finds no station
+     row and is a PERMANENT NO-OP: a constraint like
+     `retry.order.after: "station"` would be treated as vacuous rather
+     than rejected, and the reported order would omit the one feature
+     whose position is supposedly pinned. `merged` itself stays the
+     user's own merge result. */
+  fororder = vxstn_clone(merged);
+  {
+    vxstn_val* stationentry = vxstn_map();
+    vxstn_map_set(stationentry, "active", vxstn_bool(true));
+    vxstn_map_set(fororder, "station", stationentry);
+  }
+  ordered = vxstn_resolve_order(fororder, err);
+  vxstn_val_free(fororder);
+  free(api);
+  if (NULL == ordered) {
+    vxstn_val_free(merged);
+    vxstn_val_free(from);
+    return NULL;
+  }
+  perr = vxstn_check_pin(ordered);
+  if (NULL != perr) {
+    if (NULL != err) {
+      *err = perr;
+    } else {
+      vxstn_error_free(perr);
+    }
+    vxstn_val_free(ordered);
+    vxstn_val_free(merged);
+    vxstn_val_free(from);
+    return NULL;
+  }
+
+  names = vxstn_list();
+  for (i = 0; i < ordered->len; i++) {
+    vxstn_list_push(names,
+                    vxstn_str(vxstn_strval(vxstn_map_get(ordered->items[i], "name"))));
+  }
+  vxstn_val_free(ordered);
+
+  out = vxstn_map();
+  vxstn_map_set(out, "ordered", names);
+  vxstn_map_set(out, "merged", merged);
+  vxstn_map_set(out, "from", from);
+  return out;
+}
+
+/* The fleet feature view: instance x feature, effective options, and
+   which config level set each (design 8.7).
+
+   The filter is either a STRING - shorthand for "this instance or this
+   api", loose - or a map { instance?, api?, feature? }. Only the map
+   form can express the question the view exists for: {feature:
+   "debug"}, "is debug on anywhere?", the one that is twenty greps
+   today. Owned. */
+vxstn_val* vxstn_features(vxstn_station* st, const vxstn_val* filter) {
+  vxstn_val* out = vxstn_list();
+  vxstn_val* rows;
+  const char* want_instance = NULL;
+  const char* want_api = NULL;
+  const char* want_feature = NULL;
+  bool loose = false;
+  size_t i;
+
+  if (NULL == st) {
+    return out;
+  }
+  if (vxstn_is_str(filter)) {
+    want_instance = filter->str;
+    want_api = filter->str;
+    loose = true;
+  } else if (vxstn_is_map(filter)) {
+    const vxstn_val* v = vxstn_getk(filter, "instance");
+    want_instance = vxstn_is_str(v) ? v->str : NULL;
+    v = vxstn_getk(filter, "api");
+    want_api = vxstn_is_str(v) ? v->str : NULL;
+    v = vxstn_getk(filter, "feature");
+    want_feature = vxstn_is_str(v) ? v->str : NULL;
+  }
+
+  rows = vxstn_instances(st);
+  for (i = 0; i < rows->len; i++) {
+    const char* name = vxstn_strval(vxstn_map_get(rows->items[i], "name"));
+    const char* api = vxstn_strval(vxstn_map_get(rows->items[i], "api"));
+    vxstn_val* resolved;
+    vxstn_val* row;
+
+    if (loose) {
+      if (NULL != want_instance && 0 != strcmp(name, want_instance) &&
+          0 != strcmp(api, want_api)) {
+        continue;
+      }
+    } else {
+      if (NULL != want_instance && 0 != strcmp(name, want_instance) &&
+          0 != strcmp(api, want_instance)) {
+        continue;
+      }
+      if (NULL != want_api && 0 != strcmp(api, want_api)) {
+        continue;
+      }
+    }
+
+    resolved = vxstn_features_of(st, name, NULL);
+    if (NULL == resolved) {
+      continue;
+    }
+
+    /* `feature` filters the ROWS, not the instances: an instance that
+       does not carry the named feature is not part of the answer, and
+       the rows that remain are narrowed to it, so the view answers
+       "where is debug on, and with what" rather than "here is
+       everything, go and look". */
+    if (NULL != want_feature) {
+      const vxstn_val* merged = vxstn_map_get(resolved, "merged");
+      const vxstn_val* hit = vxstn_map_get(merged, want_feature);
+      vxstn_val* narrowed;
+      vxstn_val* onemerged;
+      vxstn_val* onefrom;
+      const vxstn_val* ordered;
+      const vxstn_val* fromall;
+      size_t j;
+      if (NULL == hit) {
+        vxstn_val_free(resolved);
+        continue;
+      }
+      narrowed = vxstn_list();
+      ordered = vxstn_map_get(resolved, "ordered");
+      for (j = 0; NULL != ordered && j < ordered->len; j++) {
+        if (0 == strcmp(want_feature, vxstn_strval(ordered->items[j]))) {
+          vxstn_list_push(narrowed, vxstn_str(want_feature));
+        }
+      }
+      onemerged = vxstn_map();
+      vxstn_map_set(onemerged, want_feature, vxstn_clone(hit));
+      onefrom = vxstn_map();
+      fromall = vxstn_map_get(vxstn_map_get(resolved, "from"), want_feature);
+      vxstn_map_set(onefrom, want_feature,
+                    vxstn_is_map(fromall) ? vxstn_clone(fromall) : vxstn_map());
+      vxstn_val_free(resolved);
+      resolved = vxstn_map();
+      vxstn_map_set(resolved, "ordered", narrowed);
+      vxstn_map_set(resolved, "merged", onemerged);
+      vxstn_map_set(resolved, "from", onefrom);
+    }
+
+    row = vxstn_map();
+    vxstn_map_set(row, "instance", vxstn_str(name));
+    vxstn_map_set(row, "api", vxstn_str(api));
+    vxstn_map_set(row, "ordered", vxstn_clone(vxstn_map_get(resolved, "ordered")));
+    vxstn_map_set(row, "merged", vxstn_clone(vxstn_map_get(resolved, "merged")));
+    vxstn_map_set(row, "from", vxstn_clone(vxstn_map_get(resolved, "from")));
+    vxstn_val_free(resolved);
+    vxstn_list_push(out, row);
+  }
+  vxstn_val_free(rows);
+  return out;
+}
+
+/* The lowest positive integer tag not already taken, by a LIVE instance
+   or a DECLARED one.
+
+   THE REGISTRY ALONE IS NOT ENOUGH: a profile may declare `stripe$1`,
+   and until something constructs it the registry says false - so
+   vxstn_create("stripe$prod") would take that identity, vxstn_instances
+   would report the declared `stripe$1` as live with the wrong client,
+   and a later vxstn_sdk("stripe$1") would fail station_bound_twice
+   against a binding that was never its own. Declaration reserves the
+   name whether or not it has been built. Owned. */
+char* vxstn_autotag(vxstn_station* st, const char* name) {
+  char* api = vxstn_refapi(name);
+  const vxstn_val* sdk = NULL == st ? NULL : vxstn_map_get(st->profile, "sdk");
+  long n;
+  for (n = 1;; n++) {
+    vxstn_sb sb;
+    vxstn_sb_init(&sb);
+    vxstn_sb_put(&sb, api);
+    vxstn_sb_putc(&sb, '$');
+    vxstn_sb_putf(&sb, "%ld", n);
+    if (NULL == find_plugin(st, sb.buf) && NULL == vxstn_map_get(sdk, sb.buf)) {
+      free(api);
+      return sb.buf;
+    }
+    free(sb.buf);
+  }
+}
+
+/* design 6.2's paths, in order of preference - and in C there are TWO,
+   not three: the registered factory, then the error. THE MESSAGE NAMES
+   ONLY THE REMEDIES THIS PORT OFFERS, and says that `package` is not
+   honoured here: a message telling a C user to set `api.<slug>.package`
+   is a message that sends them down a road with no end. Borrowed, or
+   NULL + *err. */
+const vxstn_factory* vxstn_resolve_factory(vxstn_station* st, const char* api,
+                                           const vxstn_val* block,
+                                           vxstn_error** err) {
+  const vxstn_factory* direct = vxstn_factory_for(api);
+  vxstn_sb msg;
+  (void)st;
+  (void)block;
+
+  if (NULL != err) {
+    *err = NULL;
+  }
+  if (NULL != direct) {
+    return direct;
+  }
+
+  vxstn_sb_init(&msg);
+  vxstn_sb_put(&msg, "no factory for api \"");
+  vxstn_sb_put(&msg, NULL == api ? "" : api);
+  vxstn_sb_put(&msg, "\"; link the generated package and call vxstn_provide(\"");
+  vxstn_sb_put(&msg, NULL == api ? "" : api);
+  vxstn_sb_put(&msg, "\", ...) before the first vxstn_sdk() - the c port has no "
+                     "runtime module loading, so `api.");
+  vxstn_sb_put(&msg, NULL == api ? "" : api);
+  vxstn_sb_put(&msg, ".package` is not honoured here (design 6.3)");
+  vxstn_seterr(err, "station_no_factory", msg.buf);
+  free(msg.buf);
+  return NULL;
+}
+
+/* The shared construction path behind vxstn_sdk and vxstn_create.
+   `as` is the ASSIGNED tag (vxstn_create's) or NULL. */
+static void* build(vxstn_station* st, const char* name, const char* as,
+                   const vxstn_val* overrides, vxstn_error** err) {
+  const vxstn_val* sdk;
+  const vxstn_val* block;
+  const vxstn_val* activev;
+  const vxstn_factory* entry;
+  vxstn_val* resolved;
+  vxstn_val* faults;
+  vxstn_val* ordered;
+  vxstn_val* composed;
+  vxstn_val* fmap;
+  vxstn_val* opts;
+  vxstn_val* options;
+  char* api;
+  void* client;
+  size_t i;
+
+  if (NULL != err) {
+    *err = NULL;
+  }
+  if (NULL == st || st->closed) {
+    vxstn_seterr(err, "station_no_plugin", "station is closed");
+    return NULL;
+  }
+
+  sdk = vxstn_map_get(st->profile, "sdk");
+  block = vxstn_map_get(sdk, name);
+  if (NULL == block) {
+    const char** declared;
+    size_t n;
+    vxstn_sb msg;
+    declared = vxstn_sortedkeys(sdk, &n);
+    vxstn_sb_init(&msg);
+    vxstn_sb_put(&msg, "no declared instance \"");
+    vxstn_sb_put(&msg, NULL == name ? "" : name);
+    vxstn_sb_put(&msg, "\"; declared: [");
+    for (i = 0; i < n; i++) {
+      vxstn_sb_put(&msg, 0 == i ? "" : ", ");
+      vxstn_sb_put(&msg, declared[i]);
+    }
+    vxstn_sb_put(&msg, "]");
+    vxstn_seterr(err, "station_no_instance", msg.buf);
+    free(msg.buf);
+    free(declared);
+    return NULL;
+  }
+
+  activev = vxstn_map_get(block, "active");
+  if (NULL != activev && VXSTN_BOOL == activev->kind && !activev->b) {
+    vxstn_sb msg;
+    vxstn_sb_init(&msg);
+    vxstn_sb_put(&msg, "instance \"");
+    vxstn_sb_put(&msg, name);
+    vxstn_sb_put(&msg, "\" is declared with `active: false`, which bars it from "
+                       "running while keeping it visible in instances()");
+    vxstn_seterr(err, "station_instance_inactive", msg.buf);
+    free(msg.buf);
+    return NULL;
+  }
+
+  api = vxstn_refapi(name);
+  entry = vxstn_resolve_factory(st, api, block, err);
+  free(api);
+  if (NULL == entry) {
+    return NULL;
+  }
+
+  resolved = vxstn_features_of(st, name, err);
+  if (NULL == resolved) {
+    return NULL;
+  }
+
+  /* design 8.5 VALIDATES HERE, not only in vxstn_check. The schema
+     arrives with the factory, so the moment a factory is resolved is
+     the first moment validation is possible - and running it in
+     check() alone left production vxstn_sdk silently ignoring an
+     unknown option like `retry.retires`. One call here closes it,
+     because EVERY path to a constructor comes through this line. */
+  faults = vxstn_check_features(vxstn_map_get(resolved, "merged"), entry->descriptor);
+  if (0 < faults->len) {
+    vxstn_sb msg;
+    vxstn_sb_init(&msg);
+    for (i = 0; i < faults->len; i++) {
+      vxstn_sb_put(&msg, 0 == i ? "" : "; ");
+      vxstn_sb_put(&msg, vxstn_strval(vxstn_map_get(faults->items[i], "message")));
+    }
+    vxstn_seterr(err, vxstn_strval(vxstn_map_get(faults->items[0], "code")), msg.buf);
+    free(msg.buf);
+    vxstn_val_free(faults);
+    vxstn_val_free(resolved);
+    return NULL;
+  }
+  vxstn_val_free(faults);
+
+  /* design 8.4: compose the merged map into the ORDERED form and hand
+     it to the constructor. Station's own entry is composed AFTER the
+     user merge and always wins, which is why `station` is dropped here
+     and re-added by vxstn_options: a config file that can switch off
+     the component reading it is not a surface, it is a trap.
+     feature.station is already station_feature_reserved at validation,
+     so this is the second half of one rule rather than a second rule. */
+  ordered = vxstn_resolve_order(vxstn_map_get(resolved, "merged"), err);
+  if (NULL == ordered) {
+    vxstn_val_free(resolved);
+    return NULL;
+  }
+  composed = vxstn_compose_features(ordered);
+  vxstn_val_free(ordered);
+
+  fmap = vxstn_map();
+  for (i = 0; i < composed->len; i++) {
+    const vxstn_val* row = composed->items[i];
+    const char* fname = vxstn_strval(vxstn_map_get(row, "name"));
+    vxstn_val* body = vxstn_map();
+    size_t k;
+    if (0 == strcmp("station", fname)) {
+      continue;
+    }
+    for (k = 0; k < row->mlen; k++) {
+      if (0 == strcmp("name", row->keys[k])) {
+        continue;
+      }
+      vxstn_map_set(body, row->keys[k], vxstn_clone(row->vals[k]));
+    }
+    vxstn_map_set(fmap, fname, body);
+  }
+  vxstn_val_free(composed);
+
+  opts = vxstn_map();
+  {
+    const vxstn_val* blockopts = vxstn_getk(block, "options");
+    const vxstn_val* base = vxstn_getk(block, "base");
+    size_t k;
+    for (k = 0; vxstn_is_map(blockopts) && k < blockopts->mlen; k++) {
+      vxstn_map_set(opts, blockopts->keys[k], vxstn_clone(blockopts->vals[k]));
+    }
+    if (NULL != base) {
+      vxstn_map_set(opts, "base", vxstn_clone(base));
+    }
+    for (k = 0; vxstn_is_map(overrides) && k < overrides->mlen; k++) {
+      if (0 == strcmp("feature", overrides->keys[k])) {
+        continue;
+      }
+      vxstn_map_set(opts, overrides->keys[k], vxstn_clone(overrides->vals[k]));
+    }
+    {
+      const vxstn_val* overfeature = vxstn_getk(overrides, "feature");
+      for (k = 0; vxstn_is_map(overfeature) && k < overfeature->mlen; k++) {
+        vxstn_map_set(fmap, overfeature->keys[k], vxstn_clone(overfeature->vals[k]));
+      }
+    }
+    vxstn_map_set(opts, "feature", fmap);
+  }
+
+  /* THE ALIAS IS RECORDED, NOT THE FIELDS (design 5.3). Carrying the
+     declared `secret` through the feature options and stopping there
+     leaves `policy`, `base` and everything else behind, so an
+     auto-tagged client silently loses its declared instance's HOSTS
+     ALLOWLIST and falls back to the wider api-level one. Recording what
+     the tag STANDS FOR is one rule that every lookup already goes
+     through. Only when the tag was ASSIGNED: a caller naming its own is
+     naming an instance, not aliasing one. */
+  if (NULL != as && 0 != strcmp(as, name)) {
+    alias_set(st, as, name);
+  }
+
+  /* NO `extend` SEAM IN C. The dynamic ports carry the adapter on
+     `extend` so that an SDK generated BEFORE the station feature still
+     gets bound; a C SDK has no runtime composition to carry it with, so
+     the declarative path requires a regenerated SDK that carries
+     feature/station.c - which is the same requirement the imperative
+     path already has here. The activation entry below is what that
+     feature reads. */
+  options = vxstn_options(st, NULL == as ? name : as, opts);
+  vxstn_val_free(opts);
+  vxstn_val_free(resolved);
+
+  /* The instance name reaches the adapter the same way it does on the
+     imperative path, so registration has one spelling (design 7.5). */
+  client = entry->construct(options, entry->ud);
+  vxstn_val_free(options);
+  return client;
+}
+
+/* The instance, constructed on first call and CACHED: same name, same
+   object. That caching is what makes "get it where you need it" a real
+   instruction - call it in a request handler, in a worker, in a test,
+   and the first call pays construction while the rest are a lookup.
+   SYNCHRONOUS, like every other seam in this port. */
+void* vxstn_sdk(vxstn_station* st, const char* name, vxstn_error** err) {
+  void* cached;
+  void* client;
+  if (NULL != err) {
+    *err = NULL;
+  }
+  if (NULL == st || NULL == name) {
+    vxstn_seterr(err, "station_no_plugin", "no station");
+    return NULL;
+  }
+  cached = client_get(st, name);
+  if (NULL != cached) {
+    return cached;
+  }
+  client = build(st, name, NULL, NULL, err);
+  if (NULL == client) {
+    return NULL;
+  }
+  client_set(st, name, client);
+  return client;
+}
+
+/* An UNCACHED client from the same resolved config plus overrides, for
+   the case that genuinely wants a distinct one - a per-request
+   credential scope, a test double. Deliberately the longer name.
+
+   It registers under an AUTO-ASSIGNED TAG, because registration is per
+   instance and station_bound_twice fires on a second binding of one
+   name: a second vxstn_create("stripe") would otherwise fail, which is
+   exactly the per-request case this exists for. The SECRET NAME does
+   not follow the assigned tag - it resolves from the DECLARED instance
+   the tag was assigned under, so every client of one instance shares
+   one broker cache entry (design 5.3). */
+void* vxstn_create(vxstn_station* st, const char* name, const vxstn_val* overrides,
+                   vxstn_error** err) {
+  char* as;
+  void* client;
+  if (NULL != err) {
+    *err = NULL;
+  }
+  if (NULL == st || NULL == name) {
+    vxstn_seterr(err, "station_no_plugin", "no station");
+    return NULL;
+  }
+  as = vxstn_autotag(st, name);
+  client = build(st, name, as, overrides, err);
+  free(as);
+  return client;
+}
+
+/* Eagerly validate and construct every ACTIVE declared instance - for
+   CI (design 6.6). The point is to turn availability errors, which are
+   deliberately deferred to first use, into ONE failure at a moment
+   somebody is watching. Returns { ok: [name...], failed: [{name, code,
+   message}] }, owned. */
+vxstn_val* vxstn_check(vxstn_station* st) {
+  vxstn_val* out = vxstn_map();
+  vxstn_val* ok = vxstn_list();
+  vxstn_val* failed = vxstn_list();
+  vxstn_val* rows;
+  size_t i;
+
+  if (NULL == st) {
+    vxstn_map_set(out, "ok", ok);
+    vxstn_map_set(out, "failed", failed);
+    return out;
+  }
+
+  rows = vxstn_instances(st);
+  for (i = 0; i < rows->len; i++) {
+    const char* name = vxstn_strval(vxstn_map_get(rows->items[i], "name"));
+    const char* api = vxstn_strval(vxstn_map_get(rows->items[i], "api"));
+    const vxstn_val* activev = vxstn_map_get(rows->items[i], "active");
+    const vxstn_factory* entry;
+    vxstn_error* err = NULL;
+    vxstn_val* resolved;
+
+    if (NULL != activev && VXSTN_BOOL == activev->kind && !activev->b) {
+      continue;
+    }
+
+    /* design 8.5 runs FIRST and needs no construction: the schema
+       arrives with the factory, not with a live client, so a feature
+       typo is a CI failure rather than a setting that quietly did
+       nothing in production. */
+    entry = vxstn_factory_for(api);
+    resolved = vxstn_features_of(st, name, &err);
+    if (NULL == resolved) {
+      vxstn_val* row = vxstn_map();
+      vxstn_map_set(row, "name", vxstn_str(name));
+      vxstn_map_set(row, "code", vxstn_str(NULL == err ? "" : err->code));
+      vxstn_map_set(row, "message", vxstn_str(NULL == err ? "" : err->message));
+      vxstn_list_push(failed, row);
+      vxstn_error_free(err);
+      continue;
+    }
+    if (NULL != entry) {
+      vxstn_val* faults =
+          vxstn_check_features(vxstn_map_get(resolved, "merged"), entry->descriptor);
+      if (0 < faults->len) {
+        vxstn_sb msg;
+        vxstn_val* row = vxstn_map();
+        size_t j;
+        vxstn_sb_init(&msg);
+        for (j = 0; j < faults->len; j++) {
+          vxstn_sb_put(&msg, 0 == j ? "" : "; ");
+          vxstn_sb_put(&msg, vxstn_strval(vxstn_map_get(faults->items[j], "message")));
+        }
+        vxstn_map_set(row, "name", vxstn_str(name));
+        vxstn_map_set(row, "code",
+                      vxstn_str(vxstn_strval(vxstn_map_get(faults->items[0], "code"))));
+        vxstn_map_set(row, "message", vxstn_str(msg.buf));
+        free(msg.buf);
+        vxstn_list_push(failed, row);
+        vxstn_val_free(faults);
+        vxstn_val_free(resolved);
+        continue;
+      }
+      vxstn_val_free(faults);
+    }
+    vxstn_val_free(resolved);
+
+    if (NULL == vxstn_sdk(st, name, &err)) {
+      vxstn_val* row = vxstn_map();
+      vxstn_map_set(row, "name", vxstn_str(name));
+      vxstn_map_set(row, "code", vxstn_str(NULL == err ? "" : err->code));
+      vxstn_map_set(row, "message", vxstn_str(NULL == err ? "" : err->message));
+      vxstn_list_push(failed, row);
+      vxstn_error_free(err);
+      continue;
+    }
+    vxstn_list_push(ok, vxstn_str(name));
+  }
+  vxstn_val_free(rows);
+
+  vxstn_map_set(out, "ok", ok);
+  vxstn_map_set(out, "failed", failed);
+  return out;
+}
+
+/* Batch-resolve secrets (design 5.5). With no argument it warms the
+   ACTIVE declared instances only, because reaching for a credential
+   belonging to a disabled integration is the wrong default;
+   vxstn_warm(st, names) warms exactly what it is given, inactive
+   included, because an explicit name is an explicit request.
+
+   NO ASYNC IDIOM IN C, so this resolves SERIALLY over the DEDUPLICATED
+   secret names rather than concurrently - the deduplication is the half
+   that matters here, since the broker's cache is keyed by secret name
+   and several instances sharing one api-level `secret` must cost one
+   read, not several. README.md says so.
+
+   THE REGISTRY IS THE AUTHORITY: a name nobody declared or registered
+   is a MISS, not a lookup - a wider fallback would let a typo like
+   `stripe$prodd` derive a secret name, call the provider, and report a
+   nonexistent instance `warmed` off a shared api-level credential.
+   Returns { warmed, missed }, both sorted. Owned. */
+vxstn_val* vxstn_warm(vxstn_station* st, const vxstn_val* names) {
+  vxstn_val* out = vxstn_map();
+  vxstn_val* warmed = vxstn_list();
+  vxstn_val* missed = vxstn_list();
+  vxstn_val* wanted = vxstn_list();
+  vxstn_val* plan = vxstn_map(); /* secret name -> [instance name...] */
+  size_t i, j;
+
+  if (NULL == st) {
+    vxstn_map_set(out, "warmed", warmed);
+    vxstn_map_set(out, "missed", missed);
+    vxstn_val_free(wanted);
+    vxstn_val_free(plan);
+    return out;
+  }
+
+  if (vxstn_is_list(names)) {
+    for (i = 0; i < names->len; i++) {
+      vxstn_list_push(wanted, vxstn_clone(names->items[i]));
+    }
+  } else {
+    vxstn_val* rows = vxstn_instances(st);
+    for (i = 0; i < rows->len; i++) {
+      const vxstn_val* activev = vxstn_map_get(rows->items[i], "active");
+      if (NULL != activev && VXSTN_BOOL == activev->kind && !activev->b) {
+        continue;
+      }
+      vxstn_list_push(wanted,
+                      vxstn_str(vxstn_strval(vxstn_map_get(rows->items[i], "name"))));
+    }
+    vxstn_val_free(rows);
+  }
+
+  for (i = 0; i < wanted->len; i++) {
+    const char* name = vxstn_strval(wanted->items[i]);
+    const vxstn_plugin_entry* live = find_plugin(st, name);
+    const vxstn_val* block = vxstn_getk(vxstn_map_get(st->profile, "sdk"), name);
+    char* secretname;
+    vxstn_val* group;
+
+    if (NULL == live && NULL == block) {
+      vxstn_list_push(missed, vxstn_str(name));
+      continue;
+    }
+    if (NULL != live) {
+      secretname = vxstn_sdup(live->secretname);
+    } else {
+      const vxstn_val* written = vxstn_getk(vxstn_block_for(st, name), "secret");
+      secretname = (vxstn_is_str(written) && '\0' != written->str[0])
+                       ? vxstn_sdup(written->str)
+                       : vxstn_secretname_default(vxstn_declared_ref(st, name));
+    }
+    group = vxstn_map_get(plan, secretname);
+    if (!vxstn_is_list(group)) {
+      group = vxstn_list();
+      vxstn_map_set(plan, secretname, group);
+    }
+    vxstn_list_push(group, vxstn_str(name));
+    free(secretname);
+  }
+
+  /* One resolution per DISTINCT secret name; the per-instance results
+     are mapped back afterwards so the reported shape is unchanged. */
+  for (i = 0; i < plan->mlen; i++) {
+    const vxstn_val* group = plan->vals[i];
+    const char* first = vxstn_strval(group->items[0]);
+    vxstn_error* err = NULL;
+    bool got = NULL != broker_value(&st->broker, first, plan->keys[i], &err);
+    vxstn_error_free(err);
+    for (j = 0; j < group->len; j++) {
+      vxstn_list_push(got ? warmed : missed, vxstn_clone(group->items[j]));
+    }
+  }
+  vxstn_val_free(wanted);
+  vxstn_val_free(plan);
+
+  /* Both sorted: a stable answer is what a fleet report needs. */
+  {
+    vxstn_val* lists[2];
+    lists[0] = warmed;
+    lists[1] = missed;
+    for (i = 0; i < 2; i++) {
+      size_t a;
+      for (a = 1; a < lists[i]->len; a++) {
+        vxstn_val* cur = lists[i]->items[a];
+        size_t k = a;
+        while (0 < k && 0 < strcmp(vxstn_strval(lists[i]->items[k - 1]),
+                                   vxstn_strval(cur))) {
+          lists[i]->items[k] = lists[i]->items[k - 1];
+          k--;
+        }
+        lists[i]->items[k] = cur;
+      }
+    }
+  }
+
+  vxstn_map_set(out, "warmed", warmed);
+  vxstn_map_set(out, "missed", missed);
+  return out;
+}
+
+bool vxstn_repo_scoped(vxstn_station* st) { return NULL != st && st->repo_scoped; }

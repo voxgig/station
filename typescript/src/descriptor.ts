@@ -139,6 +139,25 @@ export function normalizeDescriptor(config: any, activeFeatures?: Record<string,
 // proxy dedupes registrations by a hash of this, so every language must
 // produce identical bytes - the `canonical-serialize` corpus section
 // carries the adversarial cases.
+//
+// The bytewise sort compares UTF-8 BYTE SEQUENCES, not UTF-16 code
+// units, through TextEncoder rather than Buffer: TextEncoder is a
+// standard global in Node and every browser, so this module stays on
+// the browser entry's import graph (§2.2, §17 Phase 1) with no node:
+// dependency. Uint8Array elements are unsigned bytes, so plain numeric
+// comparison IS the bytewise order Buffer.compare gave - the corpus'
+// non-ASCII sort case pins the equivalence.
+const UTF8 = new TextEncoder()
+
+function bytecompare(a: string, b: string): number {
+  const ab = UTF8.encode(a), bb = UTF8.encode(b)
+  const n = ab.length < bb.length ? ab.length : bb.length
+  for (let i = 0; i < n; i++) {
+    if (ab[i] !== bb[i]) { return ab[i] - bb[i] }
+  }
+  return ab.length - bb.length
+}
+
 export function canonicalSerialize(value: any): string {
   if (null === value || 'boolean' === typeof value || 'number' === typeof value) {
     return JSON.stringify(value)
@@ -152,10 +171,7 @@ export function canonicalSerialize(value: any): string {
   if ('object' === typeof value) {
     const keys = Object.keys(value).filter((k) => undefined !== value[k])
     // Bytewise sort: compare UTF-8 byte sequences, not UTF-16 code units.
-    keys.sort((a, b) => {
-      const ab = Buffer.from(a, 'utf8'), bb = Buffer.from(b, 'utf8')
-      return Buffer.compare(ab, bb)
-    })
+    keys.sort(bytecompare)
     return '{' + keys.map((k) =>
       JSON.stringify(k) + ':' + canonicalSerialize(value[k])).join(',') + '}'
   }

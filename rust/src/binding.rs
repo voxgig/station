@@ -31,12 +31,11 @@ use std::rc::Rc;
 
 use voxgig_sekreto::Json;
 
-use crate::descriptor::normalize_descriptor;
 use crate::error::StationError;
 use crate::events::{HttpEvent, OpEvent, StationEvent};
-use crate::jsonx::{jget, jstr, now_ms};
+use crate::jsonx::{jstr, now_ms};
 use crate::secrets::placeholder_for;
-use crate::station::{PluginEntry, Station};
+use crate::station::{policy_allow, policy_hosts, PluginEntry, Station};
 
 thread_local! {
     static CORR_SEQ: Cell<u64> = const { Cell::new(0) };
@@ -54,11 +53,22 @@ pub struct BindSpec {
     /// The client's feature list, by name, in init order - the §3.3
     /// position guard reads it (Rc<dyn Fn> cannot carry a wrap marker).
     pub feature_names: Vec<String>,
-    /// The client's options.feature map (activation states, for the
-    /// descriptor's features list).
+    /// The client's options.feature map (activation states).
+    ///
+    /// NOT READ AT REGISTRATION since §7.4: the descriptor is per-API and
+    /// shared by every instance of it, so it is normalized with NO
+    /// per-instance features and a cache keyed by slug cannot be
+    /// construction-order-dependent. Per-instance activation is
+    /// `features_of()`'s answer. The field stays because it is the
+    /// adapter's honest report of what the client activated - the
+    /// canonical library keeps the same parameter, unread, for the same
+    /// reason.
     pub active_features: Json,
     /// The station feature's own options entry (options.feature.station):
-    /// the config.options values - secret override etc.
+    /// the config.options values - the secret override, and the INSTANCE
+    /// NAME station knew before construction began (§6.1: `instance`, or
+    /// `as` as a tag). Absent on a bare construction, which falls back to
+    /// the descriptor slug - today's behaviour, unchanged to the byte.
     pub feature_opts: Json,
     /// The client's resolved options.base at init time.
     pub options_base: String,
@@ -75,10 +85,17 @@ pub struct Bound {
     /// Plant into options.apikey (None when the plugin's model opted out
     /// of auth - such plugins skip credential planning, §5.3).
     pub placeholder: Option<String>,
-    /// Apply to options.base (the profile's per-plugin base, design §3.5
+    /// Apply to options.base (the profile's per-instance base, design §3.5
     /// rung 4 - only handed back when the app left base at the SDK's
     /// config default, so an app-passed base always wins).
     pub base: Option<String>,
+    /// Apply OVER options.allow: the policy allowlist as the SDK's own
+    /// option form (design §16), a map of the keys policy sets, each a
+    /// comma-joined string. Unlike `base`, which is a DEFAULT the caller
+    /// may override, an allowlist is ENFORCEMENT: policy wins on exactly
+    /// the keys it sets, so the adapter merges this map over whatever
+    /// options.allow already carries rather than under it.
+    pub allow: Option<Json>,
 }
 
 /// Per-request instructions for the adapter.
@@ -97,7 +114,12 @@ pub struct TransportPlan {
 /// The bound station side the adapter forwards its hooks and transport
 /// calls to.
 pub struct Binding {
-    pub slug: String,
+    /// The INSTANCE name (§6.1) - what everything keys on: the
+    /// placeholder, the transport wrap, op events, error events. For an
+    /// untagged instance it IS the api slug.
+    pub name: String,
+    /// The api that groups this instance's siblings.
+    pub api: String,
     station: Rc<Station>,
     entry: Rc<PluginEntry>,
     placeholder: String,
@@ -143,51 +165,77 @@ pub fn bind(spec: BindSpec) -> Option<Bound> {
         );
     }
 
-    let (descriptor, warnings) = normalize_descriptor(&spec.config, &spec.active_features);
-    let slug = jstr(&descriptor, "slug");
+    // The descriptor is the PER-API one (§7.4), taken from the station's
+    // own cache: it describes the API rather than any use of it, so every
+    // instance of an api shares one value and one canonical
+    // serialization.
+    let (descriptor, warnings) = station.describe(&spec.config);
+    let api = jstr(&descriptor, "slug");
 
-    // Secret name precedence (design §3.5/§9): the feature option
-    // (in-code) beats the profile, which beats the descriptor default.
-    // The override is recorded at registration; resolution reads it per
-    // request (see transport()).
-    let fopts_secret = jstr(&spec.feature_opts, "secret");
+    // §7.5: the instance name station knew BEFORE construction began
+    // rides the feature options, and register() reads it there - with the
+    // api slug as the fallback, which is what a bare construction gets.
+    // Secret-name precedence (design §3.5/§9) is settled in the same
+    // place: the feature option (in-code) beats the profile block, which
+    // beats the instance-derived default, and the answer is STORED ON THE
+    // ENTRY. The transport seam reads it from there with no fallback -
+    // re-deriving it there is how a tagged instance with no explicit
+    // `secret` reads `stripe.apikey` where registration recorded
+    // `stripe_test.apikey`.
+    let entry = station.register(
+        spec.client.clone(),
+        descriptor,
+        warnings,
+        &spec.feature_opts,
+    );
+    let name = entry.name.clone();
 
-    let entry = station.register(spec.client.clone(), descriptor, warnings, &fopts_secret);
+    // ONE RULE, ONE PLACE (§6.4): the block that governs this instance is
+    // its own when the profile declares it, else its api's - so an
+    // imperative or auto-tagged instance still gets the api-level
+    // `secret`, `base` and `policy`.
+    let block = station.block_for(&name);
 
     // Base URL precedence (design §3.5): an app-passed base (7) beats the
-    // profile (4), which beats the SDK's config default (1). With no
-    // st.options() build step in Rust, "app-passed" is detected as
-    // options.base differing from the config default - a base equal to
-    // the default takes the profile's value, matching "did nothing
-    // special" semantics. (A server-variable-templated default resolves
-    // before init, so it never equals the raw config base and the profile
-    // base is conservatively NOT applied there.)
+    // profile (4), which beats the SDK's config default (1). "App-passed"
+    // is detected as options.base differing from the config default - a
+    // base equal to the default takes the profile's value, matching "did
+    // nothing special" semantics. (A server-variable-templated default
+    // resolves before init, so it never equals the raw config base and the
+    // profile base is conservatively NOT applied there.)
     let mut base: Option<String> = None;
     if spec.options_base == spec.config_base {
-        if let Some(plugin) = station.profile_plugin(&slug) {
-            let profile_base = jstr(plugin, "base");
-            if !profile_base.is_empty() {
-                base = Some(profile_base);
-            }
+        let profile_base = jstr(&block, "base");
+        if !profile_base.is_empty() {
+            base = Some(profile_base);
         }
     }
 
-    let placeholder = placeholder_for(&slug);
+    // Policy allowlists (design §16): `allow.op` / `allow.method` are the
+    // same vocabulary the SDKs already enforce (`options.allow`), so
+    // station sets those SDK options from policy and enforcement stays in
+    // the SDK's own pipeline. Applied at binding time, which is inside the
+    // constructor, and on the one entry path this port has.
+    let allow = policy_allow(&block);
+
+    let placeholder = placeholder_for(&name);
     let auth_active = "R1" == entry.rung;
 
     // A real credential already resident in the options is hoisted into
     // the broker and replaced by the placeholder before construction
     // completes (design §3.1) - options_map() and prepare() output become
-    // placeholder-safe from here on.
+    // placeholder-safe from here on. Keyed by INSTANCE: a hoisted
+    // credential belongs to the one client it was resident in.
     if auth_active {
         let resident = &spec.resident_apikey;
         if !resident.is_empty() && resident != &placeholder {
-            station.hoist(&slug, resident);
+            station.hoist(&name, resident);
         }
     }
 
     let binding = Rc::new(Binding {
-        slug,
+        name,
+        api,
         station,
         entry,
         placeholder: placeholder.clone(),
@@ -198,6 +246,7 @@ pub fn bind(spec: BindSpec) -> Option<Bound> {
         binding,
         placeholder: if auth_active { Some(placeholder) } else { None },
         base,
+        allow,
     })
 }
 
@@ -232,7 +281,8 @@ impl Binding {
         self.station.emit(StationEvent {
             t: now_ms(),
             kind: "op".to_string(),
-            plugin: Some(self.slug.clone()),
+            plugin: Some(self.name.clone()),
+            api: Some(self.api.clone()),
             corr,
             op: Some(OpEvent {
                 entity: entity.to_string(),
@@ -265,29 +315,16 @@ impl Binding {
                 "station_no_proxy",
                 "proxy: \"require\" is set and no proxy is attached",
             );
-            self.station.emit_err(&self.slug, corr, &err);
+            self.station.emit_err(&self.name, corr, &err);
             return Err(err);
         }
 
         // Egress policy (design §16), solo half: the hosts allowlist is
-        // enforced at the seam every request crosses.
-        let hosts: Option<Vec<String>> = self
-            .station
-            .profile_plugin(&self.slug)
-            .and_then(|plugin| jget(plugin, "policy"))
-            .and_then(|policy| jget(policy, "hosts"))
-            .and_then(|hosts| match hosts {
-                Json::List(items) => Some(
-                    items
-                        .iter()
-                        .filter_map(|item| match item {
-                            Json::Str(text) => Some(text.clone()),
-                            _ => None,
-                        })
-                        .collect(),
-                ),
-                _ => None,
-            });
+        // enforced at the seam every request crosses - read through
+        // block_for, so a tagged or imperative instance is policed by its
+        // declared instance's list rather than falling back to the wider
+        // api-level one (§6.4).
+        let hosts: Option<Vec<String>> = policy_hosts(&self.station.block_for(&self.name));
 
         let policed = hosts.is_some() && live;
         if let (Some(hosts), true) = (&hosts, live) {
@@ -297,36 +334,27 @@ impl Binding {
                     "station_host_allow",
                     format!(
                         "egress to \"{}\" denied by the hosts policy of plugin \"{}\"",
-                        host, self.slug
+                        host, self.name
                     ),
                 );
-                self.station.emit_err(&self.slug, corr, &err);
+                self.station.emit_err(&self.name, corr, &err);
                 return Err(err);
             }
         }
 
         let mut injected: Option<BTreeMap<String, String>> = None;
         if live && "R1" == self.entry.rung {
-            let secretname = self
-                .station
-                .secret_override_of(&self.slug)
-                .filter(|name| !name.is_empty())
-                .or_else(|| {
-                    self.station
-                        .profile_plugin(&self.slug)
-                        .map(|plugin| jstr(plugin, "secret"))
-                        .filter(|name| !name.is_empty())
-                })
-                .unwrap_or_else(|| {
-                    jget(&self.entry.descriptor, "auth")
-                        .map(|auth| jstr(auth, "secretname"))
-                        .unwrap_or_default()
-                });
+            // THE STORED NAME, WITH NO FALLBACK (§6.3). Registration
+            // settled the precedence once; re-deriving it here is how a
+            // tagged instance with no explicit `secret` would read
+            // `stripe.apikey` where registration recorded
+            // `stripe_test.apikey`.
+            let secretname = self.entry.secretname.clone();
 
-            let value = match self.station.broker().value(&self.slug, &secretname) {
+            let value = match self.station.broker().value(&self.name, &secretname) {
                 Ok(value) => value,
                 Err(err) => {
-                    self.station.emit_err(&self.slug, corr, &err);
+                    self.station.emit_err(&self.name, corr, &err);
                     return Err(err);
                 }
             };
@@ -373,7 +401,7 @@ impl Binding {
     ) {
         self.emit_http(corr.clone(), method, fullurl, started, 0, 0);
         let err = StationError::new(code, msg);
-        self.station.emit_err(&self.slug, corr, &err);
+        self.station.emit_err(&self.name, corr, &err);
     }
 
     fn emit_http(
@@ -389,7 +417,8 @@ impl Binding {
         self.station.emit(StationEvent {
             t: started,
             kind: "http".to_string(),
-            plugin: Some(self.slug.clone()),
+            plugin: Some(self.name.clone()),
+            api: Some(self.api.clone()),
             corr,
             http: Some(HttpEvent {
                 method: if method.is_empty() {

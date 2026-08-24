@@ -240,7 +240,7 @@ defmodule Voxgig.Station do
       )
     end
 
-    profile_plugin = state.profile["plugin"][slug]
+    profile_plugin = state.profile["sdk"][slug]
 
     # Secret name precedence: the feature option (in-code, design
     # station.md 9 config.options.secret) beats the profile, which beats
@@ -326,7 +326,7 @@ defmodule Voxgig.Station do
   def plugin_entry(station, slug), do: state!(station).registry[slug]
 
   @doc false
-  def profile_plugin(station, slug), do: state!(station).profile["plugin"][slug]
+  def profile_plugin(station, slug), do: state!(station).profile["sdk"][slug]
 
   # Resolve the plugin's secret value through the env-only broker,
   # re-applying the name precedence on every call (override beats
@@ -335,7 +335,7 @@ defmodule Voxgig.Station do
   def secret_value(station, slug) do
     state = state!(station)
     entry = state.registry[slug]
-    profile_plugin = state.profile["plugin"][slug]
+    profile_plugin = state.profile["sdk"][slug]
 
     name =
       first_non_empty([
@@ -439,7 +439,7 @@ defmodule Voxgig.Station do
     state = state!(station)
 
     if not state.closed do
-      state.profile["plugin"]
+      state.profile["sdk"]
       |> Map.keys()
       |> Enum.sort()
       |> Enum.each(fn slug ->

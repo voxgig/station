@@ -13,8 +13,12 @@ require_relative 'error'
 module VoxgigStation
   module_function
 
-  def placeholder_for(slug)
-    '[station:' + slug + ']'
+  # Keyed by INSTANCE (design station.md 7.2). Two live instances of one
+  # api MUST have distinct placeholders or the injection seam cannot tell
+  # which credential a header wants. For an untagged instance this is the
+  # api slug, so the single-instance case is unchanged.
+  def placeholder_for(name)
+    '[station:' + name.to_s + ']'
   end
 
   class SecretBroker
@@ -29,9 +33,9 @@ module VoxgigStation
       @mutex = Mutex.new
     end
 
-    def hoist(slug, value)
+    def hoist(instance, value)
       @mutex.synchronize do
-        @overrides[slug] = value
+        @overrides[instance] = value
         @held << value
       end
     end
@@ -41,12 +45,22 @@ module VoxgigStation
     # is station_secret_no_value, a store that could not answer is
     # station_secret_error with sekreto's message intact - and never a
     # retry against a weaker store (sekreto owns the chain).
-    def value(slug, name)
+    # OVERRIDES ARE KEYED BY INSTANCE; THE RESOLUTION CACHE IS KEYED BY
+    # SECRET NAME (design station.md 5.3). A hoisted credential belongs
+    # to the one instance it was resident in, but a resolved VALUE
+    # belongs to the NAME it was resolved for - so several instances
+    # sharing one api-level `secret` cost one lookup rather than one
+    # each, and every client an auto-tagged create() produces shares the
+    # declared instance's entry instead of re-resolving per request.
+    #
+    # Keying the cache by instance instead is the defect this replaces:
+    # at 26 instances over 20 apis it turns one store round-trip into 26.
+    def value(instance, name)
       @mutex.synchronize do
-        override = @overrides[slug]
+        override = @overrides[instance]
         return override unless override.nil?
 
-        cached = @cache[slug]
+        cached = @cache[name]
         return cached unless cached.nil?
       end
 
@@ -55,13 +69,13 @@ module VoxgigStation
       rescue StandardError => e
         if e.is_a?(VoxgigSekreto::SekretoError) && e.message.include?('unknown secret')
           raise StationError.new('station_secret_no_value',
-            'no store had "' + name + '" for plugin "' + slug + '"')
+            'no store had "' + name + '" for plugin "' + instance.to_s + '"')
         end
         raise StationError.new('station_secret_error', e.message.to_s)
       end
 
       @mutex.synchronize do
-        @cache[slug] = value
+        @cache[name] = value
         @held << value
       end
       value

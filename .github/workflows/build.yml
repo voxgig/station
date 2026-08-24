@@ -1,8 +1,14 @@
 # Conformance in CI for every shipped library (station design §13):
 # each port runs its unit suite plus the shared spec/station.json
 # corpus through the sibling voxgig/omni runner. The integration
-# suites that need generated SDKs skip cleanly here; the package-side
-# fixture-consumer lane (§9.5) covers those pre-graduation.
+# suites that need generated SDKs skip cleanly here until the
+# package-side fixture-consumer lane (§9.5) covers them.
+#
+# Sibling checkouts: omni and sekreto are PINNED (build infrastructure
+# - a green run means the same thing tomorrow; bump the ref when
+# adopting a sibling change). plugin is deliberately UNPINNED: the C4
+# suite runs plugin's corpus against station's own implementation, and
+# drift going red here is that contract working, not a flake.
 #
 # Every port step is `continue-on-error` with an id, and the final
 # `result` step fails the job naming each red port. Without that the
@@ -18,6 +24,19 @@ on:
   pull_request:
     branches: [main]
 
+# One run per ref at a time. A PR branch that gets several pushes in
+# quick succession - a tranche landing port by port, say - otherwise
+# queues a full nineteen-lane run for every one of them, and the
+# superseded runs keep going to completion. Only the newest commit's
+# answer is wanted, so cancel the older PR runs.
+#
+# Pushes to main are NEVER cancelled: a run on main is the record of
+# whether main is healthy, and cancelling one leaves a gap in exactly
+# the history a red-on-base check reads.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   ports:
     runs-on: ubuntu-latest
@@ -29,11 +48,28 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: voxgig/omni
+          ref: dcbab7aa3f79ed99663ba8f70a79b5721fd5092d # omni#36
           path: omni
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: voxgig/sekreto
+          ref: 7b603824e56fa4255998fc1e7105463ef87dd5a3 # sekreto#7
           path: sekreto
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: voxgig/plugin
+          path: plugin
+      # struct is the validation dependency Stage 5's tranches take
+      # (declarative §9): each port consumes its own language's port
+      # from this checkout, the way it already finds omni and sekreto.
+      # Unpinned while the tranches land - station's ports are being
+      # written against struct's current behaviour, and a pin here
+      # would hide a divergence rather than catch it. Pin it (like
+      # omni and sekreto) once Stage 5 is complete.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: voxgig/struct
+          path: struct
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
@@ -51,10 +87,25 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          dotnet-version: '8.0'
+      - uses: SwiftyLab/setup-swift@38f54a76b70d989321de9dc7c840618c08cf56e9 # v1.14.0
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1
+        with:
+          otp-version: '27'
+          elixir-version: '1.18'
+      - name: setup lua
+        run: sudo apt-get update -q && sudo apt-get install -y -q lua5.4
 
       - name: typescript
         id: typescript
         continue-on-error: true
+        env:
+          # The C4 suite must RUN here, not skip: a missing plugin
+          # checkout is a broken lane, not an optional extra.
+          STATION_REQUIRE_C4: '1'
         run: |
           cd station/typescript
           mkdir -p node_modules/@voxgig
@@ -67,11 +118,24 @@ jobs:
       - name: javascript
         id: javascript
         continue-on-error: true
+        env:
+          STRUCT_HOME: ${{ github.workspace }}/struct
         run: |
           cd station/javascript
           mkdir -p node_modules/@voxgig
           ln -sfn ../../../../sekreto/javascript node_modules/@voxgig/sekreto-js
           npm test
+      # Register 4.13 (omni): the conformance suite is a nested module
+      # (go/testutil), so the published module must build - and its
+      # tests resolve - naming no omni. GOWORK=off makes the proof hold
+      # even with the omni checkout on disk: a leaked require would go
+      # to the module proxy and fail.
+      - name: go builds without omni
+        id: go-no-omni
+        continue-on-error: true
+        env:
+          SEKRETO_HOME: ${{ github.workspace }}/sekreto
+        run: make -C station/go build-clean
       - name: go
         id: go
         continue-on-error: true
@@ -104,6 +168,16 @@ jobs:
       # dependencies under vendor/, and the Makefile's `vendor` target is
       # what links them to the sibling checkouts. Calling cargo directly
       # skips it and the build cannot resolve voxgig_sekreto.
+      # Register 4.13 (omni): the conformance suite is a separate
+      # package (rust/corpus). Only vendor/sekreto is linked - the
+      # library genuinely depends on it - and the build must pass with
+      # no omni link present.
+      - name: rust builds without omni
+        id: rust-no-omni
+        continue-on-error: true
+        env:
+          SEKRETO_HOME: ${{ github.workspace }}/sekreto
+        run: make -C station/rust build-clean
       - name: rust
         id: rust
         continue-on-error: true
@@ -120,6 +194,40 @@ jobs:
         continue-on-error: true
         run: make -C station/cpp test
 
+      # The five formerly toolchain-gated ports (spec/README.md): their
+      # toolchains were never the harness's problem - omni has runners
+      # for all five - only absent from the dev environment. CI is where
+      # they run.
+      - name: csharp
+        id: csharp
+        continue-on-error: true
+        run: make -C station/csharp test
+      # Register 4.13, the same proof the go and rust lanes carry: the
+      # LIBRARY must build with no omni checkout present. Package.swift
+      # declares the omni dependency only when vendor/omni is there, and
+      # this removes the link before building. It runs BEFORE the swift
+      # lane below, which relinks vendor as part of `make test`.
+      - name: swift builds without omni
+        id: swift-no-omni
+        continue-on-error: true
+        run: make -C station/swift build-clean
+      - name: swift
+        id: swift
+        continue-on-error: true
+        run: make -C station/swift test
+      - name: dart
+        id: dart
+        continue-on-error: true
+        run: make -C station/dart test
+      - name: elixir
+        id: elixir
+        continue-on-error: true
+        run: make -C station/elixir test
+      - name: lua
+        id: lua
+        continue-on-error: true
+        run: make -C station/lua test
+
       - name: result
         if: always()
         env:
@@ -127,14 +235,22 @@ jobs:
             typescript ${{ steps.typescript.outcome }}
             javascript ${{ steps.javascript.outcome }}
             go ${{ steps.go.outcome }}
+            go-no-omni ${{ steps.go-no-omni.outcome }}
             python ${{ steps.python.outcome }}
             ruby ${{ steps.ruby.outcome }}
             php ${{ steps.php.outcome }}
             perl ${{ steps.perl.outcome }}
             java ${{ steps.java.outcome }}
             rust ${{ steps.rust.outcome }}
+            rust-no-omni ${{ steps.rust-no-omni.outcome }}
             c ${{ steps.c.outcome }}
             cpp ${{ steps.cpp.outcome }}
+            csharp ${{ steps.csharp.outcome }}
+            swift ${{ steps.swift.outcome }}
+            swift-no-omni ${{ steps.swift-no-omni.outcome }}
+            dart ${{ steps.dart.outcome }}
+            elixir ${{ steps.elixir.outcome }}
+            lua ${{ steps.lua.outcome }}
         run: |
           # `NF` is load-bearing: the YAML block scalar ends with a newline,
           # so the stream carries a trailing blank line. Without the guard

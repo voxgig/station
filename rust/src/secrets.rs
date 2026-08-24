@@ -16,14 +16,23 @@ use voxgig_sekreto::{makechain, AuthSpec, Json, ProviderSpec, Sekreto};
 use crate::error::StationError;
 use crate::jsonx::{jget, jstr};
 
-pub fn placeholder_for(slug: &str) -> String {
-    format!("[station:{}]", slug)
+/// The inert value planted in options.apikey (design §5.3 R1). The
+/// `placeholder` corpus section pins the exact string.
+///
+/// §7.2: KEYED BY INSTANCE. Two live instances of one api must have
+/// distinct placeholders or the injection seam cannot tell which
+/// credential a header wants. For an untagged instance this is the api
+/// slug, so the single-instance case is unchanged.
+pub fn placeholder_for(name: &str) -> String {
+    format!("[station:{}]", name)
 }
 
 pub struct SecretBroker {
     sekreto: RefCell<Sekreto>,
-    /// Values hoisted from a resident options.apikey (design §3.1).
+    /// Values hoisted from a resident options.apikey (design §3.1),
+    /// keyed by INSTANCE.
     overrides: RefCell<BTreeMap<String, String>>,
+    /// Resolved values, keyed by SECRET NAME (§5.3).
     cache: RefCell<BTreeMap<String, String>>,
     /// Every value this broker ever held, for the exact-value scrub.
     held: RefCell<Vec<String>>,
@@ -46,23 +55,33 @@ impl SecretBroker {
         })
     }
 
-    pub fn hoist(&self, slug: &str, value: &str) {
+    pub fn hoist(&self, instance: &str, value: &str) {
         self.overrides
             .borrow_mut()
-            .insert(slug.to_string(), value.to_string());
+            .insert(instance.to_string(), value.to_string());
         self.held.borrow_mut().push(value.to_string());
     }
 
-    /// Resolve the value for a plugin's secret name. Misses and store
+    /// Resolve the value for an instance's secret name. Misses and store
     /// errors keep sekreto's distinction (design §5.2): a miss is
     /// station_secret_no_value, a store that could not answer is
     /// station_secret_error with sekreto's message intact - and never a
     /// retry against a weaker store (sekreto owns the chain).
-    pub fn value(&self, slug: &str, name: &str) -> Result<String, StationError> {
-        if let Some(over) = self.overrides.borrow().get(slug) {
+    ///
+    /// OVERRIDES ARE KEYED BY INSTANCE; THE RESOLUTION CACHE IS KEYED BY
+    /// SECRET NAME (§5.3). A hoisted credential belongs to the one
+    /// instance it was resident in, but a resolved VALUE belongs to the
+    /// name it was resolved for - so several instances sharing one
+    /// api-level `secret` cost one lookup rather than one each, and every
+    /// client an auto-tagged create() produces shares the declared
+    /// instance's entry instead of re-resolving per request. Keying the
+    /// cache by instance instead is the defect this replaces: at 26
+    /// instances over 20 apis it turns one store round-trip into 26.
+    pub fn value(&self, instance: &str, name: &str) -> Result<String, StationError> {
+        if let Some(over) = self.overrides.borrow().get(instance) {
             return Ok(over.clone());
         }
-        if let Some(cached) = self.cache.borrow().get(slug) {
+        if let Some(cached) = self.cache.borrow().get(name) {
             return Ok(cached.clone());
         }
 
@@ -75,12 +94,12 @@ impl SecretBroker {
         match found {
             None => Err(StationError::new(
                 "station_secret_no_value",
-                format!("no store had \"{}\" for plugin \"{}\"", name, slug),
+                format!("no store had \"{}\" for plugin \"{}\"", name, instance),
             )),
             Some(value) => {
                 self.cache
                     .borrow_mut()
-                    .insert(slug.to_string(), value.clone());
+                    .insert(name.to_string(), value.clone());
                 self.held.borrow_mut().push(value.clone());
                 Ok(value)
             }

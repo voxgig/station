@@ -7,8 +7,11 @@
 # miniature of the py SDK's seams. Integration against a REAL generated
 # SDK lives in the consumer validation flow, not here.
 
+import json
 import os
+import shutil
 import sys
+import tempfile
 import unittest
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -24,11 +27,26 @@ except ImportError:
             break
 
 from voxgig_station import (  # noqa: E402
+    BLOCK_DEFAULTS,
+    MERGE_SENSITIVE,
+    PROFILE_DEFAULTS,
     Station,
     StationError,
     adapter_feature,
+    camelify,
+    check_features,
+    check_package,
+    config_shape,
+    factory_for,
+    factory_from_module,
     feature_binding,
+    load_sync,
+    normalize_config,
+    normalize_descriptor,
     placeholder_for,
+    provide,
+    provided,
+    reset_factories,
 )
 from voxgig_station.events import EventBuffer  # noqa: E402
 from voxgig_station.secrets import SecretBroker  # noqa: E402
@@ -294,6 +312,56 @@ class TestBinding(unittest.TestCase):
         self.assertEqual('station_bound_twice', caught.exception.code)
         st.close()
 
+    def test_as_is_a_tag_on_the_imperative_path(self):
+        # design 6.1, imperative half: the api comes from the SDK being
+        # passed, so `as` yields `<api>$<tag>` and multi-instance works
+        # without a config file.
+        st = Station({'config': None})
+        bind(st)
+        client = FakeClient()
+        utility = FakeUtility(base_fetcher([]))
+        ctx = FakeCtx(client, utility, {'apikey': ''})
+        adapter = adapter_feature(st, None)
+        client.features.append(adapter)
+        adapter.init(ctx, {'active': True, 'as': 'test'})
+
+        self.assertEqual(['gnarly-pets', 'gnarly-pets$test'],
+                         sorted(p['name'] for p in st.plugins()))
+        # 7.2: distinct placeholders, or the injection seam cannot tell
+        # which credential a header wants.
+        self.assertEqual('[station:gnarly-pets$test]', ctx.options['apikey'])
+        # 5.1: the derived secret name follows the INSTANCE.
+        tagged = [p for p in st.plugins()
+                  if 'gnarly-pets$test' == p['name']][0]
+        self.assertEqual('gnarly_pets_test.apikey', tagged['secretname'])
+        st.close()
+
+    def test_a_wrong_api_is_refused_on_the_imperative_path(self):
+        st = Station({'config': None})
+        client = FakeClient()
+        utility = FakeUtility(base_fetcher([]))
+        ctx = FakeCtx(client, utility, {'apikey': ''})
+        adapter = adapter_feature(st, None)
+        client.features.append(adapter)
+        with self.assertRaises(StationError) as caught:
+            adapter.init(ctx, {'active': True, 'as': 'other$test'})
+        self.assertEqual('station_instance_api', caught.exception.code)
+        st.close()
+
+    def test_policy_allow_is_enforcement_not_a_default(self):
+        st = Station({'config': {
+            'station': 1,
+            'profiles': {'default': {'sdk': {'gnarly-pets': {'policy': {
+                'allow': {'op': ['find', 'list'], 'method': ['GET']}}}}}},
+        }})
+        # Unlike `base`, which is a default the caller may override, an
+        # allowlist is ENFORCEMENT: policy wins on the keys it sets.
+        ctx, _log = bind(st, options={'apikey': '',
+                                      'allow': {'op': 'everything'}})
+        self.assertEqual({'op': 'find,list', 'method': 'GET'},
+                         ctx.options['allow'])
+        st.close()
+
     def test_hosts_policy_denies_off_list_egress(self):
         st = Station({'config': {
             'station': 1,
@@ -368,6 +436,635 @@ class TestBinding(unittest.TestCase):
         self.assertEqual(1, len([e for e in st.events() if 'http' == e['kind']]))
         st.close()
 
+
+# --- the declarative front door (design station.md 6) ---
+
+# A generated py SDK in miniature: the constructor takes one options
+# map, builds its features from `extend`, and inits them against a ctx
+# carrying client/utility/options/config. Enough of the real seam for
+# the binding to run, and no more (the real thing is exercised in the
+# consumer validation flow).
+PAD_CONFIG = {
+    'main': {'name': 'Pad', 'slug': 'pad', 'version': '2.0.0', 'target': 'py'},
+    'feature': {
+        'retry': {'options': {'retries': 1, 'wait': 100}},
+        'ratelimit': {'options': {'rate': 1, 'burst': 1}},
+        'test': {},
+    },
+    'options': {'base': 'http://localhost:9', 'auth': {'prefix': 'Bearer'},
+                'entity': {}},
+    'entity': {},
+}
+
+
+class FakeSDK:
+    def __init__(self, options):
+        self.options = dict(options)
+        self.mode = 'live'
+        self.features = []
+        self.log = []
+        self.utility = FakeUtility(base_fetcher(self.log))
+        ctx = FakeCtx(self, self.utility, self.options, self.config)
+        fopts = (self.options.get('feature') or {}).get('station') or {}
+        for f in self.options.get('extend') or []:
+            self.features.append(f)
+            f.init(ctx, fopts)
+
+    config = PAD_CONFIG
+
+
+def pad_factory():
+    return {'construct': FakeSDK, 'config': PAD_CONFIG}
+
+
+def cfg(sdk=None, api=None, feature=None, profiles=None):
+    """A station.json in code."""
+    if profiles is None:
+        default = {}
+        if sdk is not None:
+            default['sdk'] = sdk
+        if api is not None:
+            default['api'] = api
+        if feature is not None:
+            default['feature'] = feature
+        profiles = {'default': default}
+    return {'station': 1, 'profiles': profiles}
+
+
+class TestFactoryTable(unittest.TestCase):
+
+    def setUp(self):
+        reset_factories()
+
+    def tearDown(self):
+        reset_factories()
+
+    def test_provide_normalizes_the_descriptor_at_provide_time(self):
+        entry = provide('pad', pad_factory())
+        self.assertEqual('pad', entry['descriptor']['slug'])
+        self.assertEqual(['pad'], provided())
+        # The feature schema is there BEFORE anything is constructed -
+        # which is what lets check() validate without a client.
+        retry = [f for f in entry['descriptor']['features']
+                 if 'retry' == f['name']][0]
+        self.assertEqual({'retries': 1, 'wait': 100}, retry['options'])
+
+    def test_the_same_pair_twice_is_a_noop(self):
+        factory = pad_factory()
+        first = provide('pad', factory)
+        self.assertIs(first, provide('pad', factory))
+        self.assertIs(first, provide('pad', dict(factory)))
+
+    def test_a_different_factory_is_a_conflict(self):
+        provide('pad', pad_factory())
+        with self.assertRaises(StationError) as caught:
+            provide('pad', {'construct': lambda o: None, 'config': PAD_CONFIG})
+        self.assertEqual('station_factory_conflict', caught.exception.code)
+
+    def test_station_provide_fills_the_one_table(self):
+        Station.provide('pad', pad_factory())
+        self.assertIsNotNone(factory_for('pad'))
+
+
+class TestLoader(unittest.TestCase):
+
+    def test_only_module_names_are_accepted(self):
+        self.assertEqual('acme_sdk', check_package('pad', 'acme_sdk'))
+        for bad in ('', '.', './pkg', '/abs/pkg', '~/pkg',
+                    'pkg/../../escape', 'https://x/y', 'pkg\\win'):
+            with self.assertRaises(StationError, msg=bad) as caught:
+                check_package('pad', bad)
+            self.assertEqual('station_sdk_load', caught.exception.code)
+
+    def test_camelify(self):
+        self.assertEqual('StripeEu', camelify('stripe-eu'))
+        self.assertEqual('VoxgigSolardemo', camelify('voxgig_solardemo'))
+
+    def test_factory_from_module_finds_the_fixed_alias_first(self):
+        class Alias(FakeSDK):
+            pass
+
+        class Derived(FakeSDK):
+            pass
+
+        class Mod:
+            SDK = Alias
+            PadSDK = Derived
+            config = PAD_CONFIG
+        factory = factory_from_module('pad', Mod)
+        # The fixed alias is the same identifier in every generated
+        # package; the derived name is the SECOND attempt.
+        self.assertIsInstance(factory['construct']({}), Alias)
+        self.assertIs(PAD_CONFIG, factory['config'])
+        # ...and an explicit `export` is the third and wins over both.
+        self.assertIsInstance(
+            factory_from_module('pad', Mod, 'PadSDK')['construct']({}), Derived)
+
+    def test_factory_from_module_falls_back_to_the_derived_name(self):
+        class Derived(FakeSDK):
+            pass
+
+        class Mod:
+            PadSDK = Derived
+            CONFIG = PAD_CONFIG
+        factory = factory_from_module('pad', Mod)
+        self.assertIsInstance(factory['construct']({}), Derived)
+        self.assertIs(PAD_CONFIG, factory['config'])
+
+    def test_no_constructor_names_what_was_tried(self):
+        class Mod:
+            config = PAD_CONFIG
+        with self.assertRaises(StationError) as caught:
+            factory_from_module('pad', Mod, 'Nope')
+        self.assertEqual('station_sdk_load', caught.exception.code)
+        self.assertIn('tried [Nope, SDK, PadSDK]', str(caught.exception))
+
+    def test_a_constructor_without_a_config_is_refused(self):
+        class Mod:
+            SDK = FakeSDK
+        with self.assertRaises(StationError) as caught:
+            factory_from_module('pad', Mod)
+        self.assertEqual('station_sdk_load', caught.exception.code)
+        self.assertIn('`config` singleton', str(caught.exception))
+
+
+# A package on sys.path, written at test time: the loader's one job is
+# to import a module BY NAME, so proving it needs a real importable
+# module and nothing else.
+_RETRO_SDK = """
+CONFIG = {'main': {'name': 'Pad', 'slug': 'pad', 'version': '1.0.0',
+                   'target': 'py'},
+          'feature': {}, 'options': {}, 'entity': {}}
+
+
+class SDK:
+    # A pre-station SDK in miniature: it consumes no `extend`, which is
+    # exactly the retrofit case factory_from_module exists for.
+    def __init__(self, options):
+        self.options = options
+
+
+config = CONFIG
+"""
+
+_SELF_SDK = """
+from voxgig_station import provide
+
+CONFIG = {'main': {'name': 'Pad', 'slug': 'pad', 'version': '9.9.9',
+                   'target': 'py'},
+          'feature': {}, 'options': {}, 'entity': {}}
+
+
+class SDK:
+    def __init__(self, options):
+        self.options = options
+
+
+provide('pad', {'construct': SDK, 'config': CONFIG})
+"""
+
+
+class TestLoaderImport(unittest.TestCase):
+    """py IS A LOADER LANGUAGE (design 6.3): a module can be imported by
+    name at runtime, so `api.<slug>.package` closes the loop."""
+
+    def setUp(self):
+        Station.reset()
+        reset_factories()
+        self._dir = tempfile.mkdtemp()
+        sys.path.insert(0, self._dir)
+        for name, src in (('pad_retro_sdk', _RETRO_SDK),
+                          ('pad_self_sdk', _SELF_SDK)):
+            with open(os.path.join(self._dir, name + '.py'), 'w') as handle:
+                handle.write(src)
+
+    def tearDown(self):
+        Station.reset()
+        reset_factories()
+        if self._dir in sys.path:
+            sys.path.remove(self._dir)
+        for name in ('pad_retro_sdk', 'pad_self_sdk'):
+            sys.modules.pop(name, None)
+        shutil.rmtree(self._dir, ignore_errors=True)
+
+    def test_a_module_that_self_registers_needs_no_exports(self):
+        self.assertTrue(load_sync('pad', 'pad_self_sdk'))
+        # Path 1: the factory is the one the module registered itself.
+        self.assertEqual('9.9.9', factory_for('pad')['descriptor']['version'])
+
+    def test_a_retrofit_module_is_read_through_its_exports(self):
+        self.assertTrue(load_sync('pad', 'pad_retro_sdk'))
+        self.assertEqual('1.0.0', factory_for('pad')['descriptor']['version'])
+        # Already registered: a second call is a lookup, not an import.
+        self.assertTrue(load_sync('pad', 'pad_retro_sdk'))
+
+    def test_an_unimportable_package_says_so(self):
+        with self.assertRaises(StationError) as caught:
+            load_sync('pad', 'no_such_pad_sdk')
+        self.assertEqual('station_sdk_load', caught.exception.code)
+        self.assertIn('could not be imported', str(caught.exception))
+
+    def test_the_declarative_path_loads_a_configured_package(self):
+        st = Station({'config': cfg(
+            api={'pad': {'package': 'pad_retro_sdk'}},
+            sdk={'pad': {}})})
+        client = st.sdk('pad')
+        # The instance name reaches the constructor the same way it does
+        # on the imperative path, so registration has one spelling.
+        self.assertEqual(
+            'pad', client.options['feature']['station']['instance'])
+        st.close()
+
+    def test_load_preloads_the_declared_packages(self):
+        st = Station({'config': cfg(sdk={
+            'pad': {'package': 'pad_self_sdk'},
+            'pad$off': {'active': False, 'secret': 'pad_off.apikey',
+                        'package': 'no_such_pad_sdk'},
+        })})
+        # Inactive instances are skipped, so the unimportable one is not
+        # reached: warm/load reach for what is meant to run.
+        st.load()
+        self.assertEqual(['pad'], provided())
+        st.close()
+
+
+class TestDeclarative(unittest.TestCase):
+
+    def setUp(self):
+        Station.reset()
+        reset_factories()
+        provide('pad', pad_factory())
+        os.environ['PAD_APIKEY'] = 'pad-key'
+
+    def tearDown(self):
+        Station.reset()
+        reset_factories()
+        os.environ.pop('PAD_APIKEY', None)
+        os.environ.pop('PAD_PROD_APIKEY', None)
+
+    def test_sdk_constructs_once_and_caches(self):
+        st = Station({'config': cfg(sdk={'pad': {}})})
+        first = st.sdk('pad')
+        self.assertIs(first, st.sdk('pad'))
+        self.assertEqual(['pad'], [p['name'] for p in st.plugins()])
+        self.assertEqual('pad', st.plugins()[0]['api'])
+        self.assertEqual('pad.apikey', st.plugins()[0]['secretname'])
+        st.close()
+
+    def test_an_undeclared_name_names_what_is_declared(self):
+        st = Station({'config': cfg(sdk={'pad': {}, 'pad$eu': {}})})
+        with self.assertRaises(StationError) as caught:
+            st.sdk('pad$nope')
+        self.assertEqual('station_no_instance', caught.exception.code)
+        self.assertIn('declared: [pad, pad$eu]', str(caught.exception))
+        st.close()
+
+    def test_inactive_is_declared_but_barred(self):
+        st = Station({'config': cfg(sdk={'pad': {'active': False}})})
+        with self.assertRaises(StationError) as caught:
+            st.sdk('pad')
+        self.assertEqual('station_instance_inactive', caught.exception.code)
+        # ...and still visible in instances().
+        row = st.instances()[0]
+        self.assertEqual(False, row['active'])
+        self.assertEqual(False, row['live'])
+        st.close()
+
+    def test_no_factory_names_the_remedies(self):
+        reset_factories()
+        st = Station({'config': cfg(sdk={'pad': {}})})
+        with self.assertRaises(StationError) as caught:
+            st.sdk('pad')
+        self.assertEqual('station_no_factory', caught.exception.code)
+        self.assertIn('Station.provide("pad", ...)', str(caught.exception))
+        st.close()
+
+    def test_create_auto_tags_and_the_tag_stands_for_the_declaration(self):
+        st = Station({'config': cfg(sdk={
+            'pad$prod': {'policy': {'hosts': ['api.pad.example']},
+                         'secret': 'pad_prod.apikey'}})})
+        one = st.create('pad$prod')
+        two = st.create('pad$prod')
+        self.assertIsNot(one, two)
+        self.assertEqual(['pad$1', 'pad$2'],
+                         sorted(p['name'] for p in st.plugins()))
+
+        # THE ALIAS IS RECORDED, NOT THE FIELDS: the auto-tagged client
+        # keeps the declared instance's whole block, allowlist included.
+        self.assertEqual('pad$prod', st.declared_ref('pad$1'))
+        self.assertEqual(['api.pad.example'],
+                         st.block_for('pad$1')['policy']['hosts'])
+        # ...and its secret follows the DECLARED instance, so every
+        # per-request client shares one broker cache entry.
+        self.assertEqual('pad_prod.apikey',
+                         [p for p in st.plugins()
+                          if 'pad$1' == p['name']][0]['secretname'])
+        st.close()
+
+    def test_auto_tag_skips_a_declared_tag(self):
+        st = Station({'config': cfg(sdk={'pad$prod': {}, 'pad$1': {}})})
+        self.assertEqual('pad$2', st.auto_tag('pad$prod'))
+        st.close()
+
+    def test_two_instances_of_one_api_get_distinct_placeholders(self):
+        st = Station({'config': cfg(sdk={
+            'pad': {}, 'pad$eu': {'secret': 'pad_eu.apikey'}})})
+        st.sdk('pad')
+        st.sdk('pad$eu')
+        self.assertEqual('[station:pad]', st.sdk('pad').options['apikey'])
+        self.assertEqual('[station:pad$eu]',
+                         st.sdk('pad$eu').options['apikey'])
+        st.close()
+
+    def test_the_composed_feature_map_is_ordered_and_station_free(self):
+        st = Station({'config': cfg(sdk={'pad': {'feature': {
+            'retry': {'retries': 3},
+            'ratelimit': {'order': {'after': 'retry'}},
+        }}})})
+        client = st.sdk('pad')
+        fmap = client.options['feature']
+        # `station` is composed by options(), after the user merge, so
+        # it is never taken from the config's own map.
+        self.assertEqual(['retry', 'ratelimit', 'station'], list(fmap.keys()))
+        self.assertEqual({'active': True, 'retries': 3}, fmap['retry'])
+        # RESERVED_KEYS never reach the SDK's option map.
+        self.assertNotIn('order', fmap['ratelimit'])
+        st.close()
+
+    def test_an_unknown_feature_option_fails_the_build(self):
+        st = Station({'config': cfg(sdk={'pad': {'feature': {
+            'retry': {'retires': 5}}}})})
+        with self.assertRaises(StationError) as caught:
+            st.sdk('pad')
+        self.assertEqual('station_feature_option', caught.exception.code)
+        self.assertIn('declares no option "retires"', str(caught.exception))
+        st.close()
+
+    def test_an_unknown_feature_fails_the_build(self):
+        st = Station({'config': cfg(sdk={'pad': {'feature': {
+            'nosuch': {'x': 1}}}})})
+        with self.assertRaises(StationError) as caught:
+            st.sdk('pad')
+        self.assertEqual('station_feature_unknown', caught.exception.code)
+        st.close()
+
+    def test_features_of_carries_provenance(self):
+        st = Station({'profile': 'prod', 'config': cfg(profiles={
+            'default': {
+                'feature': {'retry': {'retries': 1}},
+                'sdk': {'pad': {'feature': {'retry': {'wait': 5}}}},
+            },
+            'prod': {'feature': {'retry': {'retries': 9}}},
+        })})
+        got = st.features_of('pad')
+        # PROFILE SPECIFICITY OUTRANKS BLOCK SPECIFICITY, per key. NO
+        # `active` IS SYNTHESIZED: features_of reads the RAW config, and
+        # a tuning-only mention must not switch a feature on.
+        self.assertEqual({'retries': 9, 'wait': 5}, got['merged']['retry'])
+        self.assertEqual('prod.feature', got['from']['retry']['retries'])
+        self.assertEqual('default.sdk', got['from']['retry']['wait'])
+        # The implicit station row is for ORDERING ONLY.
+        self.assertIn('station', got['ordered'])
+        self.assertNotIn('station', got['merged'])
+        st.close()
+
+    def test_policy_budget_composes_into_ratelimit(self):
+        st = Station({'config': cfg(sdk={'pad': {
+            'policy': {'budget': {'rps': 5, 'concurrency': 2}},
+            'feature': {'ratelimit': {'rate': 99}},
+        }})})
+        got = st.features_of('pad')
+        # POLICY WINS on the keys it sets; other tuning survives beside it.
+        self.assertEqual({'active': True, 'rate': 5, 'burst': 2},
+                         got['merged']['ratelimit'])
+        self.assertEqual('policy.budget', got['from']['ratelimit']['rate'])
+        st.close()
+
+    def test_features_filters_rows_and_narrows_them(self):
+        st = Station({'config': cfg(sdk={
+            'pad': {'feature': {'retry': {'retries': 2}}},
+            'pad$eu': {'secret': 'pad_eu.apikey'},
+        })})
+        rows = st.features({'feature': 'retry'})
+        self.assertEqual(['pad'], [r['instance'] for r in rows])
+        self.assertEqual(['retry'], list(rows[0]['merged'].keys()))
+        self.assertEqual(['retry'], rows[0]['ordered'])
+        # The string form is the loose instance-or-api shorthand.
+        self.assertEqual(['pad', 'pad$eu'],
+                         [r['instance'] for r in st.features('pad')])
+        st.close()
+
+    def test_check_reports_ok_and_failed(self):
+        st = Station({'config': cfg(sdk={
+            'pad': {},
+            'pad$bad': {'secret': 'pad_bad.apikey',
+                        'feature': {'retry': {'retires': 1}}},
+            'pad$off': {'active': False, 'secret': 'pad_off.apikey'},
+        })})
+        got = st.check()
+        self.assertEqual(['pad'], got['ok'])
+        self.assertEqual(['pad$bad'], [f['name'] for f in got['failed']])
+        self.assertEqual('station_feature_option', got['failed'][0]['code'])
+        st.close()
+
+    def test_warm_dedupes_by_secret_name_and_misses_the_unknown(self):
+        os.environ['PAD_APIKEY'] = 'pad-key'
+        st = Station({'config': cfg(
+            api={'pad': {'secret': 'pad.apikey'}},
+            sdk={'pad': {}, 'pad$eu': {}})})
+
+        # ONE RESOLUTION PER DISTINCT SECRET NAME: two instances sharing
+        # one api-level `secret` must cost one round-trip, which is the
+        # thing the method exists for.
+        asked = []
+        inner = st._broker.value
+
+        def counted(instance, secretname):
+            asked.append(secretname)
+            return inner(instance, secretname)
+        st._broker.value = counted
+
+        got = st.warm()
+        self.assertEqual(['pad', 'pad$eu'], got['warmed'])
+        self.assertEqual([], got['missed'])
+        self.assertEqual(['pad.apikey'], asked)
+
+        # A name nobody declared or registered is a MISS, never a lookup.
+        del asked[:]
+        self.assertEqual({'warmed': [], 'missed': ['pad$typo']},
+                         st.warm(['pad$typo']))
+        self.assertEqual([], asked)
+        st.close()
+
+    def test_an_ordering_may_not_move_the_station_pin(self):
+        # The implicit `station` row is what makes this rejectable: with
+        # no row there is nothing to pin and the constraint would be
+        # treated as vacuous (6.6).
+        st = Station({'config': cfg(sdk={'pad': {'feature': {
+            'retry': {'order': {'after': 'station'}}}}})})
+        with self.assertRaises(StationError) as caught:
+            st.features_of('pad')
+        self.assertEqual('station_feature_order', caught.exception.code)
+        self.assertIn('pinned innermost', str(caught.exception))
+        st.close()
+
+    def test_a_feature_cycle_is_refused(self):
+        st = Station({'config': cfg(sdk={'pad': {'feature': {
+            'retry': {'order': {'after': 'ratelimit'}},
+            'ratelimit': {'order': {'after': 'retry'}},
+        }}})})
+        with self.assertRaises(StationError) as caught:
+            st.sdk('pad')
+        self.assertEqual('station_feature_order', caught.exception.code)
+        self.assertIn('form a cycle among [ratelimit, retry]',
+                      str(caught.exception))
+        st.close()
+
+    def test_instances_is_every_declared_one(self):
+        st = Station({'config': cfg(sdk={'pad$eu': {}, 'pad': {}})})
+        st.sdk('pad')
+        rows = st.instances()
+        self.assertEqual(['pad', 'pad$eu'], [r['name'] for r in rows])
+        self.assertEqual([True, False], [r['live'] for r in rows])
+        self.assertEqual(['R1', 'none'], [r['rung'] for r in rows])
+        st.close()
+
+    def test_a_malformed_config_fails_open_with_every_error(self):
+        with self.assertRaises(StationError) as caught:
+            Station({'config': cfg(sdk={'a': {'bass': 1}, 'b': {'tuba': 2}})})
+        self.assertEqual('station_config_invalid', caught.exception.code)
+        self.assertIn('sdk.a: bass', str(caught.exception))
+        self.assertIn('sdk.b: tuba', str(caught.exception))
+
+    def test_repo_scoped_reads_the_explicit_option_first(self):
+        # An in-code config is repo-scoped by construction...
+        self.assertTrue(Station({'config': cfg()}).repo_scoped)
+        # ...and the explicit option still wins, or the rule is
+        # untestable for every caller that passes a config in code.
+        st = Station({'config': cfg(sdk={'pad': {'package': 'nope_pkg'}}),
+                      'repo_scoped': False})
+        self.assertFalse(st.repo_scoped)
+        self.assertIsNone(
+            st.loader_package('pad', st.instances()[0]['block']))
+        warns = [e for e in st.events()
+                 if 'ignoring `package`' in str((e.get('meta') or {}).get('warn', ''))]
+        self.assertEqual(1, len(warns))
+        st.close()
+
+    def test_load_false_leaves_the_loader_inert(self):
+        st = Station({'config': cfg(sdk={'pad': {'package': 'nope_pkg'}}),
+                      'load': False})
+        self.assertIsNone(
+            st.loader_package('pad', st.instances()[0]['block']))
+        st.load()
+        st.close()
+
+
+class TestFeatureChecker(unittest.TestCase):
+    """design 8.5, derived from the descriptor and never hand-written."""
+
+    def descriptor(self):
+        return normalize_descriptor(PAD_CONFIG, None)[0]
+
+    def test_scalars_are_kind_checked(self):
+        faults = check_features({'retry': {'retries': 'lots'}},
+                                self.descriptor())
+        self.assertEqual(1, len(faults))
+        self.assertEqual('station_feature_option', faults[0]['code'])
+        self.assertIn('expects number, but found string', faults[0]['message'])
+
+    def test_reserved_keys_are_not_options(self):
+        self.assertEqual([], check_features(
+            {'retry': {'active': True, 'order': {'band': 3}, 'retries': 2}},
+            self.descriptor()))
+
+    def test_a_non_map_entry_is_skipped(self):
+        self.assertEqual([], check_features({'retry': False},
+                                            self.descriptor()))
+
+    def test_faults_collect_rather_than_throw(self):
+        faults = check_features({'zzz': {}, 'aaa': {}}, self.descriptor())
+        # Sorted, so the report reads the same in every port.
+        self.assertEqual(['aaa', 'zzz'], [f['feature'] for f in faults])
+
+
+class TestConfigShape(unittest.TestCase):
+    """Guards on the config grammar as DATA (design 4.3, 10.1). These
+    assert properties of the shape file itself, not of any config that
+    runs through it - the sdkgen discipline for data that must be
+    duplicated."""
+
+    def test_normalize_never_mutates_the_input(self):
+        raw = {'station': 1, 'profiles': {'default': {
+            'sdk': {'pad': {'feature': {'retry': {'retries': 3}}}}}}}
+        before = json.dumps(raw, sort_keys=True)
+        out = normalize_config(raw)
+        self.assertEqual(before, json.dumps(raw, sort_keys=True))
+        # ...and the copy really did materialize the defaults.
+        self.assertEqual(True, out['profiles']['default']['sdk']['pad']['active'])
+        self.assertEqual(True, out['profiles']['default']['sdk']['pad']
+                         ['feature']['retry']['active'])
+
+    def test_a_non_map_is_returned_untouched(self):
+        # validate rejects it with a message that names the path; the
+        # normalizer never coerces and never drops.
+        self.assertEqual([1], normalize_config([1]))
+
+    def test_every_call_gets_a_fresh_copy(self):
+        # struct's validate CONSUMES the spec it walks, so two configs
+        # validated against one parsed constant would not be validated
+        # against the same grammar.
+        first = config_shape()
+        first['profiles'] = 'eaten'
+        self.assertNotEqual('eaten', config_shape()['profiles'])
+
+    def test_the_two_block_specs_are_identical(self):
+        profile = config_shape()['profiles']['`$CHILD`']
+        self.assertEqual(profile['api']['`$CHILD`'], profile['sdk']['`$CHILD`'],
+                         'the api and sdk block specs are one concept '
+                         'written twice as data; they must not drift')
+
+    def test_exactly_one_block_default_is_merge_sensitive(self):
+        self.assertEqual(['active'], MERGE_SENSITIVE)
+        for k in MERGE_SENSITIVE:
+            self.assertIn(k, BLOCK_DEFAULTS,
+                          k + ' is merge-sensitive but has no default')
+        # Containers are safe early; a scalar is not. `active` is the
+        # only scalar in either table, which is WHY it is the only entry
+        # above.
+        for label, table in (('profile', PROFILE_DEFAULTS),
+                             ('block', BLOCK_DEFAULTS)):
+            for k, mk in table.items():
+                v = mk()
+                container = isinstance(v, (dict, list))
+                self.assertTrue(
+                    container or k in MERGE_SENSITIVE,
+                    label + ' default `' + k + '` is a scalar but is not '
+                    'listed in MERGE_SENSITIVE - a scalar default '
+                    'synthesized before the profile merge overwrites the '
+                    'base\'s real value (3.3)')
+
+    def test_only_the_feature_entries_are_open(self):
+        open_at = []
+
+        def walk(node, path):
+            if isinstance(node, list):
+                for i, v in enumerate(node):
+                    walk(v, path + '.' + str(i))
+                return
+            if not isinstance(node, dict):
+                return
+            if True is node.get('`$OPEN`'):
+                open_at.append(path)
+            for k, v in node.items():
+                walk(v, path + '.' + k)
+
+        walk(config_shape(), '')
+        self.assertEqual([
+            '.profiles.`$CHILD`.api.`$CHILD`.feature.`$CHILD`',
+            '.profiles.`$CHILD`.feature.`$CHILD`',
+            '.profiles.`$CHILD`.sdk.`$CHILD`.feature.`$CHILD`',
+        ], sorted(open_at))
 
 if __name__ == '__main__':
     unittest.main()

@@ -10,6 +10,7 @@ require 'voxgig_sekreto'
 
 require_relative 'error'
 require_relative 'descriptor'
+require_relative 'shape'
 
 module VoxgigStation
   module_function
@@ -37,7 +38,31 @@ module VoxgigStation
     file = find_config_file(from)
     return nil if file.nil?
 
-    JSON.parse(File.read(file))
+    begin
+      JSON.parse(File.read(file))
+    rescue JSON::ParserError => e
+      # A file that is not JSON is a CONFIG error, not a raw parse error
+      # escaping open(): the reader found station.json and could not use
+      # it, which is exactly what station_config_invalid exists to say.
+      raise StationError.new('station_config_invalid',
+        'station.json at ' + file + ' is not valid JSON: ' + e.message.to_s)
+    end
+  end
+
+  # Which side of the review boundary the config came from
+  # (design station.md 6.3).
+  #
+  # `package` and `export` are honoured only from REPO-SCOPED config,
+  # because a user-level file is outside the repo's review boundary and a
+  # `package` key arriving from it names code to require. Everything else
+  # in a user-level config still applies - this narrows one key rather
+  # than distrusting the file.
+  def config_scope(from = nil)
+    file = find_config_file(from)
+    return 'none' if file.nil?
+
+    home = File.join(Dir.home, '.voxgig', 'station.json')
+    file == home ? 'user' : 'repo'
   end
 
   # Profile selection: VOXGIG_STATION_PROFILE, else the open() option,
@@ -52,15 +77,6 @@ module VoxgigStation
 
     'default'
   end
-
-  BLOCK_DEFAULTS = {
-    'active' => true,
-    'feature' => {},
-  }.freeze
-
-  # The one block key carrying the timing rule: applied AFTER the merge,
-  # never before (design 3.3, 4.2).
-  MERGE_SENSITIVE = ['active'].freeze
 
   # The api half of a ref is the substring before the first `$`, and an
   # untagged ref IS an api slug (design 3.4). LEXICAL, and that is the
@@ -137,8 +153,13 @@ module VoxgigStation
       # overlay block carried a synthesized `active` into the merge, a
       # one-key environment override would silently re-enable an
       # integration the base declared inactive.
-      BLOCK_DEFAULTS.each do |k, v|
-        merged[k] = v.dup unless merged.key?(k)
+      # BLOCK_DEFAULTS is shape.rb's table, read here at the SECOND of
+      # its two moments (design 4.2): validate_config applies it BEFORE,
+      # to every block, because a block with no present keys is an open
+      # map; the resolver applies it AFTER, to the merged instance,
+      # because an absent key must stay absent through the merge.
+      BLOCK_DEFAULTS.each do |k, mk|
+        merged[k] = mk.call unless merged.key?(k)
       end
 
       sdk[ref] = merged

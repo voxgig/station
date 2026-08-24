@@ -50,9 +50,16 @@ function featureBinding(ctx, fopts) {
       'feature order is [' + names.join(', ') + ']')
   }
 
+  // §7.5: registration is driven by station now. `fopts.instance` is
+  // where station puts the instance name it knew before construction
+  // began; `_register` reads it and falls back to the descriptor slug,
+  // which is today's behaviour for a bare connect(SDK).
   const reg = station._register(client, ctx.config, options, calleropts, fopts)
   const { binding, profilePlugin } = reg
-  const slug = binding.plugin
+  // The INSTANCE name, not the api slug. Everything below keys on it -
+  // the placeholder, the transport seam, the op events - because two
+  // live instances of one api must be distinguishable at each.
+  const name = binding.plugin
 
   // Base URL precedence (design §3.5): caller opts (7) beat the
   // profile (4), which beats the SDK's config default (1) already in
@@ -61,6 +68,29 @@ function featureBinding(ctx, fopts) {
   // base at options-build time instead.
   if (null != calleropts && null == calleropts.base && null != profilePlugin?.base) {
     options.base = profilePlugin.base
+  }
+
+  // Policy allowlists (design §16): `allow.op` / `allow.method` are
+  // "the same vocabulary the SDKs already enforce (`options.allow`, and
+  // the raw-access gate every target implements); station sets these
+  // SDK options from policy so enforcement is in the SDK's own
+  // pipeline" - the point_op_allow / spec_method_allow gates. The SDK's
+  // own option form is a comma-separated string, so the policy's list
+  // joins into it. Applied at binding time, which is inside the
+  // constructor, and on BOTH entry paths - connect/adopt and the
+  // declarative build both delegate here. Unlike `base` above, which is
+  // a default the caller may override, an allowlist is ENFORCEMENT:
+  // policy wins over whatever the options carry, on exactly the keys it
+  // sets.
+  const pallow = profilePlugin?.policy?.allow
+  if (null != pallow && 'object' === typeof pallow) {
+    const allow = {
+      ...(null != options.allow && 'object' === typeof options.allow
+        ? options.allow : {}),
+    }
+    if (Array.isArray(pallow.op)) { allow.op = pallow.op.join(',') }
+    if (Array.isArray(pallow.method)) { allow.method = pallow.method.join(',') }
+    options.allow = allow
   }
 
   if ('none' !== binding.rung) {
@@ -72,7 +102,7 @@ function featureBinding(ctx, fopts) {
     // prepare() output become placeholder-safe from here on.
     const resident = options.apikey
     if ('string' === typeof resident && '' !== resident && placeholder !== resident) {
-      station._hoist(slug, resident)
+      station._hoist(name, resident)
     }
     options.apikey = placeholder
   }
@@ -83,16 +113,19 @@ function featureBinding(ctx, fopts) {
   const inner = utility.fetcher
   if (true === inner.__station__) {
     throw new StationError('station_bound_twice',
-      'plugin "' + slug + '" already carries a station wrap')
+      'plugin "' + name + '" already carries a station wrap')
   }
   const wrapped = async (fctx, fullurl, fetchdef) => {
-    return station._transport(slug, inner, fctx, fullurl, fetchdef)
+    return station._transport(name, inner, fctx, fullurl, fetchdef)
   }
   wrapped.__station__ = true
   utility.fetcher = wrapped
 
   return {
-    slug,
+    // The INSTANCE name (§7.1). Keeps the field name so the generated
+    // adapter contract is unchanged; for a single-instance project it
+    // is the api slug, exactly as before.
+    slug: name,
 
     // Hook bridge (design §3 item 3): operation semantics correlated
     // with the HTTP events via a per-operation id on the SDK's own ctx.
@@ -100,10 +133,10 @@ function featureBinding(ctx, fopts) {
       opctx.station$ = { corr: 'c' + (++corrSeq), start: Date.now() }
     },
     PreDone(opctx) {
-      station._opEvent(slug, opctx, resultOutcome(opctx))
+      station._opEvent(name, opctx, resultOutcome(opctx))
     },
     PreUnexpected(opctx) {
-      station._opEvent(slug, opctx, 'unexpected')
+      station._opEvent(name, opctx, 'unexpected')
     },
   }
 }

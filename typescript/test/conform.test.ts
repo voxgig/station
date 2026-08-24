@@ -18,6 +18,12 @@ import {
   secretnameDefault,
 } from '../src/descriptor'
 import { isKnownCode } from '../src/error'
+import {
+  checkpin,
+  featuresources,
+  mergefeatures,
+  resolveorder,
+} from '../src/feature'
 import { placeholderFor } from '../src/secrets'
 import { resolveProfile } from '../src/profile'
 import { normalizeConfig, validateConfig } from '../src/shape'
@@ -97,6 +103,23 @@ describe('station-conform', () => {
   test('instance', async () => {
     await R.runset(R.spec.instance, (vin: any) =>
       resolveProfile(denull(vin.config), vin.profile))
+  })
+
+  // §8's pure half (design §10.1): the three-level merge with its depth
+  // boundary, and the §8.4 order resolution. One driver, two entry
+  // shapes - `merged` selects the resolver, anything else the merge -
+  // because a port that guessed from looser cues would run the wrong
+  // subject on a mistyped entry.
+  test('feature', async () => {
+    await R.runset(R.spec.feature, (vin: any) => {
+      if (null != vin.merged) {
+        const ordered = resolveorder(denull(vin.merged))
+        checkpin(ordered)
+        return ordered.map((o) => o.name)
+      }
+      return mergefeatures(featuresources(
+        denull(vin.base), denull(vin.overlay), vin.api, vin.ref))
+    })
   })
 
   // §6.1's `as` rule: pure over (api, opts), so it is corpus-shaped

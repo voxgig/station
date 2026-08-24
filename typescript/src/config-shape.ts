@@ -55,14 +55,91 @@ export const CONFIG_SHAPE: any = {
               "proxy"
             ]
           ],
+          "capture": [
+            "`$ONE`",
+            "`$NIL`",
+            [
+              "`$EXACT`",
+              "meta"
+            ],
+            [
+              "`$EXACT`",
+              "headers"
+            ],
+            [
+              "`$EXACT`",
+              "full"
+            ]
+          ],
           "policy": [
             "`$ONE`",
             "`$NIL`",
             {
+              "allow": [
+                "`$ONE`",
+                "`$NIL`",
+                {
+                  "method": [
+                    "`$CHILD`",
+                    "`$STRING`"
+                  ],
+                  "op": [
+                    "`$CHILD`",
+                    "`$STRING`"
+                  ]
+                }
+              ],
+              "budget": [
+                "`$ONE`",
+                "`$NIL`",
+                {
+                  "concurrency": [
+                    "`$ONE`",
+                    "`$NIL`",
+                    "`$INTEGER`"
+                  ],
+                  "rps": [
+                    "`$ONE`",
+                    "`$NIL`",
+                    "`$NUMBER`"
+                  ]
+                }
+              ],
               "hosts": [
                 "`$CHILD`",
                 "`$STRING`"
+              ],
+              "mode": [
+                "`$ONE`",
+                "`$NIL`",
+                [
+                  "`$EXACT`",
+                  "live"
+                ],
+                [
+                  "`$EXACT`",
+                  "record"
+                ],
+                [
+                  "`$EXACT`",
+                  "replay"
+                ],
+                [
+                  "`$EXACT`",
+                  "mock"
+                ],
+                [
+                  "`$EXACT`",
+                  "block"
+                ]
               ]
+            }
+          ],
+          "agent": [
+            "`$ONE`",
+            "`$NIL`",
+            {
+              "write": "`$BOOLEAN`"
             }
           ],
           "options": [
@@ -113,14 +190,91 @@ export const CONFIG_SHAPE: any = {
               "proxy"
             ]
           ],
+          "capture": [
+            "`$ONE`",
+            "`$NIL`",
+            [
+              "`$EXACT`",
+              "meta"
+            ],
+            [
+              "`$EXACT`",
+              "headers"
+            ],
+            [
+              "`$EXACT`",
+              "full"
+            ]
+          ],
           "policy": [
             "`$ONE`",
             "`$NIL`",
             {
+              "allow": [
+                "`$ONE`",
+                "`$NIL`",
+                {
+                  "method": [
+                    "`$CHILD`",
+                    "`$STRING`"
+                  ],
+                  "op": [
+                    "`$CHILD`",
+                    "`$STRING`"
+                  ]
+                }
+              ],
+              "budget": [
+                "`$ONE`",
+                "`$NIL`",
+                {
+                  "concurrency": [
+                    "`$ONE`",
+                    "`$NIL`",
+                    "`$INTEGER`"
+                  ],
+                  "rps": [
+                    "`$ONE`",
+                    "`$NIL`",
+                    "`$NUMBER`"
+                  ]
+                }
+              ],
               "hosts": [
                 "`$CHILD`",
                 "`$STRING`"
+              ],
+              "mode": [
+                "`$ONE`",
+                "`$NIL`",
+                [
+                  "`$EXACT`",
+                  "live"
+                ],
+                [
+                  "`$EXACT`",
+                  "record"
+                ],
+                [
+                  "`$EXACT`",
+                  "replay"
+                ],
+                [
+                  "`$EXACT`",
+                  "mock"
+                ],
+                [
+                  "`$EXACT`",
+                  "block"
+                ]
               ]
+            }
+          ],
+          "agent": [
+            "`$ONE`",
+            "`$NIL`",
+            {
+              "write": "`$BOOLEAN`"
             }
           ],
           "options": [

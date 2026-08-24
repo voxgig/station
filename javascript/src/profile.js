@@ -8,6 +8,7 @@ const { validname } = require('@voxgig/sekreto-js')
 
 const { secretnameDefault } = require('./descriptor')
 const { StationError } = require('./error')
+const { BLOCK_DEFAULTS } = require('./shape')
 
 // station.json lookup: cwd upward to the repo root, then
 // ~/.voxgig/station.json (design §3.5). A repo root is where .git lives;
@@ -30,20 +31,36 @@ function loadConfig(from) {
   const file = findConfigFile(from)
   if (null == file) { return null }
   const text = Fs.readFileSync(file, 'utf8')
-  return JSON.parse(text)
+  // A file that is not JSON is a config error, not a raw SyntaxError
+  // escaping open(): the reader found station.json and could not use
+  // it, which is exactly what station_config_invalid exists to say.
+  try {
+    return JSON.parse(text)
+  }
+  catch (err) {
+    throw new StationError('station_config_invalid',
+      'station.json at ' + file + ' is not valid JSON: ' + err.message)
+  }
+}
+
+// Which side of the review boundary the config came from (§6.3).
+//
+// `package` and `export` are honoured only from REPO-SCOPED config,
+// because a user-level file is outside the repo's review boundary and a
+// `package` key arriving from it names code to import. Everything else
+// in a user-level config still applies - this narrows one key rather
+// than distrusting the file.
+function configScope(from) {
+  const file = findConfigFile(from)
+  if (null == file) { return 'none' }
+  const home = Path.join(Os.homedir(), '.voxgig', 'station.json')
+  return file === home ? 'user' : 'repo'
 }
 
 // Profile selection: VOXGIG_STATION_PROFILE, else the open() option,
 // else 'default' (design §3.5 - env vars rank above station.json but
 // below open() opts; profile NAME selection follows the same order with
 // open() opts winning).
-// The block-level defaults table. `active` carries the timing rule:
-// applied AFTER the merge, never before (§3.3, §4.2).
-const BLOCK_DEFAULTS = {
-  active: () => true,
-  feature: () => ({}),
-}
-
 function selectProfile(optProfile) {
   if (null != optProfile && '' !== optProfile) { return optProfile }
   const env = process.env.VOXGIG_STATION_PROFILE
@@ -176,7 +193,7 @@ function checksecrets(sdk, profileName) {
 }
 
 module.exports = {
-  BLOCK_DEFAULTS,
+  configScope,
   findConfigFile,
   refapi,
   loadConfig,

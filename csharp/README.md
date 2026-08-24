@@ -71,7 +71,7 @@ The conformance suite runs [`spec/station.json`](../spec/station.json)
 — the same file every port runs — through the C#
 [voxgig/omni](https://github.com/voxgig/omni) runner: `secretname`,
 `placeholder`, `descriptor`, `descriptorwarnings`, `canonical`,
-`profile`, and `errors`. The sections that need live SDK machinery
+`instance`, and `errors`. The sections that need live SDK machinery
 (inject, order, event correlation) are covered by the focused unit
 cases here against the library's own seam, and end-to-end by the
 generated-SDK consumer suites.

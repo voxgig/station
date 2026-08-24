@@ -17,10 +17,13 @@ use JSON::PP ();
 use Voxgig::Station::Descriptor ();
 
 use Voxgig::Station::Error ();
+use Voxgig::Station::Shape qw(BLOCK_DEFAULTS);
+use Voxgig::Station::Struct qw(jsonform struct_parse);
 
 use Exporter 'import';
 our @EXPORT_OK = qw(
-  find_config_file load_config resolve_profile select_profile
+  config_scope find_config_file load_config refapi resolve_profile
+  select_profile
 );
 
 sub _ismap { return ref( $_[0] ) eq 'HASH' ? 1 : 0 }
@@ -59,7 +62,47 @@ sub load_config {
     local $/ = undef;
     my $text = <$handle>;
     close($handle);
-    return JSON::PP->new->decode($text);
+
+    # Read through struct's own JSON reader, not JSON::PP's, for ONE
+    # reason: it keeps map key order, and design 8.4's LAST tie-break of
+    # the feature order is the order the config declared its features
+    # in. A plain perl hash has no order at all, so JSON::PP would turn
+    # that tie-break into a per-process accident. `jsonform` then puts
+    # the tree back into this port's spelling (JSON::PP booleans, undef
+    # for null) with the ordering intact.
+    #
+    # A file that is not JSON is a CONFIG error, not a raw parse error
+    # escaping open(): the reader found station.json and could not use
+    # it, which is exactly what station_config_invalid exists to say.
+    my $parsed = eval { jsonform( struct_parse($text) ) };
+    if ( my $err = $@ ) {
+        my $msg = "$err";
+        $msg =~ s/ at \S+ line \d+\.?\n?\z//;
+        $msg =~ s/\s+\z//;
+        Voxgig::Station::Error::fail( 'station_config_invalid',
+            'station.json at ' . $file . ' is not valid JSON: ' . $msg );
+    }
+    return $parsed;
+}
+
+# Which side of the repo review boundary the discovered station.json
+# came from (design station.md 6.3).
+#
+# `package` and `export` are honoured only from REPO-SCOPED config,
+# because a user-level file sits outside the repo's review boundary and
+# a `package` key arriving from it names CODE TO LOAD. Everything else
+# in a user-level config still applies - this narrows one key rather
+# than distrusting the file.
+sub config_scope {
+    my ($from) = @_;
+    my $file = find_config_file($from);
+    return 'none' unless defined $file;
+
+    my $home = defined $ENV{HOME} ? $ENV{HOME} : ( getpwuid($<) )[7];
+    return 'repo' unless defined $home && '' ne $home;
+
+    my $homefile = File::Spec->catfile( $home, '.voxgig', 'station.json' );
+    return $file eq $homefile ? 'user' : 'repo';
 }
 
 # Profile selection: the open() option, else VOXGIG_STATION_PROFILE, else
@@ -89,14 +132,12 @@ sub _providers_of {
 # station.md 3.5, 5.2 - chain order decides which store wins, so a
 # positional merge would be actively dangerous). The `profile` corpus
 # section pins this.
-# The one block key carrying the timing rule: applied AFTER the merge,
-# never before (design 3.3, 4.2).
-our @MERGE_SENSITIVE = ('active');
-
-# `active` must be a real JSON boolean, not a truthy scalar: the corpus
-# compares the resolved instance by value, and perl's 1 serializes as a
-# number where every other port emits `true`.
-sub _block_defaults { return ( active => JSON::PP::true, feature => {} ); }
+# The block-level defaults come from Voxgig::Station::Shape, which is
+# the ONE table with TWO callers at DIFFERENT MOMENTS: validate_config
+# applies it BEFORE, to every block, because a block with no present
+# keys is an open map; this resolver applies it AFTER, to the merged
+# instance, because an absent key must stay absent through the merge.
+# Shape::MERGE_SENSITIVE names `active` explicitly for the same reason.
 
 # The api half of a ref is the substring before the first `$`, and an
 # untagged ref IS an api slug (design 3.4). LEXICAL, and that is the
@@ -188,9 +229,9 @@ sub resolve_profile {
         # overlay block carried a synthesized `active` into the merge, a
         # one-key environment override would silently re-enable an
         # integration the base declared inactive.
-        my %defaults = _block_defaults();
+        my %defaults = BLOCK_DEFAULTS();
         for my $k ( keys %defaults ) {
-            $merged->{$k} = $defaults{$k} unless exists $merged->{$k};
+            $merged->{$k} = $defaults{$k}->() unless exists $merged->{$k};
         }
 
         $sdk{$ref} = $merged;

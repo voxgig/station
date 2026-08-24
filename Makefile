@@ -6,7 +6,7 @@
 # test runs the ports whose toolchains are commonly present; each port
 # also has its own Makefile or test script (see <lang>/README.md).
 
-RUNNABLE = typescript javascript go python ruby php perl java rust c cpp
+RUNNABLE = typescript javascript go python ruby php perl java rust c cpp csharp swift dart elixir lua
 
 test: $(addprefix test-,$(RUNNABLE))
 
@@ -67,6 +67,14 @@ test-lua:
 build-typescript:
 	cd typescript && npm run build
 
+# C4a/C4b (plugin/doc/plan/contracts.md): plugin's `ref`/`config` and
+# `lifecycle`/`order` corpus sections, run against station's OWN
+# implementation from a sibling voxgig/plugin checkout (or $PLUGIN_HOME).
+# STATION_REQUIRE_C4 makes a missing checkout a failure rather than a
+# skip - this target exists to run that lane deliberately.
+test-c4:
+	cd typescript && STATION_REQUIRE_C4=1 npm run test-some --pattern=c4-plugin
+
 # spec/config-shape.json is the artifact every port reads; the
 # TypeScript port ships a mirror of it because package.json ships
 # dist/src only and validateConfig runs at open(), not just under test.
@@ -74,4 +82,4 @@ build-typescript:
 sync-shape:
 	python3 tools/sync-shape.py
 
-.PHONY: test build-typescript sync-shape $(addprefix test-,$(RUNNABLE)) test-csharp test-swift test-dart test-elixir test-lua
+.PHONY: test build-typescript sync-shape test-c4 $(addprefix test-,$(RUNNABLE)) test-csharp test-swift test-dart test-elixir test-lua

@@ -13,6 +13,11 @@ rust/target
 rust/vendor
 java/target
 java/*.jar
+# Compiled output. This was NOT ignored, so 46 .class files were tracked -
+# including 24 of voxgig/sekreto's, under build/fatjar. `make build`
+# regenerates all of it from source, and every other port already ignores
+# its own build output.
+java/build
 __pycache__/
 *.pyc
 c/build

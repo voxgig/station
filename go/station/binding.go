@@ -13,6 +13,8 @@
 // primary form.
 package station
 
+import "strings"
+
 // TransportFunc is the language-neutral transport shape the middleware
 // wraps: the SDK's own per-request context rides through as an opaque
 // value (it keys the per-op correlation state).
@@ -61,7 +63,10 @@ type BindSpec struct {
 // FeatureBinding is the bound station side the adapter forwards its
 // hooks to.
 type FeatureBinding struct {
-	Slug string
+	// Name is the INSTANCE this binding belongs to (§7.1) - `api$tag`,
+	// or a bare api slug for the untagged one. Every event it emits is
+	// keyed on it.
+	Name string
 	st   *Station
 }
 
@@ -119,7 +124,7 @@ func Bind(spec *BindSpec) *FeatureBinding {
 
 	reg := st.register(spec.Client, spec.Config, spec.SDKOptions, spec.FeatureOpts)
 	entry := reg.entry
-	slug := entry.Slug
+	name := entry.Name
 
 	// Base URL precedence (design §3.5): caller opts (7) beat the
 	// profile (4), which beats the SDK's config default (1) already in
@@ -127,9 +132,35 @@ func Bind(spec *BindSpec) *FeatureBinding {
 	// caller-set base wins and an unset one takes the profile's.
 	calleropts, hasCalleropts := spec.FeatureOpts["calleropts"].(map[string]any)
 	if hasCalleropts && nil == calleropts["base"] {
-		if base := asString(reg.profilePlugin["base"]); "" != base {
+		if base := asString(reg.block["base"]); "" != base {
 			spec.SDKOptions["base"] = base
 		}
+	}
+
+	// Policy allowlists (design §16): `allow.op` / `allow.method` are
+	// the same vocabulary the SDKs already enforce (options.allow, and
+	// the raw-access gate every target implements), so station sets
+	// these SDK options from policy and enforcement stays in the SDK's
+	// own pipeline. The SDK's option form is a comma-separated string,
+	// so the policy's list joins into it.
+	//
+	// Unlike `base` above, which is a DEFAULT the caller may override,
+	// an allowlist is ENFORCEMENT: policy wins over whatever the options
+	// carry, on exactly the keys it sets. Applied at binding time, which
+	// is inside the constructor, and on the one entry point both the
+	// declarative and the inverted path come through.
+	if pallow, is := asMap(reg.block["policy"])["allow"].(map[string]any); is {
+		allow := map[string]any{}
+		for k, v := range asMap(spec.SDKOptions["allow"]) {
+			allow[k] = v
+		}
+		if op, joined := joinPolicyList(pallow["op"]); joined {
+			allow["op"] = op
+		}
+		if method, joined := joinPolicyList(pallow["method"]); joined {
+			allow["method"] = method
+		}
+		spec.SDKOptions["allow"] = allow
 	}
 
 	if "none" != entry.Rung {
@@ -141,7 +172,7 @@ func Bind(spec *BindSpec) *FeatureBinding {
 		// Prepare() output become placeholder-safe from here on.
 		if resident := asString(spec.SDKOptions["apikey"]); "" != resident &&
 			placeholder != resident {
-			st.hoist(slug, resident)
+			st.hoist(name, resident)
 		}
 		spec.SDKOptions["apikey"] = placeholder
 	}
@@ -158,7 +189,25 @@ func Bind(spec *BindSpec) *FeatureBinding {
 		return st.transport(entry, mode, inner, opctx, fullurl, fetchdef)
 	})
 
-	return &FeatureBinding{Slug: slug, st: st}
+	return &FeatureBinding{Name: name, st: st}
+}
+
+// joinPolicyList joins a policy allowlist into the SDK's own
+// comma-separated option form. A non-list is not joined - the shape
+// rejects it by path, and coercing here would hide that.
+func joinPolicyList(val any) (string, bool) {
+	items, is := val.([]any)
+	if !is {
+		if texts, is := val.([]string); is {
+			return strings.Join(texts, ","), true
+		}
+		return "", false
+	}
+	out := make([]string, 0, len(items))
+	for _, one := range items {
+		out = append(out, asString(one))
+	}
+	return strings.Join(out, ","), true
 }
 
 // PrePoint opens the per-op correlation (design §3 item 3): the http
@@ -171,13 +220,13 @@ func (binding *FeatureBinding) PrePoint(opctx any) {
 // PreDone closes the op with the outcome the adapter read from the
 // result ('ok' | 'err' | 'unknown').
 func (binding *FeatureBinding) PreDone(opctx any, info OpInfo) {
-	binding.st.opEvent(binding.Slug, opctx, info, info.Outcome)
+	binding.st.opEvent(binding.Name, opctx, info, info.Outcome)
 }
 
 // PreUnexpected closes the op as 'unexpected' - the error-path hook the
 // SDKs fire for failures that never reach PreDone.
 func (binding *FeatureBinding) PreUnexpected(opctx any, info OpInfo) {
-	binding.st.opEvent(binding.Slug, opctx, info, "unexpected")
+	binding.st.opEvent(binding.Name, opctx, info, "unexpected")
 }
 
 func joinNames(names []string) string {

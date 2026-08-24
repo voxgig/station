@@ -12,7 +12,9 @@ namespace Voxgig\Station;
 
 require_once __DIR__ . '/Descriptor.php';
 require_once __DIR__ . '/Error.php';
+require_once __DIR__ . '/Kind.php';
 require_once __DIR__ . '/Sekreto.php';
+require_once __DIR__ . '/Shape.php';
 
 /**
  * station.json lookup: cwd upward to the repo root, then
@@ -58,8 +60,40 @@ function load_config(?string $from = null): ?array
     if (false === $text) {
         return null;
     }
-    $out = json_decode($text, true, 512, JSON_THROW_ON_ERROR);
+    // A file that is not JSON is a CONFIG ERROR, not a raw parse error
+    // escaping open(): the reader found station.json and could not use
+    // it, which is exactly what station_config_invalid exists to say.
+    try {
+        $out = json_decode($text, true, 512, JSON_THROW_ON_ERROR);
+    } catch (\JsonException $e) {
+        throw new StationError('station_config_invalid',
+            'station.json at ' . $file . ' is not valid JSON: ' . $e->getMessage());
+    }
     return is_array($out) ? $out : null;
+}
+
+/**
+ * Which side of the review boundary the config came from (design 6.3).
+ *
+ * `package` and `export` are honoured only from REPO-SCOPED config,
+ * because a user-level file is outside the repo's review boundary and a
+ * `package` key arriving from it names code to import. Everything else
+ * in a user-level config still applies - this narrows one key rather
+ * than distrusting the file.
+ */
+function config_scope(?string $from = null): string
+{
+    $file = find_config_file($from);
+    if (null === $file) {
+        return 'none';
+    }
+    $home = getenv('HOME') ?: '';
+    if ('' === $home) {
+        return 'repo';
+    }
+    $user = $home . DIRECTORY_SEPARATOR . '.voxgig' .
+        DIRECTORY_SEPARATOR . 'station.json';
+    return $file === $user ? 'user' : 'repo';
 }
 
 /**
@@ -78,16 +112,6 @@ function select_profile(?string $opt_profile = null): string
         return $env;
     }
     return 'default';
-}
-
-/** The one block key carrying the timing rule: applied AFTER the merge,
- * never before (design 3.3, 4.2). */
-const MERGE_SENSITIVE = ['active'];
-
-/** @return array<string, mixed> */
-function block_defaults(): array
-{
-    return ['active' => true, 'feature' => []];
 }
 
 /**
@@ -196,9 +220,13 @@ function resolve_profile(mixed $config, string $profile_name): array
         // the overlay block carried a synthesized `active` into the
         // merge, a one-key environment override would silently re-enable
         // an integration the base declared inactive.
-        foreach (block_defaults() as $k => $v) {
+        // The SAME table validate_config reads, at the OTHER moment
+        // (Shape.php block_defaults). Plained on the way in: the
+        // synthesized empty map is a validation spelling, and a resolved
+        // instance is ordinary php data.
+        foreach (block_defaults() as $k => $make) {
             if (!array_key_exists($k, $merged)) {
-                $merged[$k] = $v;
+                $merged[$k] = plain($make());
             }
         }
 

@@ -24,6 +24,32 @@ const List<String> CODES = [
   'station_replay_lossy',
   'station_open_conflict',
   'station_bound_twice',
+
+  // Declarative config (station-declarative-config.md 6.4). Stage 1
+  // raises the first three; `station_feature_reserved` is the pure-data
+  // half of 8.4/8.6, checkable before a feature module exists because
+  // both rules are lexical - a `station` key in a feature map, a
+  // `feature` key inside `options`.
+  'station_config_invalid',
+  'station_config_secret',
+  'station_secret_collision',
+  'station_feature_reserved',
+
+  // Instances (design 6.4). `as` is a tag, not a free name: a full ref
+  // whose name is not the SDK's api slug is this.
+  'station_instance_api',
+  'station_no_instance',
+  'station_instance_inactive',
+  'station_sdk_load',
+  'station_no_factory',
+  'station_factory_conflict',
+
+  // Features (design 8.4, 8.5). The checker is derived from the SDK's
+  // own declaration, so a feature typo is a CI failure rather than a
+  // setting that quietly did nothing in production.
+  'station_feature_unknown',
+  'station_feature_option',
+  'station_feature_order',
 ];
 
 class StationError implements Exception {

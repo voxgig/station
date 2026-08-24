@@ -92,7 +92,7 @@ defmodule Voxgig.StationTest do
   test "close warns on profile plugin keys matching no registered plugin" do
     config = %{
       "station" => 1,
-      "profiles" => %{"default" => %{"plugin" => %{"typod" => %{"base" => "http://x"}}}}
+      "profiles" => %{"default" => %{"sdk" => %{"typod" => %{"base" => "http://x"}}}}
     }
 
     st = Station.new(%{"config" => config, "proxy" => "off"})

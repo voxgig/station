@@ -15,6 +15,7 @@ export 'src/descriptor.dart'
 export 'src/error.dart' show CODES, StationError, isKnownCode;
 export 'src/events.dart' show EventBuffer, TapFn;
 export 'src/profile.dart'
-    show findConfigFile, loadConfig, resolveProfile, selectProfile;
+    show MERGE_SENSITIVE, findConfigFile, loadConfig, refapi, resolveProfile,
+        selectProfile;
 export 'src/secrets.dart' show SecretBroker, envkey, placeholderFor, validname;
 export 'src/station.dart' show PluginEntry, RegisterResult, Station;

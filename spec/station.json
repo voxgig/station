@@ -486,7 +486,7 @@
      },
      {
       "doc": true,
-      "err": "to be one of nil, {hosts:[child,string]}",
+      "err": "to be one of nil, {allow:[one,nil,{method:[child,string],op:[child,string]}],budget:[one,nil,{concurrency:[one,nil,integer],rps:[one,nil,number]}],hosts:[child,string],mode:[one,nil,[exact,live],[exact,record],[exact,replay],[exact,mock],[exact,block]]}",
       "id": "config#policy-typo-is-the-generic-one-form",
       "in": {
        "profiles": {
@@ -624,6 +624,290 @@
             "hosts": [
              1
             ]
+           }
+          }
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "doc": true,
+      "id": "config#policy-mode-vocabulary",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "policy": {
+            "mode": "block"
+           }
+          }
+         }
+        }
+       },
+       "station": 1
+      },
+      "out": {
+       "profiles": {
+        "default": {
+         "api": {},
+         "feature": {},
+         "sdk": {
+          "solar": {
+           "active": true,
+           "feature": {},
+           "policy": {
+            "mode": "block"
+           }
+          }
+         },
+         "secrets": {
+          "providers": [
+           {
+            "kind": "env"
+           }
+          ]
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "doc": true,
+      "id": "config#policy-proxy-era-mode-validates",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "policy": {
+            "mode": "record"
+           }
+          }
+         }
+        }
+       },
+       "station": 1
+      },
+      "out": {
+       "profiles": {
+        "default": {
+         "api": {},
+         "feature": {},
+         "sdk": {
+          "solar": {
+           "active": true,
+           "feature": {},
+           "policy": {
+            "mode": "record"
+           }
+          }
+         },
+         "secrets": {
+          "providers": [
+           {
+            "kind": "env"
+           }
+          ]
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "err": "policy to be one of nil, {allow:",
+      "id": "config#policy-mode-is-an-enum",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "policy": {
+            "mode": "sideways"
+           }
+          }
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "doc": true,
+      "id": "config#policy-allow-and-budget",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "policy": {
+            "allow": {
+             "method": [
+              "GET"
+             ],
+             "op": [
+              "find",
+              "list"
+             ]
+            },
+            "budget": {
+             "concurrency": 2,
+             "rps": 5
+            },
+            "hosts": [
+             "api.x.com"
+            ],
+            "mode": "live"
+           }
+          }
+         }
+        }
+       },
+       "station": 1
+      },
+      "out": {
+       "profiles": {
+        "default": {
+         "api": {},
+         "feature": {},
+         "sdk": {
+          "solar": {
+           "active": true,
+           "feature": {},
+           "policy": {
+            "allow": {
+             "method": [
+              "GET"
+             ],
+             "op": [
+              "find",
+              "list"
+             ]
+            },
+            "budget": {
+             "concurrency": 2,
+             "rps": 5
+            },
+            "hosts": [
+             "api.x.com"
+            ],
+            "mode": "live"
+           }
+          }
+         },
+         "secrets": {
+          "providers": [
+           {
+            "kind": "env"
+           }
+          ]
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "err": "policy to be one of nil, {allow:",
+      "id": "config#policy-allow-op-is-a-list",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "policy": {
+            "allow": {
+             "op": "find"
+            }
+           }
+          }
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "err": "policy to be one of nil, {allow:",
+      "id": "config#policy-allow-unknown-key",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "policy": {
+            "allow": {
+             "ops": [
+              "find"
+             ]
+            }
+           }
+          }
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "err": "policy.allow.op.0 to be string, but found integer: 7",
+      "id": "config#policy-allow-first-element-gap",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "policy": {
+            "allow": {
+             "op": [
+              7
+             ]
+            }
+           }
+          }
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "err": "policy to be one of nil, {allow:",
+      "id": "config#policy-budget-rps-is-a-number",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "policy": {
+            "budget": {
+             "rps": "ten"
+            }
+           }
+          }
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "doc": true,
+      "err": "Unexpected keys at field profiles.default.sdk.solar.policy.budget: rp",
+      "id": "config#policy-budget-unknown-key-gap",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "policy": {
+            "budget": {
+             "rp": 1
+            }
            }
           }
          }
@@ -877,6 +1161,131 @@
         "default": {
          "plugin": {
           "solar": {}
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "doc": true,
+      "id": "config#proxy-control-keys",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "voxgig-solardemo": {
+           "agent": {
+            "write": true
+           },
+           "capture": "full",
+           "resolve": "proxy"
+          }
+         }
+        }
+       },
+       "station": 1
+      },
+      "out": {
+       "profiles": {
+        "default": {
+         "api": {},
+         "feature": {},
+         "sdk": {
+          "voxgig-solardemo": {
+           "active": true,
+           "agent": {
+            "write": true
+           },
+           "capture": "full",
+           "feature": {},
+           "resolve": "proxy"
+          }
+         },
+         "secrets": {
+          "providers": [
+           {
+            "kind": "env"
+           }
+          ]
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "id": "config#proxy-control-keys-on-the-api-block",
+      "in": {
+       "profiles": {
+        "default": {
+         "api": {
+          "stripe": {
+           "agent": {
+            "write": false
+           },
+           "capture": "headers"
+          }
+         }
+        }
+       },
+       "station": 1
+      },
+      "out": {
+       "profiles": {
+        "default": {
+         "api": {
+          "stripe": {
+           "active": true,
+           "agent": {
+            "write": false
+           },
+           "capture": "headers",
+           "feature": {}
+          }
+         },
+         "feature": {},
+         "sdk": {},
+         "secrets": {
+          "providers": [
+           {
+            "kind": "env"
+           }
+          ]
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "err": "capture to be one of nil, [exact,meta], [exact,headers], [exact,full]",
+      "id": "config#capture-depth-must-be-a-known-depth",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "capture": "everything"
+          }
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "err": "agent to be one of nil, {write:boolean}",
+      "id": "config#agent-block-stays-closed",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "agent": {
+            "writ": true
+           }
+          }
          }
         }
        },
@@ -1343,6 +1752,456 @@
      {
       "in": "station_feature_order",
       "out": true
+     }
+    ]
+   },
+   "feature": {
+    "set": [
+     {
+      "doc": true,
+      "id": "feature#three-level",
+      "in": {
+       "api": "stripe",
+       "base": {
+        "api": {
+         "stripe": {
+          "feature": {
+           "retry": {
+            "max": 2
+           }
+          }
+         }
+        },
+        "feature": {
+         "retry": {
+          "max": 1,
+          "wait": 100
+         }
+        },
+        "sdk": {
+         "stripe$test": {
+          "feature": {
+           "retry": {
+            "max": 3
+           }
+          }
+         }
+        }
+       },
+       "ref": "stripe$test"
+      },
+      "out": {
+       "retry": {
+        "max": 3,
+        "wait": 100
+       }
+      }
+     },
+     {
+      "doc": true,
+      "id": "feature#profile-outranks-block",
+      "in": {
+       "api": "pad",
+       "base": {
+        "sdk": {
+         "pad$a": {
+          "feature": {
+           "debug": {
+            "level": 3
+           }
+          }
+         }
+        }
+       },
+       "overlay": {
+        "feature": {
+         "debug": {
+          "level": 1
+         }
+        }
+       },
+       "ref": "pad$a"
+      },
+      "out": {
+       "debug": {
+        "level": 1
+       }
+      }
+     },
+     {
+      "id": "feature#per-key-union",
+      "in": {
+       "api": "pad",
+       "base": {
+        "feature": {
+         "retry": {
+          "max": 2
+         }
+        }
+       },
+       "overlay": {
+        "sdk": {
+         "pad$a": {
+          "feature": {
+           "retry": {
+            "wait": 50
+           }
+          }
+         }
+        }
+       },
+       "ref": "pad$a"
+      },
+      "out": {
+       "retry": {
+        "max": 2,
+        "wait": 50
+       }
+      }
+     },
+     {
+      "doc": true,
+      "id": "feature#depth-boundary-map-replaces",
+      "in": {
+       "api": "pad",
+       "base": {
+        "feature": {
+         "audit": {
+          "sink": {
+           "kind": "file",
+           "path": "/tmp/a"
+          }
+         }
+        }
+       },
+       "overlay": {
+        "feature": {
+         "audit": {
+          "sink": {
+           "kind": "stdout"
+          }
+         }
+        }
+       },
+       "ref": "pad$a"
+      },
+      "out": {
+       "audit": {
+        "sink": {
+         "kind": "stdout"
+        }
+       }
+      }
+     },
+     {
+      "doc": true,
+      "id": "feature#no-synthesized-active",
+      "in": {
+       "api": "pad",
+       "base": {
+        "feature": {
+         "debug": {
+          "active": false
+         }
+        }
+       },
+       "overlay": {
+        "sdk": {
+         "pad$a": {
+          "feature": {
+           "debug": {
+            "level": 2
+           }
+          }
+         }
+        }
+       },
+       "ref": "pad$a"
+      },
+      "out": {
+       "debug": {
+        "active": false,
+        "level": 2
+       }
+      }
+     },
+     {
+      "id": "feature#tuning-only-stays-bare",
+      "in": {
+       "api": "pad",
+       "base": {
+        "sdk": {
+         "pad$a": {
+          "feature": {
+           "metrics": {
+            "step": 10
+           }
+          }
+         }
+        }
+       },
+       "ref": "pad$a"
+      },
+      "out": {
+       "metrics": {
+        "step": 10
+       }
+      }
+     },
+     {
+      "id": "feature#non-map-entry-replaces",
+      "in": {
+       "api": "pad",
+       "base": {
+        "feature": {
+         "debug": {
+          "level": 3
+         }
+        }
+       },
+       "overlay": {
+        "api": {
+         "pad": {
+          "feature": {
+           "debug": false
+          }
+         }
+        }
+       },
+       "ref": "pad$a"
+      },
+      "out": {
+       "debug": false
+      }
+     },
+     {
+      "id": "feature#absent-sources-skipped",
+      "in": {
+       "api": "pad",
+       "base": {
+        "feature": {
+         "trace": {}
+        }
+       },
+       "ref": "pad$a"
+      },
+      "out": {
+       "trace": {}
+      }
+     },
+     {
+      "doc": true,
+      "id": "feature#order-default-nesting",
+      "in": {
+       "merged": {
+        "debug": {},
+        "station": {},
+        "test": {}
+       }
+      },
+      "out": [
+       "debug",
+       "station",
+       "test"
+      ]
+     },
+     {
+      "doc": true,
+      "id": "feature#order-after",
+      "in": {
+       "merged": {
+        "a": {},
+        "b": {
+         "order": {
+          "after": "a"
+         }
+        }
+       }
+      },
+      "out": [
+       "a",
+       "b"
+      ]
+     },
+     {
+      "id": "feature#order-before",
+      "in": {
+       "merged": {
+        "a": {
+         "order": {
+          "before": "b"
+         }
+        },
+        "b": {}
+       }
+      },
+      "out": [
+       "a",
+       "b"
+      ]
+     },
+     {
+      "doc": true,
+      "id": "feature#order-vacuous-absent",
+      "in": {
+       "merged": {
+        "a": {
+         "order": {
+          "after": "ghost"
+         }
+        },
+        "b": {}
+       }
+      },
+      "out": [
+       "a",
+       "b"
+      ]
+     },
+     {
+      "doc": true,
+      "id": "feature#order-band-lower-outermost",
+      "in": {
+       "merged": {
+        "x": {
+         "order": {
+          "band": 10
+         }
+        },
+        "y": {
+         "order": {
+          "band": 1
+         }
+        }
+       }
+      },
+      "out": [
+       "y",
+       "x"
+      ]
+     },
+     {
+      "doc": true,
+      "id": "feature#order-constraint-beats-band",
+      "in": {
+       "merged": {
+        "x": {
+         "order": {
+          "band": 10
+         }
+        },
+        "y": {
+         "order": {
+          "after": "x",
+          "band": 1
+         }
+        }
+       }
+      },
+      "out": [
+       "x",
+       "y"
+      ]
+     },
+     {
+      "id": "feature#order-band-and-position-tie",
+      "in": {
+       "merged": {
+        "a": {
+         "order": {
+          "band": 10
+         }
+        },
+        "b": {},
+        "c": {}
+       }
+      },
+      "out": [
+       "b",
+       "c",
+       "a"
+      ]
+     },
+     {
+      "doc": true,
+      "err": "form a cycle among [a, b]",
+      "id": "feature#order-cycle",
+      "in": {
+       "merged": {
+        "a": {
+         "order": {
+          "after": "b"
+         }
+        },
+        "b": {
+         "order": {
+          "after": "a"
+         }
+        }
+       }
+      }
+     },
+     {
+      "doc": true,
+      "err": "pinned innermost",
+      "id": "feature#order-pin-band-violation",
+      "in": {
+       "merged": {
+        "station": {
+         "order": {
+          "band": 0
+         }
+        },
+        "test": {},
+        "wrap": {
+         "order": {
+          "band": 150
+         }
+        }
+       }
+      }
+     },
+     {
+      "err": "pinned innermost",
+      "id": "feature#order-pin-constraint-violation",
+      "in": {
+       "merged": {
+        "late": {
+         "order": {
+          "after": "station"
+         }
+        },
+        "station": {},
+        "test": {}
+       }
+      }
+     },
+     {
+      "id": "feature#order-pin-last-without-base",
+      "in": {
+       "merged": {
+        "retry": {},
+        "station": {}
+       }
+      },
+      "out": [
+       "retry",
+       "station"
+      ]
+     },
+     {
+      "id": "feature#order-inactive-excluded",
+      "in": {
+       "merged": {
+        "a": {},
+        "b": {
+         "active": false
+        }
+       }
+      },
+      "out": [
+       "a"
+      ]
      }
     ]
    },
@@ -2021,6 +2880,37 @@
        }
       },
       "out": "stripe$stripe"
+     },
+     {
+      "doc": true,
+      "id": "instanceref#trailing-tag-canonicalized",
+      "in": {
+       "api": "stripe",
+       "opts": {
+        "instance": "stripe$"
+       }
+      },
+      "out": "stripe"
+     },
+     {
+      "doc": true,
+      "err": "invalid instance name",
+      "id": "instanceref#bad-name-refused",
+      "in": {
+       "api": "9stripe",
+       "opts": {}
+      }
+     },
+     {
+      "doc": true,
+      "err": "invalid instance tag",
+      "id": "instanceref#bad-tag-refused",
+      "in": {
+       "api": "stripe",
+       "opts": {
+        "as": "a/b"
+       }
+      }
      }
     ]
    },

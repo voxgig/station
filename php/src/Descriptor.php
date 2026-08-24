@@ -142,6 +142,19 @@ function normalize_descriptor(mixed $config, mixed $active_features = null): arr
         $entities[$ename] = ['fields' => $fields, 'ops' => $ops];
     }
 
+    // Design 7.4: the features list gains `options` and `transport`,
+    // because it was throwing away what the SDK already embeds -
+    // `config.feature[name].options` is the feature's own declared key
+    // set WITH TYPED DEFAULTS, which is the schema 8.5 validates
+    // against, and `transport` is the role 8.4 orders by. Both are
+    // already inside the SDK; the descriptor stops discarding them.
+    // ADDITIVE, so descriptor v1 consumers are unaffected and the
+    // `descriptor` corpus section still passes unchanged.
+    //
+    // `transport` is CARRIED rather than inferred: the obvious signal,
+    // an empty `hook: {}`, is wrong for station, which both wraps AND
+    // dispatches hooks. Until sdkgen emits it the role checks degrade to
+    // nothing rather than guessing.
     $features = [];
     $fdefs = is_array($config['feature'] ?? null) ? $config['feature'] : [];
     $factive = is_array($active_features) ? $active_features : [];
@@ -149,10 +162,20 @@ function normalize_descriptor(mixed $config, mixed $active_features = null): arr
     sort($fnames, SORT_STRING);
     foreach ($fnames as $fname) {
         $fopts = $factive[$fname] ?? null;
-        $features[] = [
+        $fdef = is_array($fdefs[$fname] ?? null) ? $fdefs[$fname] : [];
+        $row = [
             'name' => $fname,
             'active' => is_array($fopts) && true === ($fopts['active'] ?? null),
         ];
+        $declopts = $fdef['options'] ?? null;
+        if (is_array($declopts) && 0 < count($declopts) && !array_is_list($declopts)) {
+            $row['options'] = $declopts;
+        }
+        $transport = $fdef['transport'] ?? null;
+        if (null !== $transport && '' !== $transport) {
+            $row['transport'] = (string) $transport;
+        }
+        $features[] = $row;
     }
 
     $descriptor = [

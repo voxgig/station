@@ -25,7 +25,7 @@ func memStation(_ plugin: SJson? = nil, proxy: String? = nil) throws -> Station 
     "secrets": .map(["providers": .list([.map(["kind": .str("env")])])])
   ]
   if let plugin = plugin {
-    profile["plugin"] = plugin
+    profile["sdk"] = plugin
   }
   var opts: [String: SJson] = [
     "config": .map([

@@ -47,7 +47,8 @@ class TransportWrap
 {
     public function __construct(
         private Station $station,
-        private string $slug,
+        /** The INSTANCE name (design 7.1), not the api slug. */
+        private string $name,
         private mixed $inner,
     ) {
     }
@@ -56,7 +57,7 @@ class TransportWrap
     public function __invoke(mixed $fctx, string $fullurl, array $fetchdef): array
     {
         return $this->station->_transport(
-            $this->slug, $this->inner, $fctx, $fullurl, $fetchdef);
+            $this->name, $this->inner, $fctx, $fullurl, $fetchdef);
     }
 }
 
@@ -69,6 +70,10 @@ class FeatureBinding
 {
     public function __construct(
         private Station $station,
+        /** The INSTANCE name (design 7.1). The FIELD keeps its name so
+         * the generated adapter contract is unchanged; for a
+         * single-instance project it is the api slug, exactly as
+         * before. */
         public readonly string $slug,
     ) {
     }
@@ -141,10 +146,18 @@ function feature_binding(mixed $ctx, mixed $fopts): ?FeatureBinding
             'feature order is [' . implode(', ', array_map('strval', $names)) . ']');
     }
 
+    // Design 7.5: registration is driven by station now. `fopts.instance`
+    // is where station puts the instance name it knew before
+    // construction began; _register reads it and falls back to the
+    // descriptor slug, which is today's behaviour for a bare
+    // connect(SDK).
     $reg = $station->_register($client, $ctx->config, $ctx->options, $calleropts, $fopts);
     $binding = $reg['binding'];
     $profile_plugin = $reg['profile_plugin'];
-    $slug = $binding['plugin'];
+    // The INSTANCE name, not the api slug. Everything below keys on it -
+    // the placeholder, the transport seam, the op events - because two
+    // live instances of one api must be distinguishable at each.
+    $name = $binding['plugin'];
 
     // Base URL precedence (design station.md 3.5): caller opts (7) beat
     // the profile (4), which beats the SDK's config default (1) already
@@ -160,6 +173,33 @@ function feature_binding(mixed $ctx, mixed $fopts): ?FeatureBinding
         }
     }
 
+    // Policy allowlists (design station.md 16): `allow.op` /
+    // `allow.method` are "the same vocabulary the SDKs already enforce
+    // (options.allow, and the raw-access gate every target implements);
+    // station sets these SDK options from policy so enforcement is in
+    // the SDK's own pipeline". The SDK's own option form is a
+    // comma-separated string, so the policy's list joins into it.
+    // Applied at binding time, which is inside the constructor, and on
+    // BOTH entry paths - connect/adopt and the declarative build both
+    // delegate here. Unlike `base` above, which is a DEFAULT the caller
+    // may override, an allowlist is ENFORCEMENT: policy wins over
+    // whatever the options carry, on exactly the keys it sets.
+    $pallow = is_array($profile_plugin) && is_array($profile_plugin['policy'] ?? null)
+        ? ($profile_plugin['policy']['allow'] ?? null) : null;
+    if (is_array($pallow)) {
+        $allow = is_array($ctx->options['allow'] ?? null) ? $ctx->options['allow'] : [];
+        if (is_array($pallow['op'] ?? null)) {
+            $allow['op'] = implode(',', $pallow['op']);
+        }
+        if (is_array($pallow['method'] ?? null)) {
+            $allow['method'] = implode(',', $pallow['method']);
+        }
+        $ctx->options['allow'] = $allow;
+        if (is_array($client->options ?? null)) {
+            $client->options['allow'] = $allow;
+        }
+    }
+
     if ('none' !== $binding['rung']) {
         $placeholder = $binding['placeholder'];
 
@@ -171,7 +211,7 @@ function feature_binding(mixed $ctx, mixed $fopts): ?FeatureBinding
         $resident = is_array($ctx->options ?? null)
             ? ($ctx->options['apikey'] ?? null) : null;
         if (is_string($resident) && '' !== $resident && $placeholder !== $resident) {
-            $station->_hoist($slug, $resident);
+            $station->_hoist($name, $resident);
         }
         $ctx->options['apikey'] = $placeholder;
         if (is_array($client->options ?? null)) {
@@ -185,11 +225,11 @@ function feature_binding(mixed $ctx, mixed $fopts): ?FeatureBinding
     $inner = $utility->fetcher;
     if ($inner instanceof TransportWrap) {
         throw new StationError('station_bound_twice',
-            'plugin "' . $slug . '" already carries a station wrap');
+            'plugin "' . $name . '" already carries a station wrap');
     }
-    $utility->fetcher = new TransportWrap($station, $slug, $inner);
+    $utility->fetcher = new TransportWrap($station, $name, $inner);
 
-    return new FeatureBinding($station, $slug);
+    return new FeatureBinding($station, $name);
 }
 
 /**

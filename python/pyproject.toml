@@ -3,7 +3,11 @@ name = "voxgig-station"
 version = "0.0.1"
 description = "station: one control surface for outbound integrations"
 requires-python = ">=3.9"
-dependencies = ["voxgig-sekreto>=0.1"]
+# Two runtime dependencies and no more (design 9): sekreto
+# resolves secrets, struct validates the config grammar.
+# Neither is published yet; both are found as sibling
+# checkouts (see README - $SEKRETO_HOME / $STRUCT_HOME).
+dependencies = ["voxgig-sekreto>=0.1", "voxgig-struct>=0.1"]
 
 [build-system]
 requires = ["setuptools>=61"]
