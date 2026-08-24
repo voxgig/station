@@ -1,8 +1,22 @@
-// voxgig/station - C++ port (header-only, C++17, standard library only).
+// voxgig/station - C++ port (header-only, C++17).
 //
 // A port of the canonical TypeScript implementation (typescript/src/);
 // behaviour must match, case for case, through the shared conformance
 // corpus (spec/station.json, run via voxgig/omni).
+//
+// ONE RUNTIME DEPENDENCY: voxgig/struct, which validates the config
+// grammar at open() (design 4). It is header-only and VENDORED, like
+// this library - see the include below. The stdlib is everything else;
+// secrets are env-only because there is no sekreto C++ port to depend
+// on, and the library says so at runtime.
+//
+// THE CONFIG SHAPE IS DATA, and `spec/config-shape.json` is the copy
+// every port reads. A vendored library inside a compiled SDK cannot see
+// `spec/` at run time, so this header carries a MIRROR of it, in the
+// generated region below `config_shape_json()`. It lives INSIDE the one
+// header rather than beside it because "one header, one file" is this
+// port's vendoring contract; `make sync-shape` regenerates it and
+// test/unit.cpp fails on drift.
 //
 // TIER C SCOPE (design station.md 2.2, 10.1): solo mode only - no wire
 // client, no proxy attachment. `proxy: "require"` therefore fails on the
