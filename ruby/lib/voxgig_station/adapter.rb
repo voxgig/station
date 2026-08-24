@@ -30,11 +30,14 @@ module VoxgigStation
   # per-operation id stashed on the SDK's own ctx (an instance variable,
   # the generated Ruby features' per-op idiom).
   class FeatureBinding
+    # The INSTANCE name (design station.md 7.1). The accessor keeps the
+    # `slug` spelling so the generated adapter contract is unchanged; for
+    # a single-instance project it IS the api slug, exactly as before.
     attr_reader :slug
 
-    def initialize(station, slug)
+    def initialize(station, name)
       @station = station
-      @slug = slug
+      @slug = name
     end
 
     def PrePoint(ctx)
@@ -105,10 +108,17 @@ module VoxgigStation
         'feature order is [' + names.map(&:to_s).join(', ') + ']')
     end
 
+    # 7.5: registration is driven by station now. `fopts['instance']` is
+    # where station puts the instance name it knew before construction
+    # began; _register reads it and falls back to the descriptor slug,
+    # which is today's behaviour for a bare connect(SDK).
     reg = station._register(client, ctx.config, options, calleropts, fopts)
     binding = reg[:binding]
     profile_plugin = reg[:profile_plugin]
-    slug = binding['plugin']
+    # The INSTANCE name, not the api slug. Everything below keys on it -
+    # the placeholder, the transport seam, the op events - because two
+    # live instances of one api must be distinguishable at each.
+    name = binding['plugin']
 
     # Base URL precedence (design station.md 3.5): caller opts (7) beat
     # the profile (4), which beats the SDK's config default (1) already
@@ -117,6 +127,26 @@ module VoxgigStation
     if calleropts.is_a?(Hash) && calleropts['base'].nil? &&
        profile_plugin.is_a?(Hash) && !profile_plugin['base'].nil?
       options['base'] = profile_plugin['base']
+    end
+
+    # Policy allowlists (design station.md 16): `allow.op` / `allow.method`
+    # are "the same vocabulary the SDKs already enforce (`options.allow`,
+    # and the raw-access gate every target implements); station sets
+    # these SDK options from policy so enforcement is in the SDK's own
+    # pipeline". The SDK's own option form is a comma-separated string,
+    # so the policy's list joins into it. Applied at binding time, which
+    # is inside the constructor, and on BOTH entry paths - connect/adopt
+    # and the declarative build both delegate here. Unlike `base` above,
+    # which is a DEFAULT the caller may override, an allowlist is
+    # ENFORCEMENT: policy wins over whatever the options carry, on
+    # exactly the keys it sets.
+    pallow = profile_plugin.is_a?(Hash) && profile_plugin['policy'].is_a?(Hash) ?
+      profile_plugin['policy']['allow'] : nil
+    if pallow.is_a?(Hash)
+      allow = options['allow'].is_a?(Hash) ? options['allow'].dup : {}
+      allow['op'] = pallow['op'].join(',') if pallow['op'].is_a?(Array)
+      allow['method'] = pallow['method'].join(',') if pallow['method'].is_a?(Array)
+      options['allow'] = allow
     end
 
     if 'none' != binding['rung']
@@ -129,7 +159,7 @@ module VoxgigStation
       # here on.
       resident = options['apikey']
       if resident.is_a?(String) && '' != resident && placeholder != resident
-        station._hoist(slug, resident)
+        station._hoist(name, resident)
       end
       options['apikey'] = placeholder
     end
@@ -142,15 +172,15 @@ module VoxgigStation
     inner = utility.fetcher
     if true == inner.instance_variable_get(:@__station__)
       raise StationError.new('station_bound_twice',
-        'plugin "' + slug + '" already carries a station wrap')
+        'plugin "' + name + '" already carries a station wrap')
     end
     wrapped = lambda do |fctx, fullurl, fetchdef|
-      station._transport(slug, inner, fctx, fullurl, fetchdef)
+      station._transport(name, inner, fctx, fullurl, fetchdef)
     end
     wrapped.instance_variable_set(:@__station__, true)
     utility.fetcher = wrapped
 
-    FeatureBinding.new(station, slug)
+    FeatureBinding.new(station, name)
   end
 
   # The carried adapter: the retrofit path for SDKs generated without
