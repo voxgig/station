@@ -100,9 +100,14 @@ func denullmap(value any) map[string]any {
 // order Go discards. So the spec file is parsed a second time, with the
 // port's own order-preserving reader (station.ParseOrdered), and each
 // `feature` entry's authored key order is indexed by the canonical
-// serialization of its `in` value. Sorted keys would pass three of the
-// twenty entries by alphabetical accident, which is exactly what §8.4
-// says the tie-break must not be.
+// serialization of its `in` value.
+//
+// Do NOT read this suite as proof that the order machinery works. Every
+// `merged` entry in the corpus happens to have alphabetically-ordered
+// keys, so sorted == declared for all twenty and `order = nil` at the
+// top of namesInOrder leaves this whole file green. The machinery is
+// pinned instead by TestDeclarationOrderIsNotSortedOrder in
+// go/station_regression_test.go, on keys where the two disagree.
 var (
 	orderOnce  sync.Once
 	orderIndex = map[string][]string{}
@@ -111,9 +116,10 @@ var (
 
 // mergedOrder returns the authored key order of one entry's `merged`
 // map, and whether it was found. A MISS IS AN ERROR, not a shrug: the
-// fallback is sorted keys, which would quietly pass three of the twenty
-// entries by alphabetical accident and silently stop testing the
-// tie-break the rest of the time.
+// fallback is sorted keys, and because every corpus entry's keys are
+// already alphabetical, sorted keys pass ALL twenty - so a silent miss
+// would not fail anything here, it would just stop testing the
+// tie-break entirely.
 func mergedOrder(in any) ([]string, bool) {
 	orderOnce.Do(func() {
 		file, err := findspec("station.json")
