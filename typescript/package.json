@@ -14,7 +14,8 @@
     "./package.json": "./package.json"
   },
   "files": [
-    "dist/src"
+    "dist/src",
+    "!dist/src/omnihome.*"
   ],
   "scripts": {
     "build": "tsc",

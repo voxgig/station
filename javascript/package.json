@@ -7,6 +7,10 @@
   "dependencies": {
     "@voxgig/sekreto-js": "^0.1.0"
   },
+  "files": [
+    "src",
+    "!src/omnihome.js"
+  ],
   "scripts": {
     "test": "node --test --test-concurrency=1 test/*.test.js",
     "test-some": "node --test --test-concurrency=1 --test-name-pattern=$npm_config_pattern test/*.test.js"
