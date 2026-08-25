@@ -107,3 +107,10 @@ vendor-check:
 	python3 tools/vendor.py --check
 
 .PHONY: test build-typescript sync-shape vendor-refresh vendor-check test-c4 $(addprefix test-,$(RUNNABLE)) test-csharp test-swift test-dart test-elixir test-lua
+
+# What a release would add to, or remove from, the published package.
+# Needs the network, so it runs at release time rather than on every PR.
+# A removal fails unless STATION_ALLOW_REMOVALS=1 says it is deliberate.
+.PHONY: pack-diff
+pack-diff:
+	@tools/pack_diff.sh $(PORTS)

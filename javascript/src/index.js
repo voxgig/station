@@ -1,8 +1,9 @@
 // @voxgig/station-js - one control surface for outbound integrations.
 //
-// A port of typescript/src/index.ts, which is canonical. The TS browser
-// entry (index.browser.ts) is a TypeScript-only split and has no
-// counterpart here.
+// A port of typescript/src/index.ts, which is canonical. Canonical used
+// to carry a second, browser-only entry that this port never had;
+// station is server-side only and that entry is gone, so the two are
+// structurally the same shape again.
 
 const { Station, checkInstanceName, checkInstanceTag, instanceRef } =
   require('./Station')
