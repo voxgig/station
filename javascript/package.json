@@ -3,16 +3,40 @@
   "version": "0.0.1",
   "description": "station: one control surface for outbound integrations",
   "main": "src/index.js",
-  "license": "MIT",
-  "dependencies": {
-    "@voxgig/sekreto-js": "^0.1.0"
+  "type": "commonjs",
+  "homepage": "https://github.com/voxgig/station",
+  "keywords": [
+    "voxgig",
+    "station",
+    "sdk",
+    "integration",
+    "api-client",
+    "plugins"
+  ],
+  "author": "",
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/voxgig/station.git"
   },
+  "scripts": {
+    "test": "node --test --test-concurrency=1 test/*.test.js",
+    "test-some": "node --test --test-concurrency=1 --test-name-pattern=$npm_config_pattern test/*.test.js",
+    "build": "node -e \"console.log('No build step for JavaScript')\"",
+    "clean": "rm -rf coverage node_modules package-lock.json",
+    "reset": "npm run clean && npm i && npm test",
+    "repo-tag": "REPO_VERSION=`node -e \"console.log(require('./package').version)\"` && echo TAG: javascript/v$REPO_VERSION && git commit -a -m javascript/v$REPO_VERSION && git push && git tag javascript/v$REPO_VERSION && git push --tags;",
+    "repo-publish": "npm run clean && npm i && npm run repo-publish-quick",
+    "repo-publish-quick": "npm run test && npm run repo-tag && npm publish --access public --registry https://registry.npmjs.org",
+    "repo-publish-dry": "npm run clean && npm i && npm run repo-publish-dry-quick",
+    "repo-publish-dry-quick": "npm run test && npm publish --dry-run --access public --registry https://registry.npmjs.org"
+  },
+  "license": "MIT",
   "files": [
+    "LICENSE",
     "src",
     "!src/omnihome.js"
   ],
-  "scripts": {
-    "test": "node --test --test-concurrency=1 test/*.test.js",
-    "test-some": "node --test --test-concurrency=1 --test-name-pattern=$npm_config_pattern test/*.test.js"
+  "dependencies": {
+    "@voxgig/sekreto-js": "^0.1.0"
   }
 }

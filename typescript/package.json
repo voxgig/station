@@ -2,8 +2,8 @@
   "name": "@voxgig/station",
   "version": "0.0.1",
   "description": "station: one control surface for outbound integrations (TypeScript, canonical)",
-  "license": "MIT",
   "main": "dist/src/index.js",
+  "type": "commonjs",
   "types": "dist/src/index.d.ts",
   "exports": {
     ".": {
@@ -13,16 +13,42 @@
     },
     "./package.json": "./package.json"
   },
+  "homepage": "https://github.com/voxgig/station",
+  "keywords": [
+    "voxgig",
+    "station",
+    "sdk",
+    "integration",
+    "api-client",
+    "plugins"
+  ],
+  "author": "",
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/voxgig/station.git"
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist coverage node_modules package-lock.json",
+    "test": "npm run build && node --test \"dist/test/*.test.js\"",
+    "test-some": "npm run build && node --test --test-name-pattern=$npm_config_pattern \"dist/test/*.test.js\"",
+    "watch": "tsc -w",
+    "typecheck": "tsc --noEmit",
+    "reset": "npm run clean && npm i && npm run build && npm test",
+    "repo-tag": "REPO_VERSION=`node -e \"console.log(require('./package').version)\"` && echo TAG: typescript/v$REPO_VERSION && git commit -a -m typescript/v$REPO_VERSION && git push && git tag typescript/v$REPO_VERSION && git push --tags;",
+    "repo-publish": "npm run clean && npm i && npm run repo-publish-quick",
+    "repo-publish-quick": "npm run build && npm run test && npm run repo-tag && npm publish --access public --registry https://registry.npmjs.org",
+    "repo-publish-dry": "npm run clean && npm i && npm run repo-publish-dry-quick",
+    "repo-publish-dry-quick": "npm run build && npm run test && npm publish --dry-run --access public --registry https://registry.npmjs.org"
+  },
+  "license": "MIT",
   "files": [
+    "LICENSE",
+    "src",
+    "!src/omnihome.*",
     "dist/src",
     "!dist/src/omnihome.*"
   ],
-  "scripts": {
-    "build": "tsc",
-    "clean": "rm -rf dist",
-    "test": "npm run build && node --test \"dist/test/*.test.js\"",
-    "test-some": "npm run build && node --test --test-name-pattern=$npm_config_pattern \"dist/test/*.test.js\""
-  },
   "dependencies": {
     "@voxgig/sekreto": "^0.1.0",
     "@voxgig/struct": "^0.2.2"
