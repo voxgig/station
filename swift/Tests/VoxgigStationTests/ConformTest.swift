@@ -147,11 +147,6 @@ final class ConformTest: XCTestCase {
   }
 
   // The 3.3 merge, and the whole of this port's profile contract.
-  //
-  // The `profile` section is NOT run: it pins the pre-Stage-1 `plugin`
-  // grammar, which this port no longer speaks. It stays in the corpus
-  // for the ports that have not crossed the rename yet and is deleted
-  // when the last one does - see spec/README.md.
   func testInstance() throws {
     let R = try pack()
     try R.runset(

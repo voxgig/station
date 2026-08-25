@@ -144,8 +144,8 @@ file every port runs — through the Perl
 (and `SEKRETO_HOME`, `STRUCT_HOME`) if the checkouts are not siblings of
 this repository.
 
-The suite runs ten of the corpus's eleven sections, and WHICH ones is not
-a matter of what happens to be written out by hand: `t/conform.t`
+The suite runs every one of the corpus's ten sections, and WHICH ones is
+not a matter of what happens to be written out by hand: `t/conform.t`
 declares a `@DRIVERS` table (section name -> subject) and a `@PENDING`
 table (section name -> the reason it is not run), REGISTERS the
 per-section tests from `@DRIVERS`, and the `sections-covered` guard
@@ -156,9 +156,8 @@ the corpus and not picked up here fails loudly instead of silently not
 running, and a section dropped from `@DRIVERS` to make a red test go away
 must be moved to `@PENDING` with a written reason.
 
-`profile` is the one pinned entry: it pins the pre-Stage-1 `plugin`
-grammar, which this port no longer speaks, and everything it pins is
-restated in the sdk/api grammar the `instance` section runs.
+`@PENDING` is currently EMPTY — nothing is pinned — so that guard reduces
+to drivers EXACTLY equals the corpus's sections.
 
 ## Perl notes
 

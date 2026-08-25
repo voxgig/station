@@ -6,43 +6,29 @@ run by every station port through [voxgig/omni](https://github.com/voxgig/omni)
 
 Sections here are the pure-contract half: `secretname`, `placeholder`,
 `descriptor`, `descriptorwarnings`, `canonical`, `config`, `feature`,
-`instance`, `instanceref`, `profile`, `errors`.
+`instance`, `instanceref`, `errors`.
 
-## Two grammars, for as long as the rename is in flight
+**Coverage is not uniform, and this is the honest count.** Eleven of the
+sixteen ports run all ten sections: `typescript` and the ten that took
+Stage 5's later tranche (`javascript`, `python`, `go`, `java`, `ruby`,
+`php`, `perl`, `rust`, `c`, `cpp`). Ten of those eleven also carry a
+COMPLETENESS GUARD - a test asserting that the sections it runs, plus any
+it explicitly pins as pending, are exactly the sections this file
+carries, so a section added here cannot silently go untested.
 
-`plugin` -> `sdk` is a breaking rename across every port
-(station-declarative-config.md §3.4, §13). Ports cross it one at a time,
-so for the duration the corpus carries both sides and each port runs the
-one it implements:
+Two gaps follow from that, both real:
 
-| section | grammar | run by |
-|---|---|---|
-| `instance` | `sdk` / `api` refs, the §3.3 four-source merge | **all eleven CI ports** |
-| `profile` | the pre-Stage-1 `plugin` key | the five toolchain-gated ports |
+- `csharp`, `dart`, `elixir`, `lua` and `swift` run SEVEN sections. They
+  crossed the `plugin` -> `sdk` rename but have not taken the later
+  tranche, so `config`, `instanceref` and `feature` are not opted in
+  there yet.
+- `typescript` - the canonical port - has NO completeness guard. It
+  hand-writes one test per section rather than deriving them from a
+  table, so a section added here would silently not run in the very port
+  the others are ported from. Verified by mutation: a bogus section added
+  to `station.json` passes the typescript suite and fails ten others.
 
-`instance` is a superset: everything `profile` pins is restated there in
-the new grammar, alongside the two regression guards that are the reason
-the section exists - **defaults applied after the merge** (a one-key
-overlay must not overwrite the base's `active: false`) and **a name and
-an untagged ref are the same key string**.
-
-**What is left, precisely.** `lua`, `dart`, `elixir`, `csharp` and
-`swift` are not in the Makefile's `RUNNABLE` list and do not run in CI,
-so a change to them cannot be verified here or there. They keep the
-`plugin` grammar and keep running `profile`. **`profile` is deleted when
-those five cross**, together with this table.
-
-That is a deliberate stopping point rather than an oversight: porting a
-language whose toolchain is absent means shipping an implementation
-nobody has executed, and the corpus is the whole reason this repo does
-not do that. Whoever has those toolchains should port them the way the
-eleven were ported - the `instance` section is the specification, and it
-is executable.
-
-`config`, `instanceref` and `feature` are TypeScript-only for now
-because `validateConfig`, `instanceRef` and `feature.ts` are ported in
-Stage 5's later tranches; sections are opt-in per port, so that costs
-the others nothing. `feature` is §10.1's promised section: the
+`feature` is §10.1's promised section: the
 three-level merge with its depth boundary (a map-valued option replaces
 wholesale) and the defaults-after-merge guard one level down, plus the
 §8.4 order resolution - constraints, bands, vacuous absence, the cycle

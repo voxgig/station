@@ -196,20 +196,17 @@ the self-contained core compiles alone.
 
 ## The completeness guard
 
-`test/conform.cpp` declares two static tables - `DRIVERS` (section →
-subject) and `PENDING` (section → the reason it is deliberately not
-run) - and **registers its per-section tests by iterating `DRIVERS`**,
-so a section named there cannot silently fail to execute. The
-`sections-covered` test then reads `spec/station.json` as raw JSON (not
-through the runner, which resolves a named section and would hide one it
-never resolved) and asserts that the sections the corpus carries are
-**exactly** `DRIVERS` plus `PENDING`. A section added to the corpus and
-not picked up here fails loudly instead of never running; a section
-renamed or deleted while this port still lists it fails too.
+`test/conform.cpp` declares one static table - `DRIVERS` (section →
+subject) - and **registers its per-section tests by iterating
+`DRIVERS`**, so a section named there cannot silently fail to execute.
+The `sections-covered` test then reads `spec/station.json` as raw JSON
+(not through the runner, which resolves a named section and would hide
+one it never resolved) and asserts that the sections the corpus carries
+are **exactly** `DRIVERS`. A section added to the corpus and not picked
+up here fails loudly instead of never running; a section renamed or
+deleted while this port still lists it fails too.
 
-Ten sections run. One is pinned pending: `profile`, because it pins the
-pre-rename `plugin` grammar this port no longer speaks - everything it
-pins is restated in the `sdk`/`api` grammar the `instance` section runs.
+Ten sections run: the whole corpus, nothing pinned pending.
 
 ## Test
 

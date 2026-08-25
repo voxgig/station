@@ -6,7 +6,7 @@
 //! VOXGIG_STATION_PROFILE, else 'default'; the merge is deep per plugin
 //! EXCEPT secrets.providers, which replaces wholesale (§3.5, §5.2 - chain
 //! order decides which store wins, so a positional merge would be
-//! actively dangerous). The `profile` corpus section pins all of this.
+//! actively dangerous). The `instance` corpus section pins the resolution.
 
 use std::collections::BTreeMap;
 use std::env;
