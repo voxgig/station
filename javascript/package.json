@@ -4,6 +4,9 @@
   "description": "station: one control surface for outbound integrations",
   "main": "src/index.js",
   "license": "MIT",
+  "dependencies": {
+    "@voxgig/sekreto-js": "^0.1.0"
+  },
   "scripts": {
     "test": "node --test --test-concurrency=1 test/*.test.js",
     "test-some": "node --test --test-concurrency=1 --test-name-pattern=$npm_config_pattern test/*.test.js"
