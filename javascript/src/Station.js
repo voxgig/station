@@ -3,10 +3,12 @@
 // deferred amplifier - `require` therefore fails on the operation path
 // (design §2.1/§14), and `auto` degrades to solo with one warning event.
 //
-// A port of typescript/src/Station.ts, which is canonical. The one
-// structural difference: the ConfigFileIO seam exists for the TS
-// browser entry (§2.2), which this port does not replicate, so the
-// constructor reads profile.js directly.
+// A port of typescript/src/Station.ts, which is canonical. This port
+// used to differ in one structural way: canonical had a `ConfigFileIO`
+// seam for its browser entry (§2.2) and this port did not replicate it,
+// reading profile.js directly. Station is server-side only, the seam is
+// gone from canonical, and both now read the profile module directly -
+// so the difference is closed.
 
 const { StationError } = require('./error')
 const { EventBuffer } = require('./events')

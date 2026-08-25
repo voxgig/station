@@ -3,8 +3,8 @@ import { StationError } from './error'
 import { EventBuffer } from './events'
 import { canonicalSerialize, normalizeDescriptor, secretnameDefault } from './descriptor'
 import {
-  refapi, resolveProfile, selectProfile, ResolvedProfile,
-} from './profilecore'
+  configScope, loadConfig, refapi, resolveProfile, selectProfile, ResolvedProfile,
+} from './profile'
 import { FactoryEntry, factoryFor, provide } from './factory'
 import { loadAsync, loadSync } from './loader'
 import {
@@ -22,27 +22,6 @@ import {
 // in-process with no other component running. The proxy (D2) is a
 // deferred amplifier - `require` therefore fails on the operation path
 // (design §2.1/§14), and `auto` degrades to solo with one warning event.
-
-/** The FILE half of config loading, behind a seam so this module never
- * imports it (§2.2, §17 Phase 1: no top-level `node:` imports reachable
- * from the browser entry). The NODE entry (`index.ts`) registers
- * `profile.ts`'s loadConfig/configScope at module load; the browser
- * entry registers nothing, so a browser `open()` with no explicit
- * `config` behaves exactly as node does when no station.json exists -
- * null config, repo-scoped - rather than inventing a third state.
- * Passing `config` (the documented browser spelling, §2.2) skips the
- * seam entirely on both entries, which is the pre-existing
- * explicit-config path unchanged. */
-export type ConfigFileIO = {
-  loadConfig: (from?: string) => any
-  configScope: (from?: string) => 'repo' | 'user' | 'none'
-}
-
-let configfileio: ConfigFileIO | null = null
-
-export function setConfigFileIO(io: ConfigFileIO): void {
-  configfileio = io
-}
 
 /** §6.1: `as` IS A TAG, NOT A FREE NAME.
  *
@@ -225,7 +204,7 @@ export class Station {
 
     const config = undefined !== this.opts.config
       ? this.opts.config
-      : (null != configfileio ? configfileio.loadConfig(this.opts.folder) : null)
+      : loadConfig(this.opts.folder)
 
     // §6.3: an in-code config is repo-scoped by construction - the
     // application wrote it. A file is repo-scoped unless it came from
@@ -238,8 +217,7 @@ export class Station {
     this.repoScoped = this.opts.repoScoped
       ?? (undefined !== this.opts.config
         ? true
-        : (null == configfileio ||
-          'user' !== configfileio.configScope(this.opts.folder)))
+        : 'user' !== configScope(this.opts.folder))
 
     // Normalize, then validate (design §4.2). A malformed station.json
     // fails open() with EVERY error at once - an eighteen-instance

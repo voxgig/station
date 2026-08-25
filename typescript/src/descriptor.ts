@@ -142,9 +142,11 @@ export function normalizeDescriptor(config: any, activeFeatures?: Record<string,
 //
 // The bytewise sort compares UTF-8 BYTE SEQUENCES, not UTF-16 code
 // units, through TextEncoder rather than Buffer: TextEncoder is a
-// standard global in Node and every browser, so this module stays on
-// the browser entry's import graph (§2.2, §17 Phase 1) with no node:
-// dependency. Uint8Array elements are unsigned bytes, so plain numeric
+// standard global, so this module carries no node: dependency. (That
+// last point used to matter because a browser entry had to reach this
+// module; station is server-side only now. TextEncoder stays because
+// the behaviour below is what the corpus pins, not because of where it
+// runs.) Uint8Array elements are unsigned bytes, so plain numeric
 // comparison IS the bytewise order Buffer.compare gave - the corpus'
 // non-ASCII sort case pins the equivalence.
 const UTF8 = new TextEncoder()

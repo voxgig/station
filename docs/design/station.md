@@ -303,19 +303,30 @@ everything through the proxy — and a target with neither should not
 be sold as covered. The permanent fix everywhere is a sekreto port,
 contributed to sekreto; the tier table records who has one.
 
-Two honesty notes the tiers force. In **c and zig** the SDKs' default
+One honesty note the tiers force. In **c and zig** the SDKs' default
 fetcher returns "live transport unavailable" unless the application
 supplies `options.system.fetch` — so there, station's "HTTP truth" is
 whatever that app-supplied callback does, and R1 injection necessarily
-hands the credential back into app code (§5). In the **browser**, the
-ts/js library must ship browser-safe entry points (conditional
-exports; no unconditional `node:` imports for the file provider, token
-file, or socket probe), and R1/R2 isolation does not exist at all —
-any injected credential is readable by page code and DevTools; browser
-station is observability-only with app-held credentials, and a
-same-origin proxy endpoint is the only upgrade path. Both are Phase 1
-statements, not Phase 2 discoveries, because bundlers consume the ts
-package for browsers today.
+hands the credential back into app code (§5).
+
+**The browser is not a target.** Station is server-side only. An
+earlier version of this section required the ts/js library to ship
+browser-safe entry points — conditional exports, no unconditional
+`node:` imports for the file provider, token file or socket probe — on
+the premise that bundlers consume the ts package for browsers today.
+That premise does not hold, and the machinery it justified (a `browser`
+export condition, a second `index.browser.ts` entry, a `ConfigFileIO`
+seam keeping `node:fs` off that entry's graph, and a `profilecore.ts`
+split feeding it) has been removed.
+
+The honesty note the requirement carried is worth keeping as a reason,
+not a caveat: in a browser R1/R2 isolation does not exist at all — any
+injected credential is readable by page code and DevTools — so a
+browser station could only ever have been observability-only with
+app-held credentials, with a same-origin proxy endpoint as the sole
+upgrade path. A target that cannot hold a credential is not one station
+serves. Should that change, a browser entry is re-addable; nothing in
+the surface below assumes its absence.
 
 
 ## 3. The plugin contract
@@ -1868,8 +1879,9 @@ state rather than pretending to be all future:
   envelope forward, R2 with the Go sekreto proxy-side, proxy-side
   policy authority, capture, tap, status) + MCP
   (`station_status`/`integrations`/`describe`/`call`/`traffic`) +
-  solardemo end-to-end through the proxy; browser-safe entry points
-  (§2.2) ride that work. Exit unchanged: the §11 quickstarts and the
+  solardemo end-to-end through the proxy. Browser-safe entry points
+  were listed here; they are struck — the browser is not a target
+  (§2.2). Exit unchanged: the §11 quickstarts and the
   §12 agent transcript both real.
 - **Phase 2 — breadth and depth:** the library breadth has largely
   landed ahead of the proxy half — go, py, rb, php, perl, java, rust,
