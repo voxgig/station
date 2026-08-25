@@ -23,19 +23,37 @@
 # use `release.yml`. Renaming breaks publishing until the npm entry is
 # updated, so a rename and the `npm trust` re-run go together.)
 #
-# TWO JOBS, BECAUSE THEY NEED DIFFERENT PRIVILEGES, and the split is
-# security rather than tidiness:
+# THREE JOBS, EACH WITH THE LEAST IT NEEDS. This is the security shape of
+# the file, and it is not tidiness:
 #
-#   publish  id-token: write, contents: READ. Runs npm install, the build
-#            and the tests - dependency lifecycle scripts and project code.
-#   tag      contents: write. Runs git and nothing else.
+#   build    contents: read.   Three sibling checkouts (omni, plugin,
+#                              struct), npm install, the build and the
+#                              tests - every third-party script there is,
+#                              and no token to reach for. Ends by packing.
+#   publish  id-token: write.  Downloads that tarball and publishes it, with
+#                              NO CHECKOUT AT ALL.
+#   tag      contents: write.  git, and nothing else.
 #
-# checkout persists its token into the git config for the WHOLE job, so in
-# one job every dependency postinstall would run alongside a
-# repository-write credential. OIDC cannot create a tag either - its
-# audience is the registry, not GitHub. And the two cannot live in separate
-# FILES: a ref pushed with GITHUB_TOKEN does not start another workflow run,
-# so "tag in A, publish on the tag" publishes nothing, silently.
+# `id-token: write` is a JOB-level grant: it puts
+# ACTIONS_ID_TOKEN_REQUEST_URL and _TOKEN in the environment of EVERY process
+# in that job. With install, build and three foreign checkouts in the same
+# job, any one of them could mint the same token the publish uses and
+# exchange it for a registry credential scoped to whatever packages trust
+# this repo. checkout is omitted from the publish job for the same reason -
+# it persists a git credential into the job's git config for the job's whole
+# life.
+#
+# OIDC cannot create a tag either - its audience is the registry, not
+# GitHub - so all three credentials are needed and none substitutes for
+# another. And they cannot live in separate FILES: a ref pushed with
+# GITHUB_TOKEN does not start another workflow run, so "tag in A, publish on
+# the tag" publishes nothing, silently.
+#
+# PUBLISHING THE TARBALL, NOT THE DIRECTORY, is what allows the publish job
+# to skip the checkout, and is better regardless: the bytes the build job
+# tested are the bytes that ship. Provenance survives it - libnpmpublish
+# computes the attestation subject from the tarball bytes
+# (`ssri.fromData(tarballData)`), not from how the tarball was produced.
 #
 # DEPENDENCIES COME FROM THE REGISTRY HERE, not from sibling checkouts.
 # build.yml symlinks ../../sekreto into node_modules because it tests the
@@ -77,20 +95,24 @@ on:
         type: boolean
 
 jobs:
-  publish:
-    name: npm publish
+  # Everything that runs project code or third-party scripts: three sibling
+  # checkouts (omni, plugin, struct), npm install, the build and the tests.
+  # It holds NO token - not the registry one, not a repository-write one.
+  build:
+    name: build and check
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
-    # Deliberately NOT contents: write - see the header.
     permissions:
-      id-token: write
       contents: read
 
     outputs:
       port: ${{ steps.resolve.outputs.port }}
       version: ${{ steps.resolve.outputs.version }}
+      name: ${{ steps.resolve.outputs.name }}
       tag: ${{ steps.resolve.outputs.tag }}
+      tarball: ${{ steps.pack.outputs.tarball }}
+      published: ${{ steps.registry.outputs.published }}
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -200,6 +222,27 @@ jobs:
             exit 1
           }
 
+      # A TAG CAN BE PUSHED FROM ANY BRANCH, and the dispatch guard above does
+      # not cover that path. `git tag typescript/v0.1.1 && git push --tags`
+      # from a feature branch arrives here with a ref that satisfies the
+      # version check, and publishes that branch irreversibly. Releases come
+      # from main on BOTH paths.
+      #
+      # --is-ancestor, not "equals the tip": a tag legitimately lags main by
+      # the time the run starts, and that must still release.
+      - name: A pushed tag must point at a commit on main
+        if: ${{ github.event_name == 'push' }}
+        run: |
+          set -euo pipefail
+          # An explicit refspec: a tag-push checkout has no origin/main, and
+          # a bare `git fetch origin main` only writes FETCH_HEAD.
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          git merge-base --is-ancestor HEAD refs/remotes/origin/main || {
+            echo "::error::$GITHUB_REF_NAME points at a commit that is not on main"
+            exit 1
+          }
+          echo "$GITHUB_REF_NAME is on main"
+
       # AN EXISTING TAG IS ONLY A PROBLEM IF IT POINTS SOMEWHERE ELSE. A tag
       # already on THIS commit is the idempotent case, which is what makes
       # re-dispatching after a partial release safe.
@@ -308,14 +351,71 @@ jobs:
           STATION_ALLOW_REMOVALS: ${{ inputs.allow_removals && '1' || '' }}
         run: make pack-diff PORTS=${{ steps.resolve.outputs.port }}
 
-      # Publish BEFORE tagging (the tag job `needs` this one), so a tag only
-      # ever exists for a release that reached the registry. No --provenance:
-      # trusted publishing attaches it on its own.
-      - name: Publish to npm
+      # The artifact the publish job will ship. Packing HERE, in the job that
+      # ran the tests, is what makes "the bytes that were verified are the
+      # bytes that ship" true rather than aspirational.
+      - name: Pack
+        id: pack
         if: ${{ steps.registry.outputs.published == 'false' }}
         working-directory: ${{ steps.resolve.outputs.port }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/dist"
+          TARBALL="$(npm pack --pack-destination "$RUNNER_TEMP/dist" --silent | tail -1)"
+          echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
+          echo "packed $TARBALL"
+
+      - name: Upload the tarball
+        if: ${{ steps.registry.outputs.published == 'false' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: npm-tarball
+          path: ${{ runner.temp }}/dist/${{ steps.pack.outputs.tarball }}
+          if-no-files-found: error
+          retention-days: 1
+
+  # THE ONLY JOB WITH id-token: write, and it deliberately does NOT check
+  # anything out - not this repository, and none of the three siblings the
+  # tests need. No project code and no dependency lifecycle script is in
+  # scope while the OIDC token exists.
+  publish:
+    name: npm publish
+    needs: build
+    if: ${{ needs.build.outputs.published == 'false' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24.x
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Download the tarball
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: npm-tarball
+          path: ${{ runner.temp }}/dist
+
+      # Trusted publishing requires npm >= 11.5.1, and node-version alone
+      # does not guarantee it. `--ignore-scripts` because this is the one
+      # install beside the OIDC token: npm itself has no lifecycle scripts,
+      # so it costs nothing and closes the last script path.
+      - name: Use a trusted-publishing capable npm
+        run: npm install -g npm@latest --ignore-scripts
+
+      # Publish BEFORE tagging (the tag job needs this one), so a tag only
+      # ever exists for a release that reached the registry. No --provenance:
+      # trusted publishing attaches it on its own, and the attestation
+      # subject is computed from these tarball bytes.
+      - name: Publish to npm
         env:
-          VERSION: ${{ steps.resolve.outputs.version }}
+          VERSION: ${{ needs.build.outputs.version }}
+          TARBALL: ${{ needs.build.outputs.tarball }}
         run: |
           set -euo pipefail
           # A PRERELEASE MUST NOT BECOME `latest`: npm publish defaults to
@@ -325,16 +425,22 @@ jobs:
             *-*) DIST=next ;;
             *)   DIST=latest ;;
           esac
-          echo "publishing $VERSION under dist-tag $DIST"
-          npm publish --access public --tag "$DIST"
+          echo "publishing $TARBALL under dist-tag $DIST"
+          npm publish "$RUNNER_TEMP/dist/$TARBALL" --access public --tag "$DIST"
 
   # Runs git and nothing else, so the repository-write credential is never
   # in scope while third-party code runs. Skipped on the push path: the tag
-  # already exists there.
+  # already exists there. always() because publish is SKIPPED when the
+  # version is already on npm, which is the recovery case this job exists
+  # for - a run that published and then failed before tagging.
   tag:
     name: tag
-    needs: publish
-    if: ${{ github.event_name == 'workflow_dispatch' }}
+    needs: [build, publish]
+    if: >-
+      ${{ always()
+          && github.event_name == 'workflow_dispatch'
+          && needs.build.result == 'success'
+          && (needs.publish.result == 'success' || needs.publish.result == 'skipped') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -348,7 +454,7 @@ jobs:
 
       - name: Tag the release
         env:
-          TAG: ${{ needs.publish.outputs.tag }}
+          TAG: ${{ needs.build.outputs.tag }}
         run: |
           set -euo pipefail
           HEAD_SHA="$(git rev-parse HEAD)"
