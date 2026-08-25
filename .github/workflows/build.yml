@@ -99,6 +99,19 @@ jobs:
       - name: setup lua
         run: sudo apt-get update -q && sudo apt-get install -y -q lua5.4
 
+      # The four vendored payloads (c, cpp, lua, perl) ship the station
+      # library inside a generated SDK, because those ports have nothing
+      # to name it as. Nothing compared them to canonical until now, and
+      # they had drifted by ~7000 lines. This is the guard: the file list
+      # is globbed from the canonical port, so a canonical file that
+      # never reached a payload fails here too.
+      - name: vendored payloads match canonical
+        id: vendor
+        continue-on-error: true
+        env:
+          SEKRETO_HOME: ${{ github.workspace }}/sekreto
+        run: make -C station vendor-check
+
       - name: typescript
         id: typescript
         continue-on-error: true
@@ -232,6 +245,7 @@ jobs:
         if: always()
         env:
           OUTCOMES: |
+            vendor ${{ steps.vendor.outcome }}
             typescript ${{ steps.typescript.outcome }}
             javascript ${{ steps.javascript.outcome }}
             go ${{ steps.go.outcome }}

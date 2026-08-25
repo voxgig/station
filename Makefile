@@ -82,4 +82,25 @@ test-c4:
 sync-shape:
 	python3 tools/sync-shape.py
 
-.PHONY: test build-typescript sync-shape test-c4 $(addprefix test-,$(RUNNABLE)) test-csharp test-swift test-dart test-elixir test-lua
+# The four vendored payloads (c, cpp, lua, perl): ports that ship the
+# station library INSIDE a generated SDK because there is nothing to
+# name it as - no CPAN distribution, no LuaRocks rock, no c/cpp
+# registry at all. Each payload's VENDORED.md states the contract; this
+# is what enforces it.
+#
+# vendor-check is the guard, and it runs in CI. Without it the payloads
+# drift silently: they had, by 7000 lines, because nothing compared
+# them to canonical. The file list is GLOBBED from the canonical port,
+# so a new canonical file that never reached a payload is drift too -
+# which a hand-written manifest would not have noticed.
+#
+# Both need a voxgig/sekreto checkout (the perl payload carries
+# sekreto's modules as well); the tool finds a sibling one itself, or
+# set SEKRETO_HOME.
+vendor-refresh:
+	python3 tools/vendor.py --write
+
+vendor-check:
+	python3 tools/vendor.py --check
+
+.PHONY: test build-typescript sync-shape vendor-refresh vendor-check test-c4 $(addprefix test-,$(RUNNABLE)) test-csharp test-swift test-dart test-elixir test-lua

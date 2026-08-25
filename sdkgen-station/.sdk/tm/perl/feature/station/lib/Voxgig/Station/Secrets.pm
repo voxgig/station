@@ -19,9 +19,13 @@ use Voxgig::Station::Error ();
 use Exporter 'import';
 our @EXPORT_OK = qw(placeholder_for);
 
+# Keyed by INSTANCE (design station.md 7.2). Two live instances of one
+# api must have distinct placeholders or the injection seam cannot tell
+# which credential a header wants. For an untagged instance this IS the
+# api slug, so the single-instance case is unchanged to the byte.
 sub placeholder_for {
-    my ($slug) = @_;
-    return '[station:' . ( defined $slug ? $slug : '' ) . ']';
+    my ($name) = @_;
+    return '[station:' . ( defined $name ? $name : '' ) . ']';
 }
 
 package Voxgig::Station::SecretBroker;
@@ -42,24 +46,34 @@ sub new {
 }
 
 sub hoist {
-    my ( $self, $slug, $value ) = @_;
-    $self->{overrides}{$slug} = $value;
+    my ( $self, $name, $value ) = @_;
+    $self->{overrides}{$name} = $value;
     push @{ $self->{held} }, $value;
     return;
 }
 
-# Resolve the value for a plugin's secret name. Misses and store errors
+# Resolve the value for an instance's secret name. Misses and store errors
 # keep sekreto's distinction (design station.md 5.2): a miss is
 # station_secret_no_value, a store that could not answer is
 # station_secret_error with sekreto's message intact - and never a retry
 # against a weaker store (sekreto owns the chain).
+# OVERRIDES ARE KEYED BY INSTANCE; THE RESOLUTION CACHE IS KEYED BY
+# SECRET NAME (design station.md 5.3). A hoisted credential belongs to
+# the one instance it was resident in, but a resolved VALUE belongs to
+# the name it was resolved for - so several instances sharing one
+# api-level `secret` cost one lookup rather than one each, and every
+# per-request client an auto-tagged create() produces shares the
+# declared instance's entry instead of re-resolving.
+#
+# Keying the cache by instance instead is the defect this replaces: at
+# 26 instances over 20 apis it turns one store round-trip into 26.
 sub value {
-    my ( $self, $slug, $name ) = @_;
+    my ( $self, $instance, $name ) = @_;
 
-    my $override = $self->{overrides}{$slug};
+    my $override = $self->{overrides}{$instance};
     return $override if defined $override;
 
-    my $cached = $self->{cache}{$slug};
+    my $cached = $self->{cache}{$name};
     return $cached if defined $cached;
 
     my $value = eval { $self->{sekreto}->get($name) };
@@ -69,12 +83,12 @@ sub value {
             && $err->isa('Voxgig::Sekreto::SekretoError')
             && 0 <= index( $msg, 'unknown secret' ) ) {
             Voxgig::Station::Error::fail( 'station_secret_no_value',
-                'no store had "' . $name . '" for plugin "' . $slug . '"' );
+                'no store had "' . $name . '" for plugin "' . $instance . '"' );
         }
         Voxgig::Station::Error::fail( 'station_secret_error', $msg );
     }
 
-    $self->{cache}{$slug} = $value;
+    $self->{cache}{$name} = $value;
     push @{ $self->{held} }, $value;
     return $value;
 }

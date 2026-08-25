@@ -11,8 +11,11 @@ generated Lua SDKs receive this library **vendored** (there is no
 package would break every consumer install). The sdkgen-station package
 carries the vendored copy at
 `sdkgen-station/.sdk/tm/lua/feature/station/voxgig_station.lua`; the
-copy here is canonical. Edit here first, then refresh the vendored copy
-byte-identically.
+copy here is canonical. Edit here first, then run `make vendor-refresh`
+from the repo root; `make vendor-check` fails on drift and runs in CI.
+Alone among the four vendored payloads this one needs no transform at
+all: it carries its own JSON handling, so the copy is byte-identical and
+loads from a bare `require` with nothing else on the path.
 
 ## Env-only secrets, and it says so
 

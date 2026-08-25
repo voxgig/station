@@ -12,8 +12,12 @@ package registry to declare a dependency in; the C++ SDK target is
 header-only and registry-less). The sdkgen-station package carries the
 vendored copy at
 `sdkgen-station/.sdk/tm/cpp/feature/station/voxgig_station.hpp`; the
-copy here is canonical. Edit here first, then refresh the vendored copy
-byte-identically.
+copy here is canonical. Edit here first, then run `make vendor-refresh`
+from the repo root; `make vendor-check` fails on drift and runs in CI.
+The copy is byte-identical apart from one transform: its two struct
+includes are rewritten to `../../utility/voxgigstruct/`, because a
+generated C++ SDK passes no `-I` flags at all and the bare includes
+would not resolve there.
 
 ## Dependencies
 

@@ -12,11 +12,35 @@ includes the whole SDK, and the generated `core/config.hpp` includes
 
 | file | canonical source | copy discipline |
 |---|---|---|
-| `voxgig_station.hpp` | voxgig/station `cpp/src/voxgig_station.hpp` | byte-identical |
+| `voxgig_station.hpp` | voxgig/station `cpp/src/voxgig_station.hpp` | byte-identical apart from the two rewritten struct includes below |
 
-Refresh by re-copying from the canonical checkout (edit there first,
-never here). In a generated project, never edit this file at all -
-`add` is overwrite, and the next resync would silently revert the edit.
-The header is stdlib-only (secrets are env-only - there is no sekreto
-C++ port, and the library says so at runtime); nothing here adds a
-runtime dependency.
+Refresh with `make vendor-refresh` from the voxgig/station root (edit
+the canonical port first, never here); `make vendor-check` fails on any
+difference and runs in CI. In a generated project, never edit this file
+at all - `add` is overwrite, and the next resync would silently revert
+the edit.
+
+## The one transform
+
+The canonical header names struct as `#include "voxgig_struct.hpp"` and
+`#include "value_io.hpp"`, which resolve because the canonical build
+passes `-isystem <struct>/cpp/src`. A generated C++ SDK passes **no**
+include flags at all - it is header-only and every include in it is
+relative - so `tools/vendor.py` rewrites both to
+`../../utility/voxgigstruct/`, which is where the SDK's own vendored
+struct lives, two levels up from `feature/station/`. Without the
+rewrite the payload does not compile in a generated SDK; with it, the
+header compiles with no `-I` whatsoever. struct's own `value.hpp`,
+included by `voxgig_struct.hpp`, resolves relative to the including
+file and needs no help.
+
+The rewrite is not best-effort: if canonical ever stops naming one of
+those two headers, `vendor.py` fails loudly rather than writing a
+payload that looks refreshed and does not build.
+
+The library is TIER C by design (station design 2.2/10.1): solo mode
+only, secrets env-only - there is no sekreto C++ port, and the library
+says so at runtime. Apart from stdlib it depends only on the vendored
+`voxgig/struct` above, one of the exactly two dependencies a station
+library may take (design station.md 10). Both are header-only, so there
+is still nothing to link and no runtime dependency.
