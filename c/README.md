@@ -193,4 +193,5 @@ rather than rotting.
   byte-identical at `.sdk/tm/c/feature/station/`; its SDK Makefile
   compiles `feature/*/*.c` by wildcard, so the sources added in this
   tranche ride along, and `VENDORED.md` there lists them. Edit here
-  first, then refresh the vendored copy.
+  first, then `make vendor-refresh` from the repo root; `make
+  vendor-check` fails on drift and runs in CI.

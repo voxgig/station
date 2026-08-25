@@ -47,10 +47,13 @@ sub _is_station_wrap {
     package Voxgig::Station::FeatureBinding;
 
     sub new {
-        my ( $class, $station, $slug ) = @_;
-        return bless { station => $station, slug => $slug }, $class;
+        my ( $class, $station, $name ) = @_;
+        return bless { station => $station, slug => $name }, $class;
     }
 
+    # The INSTANCE name. The accessor keeps its spelling so the generated
+    # adapter contract is unchanged; for a single-instance project it IS
+    # the api slug, exactly as before (design station.md 7.1).
     sub slug { return $_[0]->{slug} }
 
     sub PrePoint {
@@ -150,9 +153,18 @@ sub feature_binding {
               . 'feature order is [' . join( ', ', @names ) . ']' );
     }
 
+    # Registration is driven by station now: `fopts->{instance}` is where
+    # station puts the instance name it knew before construction began,
+    # and _register falls back to the descriptor slug, which is today's
+    # behaviour for a bare connect(SDK).
     my ( $binding, $profile_plugin ) =
       $station->_register( $client, $ctx->{config}, $options, $calleropts, $fopts );
-    my $slug = $binding->{plugin};
+
+    # The INSTANCE name, not the api slug. Everything below keys on it -
+    # the placeholder, the transport wrap, the op events - because two
+    # live instances of one api must be distinguishable at each
+    # (design station.md 7.1, 7.3).
+    my $name = $binding->{plugin};
 
     # Base URL precedence (design station.md 3.5): caller opts (7) beat
     # the profile (4), which beats the SDK's config default (1) already
@@ -163,6 +175,30 @@ sub feature_binding {
         && ref($profile_plugin) eq 'HASH'
         && defined $profile_plugin->{base} ) {
         $options->{base} = $profile_plugin->{base};
+    }
+
+    # Policy allowlists (design station.md 16): `allow.op` / `allow.method`
+    # are the same vocabulary the SDKs already enforce through their own
+    # `options.allow`, so station sets those SDK options FROM POLICY and
+    # enforcement stays in the SDK's own pipeline. The SDK's option form
+    # is a comma-separated string, so the policy's list joins into it.
+    # Applied at binding time, on BOTH entry paths, because connect/adopt
+    # and the declarative build both delegate here. Unlike `base` above,
+    # which is a DEFAULT the caller may override, an allowlist is
+    # ENFORCEMENT: policy wins on exactly the keys it sets.
+    my $ppolicy =
+      ref($profile_plugin) eq 'HASH' && ref( $profile_plugin->{policy} ) eq 'HASH'
+      ? $profile_plugin->{policy}
+      : undef;
+    my $pallow = defined $ppolicy ? $ppolicy->{allow} : undef;
+    if ( ref($pallow) eq 'HASH' ) {
+        my $allow =
+          { %{ ref( $options->{allow} ) eq 'HASH' ? $options->{allow} : {} } };
+        $allow->{op} = join( ',', @{ $pallow->{op} } )
+          if ref( $pallow->{op} ) eq 'ARRAY';
+        $allow->{method} = join( ',', @{ $pallow->{method} } )
+          if ref( $pallow->{method} ) eq 'ARRAY';
+        $options->{allow} = $allow;
     }
 
     if ( 'none' ne $binding->{rung} ) {
@@ -178,7 +214,7 @@ sub feature_binding {
             && !ref $resident
             && '' ne $resident
             && $placeholder ne $resident ) {
-            $station->_hoist( $slug, $resident );
+            $station->_hoist( $name, $resident );
         }
         $options->{apikey} = $placeholder;
     }
@@ -189,16 +225,16 @@ sub feature_binding {
     my $inner = $utility->{fetcher};
     if ( _is_station_wrap($inner) ) {
         Voxgig::Station::Error::fail( 'station_bound_twice',
-            'plugin "' . $slug . '" already carries a station wrap' );
+            'plugin "' . $name . '" already carries a station wrap' );
     }
     my $wrapped = sub {
         my ( $fctx, $fullurl, $fetchdef ) = @_;
-        return $station->_transport( $slug, $inner, $fctx, $fullurl, $fetchdef );
+        return $station->_transport( $name, $inner, $fctx, $fullurl, $fetchdef );
     };
     $WRAP_MARK{$wrapped} = 1;
     $utility->{fetcher} = $wrapped;
 
-    return Voxgig::Station::FeatureBinding->new( $station, $slug );
+    return Voxgig::Station::FeatureBinding->new( $station, $name );
 }
 
 # The carried adapter: the retrofit path for SDKs generated without the

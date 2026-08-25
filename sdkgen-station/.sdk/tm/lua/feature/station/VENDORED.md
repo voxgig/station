@@ -11,9 +11,17 @@ so the library rides here and the generated rockspec lists it as a
 |---|---|---|
 | `voxgig_station.lua` | voxgig/station `lua/src/voxgig_station.lua` | byte-identical |
 
-Refresh by re-copying from the canonical checkout (edit there first,
-never here). In a generated project, never edit this file at all -
-`add` is overwrite, and the next resync would silently revert the edit.
-The module is stdlib-only (secrets are env-only - there is no sekreto
-lua port, and the library says so at runtime); nothing here adds a
+Refresh with `make vendor-refresh` from the voxgig/station root (edit
+the canonical port first, never here); `make vendor-check` fails on any
+difference and runs in CI, including on a file here whose canonical
+source was deleted. In a generated project, never edit this file
+at all - `add` is overwrite, and the next resync would silently revert
+the edit.
+
+The module is stdlib-only and TIER C by design (station design
+2.2/10.1): solo mode only, secrets env-only - there is no sekreto lua
+port, and the library says so at runtime. Alone among the four vendored
+payloads it needs no struct: it carries its own JSON handling, so the
+copy is byte-identical with no transform at all and it loads from a
+bare `require` with nothing else on the path. Nothing here adds a
 runtime dependency.

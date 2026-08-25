@@ -129,12 +129,23 @@ vendored copy (plus a vendored `Voxgig::Sekreto`) inside its perl
 template overlay at `.sdk/tm/perl/feature/station/lib/`, because
 generated Perl SDKs load everything by file path — the vendored
 `Voxgig::Struct` precedent — and no Voxgig distribution exists on CPAN
-to name in `PREREQ_PM`. Edit here first, then refresh that copy.
+to name in `PREREQ_PM`. Edit here first, then run `make vendor-refresh`
+from the repo root; `make vendor-check` fails on drift and runs in CI.
+The module list is globbed from `lib/Voxgig`, so a new module that never
+reached the payload is drift too.
 
-Two things ride along with that refresh now: a vendored
-`Voxgig::Struct`, because `validate_config` needs it at `open()`, and
-`spec/config-shape.json` copied to `feature/station/spec/`, because the
-shape is data the library reads rather than code it carries.
+`spec/config-shape.json` rides along with that refresh, copied to
+`feature/station/spec/`: the shape is data this port reads rather than
+code it carries, and `Shape.pm` dies if its eight-level walk finds no
+copy — so without it a generated SDK throws on the first `open()`.
+
+`Voxgig::Struct` does NOT ride along, and must not: generated Perl SDKs
+already carry their own at `lib/Voxgig/Struct.pm`, and a second copy of
+the same package name on `@INC` would be resolved by load order rather
+than by intent. `Station/Struct.pm` is written for exactly this — it
+tries a plain `require Voxgig::Struct` before any checkout lookup, so in
+a generated SDK it binds to the SDK's copy with no `STRUCT_HOME` set and
+no sibling checkout present.
 
 ## Testing
 
