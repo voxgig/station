@@ -13,7 +13,8 @@ so the library rides here and the generated rockspec lists it as a
 
 Refresh with `make vendor-refresh` from the voxgig/station root (edit
 the canonical port first, never here); `make vendor-check` fails on any
-difference and runs in CI. In a generated project, never edit this file
+difference and runs in CI, including on a file here whose canonical
+source was deleted. In a generated project, never edit this file
 at all - `add` is overwrite, and the next resync would silently revert
 the edit.
 

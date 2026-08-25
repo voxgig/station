@@ -34,9 +34,17 @@ header compiles with no `-I` whatsoever. struct's own `value.hpp`,
 included by `voxgig_struct.hpp`, resolves relative to the including
 file and needs no help.
 
-The rewrite is not best-effort: if canonical ever stops naming one of
-those two headers, `vendor.py` fails loudly rather than writing a
-payload that looks refreshed and does not build.
+The rewrite is not best-effort: if `voxgig_station.hpp` ever stops
+naming one of those two headers, `vendor.py` fails loudly rather than
+writing a payload that looks refreshed and does not build.
+
+That strictness applies to `voxgig_station.hpp` alone. Should `cpp/src`
+gain a helper header later, it is carried as-is (with any struct include
+it happens to name rewritten the same way) - holding every globbed
+`.hpp` to the two-include rule would make a newly added file abort the
+tool outright, defeating the new-file guard the glob exists to provide.
+A header here whose canonical source was deleted is an orphan, reported
+by `vendor-check` and removed by `vendor-refresh`.
 
 The library is TIER C by design (station design 2.2/10.1): solo mode
 only, secrets env-only - there is no sekreto C++ port, and the library

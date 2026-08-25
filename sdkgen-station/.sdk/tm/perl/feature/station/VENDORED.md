@@ -28,8 +28,11 @@ function, and lua does not validate against the shape at all.
 That list is not maintained by hand - `tools/vendor.py` walks both
 canonical `lib/Voxgig` trees and copies every `.pm` it finds, so a
 module added canonically and not carried here is drift like any other.
-It refuses to run at all without a voxgig/sekreto checkout, because a
-check that could not see sekreto's half would pass by looking at less.
+A module here whose canonical source was deleted or renamed is an
+orphan, reported by `vendor-check` and removed by `vendor-refresh`. And
+the tool refuses to run at all without a voxgig/sekreto checkout,
+because a check that could not see sekreto's half would pass by looking
+at less.
 
 Refresh with `make vendor-refresh` from the voxgig/station root (edit
 the canonical ports first, never here); `make vendor-check` fails on

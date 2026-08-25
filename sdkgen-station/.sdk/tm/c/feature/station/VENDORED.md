@@ -20,7 +20,12 @@ wildcard compiles it - the same vendoring precedent as
 
 The list is not maintained by hand. `tools/vendor.py` globs `c/src` and
 copies every `.c` and `.h` it finds, so a file added to the canonical
-port and not carried here is drift like any other. Refresh with
+port and not carried here is drift like any other. It reconciles the
+other way too: a file here whose canonical source was deleted or renamed
+is an ORPHAN, reported by `vendor-check` and removed by
+`vendor-refresh`. That matters most in this payload - the SDK Makefile's
+`feature/*/*.c` wildcard would keep compiling an orphaned translation
+unit, and a rename would leave the same symbols defined twice. Refresh with
 `make vendor-refresh` from the voxgig/station root (edit the canonical
 port first, never here); `make vendor-check` fails on any difference and
 runs in CI. `config_shape.h` is generated - run `make -C c sync-shape`

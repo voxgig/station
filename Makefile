@@ -92,7 +92,10 @@ sync-shape:
 # drift silently: they had, by 7000 lines, because nothing compared
 # them to canonical. The file list is GLOBBED from the canonical port,
 # so a new canonical file that never reached a payload is drift too -
-# which a hand-written manifest would not have noticed.
+# which a hand-written manifest would not have noticed. Globbing sees
+# what canonical HAS, so the payloads are reconciled the other way as
+# well: a copy whose canonical source was deleted or renamed is an
+# orphan, and c's SDK Makefile would otherwise keep compiling it.
 #
 # Both need a voxgig/sekreto checkout (the perl payload carries
 # sekreto's modules as well); the tool finds a sibling one itself, or

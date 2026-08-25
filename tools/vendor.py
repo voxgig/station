@@ -14,6 +14,15 @@ into the payload is drift too, and a hand-written manifest would not
 notice it. `--check` fails on a missing file exactly as it fails on a
 changed one.
 
+Globbing canonical catches everything canonical HAS; it cannot, by
+itself, catch what canonical has LOST. So the payload directories are
+also reconciled the other way: a file sitting in a payload whose
+canonical source was deleted or renamed is an ORPHAN, reported by
+`--check` and deleted by `--write`. For c that is not housekeeping - the
+generated SDK Makefile compiles `feature/*/*.c` by wildcard, so an
+orphaned translation unit stays in the build, and a rename leaves the
+same symbols defined twice.
+
     python3 tools/vendor.py --check    # CI: exit 1 on any drift
     python3 tools/vendor.py --write    # refresh the payloads
 
@@ -81,19 +90,37 @@ def perl_note(text, _path):
 CPP_STRUCT_DIR = '../../utility/voxgigstruct/'
 CPP_STRUCT_HEADERS = ('voxgig_struct.hpp', 'value_io.hpp')
 
+# The header that IS the library. It is the one file required to name
+# both struct headers; see cpp_struct_include for why that distinction
+# matters.
+CPP_PRIMARY = 'voxgig_station.hpp'
+
 
 def cpp_struct_include(text, path):
-    # A rewrite that silently finds nothing is the dangerous failure
-    # here: it would write a payload that looks refreshed and does not
-    # compile. If canonical stops naming one of these, this must fail
-    # loudly so the rewrite is re-decided, not skipped.
+    # Rewrite whatever struct includes the file actually names - a helper
+    # header added to `cpp/src` later has the same relative-path problem
+    # if it names one, and none if it does not.
+    #
+    # The PRIMARY header is held to a stricter rule. A rewrite that
+    # silently finds nothing there is the dangerous failure: it would
+    # write a payload that looks refreshed and does not compile. So if
+    # `voxgig_station.hpp` stops naming one of these, fail loudly and
+    # make someone re-decide the rewrite.
+    #
+    # That strictness must NOT extend to other headers. Requiring every
+    # globbed `.hpp` to name both would mean a newly added helper header
+    # aborts the tool outright - breaking the very new-file guard the
+    # glob exists to provide.
+    primary = CPP_PRIMARY == os.path.basename(path)
     for header in CPP_STRUCT_HEADERS:
         want = '#include "%s"' % header
         if want not in text:
-            raise SystemExit(
-                'vendor: %s no longer includes %s - the SDK include '
-                'rewrite is stale, fix CPP_STRUCT_HEADERS.'
-                % (os.path.basename(path), header))
+            if primary:
+                raise SystemExit(
+                    'vendor: %s no longer includes %s - the SDK include '
+                    'rewrite is stale, fix CPP_STRUCT_HEADERS.'
+                    % (CPP_PRIMARY, header))
+            continue
         text = text.replace(want, '#include "%s%s"'
                             % (CPP_STRUCT_DIR, header))
     return text
@@ -188,6 +215,46 @@ def pairs():
     return out
 
 
+# --- what vendor.py owns, for orphan detection ----------------------
+
+# The payload directories, whole. Everything under one of these is
+# vendor.py's to write, EXCEPT the files named below - VENDORED.md is
+# hand-written documentation that lives with the payload it describes.
+#
+# The sdkgen ADAPTER files (feature/station.c, feature/station.hpp,
+# feature/station_feature.lua, feature/station_feature.pm) sit one level
+# ABOVE these roots and so are outside them by construction. They are not
+# vendor.py's and must never be touched.
+MANAGED_ROOTS = ('perl', 'c', 'cpp', 'lua')
+
+UNMANAGED = frozenset(['VENDORED.md'])
+
+
+def owned():
+    """Every file currently inside a payload directory that is ours.
+
+    pairs() is driven by what canonical has NOW, so it can only ever
+    notice a file that SHOULD be there. A canonical file that is deleted
+    or renamed leaves its copy behind and no pair names it again - the
+    copy goes stale invisibly, and `--check` keeps reporting success.
+
+    For c that is not cosmetic: the generated SDK Makefile compiles
+    `feature/*/*.c` by wildcard, so an orphaned translation unit stays in
+    the build - and a RENAME leaves the same symbols defined twice.
+    """
+    out = []
+    for lang in MANAGED_ROOTS:
+        root = os.path.join(TM, lang, 'feature', 'station')
+        if not os.path.isdir(root):
+            continue
+        for base, _dirs, files in os.walk(root):
+            for name in files:
+                if name in UNMANAGED:
+                    continue
+                out.append(os.path.join(base, name))
+    return out
+
+
 def expected(src, transform):
     with open(src, 'r', encoding='utf-8') as handle:
         return transform(handle.read(), src)
@@ -212,7 +279,11 @@ def main():
 
     drift = []
     wrote = 0
-    for src, dst, transform in pairs():
+    removed = 0
+    todo = pairs()
+    keep = set(os.path.abspath(dst) for _src, dst, _t in todo)
+
+    for src, dst, transform in todo:
         want = expected(src, transform)
         have = None
         if os.path.isfile(dst):
@@ -233,8 +304,22 @@ def main():
             wrote += 1
             print('%-8s %s' % ('created' if have is None else 'updated', rel))
 
+    # Orphans: a payload file whose canonical source is gone. The loop
+    # above cannot see these - it only walks what canonical HAS.
+    for dst in sorted(owned()):
+        if os.path.abspath(dst) in keep:
+            continue
+        rel = os.path.relpath(dst, HERE)
+        if args.check:
+            drift.append((rel, 'orphan', 'deleted from canonical'))
+        else:
+            os.remove(dst)
+            removed += 1
+            print('%-8s %s' % ('removed', rel))
+
     if args.write:
-        print('vendor: %d file(s) refreshed' % wrote)
+        print('vendor: %d file(s) refreshed, %d orphan(s) removed'
+              % (wrote, removed))
         return 0
 
     if drift:
