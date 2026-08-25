@@ -138,15 +138,10 @@ DRIVERS = {
 }
 
 # The sections this port deliberately does NOT run, with the reason - an
-# entry here is a decision, not an omission.
-PENDING = {
-    # Pins the pre-Stage-1 `plugin` grammar, which this port no longer
-    # speaks. It stays in the corpus for the ports that have not crossed
-    # the rename yet and is deleted when the last one does - see
-    # spec/README.md. Everything it pins is restated in the sdk/api
-    # grammar the `instance` section runs.
-    'profile': 'pre-rename plugin grammar; superseded by the instance section',
-}
+# entry here is a decision, not an omission. EMPTY: this port runs every
+# section the corpus carries. The table stays so that a future deferral
+# is a named decision rather than a quiet hole in the guard below.
+PENDING = {}
 
 
 runner = makeRunner(specfile())

@@ -123,18 +123,15 @@ struct's validator consumes the spec it walks (it deletes satisfied
 
 ## Conformance, and the completeness guard
 
-`test/conform.c` runs **ten** of the corpus's eleven sections. The tests
+`test/conform.c` runs **all ten** of the corpus's sections. The tests
 are registered by iterating a `DRIVERS` table rather than written out by
 hand, so a section named there cannot silently fail to run; a
 `sections-covered` test reads `spec/station.json` as raw JSON - not
 through the omni runner, which resolves a named section and would hide
 one it never resolved - and asserts that the sections the corpus carries
-are EXACTLY `DRIVERS` plus `PENDING`. A section added to the corpus and
-not picked up here fails loudly instead of never running, and a stale
-driver or a stale pin fails rather than rotting.
-
-`PENDING` holds one entry: `profile`, "pre-rename plugin grammar;
-superseded by the instance section".
+are EXACTLY `DRIVERS`. A section added to the corpus and not picked up
+here fails loudly instead of never running, and a stale driver fails
+rather than rotting.
 
 ## Divergences
 

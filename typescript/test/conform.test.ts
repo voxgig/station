@@ -94,12 +94,6 @@ describe('station-conform', () => {
   })
 
   // The §3.3 merge, and the whole of this port's profile contract.
-  //
-  // The `profile` section is NOT run here: it pins the pre-Stage-1
-  // `plugin` grammar, which this port no longer speaks. It stays in the
-  // corpus for the ports that have not crossed the rename yet and is
-  // deleted when the last one does - see spec/README.md. Everything it
-  // pins is restated below in the sdk/api grammar.
   test('instance', async () => {
     await R.runset(R.spec.instance, (vin: any) =>
       resolveProfile(denull(vin.config), vin.profile))

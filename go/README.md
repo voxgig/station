@@ -163,9 +163,8 @@ not, each with a written reason. `TestSectionsCovered` reads
 `spec/station.json` as raw JSON and asserts that DRIVERS + PENDING
 exactly equals the sections the corpus carries — so a section added
 upstream fails loudly here instead of silently not running, and a
-driver left behind by a rename fails the other way. Ten sections run;
-`profile` alone is pending, because it pins the pre-rename `plugin`
-grammar the `instance` section supersedes.
+driver left behind by a rename fails the other way. All ten sections
+the corpus carries run; `PENDING` is empty.
 
 ## Where Go differs from the canonical library
 

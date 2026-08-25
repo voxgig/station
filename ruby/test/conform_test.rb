@@ -98,15 +98,9 @@ DRIVERS = {
 }.freeze
 
 # The sections this port deliberately does NOT run, with the reason - an
-# entry here is a recorded decision, not an omission.
-PENDING = {
-  # Pins the pre-Stage-1 `plugin` grammar, which this port no longer
-  # speaks. It stays in the corpus for the ports that have not crossed
-  # the rename yet and is deleted when the last one does - see
-  # spec/README.md. Everything it pins is restated in the sdk/api grammar
-  # the `instance` section runs.
-  'profile' => 'pre-rename plugin grammar; superseded by the instance section',
-}.freeze
+# entry here is a recorded decision, not an omission. Empty: this port
+# runs every section the corpus carries.
+PENDING = {}.freeze
 
 class TestStationConform < Minitest::Test
   # Section completeness: the sections run plus the explicit PENDING list

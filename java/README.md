@@ -175,9 +175,8 @@ with a written reason. The `sections-covered` case reads
 would hide a section it never resolved — and asserts that DRIVERS +
 PENDING exactly equals the sections the corpus carries, so a section
 added upstream fails loudly here instead of silently not running, and a
-driver left behind by a rename fails the other way. Ten sections run;
-`profile` alone is pending, because it pins the pre-rename `plugin`
-grammar the `instance` section supersedes.
+driver left behind by a rename fails the other way. All ten sections run;
+`PENDING` is empty.
 
 ## Where Java differs from the canonical library
 

@@ -6,43 +6,13 @@ run by every station port through [voxgig/omni](https://github.com/voxgig/omni)
 
 Sections here are the pure-contract half: `secretname`, `placeholder`,
 `descriptor`, `descriptorwarnings`, `canonical`, `config`, `feature`,
-`instance`, `instanceref`, `profile`, `errors`.
+`instance`, `instanceref`, `errors`.
 
-## Two grammars, for as long as the rename is in flight
-
-`plugin` -> `sdk` is a breaking rename across every port
-(station-declarative-config.md §3.4, §13). Ports cross it one at a time,
-so for the duration the corpus carries both sides and each port runs the
-one it implements:
-
-| section | grammar | run by |
-|---|---|---|
-| `instance` | `sdk` / `api` refs, the §3.3 four-source merge | **all eleven CI ports** |
-| `profile` | the pre-Stage-1 `plugin` key | the five toolchain-gated ports |
-
-`instance` is a superset: everything `profile` pins is restated there in
-the new grammar, alongside the two regression guards that are the reason
-the section exists - **defaults applied after the merge** (a one-key
-overlay must not overwrite the base's `active: false`) and **a name and
-an untagged ref are the same key string**.
-
-**What is left, precisely.** `lua`, `dart`, `elixir`, `csharp` and
-`swift` are not in the Makefile's `RUNNABLE` list and do not run in CI,
-so a change to them cannot be verified here or there. They keep the
-`plugin` grammar and keep running `profile`. **`profile` is deleted when
-those five cross**, together with this table.
-
-That is a deliberate stopping point rather than an oversight: porting a
-language whose toolchain is absent means shipping an implementation
-nobody has executed, and the corpus is the whole reason this repo does
-not do that. Whoever has those toolchains should port them the way the
-eleven were ported - the `instance` section is the specification, and it
-is executable.
-
-`config`, `instanceref` and `feature` are TypeScript-only for now
-because `validateConfig`, `instanceRef` and `feature.ts` are ported in
-Stage 5's later tranches; sections are opt-in per port, so that costs
-the others nothing. `feature` is §10.1's promised section: the
+Every section here is run by every port. `config`, `instanceref` and
+`feature` were TypeScript-only while Stage 5's later tranches were in
+flight; all sixteen ports now run all ten sections, each behind a
+completeness guard that fails when a section in this file is neither run
+nor explicitly pinned pending. `feature` is §10.1's promised section: the
 three-level merge with its depth boundary (a map-valued option replaces
 wholesale) and the defaults-after-merge guard one level down, plus the
 §8.4 order resolution - constraints, bands, vacuous absence, the cycle

@@ -7,15 +7,15 @@
  * (inject, event correlation) live in the generated-SDK integration
  * flow; the corpus carries what a port can prove with no SDK present.
  *
- * TEN SECTIONS, ONE PENDING. The tests are REGISTERED FROM THE `DRIVERS`
+ * TEN SECTIONS, ALL RUN. The tests are REGISTERED FROM THE `DRIVERS`
  * TABLE below rather than written out by hand, so a section named there
  * cannot silently fail to run; `sections-covered` closes the other
  * direction by reading spec/station.json AS RAW JSON - not through the
  * runner, which resolves a named section and would hide one it never
  * resolved - and asserting that the sections it carries are exactly
- * DRIVERS plus PENDING. A section added to the corpus and not picked up
- * here fails loudly instead of never running; a section renamed or
- * deleted while this port still lists it fails too.
+ * DRIVERS. A section added to the corpus and not picked up here fails
+ * loudly instead of never running; a section renamed or deleted while
+ * this port still lists it fails too.
  *
  * Values cross the omni/station boundary through direct converters
  * (omni_json <-> vxstn_val), with omni_flags_nonull so a spec null
@@ -337,14 +337,13 @@ static omni_subject *makesubject(omni_result (*call)(omni_subject *, omni_json *
   return subject;
 }
 
-/* ---- the two tables: what runs, and what deliberately does not ----
+/* ---- the driver table: what runs -----------------------------------
  *
  * DRIVERS is the opt-in surface: a section runs if and only if it has a
- * row here, and the runs below are generated from it. PENDING is a
- * recorded DECISION not to run one, with the reason in the row - an
- * entry here is visible in review, where a section quietly dropped from
- * DRIVERS to make a red test go away is not. `sections-covered` then
- * asserts the two together are exactly what the corpus carries.
+ * row here, and the runs below are generated from it. `sections-covered`
+ * then asserts it is exactly what the corpus carries, so a section
+ * quietly dropped from DRIVERS to make a red test go away fails loudly
+ * instead of going unnoticed.
  *
  * C has no dynamic test registry, so the table is a static array
  * iterated by main() - the same two properties the dynamic ports get
@@ -368,22 +367,7 @@ static const driver_row DRIVERS[] = {
     {"errors", subject_errors},
 };
 
-typedef struct {
-  const char *name;
-  const char *reason;
-} pending_row;
-
-static const pending_row PENDING[] = {
-    /* Pins the pre-Stage-1 `plugin` grammar, which this port no longer
-       speaks. It stays in the corpus for the ports that have not crossed
-       the rename yet and is deleted when the last one does - see
-       spec/README.md. Everything it pins is restated in the sdk/api
-       grammar the `instance` section runs. */
-    {"profile", "pre-rename plugin grammar; superseded by the instance section"},
-};
-
 #define DRIVER_COUNT (sizeof(DRIVERS) / sizeof(DRIVERS[0]))
-#define PENDING_COUNT (sizeof(PENDING) / sizeof(PENDING[0]))
 
 /* ---- harness (the omni c fib harness pattern) ---------------------- */
 
@@ -457,10 +441,10 @@ static void rungroup(omni_runpack *pack, const char *name, omni_subject *subject
 /* Section completeness (design 13). Reads spec/station.json AS RAW
    JSON - not through the runner, which resolves and normalizes a named
    section and would hide one it never resolved - and asserts that the
-   section names it carries are EXACTLY the DRIVERS rows plus the
-   PENDING rows. Not a subset either way: a section added to the corpus
-   and not picked up here fails loudly instead of never running, and a
-   stale driver or a stale pending pin fails rather than rotting. */
+   section names it carries are EXACTLY the DRIVERS rows. Not a subset
+   either way: a section added to the corpus and not picked up here
+   fails loudly instead of never running, and a stale driver fails
+   rather than rotting. */
 static int cmp_names(const void *a, const void *b) {
   return strcmp(*(const char *const *)a, *(const char *const *)b);
 }
@@ -473,7 +457,7 @@ static void sections_covered(const char *specpath) {
   const vxstn_val *sections;
   const char **present;
   const char **covered;
-  size_t npresent, ncovered = DRIVER_COUNT + PENDING_COUNT;
+  size_t npresent, ncovered = DRIVER_COUNT;
   size_t i;
   vxstn_sb msg;
   int failed = 0;
@@ -511,9 +495,6 @@ static void sections_covered(const char *specpath) {
   covered = (const char **)malloc(ncovered * sizeof(char *));
   for (i = 0; i < DRIVER_COUNT; i++) {
     covered[i] = DRIVERS[i].name;
-  }
-  for (i = 0; i < PENDING_COUNT; i++) {
-    covered[DRIVER_COUNT + i] = PENDING[i].name;
   }
   qsort(covered, ncovered, sizeof(char *), cmp_names);
 

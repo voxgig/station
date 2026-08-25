@@ -106,17 +106,9 @@ fn runpack() -> voxgig_omni::RunPack {
 }
 
 // The sections this port deliberately does NOT run, with the reason - an
-// entry here is a DECISION, not an omission.
-//
-// `profile` pins the pre-Stage-1 `plugin` grammar, which this port no
-// longer speaks. It stays in the corpus for the ports that have not
-// crossed the rename yet and is deleted when the last one does - see
-// spec/README.md. Everything it pins is restated in the sdk/api grammar
-// the `instance` section runs.
-const PENDING: [(&str, &str); 1] = [(
-    "profile",
-    "pre-rename plugin grammar; superseded by the instance section",
-)];
+// entry here is a DECISION, not an omission. EMPTY: this port runs every
+// section the corpus carries, and sections_covered proves it.
+const PENDING: [(&str, &str); 0] = [];
 
 // One driver per section this port RUNS, keyed by the corpus section
 // name. THE TESTS ARE DERIVED FROM THIS TABLE, never written out by

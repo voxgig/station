@@ -246,5 +246,5 @@ loudly; a stale driver or a stale pending pin fails too.
 
 Ten sections run — `secretname`, `placeholder`, `descriptor`,
 `descriptorwarnings`, `canonical`, `config`, `instance`, `instanceref`,
-`feature`, `errors`. One is pinned pending: `profile`, which pins the
-pre-Stage-1 `plugin` grammar this port no longer speaks.
+`feature`, `errors` — every section the corpus carries, so `PENDING` is
+empty.

@@ -114,7 +114,5 @@ The suite carries a **completeness guard**: `test_sections_covered`
 asserts that the sections it runs (the `DRIVERS` table, from which the
 per-section tests are registered) plus its explicit `PENDING` list
 exactly cover the sections in the spec file, read as raw JSON. A corpus
-section silently not running is a failure, not a gap. One section is
-pending — `profile`, which pins the pre-rename `plugin` grammar this
-port no longer speaks; everything it pins is restated in the `sdk`/`api`
-grammar the `instance` section runs.
+section silently not running is a failure, not a gap. Nothing is
+pending: this port runs every section the corpus carries.

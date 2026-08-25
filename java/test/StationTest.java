@@ -204,15 +204,9 @@ public final class StationTest {
       new Driver("errors", ERRORS));
 
   // PENDING is the sections this port deliberately does NOT run, with the
-  // reason - an entry here is a RECORDED DECISION, not an omission.
-  static final List<String[]> PENDING = List.<String[]>of(
-      // Pins the pre-Stage-1 `plugin` grammar, which this port no longer
-      // speaks. It stays in the corpus for the ports that have not crossed
-      // the rename yet and is deleted when the last one does - see
-      // spec/README.md. Everything it pins is restated in the sdk/api
-      // grammar the `instance` section runs.
-      new String[] {
-        "profile", "pre-rename plugin grammar; superseded by the instance section" });
+  // reason - an entry here is a RECORDED DECISION, not an omission. It is
+  // empty: this port runs every section the corpus carries.
+  static final List<String[]> PENDING = List.<String[]>of();
 
   // --- harness ---
 

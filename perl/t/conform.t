@@ -227,17 +227,11 @@ my @DRIVERS = (
 );
 
 # The sections this port deliberately does NOT run, with the reason - an
-# entry here is a decision, not an omission.
-my @PENDING = (
-    [
-        # Pins the pre-Stage-1 `plugin` grammar, which this port no
-        # longer speaks. It stays in the corpus for the ports that have
-        # not crossed the rename yet and is deleted when the last one
-        # does - see spec/README.md. Everything it pins is restated in
-        # the sdk/api grammar the `instance` section runs.
-        profile => 'pre-rename plugin grammar; superseded by the instance section'
-    ],
-);
+# entry here is a decision, not an omission. EMPTY: this port runs every
+# section the corpus carries, so the guard below reduces to drivers ==
+# corpus sections. The table stays because it is the only sanctioned way
+# to not run one.
+my @PENDING = ();
 
 plan tests => 1 + scalar(@DRIVERS);
 

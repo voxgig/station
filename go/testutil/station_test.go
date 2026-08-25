@@ -230,11 +230,6 @@ var (
 	})
 
 	// The §3.3 merge, and the whole of this port's profile contract.
-	//
-	// The `profile` section is NOT run: it pins the pre-Stage-1 `plugin`
-	// grammar, which this port no longer speaks. It stays in the corpus
-	// for the ports that have not crossed the rename yet and is deleted
-	// when the last one does - see spec/README.md.
 	INSTANCE = omni.Subject(func(args ...any) (any, error) {
 		entry := entrymap(args[0])
 		// A NULLMARK config (spec null) is no config at all.
@@ -328,18 +323,14 @@ var DRIVERS = []struct {
 }
 
 // PENDING is the sections this port deliberately does NOT run, with the
-// reason - an entry here is a recorded decision, not an omission.
+// reason - an entry here is a recorded decision, not an omission. It is
+// EMPTY: this port runs every section the corpus carries. The list stays
+// so that a future deferral is a recorded decision rather than a driver
+// quietly missing from the table above.
 var PENDING = []struct {
 	name   string
 	reason string
-}{
-	// Pins the pre-Stage-1 `plugin` grammar, which this port no longer
-	// speaks. It stays in the corpus for the ports that have not crossed
-	// the rename yet and is deleted when the last one does - see
-	// spec/README.md. Everything it pins is restated in the sdk/api
-	// grammar the `instance` section runs.
-	{"profile", "pre-rename plugin grammar; superseded by the instance section"},
-}
+}{}
 
 // TestSectionsCovered is the completeness guard: the sections run, plus
 // the explicit PENDING list, must EXACTLY cover what spec/station.json

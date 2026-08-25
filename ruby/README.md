@@ -118,21 +118,18 @@ ever ships a gem, that is the change to make.
 
 ## Conformance
 
-The suite runs ten of the corpus's eleven sections. Which ones is not a
+The suite runs all ten of the corpus's sections. Which ones is not a
 matter of what happens to be written out by hand: `test/conform_test.rb`
 declares a `DRIVERS` table (section name -> subject) and a `PENDING`
-table (section name -> the reason it is not run), REGISTERS the
-per-section tests from `DRIVERS`, and the `sections_covered` guard
-asserts that `DRIVERS` plus `PENDING` exactly equals the sections
-`spec/station.json` carries - read as raw JSON, not through the runner,
-so a section the runner never resolved cannot hide. A section added to
-the corpus and not picked up here fails loudly instead of silently not
-running, and a section dropped from `DRIVERS` to make a red test go away
-must be moved to `PENDING` with a written reason.
-
-`profile` is the one pinned entry: it pins the pre-Stage-1 `plugin`
-grammar, which this port no longer speaks, and everything it pins is
-restated in the sdk/api grammar the `instance` section runs.
+table (section name -> the reason it is not run, currently empty),
+REGISTERS the per-section tests from `DRIVERS`, and the
+`sections_covered` guard asserts that `DRIVERS` plus `PENDING` exactly
+equals the sections `spec/station.json` carries - read as raw JSON, not
+through the runner, so a section the runner never resolved cannot hide.
+A section added to the corpus and not picked up here fails loudly
+instead of silently not running, and a section dropped from `DRIVERS` to
+make a red test go away must be moved to `PENDING` with a written
+reason.
 
 ## Notes
 

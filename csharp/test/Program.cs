@@ -224,10 +224,6 @@ internal static class Program
         TestCase("descriptorwarnings", () => R.RunSet(R.Set("descriptorwarnings"), DESCWARN));
         TestCase("canonical", () => R.RunSet(R.Set("canonical"), CANONICAL));
         // The 3.3 merge, and the whole of this port's profile contract.
-        // The `profile` section is NOT run: it pins the pre-Stage-1
-        // `plugin` grammar, which this port no longer speaks. It stays in
-        // the corpus for the ports that have not crossed yet - see
-        // spec/README.md.
         TestCase("instance", () => R.RunSet(R.Set("instance"), INSTANCE));
         TestCase("errors", () => R.RunSet(R.Set("errors"), ERRORS));
 
