@@ -78,9 +78,21 @@ func LoadConfigOrder(from string) (map[string]any, *Order, error) {
 	}
 	config, is := parsed.(map[string]any)
 	if !is {
-		// Not a map: hand it on as an empty config and let ValidateConfig
-		// reject the raw value by path, the same way every other
-		// wrong-kind node is handled (§4.2, defensively).
+		// Not a map. The canonical library hands the parsed value
+		// straight to ValidateConfig, which rejects it by path; this
+		// port cannot, because the signature is typed to a map and a
+		// nil config is precisely what New() SKIPS validation for
+		// (station.go's `if nil != config`). Returning nil here made a
+		// `station.json` of `[1,2,3]` open a working Station with no
+		// error, where canonical - and every other port - raises
+		// station_config_invalid.
+		//
+		// So validate it HERE, at the point the type is lost, and hand
+		// back that error: the same error, at the same moment, from the
+		// same validator.
+		if _, err := ValidateConfig(NormalizeConfig(parsed)); nil != err {
+			return nil, nil, err
+		}
 		return nil, order, nil
 	}
 	return config, order, nil
