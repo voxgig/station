@@ -35,6 +35,7 @@ def _sibling(name):
 # omni and sekreto are sibling checkouts, not published packages (yet).
 # struct is one too, but the library finds it itself (structhome.py): it
 # is a RUNTIME dependency, not a test one.
+_HERE_TESTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(_sibling('omni'), 'python'))
 if 'voxgig_sekreto' not in sys.modules:
     try:
@@ -62,7 +63,14 @@ from voxgig_station import (  # noqa: E402
     secretname_default,
     validate_config,
 )
-from voxgig_station.omnihome import specfile  # noqa: E402
+# omnihome lives beside the tests, NOT in voxgig_station: `[tool.setuptools]
+# packages = ["voxgig_station"]` ships that whole directory, so a PyPI
+# consumer of voxgig-station was receiving a module whose only job is to
+# locate a voxgig/omni checkout on disk. The typescript and javascript
+# ports already keep theirs out of the package with a `files` negation;
+# python had no equivalent. Omni register 4.13.
+sys.path.insert(0, _HERE_TESTS)
+from omnihome import specfile  # noqa: E402
 
 
 def denull(v):
