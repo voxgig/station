@@ -87,7 +87,22 @@ MANIFEST = [
     ('swift', 'swift/Package.swift',
      'dependencies: nil == omniPath\n    ? []\n    : [.package(name: "VoxgigOmni", path: omniPath!)],',
      'dependencies: [.package(name: "VoxgigOmni", path: "../omni/swift")],'),
+
+    # THE FIVE EVASIONS Codex found on the sekreto copy of this tool. Each
+    # declared omni in a way that read clean, and each is here so it cannot
+    # read clean again.
+    ('go', 'go/go.mod', 'module github.com/voxgig/station/go',
+     'module github.com/voxgig/station/go\n\nrequire innocent/pkg v1.0.0\n\nreplace (\n\tinnocent/pkg => github.com/voxgig/omni/go v0.0.0\n)'),
+    ('csharp', 'csharp/src/Station.csproj', '</Project>',
+     "<ItemGroup><PackageReference Include='Voxgig.Omni' Version='0.1.0' /></ItemGroup></Project>"),
+    ('rust', 'rust/Cargo.toml', '[lib]',
+     '[dependencies]\nrunner = { workspace = true }\n\n[workspace.dependencies]\nrunner = { package = "voxgig_omni", version = "0.1" }\n\n[lib]'),
 ]
+
+# The module spelling that actually appears in code. `\bomni\b` could not
+# match `voxgig_omni` - `_` is a word character, so there is no boundary - and
+# that is exactly what Python and Rust import.
+SOURCE_SPELLINGS = 'import voxgig_omni\nuse voxgig_omni::Runner;\n'
 
 EXEMPT = [
     ('typescript', 'typescript/package.json', '"devDependencies": {',
@@ -150,6 +165,10 @@ def main():
         results.append(mutate(rel, '', LEAK,
                               f'{port}: shipped source names omni', True,
                               f'{port}:source'))
+        # And again with ONLY the ecosystem module spelling.
+        results.append(mutate(rel, '', SOURCE_SPELLINGS,
+                              f'{port}: shipped source names omni', True,
+                              f'{port}:source-spelling'))
 
     for status, tag, note in results:
         print(f'{status}  {tag:56} {note}')
