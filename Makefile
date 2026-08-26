@@ -111,6 +111,13 @@ vendor-check:
 # What a release would add to, or remove from, the published package.
 # Needs the network, so it runs at release time rather than on every PR.
 # A removal fails unless STATION_ALLOW_REMOVALS=1 says it is deliberate.
+.PHONY: omni-isolation
+omni-isolation:
+	@echo "======== omni is declared by no shipped library (register 4.13) ========"
+	python3 tools/omni_isolation.py
+	@echo "-------- and the guard itself, mutation-tested --------"
+	python3 tools/omni_isolation_selftest.py
+
 .PHONY: pack-diff
 pack-diff:
 	@tools/pack_diff.sh $(PORTS)
