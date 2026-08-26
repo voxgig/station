@@ -97,7 +97,28 @@ MANIFEST = [
      "<ItemGroup><PackageReference Include='Voxgig.Omni' Version='0.1.0' /></ItemGroup></Project>"),
     ('rust', 'rust/Cargo.toml', '[lib]',
      '[dependencies]\nrunner = { workspace = true }\n\n[workspace.dependencies]\nrunner = { package = "voxgig_omni", version = "0.1" }\n\n[lib]'),
+
+    # SIX MORE, from the second Codex pass. Two of them are regressions this
+    # tool's own earlier fixes introduced, which is why they are pinned here.
+    # An ungated `.package(` CONCATENATED with the gated array: the gate is
+    # still present, so "a gate exists somewhere" passed it.
+    ('swift', 'swift/Package.swift', 'dependencies: nil == omniPath',
+     'dependencies: [.package(name: "Evil", path: "../omni/swift")] + (nil == omniPath'),
+    # A nested `.product(...)` inside a library target - the normal way a
+    # target names a dependency, and unmatchable after a `[^(]` guard was
+    # added to stop one `.target(` running into the next.
+    ('swift', 'swift/Package.swift',
+     '.target(name: "VoxgigStation", path: "Sources/VoxgigStation")',
+     '.target(name: "VoxgigStation", dependencies: [.product(name: "Omni", package: "VoxgigOmni")], path: "Sources/VoxgigStation")'),
+    # The standard Mix idiom: `deps: deps()` with the list in a function.
+    ('elixir', 'elixir/mix.exs', 'deps: [],',
+     'deps: deps(),\n      x: 1\n    ]\n  end\n\n  defp deps do\n    [{:voxgig_omni, path: "../vendor/omni/elixir"}]'),
 ]
+
+# `#include "voxgig/omni.h"` is CODE. The comment skip classified every `#`
+# line as prose, which made it invisible in c and cpp - ports with no manifest,
+# so the source scan is the only check they get.
+PREPROCESSOR = '#include "voxgig/omni.h"\n'
 
 # The module spelling that actually appears in code. `\bomni\b` could not
 # match `voxgig_omni` - `_` is a word character, so there is no boundary - and
@@ -169,6 +190,12 @@ def main():
         results.append(mutate(rel, '', SOURCE_SPELLINGS,
                               f'{port}: shipped source names omni', True,
                               f'{port}:source-spelling'))
+        # And a preprocessor directive, for the ports where that is the only
+        # way a dependency appears at all.
+        if port in ('c', 'cpp'):
+            results.append(mutate(rel, '', PREPROCESSOR,
+                                  f'{port}: shipped source names omni', True,
+                                  f'{port}:source-include'))
 
     for status, tag, note in results:
         print(f'{status}  {tag:56} {note}')
