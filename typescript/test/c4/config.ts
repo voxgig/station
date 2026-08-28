@@ -21,6 +21,7 @@
  * shape parameters - raises NoCounterpart, and every entry that uses it
  * is pinned in the skip manifest with the reason. */
 
+import { featuresources, mergefeatures } from '../../src/feature'
 import { resolveProfile } from '../../src/profile'
 import { Entry, NoCounterpart, isMap } from './corpus'
 
@@ -223,4 +224,84 @@ export function xnormentry(e: Entry): Entry {
     ...e,
     match: { ...e.match, out: { ...out, instance } },
   }
+}
+
+// ---------------------------------------------------------------------
+// normorder: the ordering block, in station's namespace for it
+// ---------------------------------------------------------------------
+
+/** plugin orders INSTANCES; station orders FEATURES. That is the joint
+ * agreement's item 4 - station's SS8.4 adopts plugin's P SS7 ordering,
+ * constraints and bands - and it is the same correspondence c4/driver.ts
+ * states for the `order` section, where a readied ref IS a feature name
+ * in station's merged map. So this group's `instance` map is station's
+ * `feature` map: routed there, resolved by station's own feature merge,
+ * and projected back under the corpus's `instance` name.
+ *
+ * The rest of the `config` section maps plugin `instance.<ref>` to
+ * station `sdk.<ref>` (the header's table), which is why this group
+ * needs its own subject rather than normsubject: an `order` key on an
+ * sdk block is not in station's grammar at all, and xentryblock refuses
+ * it.
+ *
+ * Station carries the block through UNTOUCHED, which is what the
+ * expectations pin. `order` is one option key of mergefeatures' two-
+ * level merge, so it is replaced wholesale rather than descended into;
+ * nothing materializes the absent siblings, and absent is what the
+ * corpus's `__UNDEF__` asserts. A scalar stays scalar, a list stays a
+ * list, and an empty list and an explicit null both survive - none of
+ * them is a value station rewrites.
+ *
+ * Vocabulary outside what this subject handles raises NoCounterpart, on
+ * the same discipline as the rest of the file: an entry the skip
+ * manifest does not name fails loudly instead of half-running. */
+export function normordersubject(e: Entry): any {
+  const vin = e.in || {}
+  for (const k of LADDER_OUTSIDE) {
+    if (undefined !== vin[k]) {
+      throw new NoCounterpart('ladder level carried by `' + k + '`')
+    }
+  }
+
+  const doc = vin.doc || {}
+  const ikey = (vin.keys || {}).instance || 'instance'
+
+  const base = xorderprofile(doc, ikey, ['profile', 'plugin'])
+  const pname = vin.profile || 'default'
+  const overlay = 'default' === pname
+    ? {}
+    : xorderprofile((doc.profile || {})[pname] || {}, ikey, [])
+
+  // The api/ref rungs of the six sources are the per-instance ones, and
+  // this group declares no instance to hang them on - so the two
+  // profile-level rungs are the whole ladder here, which is exactly
+  // what a base document plus one overlay means.
+  const merged = mergefeatures(
+    featuresources({ feature: base }, { feature: overlay }, '', ''))
+
+  return { instance: merged }
+}
+
+/** One plugin profile-shaped map -> station's `feature` map. */
+function xorderprofile(src: any, ikey: string, extra: string[]): any {
+  if (!isMap(src)) { throw new NoCounterpart('a non-map document') }
+  for (const k of Object.keys(src)) {
+    if (ikey === k || extra.includes(k)) { continue }
+    throw new NoCounterpart('document key `' + k + '`')
+  }
+
+  const out: any = {}
+  for (const name of Object.keys(src[ikey] || {})) {
+    const entry = src[ikey][name]
+    if (!isMap(entry)) { throw new NoCounterpart('a non-map entry') }
+    for (const k of Object.keys(entry)) {
+      // `active` is station's own feature key; `order` is the block
+      // under test. Anything else belongs to a group this subject does
+      // not serve.
+      if ('order' === k || 'active' === k) { continue }
+      throw new NoCounterpart('entry key `' + k + '`')
+    }
+    out[name] = { ...entry }
+  }
+  return out
 }
