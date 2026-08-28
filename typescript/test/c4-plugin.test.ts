@@ -36,7 +36,9 @@ import { refapi } from '../src/profile'
 import {
   CodeMap, Entry, check, label, pluginhome, section,
 } from './c4/corpus'
-import { normsubject, optsubject, xnormentry } from './c4/config'
+import {
+  normordersubject, normsubject, optsubject, xnormentry,
+} from './c4/config'
 import { ORDER_CODES, drive, xorderentry } from './c4/driver'
 
 // ---------------------------------------------------------------------
@@ -247,6 +249,10 @@ const SECTIONS: SectionSpec[] = [
     // losslessly to resolved options (c4/config.ts says why).
     xentry: (e) => xnormentry(e),
     subjectfor: (g) => {
+      // Before the generic norm* branch: this one group's entities are
+      // station's FEATURES, not its sdk instances (c4/config.ts says
+      // why), so it resolves down a different path.
+      if ('normorder' === g) { return normordersubject }
       if (g.startsWith('norm')) { return normsubject }
       if (g.startsWith('opt')) { return optsubject }
       return null
