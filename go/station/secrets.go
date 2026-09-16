@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/voxgig/sekreto/go/plugins"
 	"github.com/voxgig/sekreto/go/sekreto"
 )
 
@@ -48,12 +49,32 @@ func newSecretBroker(providers []any) (*secretBroker, error) {
 	if err := json.Unmarshal(text, &specs); nil != err {
 		return nil, fail("station_secret_error", "invalid provider chain: "+err.Error())
 	}
-	chain, names, err := sekreto.MakeNamedChain(specs)
+	// sekreto.New, not MakeNamedChain + NewNamed: sekreto folded the
+	// named-chain pair into one constructor when its provider kinds moved
+	// onto voxgig/plugin (sekreto 43eb579). The store name a chain entry
+	// answers to is now ProviderSpec.Name, carried in the spec itself, so
+	// the names no longer travel beside the chain. Caching stays on, which
+	// is what the old `false` (nocache) argument asked for.
+	// plugins.All(), because a control surface does not get to choose the
+	// chain: the profile does, at run time, and station must honour any
+	// kind a station.json names. sekreto's split put everything except
+	// dotenv/env/file/memory behind a plugin definition the caller passes
+	// in (sekreto 43eb579), so without this a profile naming `hashicorp`
+	// -- or `minivault` -- fails at open() with "unknown provider kind".
+	//
+	// This is the case sekreto's own plugins package documents as its
+	// reason to exist ("the CLI, the conformance suite, an app whose chain
+	// is decided at run time"). The cost is link size, which is the wrong
+	// thing to optimise in the process that brokers every credential.
+	sek, err := sekreto.New(&sekreto.Options{
+		Plugins:   plugins.All(),
+		Providers: specs,
+	})
 	if nil != err {
 		return nil, fail("station_secret_error", err.Error())
 	}
 	return &secretBroker{
-		sek:       sekreto.NewNamed(chain, names, false),
+		sek:       sek,
 		overrides: map[string]string{},
 		cache:     map[string]string{},
 	}, nil

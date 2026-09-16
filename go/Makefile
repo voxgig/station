@@ -39,6 +39,25 @@ STRUCT := $(shell \
     fi; \
   done)
 
+# voxgig/plugin is sekreto's dependency, not station's, and it still has to
+# be in the workspace. sekreto moved its provider kinds onto voxgig/plugin
+# (sekreto 43eb579, "Provider plugins on voxgig/plugin"), so sekreto/go now
+# imports github.com/voxgig/plugin/go/plugin. A workspace that `use`s
+# sekreto but not plugin cannot build sekreto, and Go reports that as a
+# failure to FETCH sekreto itself:
+#
+#   github.com/voxgig/sekreto/go@v0.0.0: reading .../go.mod
+#     at revision go/v0.0.0: unknown revision go/v0.0.0
+#
+# which names the wrong module and sends you looking for a tagging problem
+# that is not there. Found the same way as the other siblings.
+PLUGIN := $(shell \
+  for d in "$$PLUGIN_HOME" ../../plugin ../../../plugin /workspace/plugin /home/user/plugin; do \
+    if [ -n "$$d" ] && [ -f "$$d/go/plugin/catalog.go" ]; then \
+      (cd "$$d" && pwd); break; \
+    fi; \
+  done)
+
 # PHONY, and it has to be: go.work is gitignored but survives on a
 # developer's disk, so a file target would leave a workspace written
 # before the testutil module existed looking up to date - and `go test
@@ -49,8 +68,9 @@ go.work:
 	@test -n "$(OMNI)" || { echo "station: voxgig/omni not found - set OMNI_HOME" >&2; exit 1; }
 	@test -n "$(SEKRETO)" || { echo "station: voxgig/sekreto not found - set SEKRETO_HOME" >&2; exit 1; }
 	@test -n "$(STRUCT)" || { echo "station: voxgig/struct not found - set STRUCT_HOME" >&2; exit 1; }
+	@test -n "$(PLUGIN)" || { echo "station: voxgig/plugin not found - set PLUGIN_HOME (sekreto needs it)" >&2; exit 1; }
 	@rm -f go.work go.work.sum
-	go work init . ./testutil $(OMNI)/go $(SEKRETO)/go $(STRUCT)/go
+	go work init . ./testutil $(OMNI)/go $(SEKRETO)/go $(STRUCT)/go $(PLUGIN)/go
 
 build: go.work
 	go build ./...
@@ -64,7 +84,8 @@ build: go.work
 go.noomni.work:
 	@test -n "$(SEKRETO)" || { echo "station: voxgig/sekreto not found - set SEKRETO_HOME" >&2; exit 1; }
 	@test -n "$(STRUCT)" || { echo "station: voxgig/struct not found - set STRUCT_HOME" >&2; exit 1; }
-	@printf 'go 1.23\n\nuse (\n\t.\n\t%s/go\n\t%s/go\n)\n' '$(SEKRETO)' '$(STRUCT)' > go.noomni.work
+	@test -n "$(PLUGIN)" || { echo "station: voxgig/plugin not found - set PLUGIN_HOME (sekreto needs it)" >&2; exit 1; }
+	@printf 'go 1.23\n\nuse (\n\t.\n\t%s/go\n\t%s/go\n\t%s/go\n)\n' '$(SEKRETO)' '$(STRUCT)' '$(PLUGIN)' > go.noomni.work
 
 build-clean: go.noomni.work
 	GOWORK=$(abspath go.noomni.work) go build ./...
