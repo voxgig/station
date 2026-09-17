@@ -4,9 +4,11 @@
 //
 // A port of typescript/src/secrets.ts, which is canonical.
 
+using System.Collections;
 using System.Collections.Generic;
 
 using Voxgig.Sekreto;
+using Voxgig.Sekreto.Plugins;
 
 namespace Voxgig.Station
 {
@@ -39,9 +41,40 @@ namespace Voxgig.Station
         /// </summary>
         public SecretBroker(object providerSpecs)
         {
-            List<IProvider> chain = Providers.MakeChain(providerSpecs);
-            List<string> names = Providers.ChainNames(providerSpecs);
-            sekreto = new Sekreto.Sekreto(chain, names, true);
+            // One SekretoOptions, not MakeChain + ChainNames + the
+            // three-argument constructor: sekreto folded the named-chain
+            // pair into the constructor when its provider kinds moved onto
+            // voxgig/plugin (sekreto 43eb579). The store name a chain entry
+            // answers to is carried in the spec itself now, so the names no
+            // longer travel beside the chain. Caching stays on - it is the
+            // default, which is what the old `true` asked for.
+            //
+            // SekretoPlugins.All(), because a control surface does not get
+            // to choose the chain: the profile does, at run time, and
+            // station must honour any kind a station.json names. sekreto's
+            // split put everything except dotenv/env/file/memory behind a
+            // plugin definition the caller passes in, so without this a
+            // profile naming `hashicorp` - or `minivault` - fails at Open()
+            // with "unknown provider kind". Same call as the go port's
+            // plugins.All(), for the same reason.
+            List<object> specs = new List<object>();
+            if (providerSpecs is IEnumerable given && !(providerSpecs is string))
+            {
+                foreach (object spec in given)
+                {
+                    specs.Add(spec);
+                }
+            }
+            else if (null != providerSpecs)
+            {
+                specs.Add(providerSpecs);
+            }
+
+            sekreto = new Sekreto.Sekreto(new SekretoOptions
+            {
+                Plugins = SekretoPlugins.All(),
+                Providers = specs,
+            });
         }
 
         public void Hoist(string slug, string value)

@@ -20,11 +20,17 @@ sys.path.insert(0, os.path.join(_HERE, '..'))
 try:
     import voxgig_sekreto  # noqa: F401
 except ImportError:
-    for cand in (os.path.join(_HERE, '..', '..', '..', 'sekreto'),
-                 '/workspace/sekreto', '/home/user/sekreto'):
-        if os.path.isdir(os.path.join(cand, 'python')):
-            sys.path.insert(0, os.path.abspath(os.path.join(cand, 'python')))
-            break
+    # plugin as well as sekreto, and plugin first: sekreto's provider kinds
+    # moved onto voxgig/plugin (sekreto 43eb579), so importing sekreto now
+    # imports plugin - a sekreto on the path with no plugin beside it
+    # raises ModuleNotFoundError rather than resolving.
+    for name in ('plugin', 'sekreto'):
+        for cand in (os.path.join(_HERE, '..', '..', '..', name),
+                     os.path.join(_HERE, '..', '..', '..', '..', name),
+                     '/workspace/' + name, '/home/user/' + name):
+            if os.path.isdir(os.path.join(cand, 'python')):
+                sys.path.insert(0, os.path.abspath(os.path.join(cand, 'python')))
+                break
 
 from voxgig_station import (  # noqa: E402
     BLOCK_DEFAULTS,

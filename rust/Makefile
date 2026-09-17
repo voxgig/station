@@ -47,6 +47,14 @@ vendor-runtime:
 	mkdir -p vendor
 	ln -sfn $(SEKRETO)/rust vendor/sekreto
 	ln -sfn $(STRUCT)/rust vendor/struct
+	# sekreto's core is built on voxgig/plugin now (sekreto 43eb579), and
+	# its manifest names the dependency at `.plugin/rust` - a link its own
+	# `deps` target makes. Cargo resolves that path inside the REAL sekreto
+	# directory, through our vendor link, so the link has to exist there
+	# before `cargo build` reads sekreto's manifest. `deps` is idempotent
+	# and finds plugin by the same convention as the sibling searches
+	# above, including fetching a shallow clone when nothing is on disk.
+	$(MAKE) -C $(SEKRETO)/rust deps
 
 vendor: vendor-runtime
 	@test -n "$(OMNI)" || { echo "station: voxgig/omni not found - set OMNI_HOME" >&2; exit 1; }

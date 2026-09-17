@@ -18,6 +18,17 @@ path = "src/lib.rs"
 # exception to "no transitive dependencies" (§10).
 voxgig_sekreto = { path = "vendor/sekreto" }
 
+# Every provider kind, because a control surface does not get to choose
+# the chain: the profile does, at run time, and station must honour any
+# kind a station.json names. sekreto moved its kinds out of the core onto
+# voxgig/plugin (sekreto 43eb579), one crate per kind, and `plugins/all`
+# is the one dependency that carries them all - the case its own manifest
+# documents ("an app whose chain is decided at run time"). Without it a
+# profile naming `hashicorp` - or `minivault` - fails at open() with
+# "unknown provider kind". The cost is link size, which is the wrong thing
+# to optimise in the process that brokers every credential.
+voxgig_sekreto_plugins = { path = "vendor/sekreto/plugins/all" }
+
 # voxgig/struct backs validateConfig (design §4): the config grammar is
 # `spec/config-shape.json`, run through struct's collecting validator.
 # THE SECOND RUNTIME DEPENDENCY, and the only other one - sanctioned by

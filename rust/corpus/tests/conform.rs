@@ -97,6 +97,10 @@ fn s2o(val: &Json) -> OJson {
             }
             OJson::Map(out)
         }
+        // Never reached - see jsonx::jtextof's note on Opaque. Nothing a
+        // driver returns is a host object, and omni has no spelling for
+        // one, so the comparison sees the absent value it would anyway.
+        Json::Opaque(_) => OJson::Null,
     }
 }
 
@@ -279,10 +283,13 @@ fn station_conformance() {
 #[test]
 fn sections_covered() {
     let text = std::fs::read_to_string(specfile()).expect("spec readable");
-    let spec = voxgig_sekreto::json::parse(&text).expect("spec parses");
+    let spec = voxgig_sekreto::voxgig_plugin::value::parse(&text).expect("spec parses");
 
-    let sections = match spec.get("primary").and_then(|p| p.get("station")) {
-        Some(Json::Map(entries)) => entries,
+    // `get` returns a Value, not an Option: plugin's value model answers a
+    // missing key with Null rather than None (sekreto 43eb579), so the
+    // absent case is the match's fall-through, not an `and_then`.
+    let sections = match spec.get("primary").get("station") {
+        Json::Map(entries) => entries,
         _ => panic!("station: spec has no primary.station"),
     };
     // BTreeMap keys iterate sorted, which is the order the comparison

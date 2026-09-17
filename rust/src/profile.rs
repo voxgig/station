@@ -12,7 +12,8 @@ use std::collections::BTreeMap;
 use std::env;
 use std::path::{Path, PathBuf};
 
-use voxgig_sekreto::{validname, Json};
+use voxgig_sekreto::validname;
+use voxgig_sekreto::voxgig_plugin::value::Value as Json;
 
 use crate::error::StationError;
 use crate::jsonx::{jget, jmap, jstr};
@@ -67,13 +68,17 @@ pub fn load_config(from: Option<&Path>) -> Result<Option<Json>, StationError> {
             format!("station.json at {} cannot be read: {}", file.display(), err),
         )
     })?;
-    match voxgig_sekreto::json::parse(&text) {
-        Some(parsed) => Ok(Some(parsed)),
-        None => Err(StationError::new(
+    // Ok/Err, not Some/None: the parser came with plugin's value model
+    // (sekreto 43eb579) and it SAYS WHAT IS WRONG. The old message could
+    // only report that no value was found; this one names the fault.
+    match voxgig_sekreto::voxgig_plugin::value::parse(&text) {
+        Ok(parsed) => Ok(Some(parsed)),
+        Err(why) => Err(StationError::new(
             "station_config_invalid",
             format!(
-                "station.json at {} is not valid JSON: the parser found no value",
-                file.display()
+                "station.json at {} is not valid JSON: {}",
+                file.display(),
+                why
             ),
         )),
     }

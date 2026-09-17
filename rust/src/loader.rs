@@ -38,7 +38,7 @@
 
 use crate::descriptor::canonical_serialize;
 use crate::error::StationError;
-use voxgig_sekreto::Json;
+use voxgig_sekreto::voxgig_plugin::value::Value as Json;
 
 /// The fixed alias every generated package exports, and the first
 /// constructor name a loader-language port tries.

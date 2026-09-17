@@ -6,7 +6,7 @@
 //! no class body to hang free functions off, and this is the one piece of
 //! Station.ts that is pure over (api, opts).
 
-use voxgig_sekreto::Json;
+use voxgig_sekreto::voxgig_plugin::value::Value as Json;
 
 use crate::error::StationError;
 use crate::jsonx::jstr;

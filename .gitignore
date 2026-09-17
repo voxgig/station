@@ -22,8 +22,12 @@ __pycache__/
 *.pyc
 c/build
 cpp/build
-csharp/bin
-csharp/obj
+# csharp/bin and csharp/obj matched NOTHING: dotnet writes its output
+# beside the project file, so the paths are csharp/src/bin, csharp/src/obj,
+# csharp/test/bin and csharp/test/obj. `make -C csharp clean` removes
+# exactly those four.
+csharp/*/bin
+csharp/*/obj
 swift/.build
 dart/.dart_tool
 elixir/_build

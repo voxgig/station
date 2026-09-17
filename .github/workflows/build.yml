@@ -85,10 +85,16 @@ jobs:
           repository: voxgig/omni
           ref: dcbab7aa3f79ed99663ba8f70a79b5721fd5092d # omni#36
           path: omni
+      # sekreto#34. Bumped from sekreto#7 to adopt the provider-plugin
+      # split (sekreto 43eb579): the providers moved out of the core
+      # into a per-port plugins/ package carried by voxgig/plugin, and
+      # sekreto's go.mod stopped naming omni. station/go/station
+      # secrets.go is written against that API, and the old pin has
+      # neither `go/plugins` nor the Options shape it constructs.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: voxgig/sekreto
-          ref: 7b603824e56fa4255998fc1e7105463ef87dd5a3 # sekreto#7
+          ref: 32b83acba90a8e4199be96f56d0cdd5f636c5dfb # sekreto#34
           path: sekreto
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -172,6 +178,13 @@ jobs:
           cd station/javascript
           mkdir -p node_modules/@voxgig
           ln -sfn ../../../../sekreto/javascript node_modules/@voxgig/sekreto-js
+          # sekreto's own install, the way the typescript lane above does
+          # it: sekreto's core is built on voxgig/plugin now (sekreto
+          # 43eb579) and declares @voxgig/plugin-js. Node resolves that
+          # from sekreto's OWN directory - the link here is followed to
+          # its real path - so installing it there is what makes
+          # `require('@voxgig/sekreto-js')` work at all.
+          (cd ../../sekreto/javascript && npm install --no-audit --no-fund)
           npm test
       # Register 4.13 (omni): the conformance suite is a nested module
       # (go/testutil), so the published module must build - and its

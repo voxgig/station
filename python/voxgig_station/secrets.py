@@ -9,6 +9,7 @@
 import threading
 
 from voxgig_sekreto import Sekreto, SekretoError
+from voxgig_sekreto.plugins import ALL as SEKRETO_PLUGINS
 
 from .error import StationError
 
@@ -23,7 +24,15 @@ def placeholder_for(name):
 
 class SecretBroker:
     def __init__(self, providers):
-        self._sekreto = Sekreto({'providers': providers})
+        # ALL, because a control surface does not get to choose the chain:
+        # the profile does, at run time, and station must honour any kind a
+        # station.json names. sekreto moved its provider kinds onto
+        # voxgig/plugin (sekreto 43eb579), leaving only
+        # dotenv/env/file/memory built in, so without this a profile naming
+        # `hashicorp` - or `minivault` - fails at open() with "unknown
+        # provider kind". This is the case sekreto's own plugins package
+        # documents as its reason to exist.
+        self._sekreto = Sekreto({'plugins': SEKRETO_PLUGINS, 'providers': providers})
         # Values hoisted by adopt() from resident options.apikey
         # (design station.md 3.1).
         self._overrides = {}

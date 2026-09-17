@@ -21,6 +21,11 @@ def sibling(name, marker)
   raise 'station: voxgig/' + name + ' not found - set ' + name.upcase + '_HOME'
 end
 
+# voxgig/plugin as well as sekreto: sekreto's provider kinds moved onto it
+# (sekreto 43eb579), so `require 'voxgig_sekreto'` now requires
+# 'voxgig_plugin' - a sekreto on the load path with no plugin beside it
+# raises LoadError rather than resolving.
+$LOAD_PATH.unshift(File.join(sibling('plugin', 'ruby/lib/voxgig_plugin.rb'), 'ruby', 'lib'))
 $LOAD_PATH.unshift(File.join(sibling('sekreto', 'ruby/lib/voxgig_sekreto.rb'), 'ruby', 'lib'))
 
 # The library itself rides the load path too, so generated SDK code
