@@ -162,12 +162,18 @@ jobs:
           STATION_REQUIRE_C4: '1'
         run: |
           cd station/typescript
+          # ORDER MATTERS: npm install first, THE LINKS LAST. `npm install`
+          # rewrites node_modules - it resolves this package's own
+          # dependencies and reinstalls @voxgig/sekreto from the registry -
+          # so a link written before it is silently replaced by the
+          # published tarball, and the lane then tests against a sekreto
+          # that is not the one checked out beside it.
+          npm install --no-save --no-audit --no-fund typescript @types/node
+          (cd ../../omni/typescript && npm install --no-audit --no-fund && npm run build)
+          (cd ../../sekreto/typescript && npm install --no-audit --no-fund && npm run build)
           mkdir -p node_modules/@voxgig
           ln -sfn ../../../../sekreto/typescript node_modules/@voxgig/sekreto
           ln -sfn ../../../../omni/typescript node_modules/@voxgig/omni
-          (cd ../../omni/typescript && npm install --no-audit --no-fund && npm run build)
-          (cd ../../sekreto/typescript && npm install --no-audit --no-fund && npm run build)
-          npm install --no-save --no-audit --no-fund typescript @types/node
           npm test
       - name: javascript
         id: javascript

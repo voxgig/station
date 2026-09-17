@@ -37,6 +37,6 @@
     "!src/omnihome.js"
   ],
   "dependencies": {
-    "@voxgig/sekreto-js": "^0.1.0"
+    "@voxgig/sekreto-js": "^0.2.0"
   }
 }

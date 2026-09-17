@@ -52,6 +52,40 @@ BEGIN {
     unshift @INC, $LIBROOT unless grep { $_ eq $LIBROOT } @INC;
 }
 
+# Locate Voxgig::Plugin, which Voxgig::Sekreto is built on: sekreto's
+# provider kinds moved onto voxgig/plugin (sekreto 43eb579), so its very
+# first `use` line names it. Found by the same convention as sekreto
+# below, and BEFORE it - a sekreto on @INC with no plugin beside it dies
+# in its own BEGIN, and the eval under the sekreto search would report
+# that as "Voxgig::Sekreto not found", which is the wrong module and the
+# wrong advice.
+BEGIN {
+    if ( !eval { require Voxgig::Plugin; 1 } ) {
+        my @candidates = grep { defined $_ } (
+            (
+                defined $ENV{PLUGIN_HOME}
+                ? File::Spec->catdir( $ENV{PLUGIN_HOME}, 'perl', 'lib' )
+                : undef
+            ),
+            File::Spec->catdir( $LIBROOT, '..', '..', '..', 'plugin', 'perl', 'lib' ),
+            File::Spec->catdir( $LIBROOT, '..', '..', '..', '..', 'plugin', 'perl', 'lib' ),
+            '/workspace/plugin/perl/lib',
+            '/workspace/voxgig/plugin/perl/lib',
+        );
+        for my $cand (@candidates) {
+            next unless -e File::Spec->catfile( $cand, 'Voxgig', 'Plugin.pm' );
+            unshift @INC, $cand;
+            last if eval { require Voxgig::Plugin; 1 };
+        }
+
+        # DELIBERATELY NOT FATAL. A vendored payload carries sekreto's
+        # modules beside station's own, and whether plugin has to be found
+        # separately is sekreto's business; the sekreto search below is the
+        # one that reports a real absence, and its message names the module
+        # a packager actually has to supply.
+    }
+}
+
 # Locate Voxgig::Sekreto (design station.md 5: the one dependency a
 # station library takes). In resolution order: already loadable (the
 # vendored side-by-side copy under this same lib root, an installed
