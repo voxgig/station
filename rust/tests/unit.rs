@@ -30,7 +30,7 @@ use voxgig_station::{
 };
 
 fn parse(text: &str) -> Json {
-    voxgig_sekreto::json::parse(text).expect("json")
+    voxgig_sekreto::voxgig_plugin::value::parse(text).expect("json")
 }
 
 // A panic payload's text, whether it was a literal (&str) or formatted

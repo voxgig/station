@@ -8,8 +8,29 @@
 use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use voxgig_sekreto::Json;
+use voxgig_sekreto::voxgig_plugin::value::Value as Json;
 
+/// This value as a string, the way the canonical port's String() renders
+/// it: strings verbatim, everything else as compact JSON. sekreto's own
+/// `Json` had this as a method; plugin's `Value`, which replaced it
+/// (sekreto 43eb579), does not - `json()` is the only renderer, and it
+/// quotes strings.
+pub fn jtextof(val: &Json) -> String {
+    match val {
+        Json::Str(text) => text.clone(),
+        other => other.json(),
+    }
+}
+
+/// THE OPAQUE VARIANT, once, for every `match` in this port.
+///
+/// plugin's value model carries a seventh variant the old `Json` did not:
+/// `Opaque`, a host object published through a plugin's exports, which the
+/// library never inspects. STATION NEVER CONSTRUCTS ONE. Its values come
+/// from `value::parse` (which cannot produce it) and from `jobj`/`jtext`
+/// here, so every `Json::Opaque` arm in this crate is unreachable in
+/// practice - it exists because the enum is shared, and each one is
+/// written to stay total rather than to panic.
 /// A map entry, or None.
 pub fn jget<'a>(val: &'a Json, key: &str) -> Option<&'a Json> {
     match val {

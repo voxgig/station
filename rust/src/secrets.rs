@@ -11,7 +11,8 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 
-use voxgig_sekreto::{makechain, AuthSpec, Json, ProviderSpec, Sekreto};
+use voxgig_sekreto::voxgig_plugin::value::Value as Json;
+use voxgig_sekreto::{AuthSpec, Options, ProviderSpec, Sekreto};
 
 use crate::error::StationError;
 use crate::jsonx::{jget, jstr};
@@ -45,10 +46,27 @@ impl SecretBroker {
     /// error, surfaced as station_secret_error.
     pub fn new(providers: &[Json]) -> Result<SecretBroker, StationError> {
         let specs: Vec<ProviderSpec> = providers.iter().map(providerspec_of).collect();
-        let chain = makechain(&specs)
-            .map_err(|err| StationError::new("station_secret_error", err.message))?;
+        // Sekreto::new(Options), not makechain + Sekreto::new(chain):
+        // sekreto folded the two into one constructor when its provider
+        // kinds moved onto voxgig/plugin (sekreto 43eb579), and building
+        // the chain is now part of building the Sekreto - which is why
+        // this can still fail the same way, on the same configuration
+        // errors (a plaintext vault address, an unknown kind).
+        //
+        // plugins::all(), because a control surface does not get to choose
+        // the chain: the profile does, at run time. Everything except
+        // dotenv/env/file/memory is behind a plugin definition the caller
+        // passes in, so without this a profile naming `hashicorp` - or
+        // `minivault` - fails here with "unknown provider kind". Same call
+        // as the go port's plugins.All(), for the same reason.
+        let sek = Sekreto::new(Options {
+            plugins: voxgig_sekreto_plugins::all(),
+            providers: specs,
+            nocache: false,
+        })
+        .map_err(|err| StationError::new("station_secret_error", err.message()))?;
         Ok(SecretBroker {
-            sekreto: RefCell::new(Sekreto::new(chain)),
+            sekreto: RefCell::new(sek),
             overrides: RefCell::new(BTreeMap::new()),
             cache: RefCell::new(BTreeMap::new()),
             held: RefCell::new(Vec::new()),

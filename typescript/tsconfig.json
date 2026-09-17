@@ -1,6 +1,14 @@
 {
   "compilerOptions": {
     "target": "ES2021",
+    // ES2022 LIB, ES2021 EMIT. The emitted syntax is unchanged; this
+    // only tells the checker which runtime APIs exist. It has to,
+    // because "moduleResolution": "node" predates package `exports`
+    // and so resolves @voxgig/sekreto/plugins to sekreto's TypeScript
+    // SOURCE rather than its built .d.ts - putting sekreto's files in
+    // this program, where `new Error(msg, {cause})` (ES2022, and what
+    // sekreto targets) would otherwise be "Expected 0-1 arguments".
+    "lib": ["ES2022"],
     "module": "commonjs",
     "moduleResolution": "node",
     "declaration": true,

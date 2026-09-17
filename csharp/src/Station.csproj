@@ -20,8 +20,14 @@
          is referenced as a sibling-checkout project; the Makefile passes
          SekretoPath when the checkout sits elsewhere. -->
     <SekretoPath Condition="'$(SekretoPath)' == ''">../../../sekreto/csharp/src/Sekreto.csproj</SekretoPath>
+    <!-- sekreto's provider kinds moved out of its core onto voxgig/plugin
+         (sekreto 43eb579), into a second assembly. The broker needs it:
+         station must honour any kind a station.json names, and everything
+         except dotenv/env/file/memory now lives here. -->
+    <SekretoPluginsPath Condition="'$(SekretoPluginsPath)' == ''">../../../sekreto/csharp/plugins/SekretoPlugins.csproj</SekretoPluginsPath>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="$(SekretoPath)" />
+    <ProjectReference Include="$(SekretoPluginsPath)" />
   </ItemGroup>
 </Project>

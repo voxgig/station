@@ -42,9 +42,13 @@ pub mod secrets;
 pub mod shape;
 pub mod station;
 
-/// Station's value model IS sekreto's Json - one dependency, one value
-/// type (design §10).
-pub use voxgig_sekreto::Json;
+/// Station's value model IS sekreto's - one dependency, one value type
+/// (design §10). sekreto dropped its own `Json` when its providers moved
+/// onto voxgig/plugin (sekreto 43eb579) and took plugin's `Value`, which
+/// is the same six JSON variants plus an `Opaque` one for host objects
+/// the library never inspects. Station keeps calling it `Json`: the name
+/// is station's value model, and every port spells it that way.
+pub use voxgig_sekreto::voxgig_plugin::value::Value as Json;
 
 pub use crate::binding::{bind, hostname, BindSpec, Binding, Bound, TransportPlan};
 pub use crate::descriptor::{canonical_serialize, envtoken, normalize_descriptor, secretname_default};

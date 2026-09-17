@@ -12,7 +12,7 @@ use std::collections::VecDeque;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::rc::Rc;
 
-use voxgig_sekreto::Json;
+use voxgig_sekreto::voxgig_plugin::value::Value as Json;
 
 use crate::jsonx::{jobj, jtext};
 

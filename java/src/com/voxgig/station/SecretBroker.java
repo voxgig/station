@@ -6,10 +6,9 @@
 
 package com.voxgig.station;
 
-import com.voxgig.sekreto.Provider;
-import com.voxgig.sekreto.Providers;
 import com.voxgig.sekreto.Sekreto;
 import com.voxgig.sekreto.Sekreto.SekretoError;
+import com.voxgig.sekreto.plugins.Plugins;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -45,9 +44,24 @@ public class SecretBroker {
    * lands.
    */
   public SecretBroker(Object providerSpecs) {
-    List<Provider> chain = Providers.makechain(providerSpecs);
-    List<String> names = Providers.chainnames(providerSpecs);
-    this.sekreto = new Sekreto(chain, names, true);
+    // One Options, not makechain + chainnames + the three-argument
+    // constructor: sekreto folded the named-chain pair into the
+    // constructor when its provider kinds moved onto voxgig/plugin
+    // (sekreto 43eb579). The store name a chain entry answers to is now
+    // carried in the spec itself, so the names no longer travel beside
+    // the chain. Caching stays on - it is the default, which is what the
+    // old `true` asked for.
+    //
+    // Plugins.ALL, because a control surface does not get to choose the
+    // chain: the profile does, at run time, and station must honour any
+    // kind a station.json names. sekreto's split put everything except
+    // dotenv/env/file/memory behind a plugin definition the caller passes
+    // in, so without this a profile naming `hashicorp` - or `minivault` -
+    // fails at open() with "unknown provider kind". Same call as the go
+    // port's plugins.All(), for the same reason.
+    this.sekreto = new Sekreto(new Sekreto.Options()
+        .plugins(Plugins.ALL)
+        .providers(providerSpecs));
   }
 
   public synchronized void hoist(String instance, String value) {

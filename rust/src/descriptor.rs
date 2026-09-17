@@ -4,9 +4,9 @@
 
 use std::collections::BTreeMap;
 
-use voxgig_sekreto::Json;
+use voxgig_sekreto::voxgig_plugin::value::Value as Json;
 
-use crate::jsonx::{jget, jobj, jtext};
+use crate::jsonx::{jget, jobj, jtext, jtextof};
 
 /// The ONLY way to build an env-var token in station, mirroring sdkgen's
 /// packageMeta envToken exactly: 'gnarly-pets' -> 'GNARLY_PETS'. The
@@ -59,7 +59,7 @@ fn strdef(val: &Json, key: &str) -> String {
 fn sentinel(val: &Json, key: &str, dflt: &str) -> String {
     match jget(val, key) {
         Some(Json::Null) | None => dflt.to_string(),
-        Some(found) => found.text(),
+        Some(found) => jtextof(found),
     }
 }
 
@@ -94,7 +94,7 @@ pub fn normalize_descriptor(config: &Json, active_features: &Json) -> (Json, Vec
         for (key, val) in svr.iter() {
             server.push(jobj(vec![
                 ("name", jtext(key.clone())),
-                ("value", jtext(val.text())),
+                ("value", jtext(jtextof(val))),
             ]));
         }
     }
@@ -206,7 +206,7 @@ pub fn normalize_descriptor(config: &Json, active_features: &Json) -> (Json, Vec
             match jget(fdef, "transport") {
                 Some(Json::Null) | None => {}
                 Some(found) => {
-                    let text = found.text();
+                    let text = jtextof(found);
                     if !text.is_empty() {
                         row.push(("transport", jtext(text)));
                     }
@@ -249,6 +249,9 @@ pub fn canonical_serialize(val: &Json) -> String {
             let parts: Vec<String> = items.iter().map(canonical_serialize).collect();
             format!("[{}]", parts.join(","))
         }
+        // Never reached - see jsonx::jtextof's note on Opaque. Rendered
+        // the way plugin's own json() renders it, so the function is total.
+        Json::Opaque(_) => canon_quote("(opaque)"),
         Json::Map(entries) => {
             let parts: Vec<String> = entries
                 .iter()

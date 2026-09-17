@@ -25,7 +25,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::rc::Rc;
 
-use voxgig_sekreto::Json;
+use voxgig_sekreto::voxgig_plugin::value::Value as Json;
 
 use crate::descriptor::{canonical_serialize, normalize_descriptor, secretname_default};
 use crate::error::{is_known_code, StationError};
@@ -36,7 +36,7 @@ use crate::feature::{
     merge_features, resolve_order,
 };
 use crate::instance::instance_ref;
-use crate::jsonx::{jget, jobj, jstr, jtext, now_ms};
+use crate::jsonx::{jget, jobj, jstr, jtext, jtextof, now_ms};
 use crate::profile::{
     config_scope, load_config, refapi, resolve_profile, select_profile, ResolvedProfile,
 };
@@ -45,7 +45,7 @@ use crate::shape::{normalize_config, validate_config};
 
 /// Where the station's config comes from (the canonical port's
 /// `opts.config`: undefined = discover, null = none, object = as given).
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Default)]
 pub enum ConfigSource {
     /// Look station.json up from cwd (design §3.5). The default.
     #[default]
@@ -54,6 +54,34 @@ pub enum ConfigSource {
     None,
     /// An explicit in-memory config.
     Value(Json),
+}
+
+// DERIVED ON EVERY OTHER OPTION TYPE, WRITTEN OUT HERE. The shared value
+// model carries an `Opaque(Rc<dyn Any>)` variant for host objects, so it
+// can derive neither `PartialEq` nor `Debug`: `same()` is its documented
+// equality and `json()` its rendering. These two forward to exactly
+// those, which is what the derive would have produced before sekreto
+// took plugin's value model (sekreto 43eb579) - so `StationOptions` can
+// go on deriving both.
+impl PartialEq for ConfigSource {
+    fn eq(&self, other: &ConfigSource) -> bool {
+        match (self, other) {
+            (ConfigSource::Discover, ConfigSource::Discover) => true,
+            (ConfigSource::None, ConfigSource::None) => true,
+            (ConfigSource::Value(one), ConfigSource::Value(two)) => one.same(two),
+            _ => false,
+        }
+    }
+}
+
+impl std::fmt::Debug for ConfigSource {
+    fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ConfigSource::Discover => out.write_str("Discover"),
+            ConfigSource::None => out.write_str("None"),
+            ConfigSource::Value(val) => write!(out, "Value({})", val.json()),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -1508,7 +1536,7 @@ pub(crate) fn policy_allow(block: &Json) -> Option<Json> {
     let mut out: BTreeMap<String, Json> = BTreeMap::new();
     for key in ["op", "method"] {
         if let Some(Json::List(items)) = allow.get(key) {
-            let joined: Vec<String> = items.iter().map(|item| item.text()).collect();
+            let joined: Vec<String> = items.iter().map(jtextof).collect();
             out.insert(key.to_string(), jtext(joined.join(",")));
         }
     }

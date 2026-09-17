@@ -20,11 +20,11 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use voxgig_sekreto::Json;
+use voxgig_sekreto::voxgig_plugin::value::Value as Json;
 
 use crate::descriptor::canonical_serialize;
 use crate::error::StationError;
-use crate::jsonx::{jget, jmap};
+use crate::jsonx::{jget, jmap, jtextof};
 
 // ---------------------------------------------------------------------
 // §8.3 - the merge
@@ -314,8 +314,8 @@ pub fn resolve_order(merged: &Json, declared: &[String]) -> Result<Vec<Ordered>,
 fn listof(val: Option<&Json>) -> Vec<String> {
     match val {
         None | Some(Json::Null) => Vec::new(),
-        Some(Json::List(items)) => items.iter().map(|item| item.text()).collect(),
-        Some(other) => vec![other.text()],
+        Some(Json::List(items)) => items.iter().map(jtextof).collect(),
+        Some(other) => vec![jtextof(other)],
     }
 }
 
@@ -523,5 +523,7 @@ fn featurekind(val: Option<&Json>) -> &'static str {
         Some(Json::Map(_)) => "map",
         Some(Json::Bool(_)) => "boolean",
         Some(Json::Str(_)) => "string",
+        // Never reached - see jsonx::jtextof's note on Opaque.
+        Some(Json::Opaque(_)) => "opaque",
     }
 }

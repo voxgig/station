@@ -49,7 +49,7 @@
     "!dist/src/omnihome.*"
   ],
   "dependencies": {
-    "@voxgig/sekreto": "^0.1.0",
+    "@voxgig/sekreto": "^0.3.0",
     "@voxgig/struct": "^0.2.2"
   },
   "devDependencies": {

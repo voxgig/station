@@ -41,6 +41,11 @@ if 'voxgig_sekreto' not in sys.modules:
     try:
         import voxgig_sekreto  # noqa: F401
     except ImportError:
+        # voxgig/plugin BEFORE sekreto: sekreto's provider kinds moved onto
+        # it (sekreto 43eb579), so importing sekreto now imports plugin, and
+        # a sekreto on the path with no plugin beside it raises
+        # ModuleNotFoundError rather than resolving.
+        sys.path.insert(0, os.path.join(_sibling('plugin'), 'python'))
         sys.path.insert(0, os.path.join(_sibling('sekreto'), 'python'))
 
 from voxgig_omni import NULLMARK, makeRunner  # noqa: E402

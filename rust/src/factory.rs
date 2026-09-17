@@ -36,7 +36,7 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
-use voxgig_sekreto::Json;
+use voxgig_sekreto::voxgig_plugin::value::Value as Json;
 
 use crate::descriptor::normalize_descriptor;
 use crate::error::StationError;
@@ -92,7 +92,7 @@ pub fn provide(api: &str, factory: Factory) -> Result<Rc<FactoryEntry>, StationE
 
     let prior = TABLE.with(|table| table.borrow().get(&slug).cloned());
     if let Some(prior) = prior {
-        if Rc::ptr_eq(&prior.construct, &factory.construct) && prior.config == factory.config {
+        if Rc::ptr_eq(&prior.construct, &factory.construct) && prior.config.same(&factory.config) {
             return Ok(prior);
         }
         return Err(StationError::new(

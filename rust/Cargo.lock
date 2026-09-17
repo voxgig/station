@@ -4,9 +4,9 @@ version = 4
 
 [[package]]
 name = "cc"
-version = "1.4.3"
+version = "1.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "509591b7bcd67f4ef775afad7662703b4935daaa6ec0e5605cfb1090b32a2b6d"
+checksum = "a3eb0f42d6c360dc3f8a821f6bf2fdea7f72bfd36b3076eb0e6d1e9e0752fff4"
 dependencies = [
  "find-msvc-tools",
  "shlex",
@@ -14,15 +14,15 @@ dependencies = [
 
 [[package]]
 name = "cfg-if"
-version = "1.0.4"
+version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
+checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
 name = "find-msvc-tools"
-version = "0.1.11"
+version = "0.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d45db016d36b838f563236e9193d0ee6ce38f3f68b6c94e914b4929c96bbb890"
+checksum = "3e0f1c7c3a72c66fd80abe965175f7523475c0489a87d3ff9d6e8c87d87a9d2d"
 
 [[package]]
 name = "getrandom"
@@ -63,9 +63,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.43"
+version = "0.23.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0283386ce02abc0151e1761d08802dfe86c173b0b494af5cbc086574e453da06"
+checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
 dependencies = [
  "once_cell",
  "ring",
@@ -86,9 +86,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.14"
+version = "0.103.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0527518605e68109d875e248ea259b6758801cf165e4b2c2733ae3b51f12535a"
+checksum = "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2"
 dependencies = [
  "ring",
  "rustls-pki-types",
@@ -115,14 +115,134 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
 name = "voxgig-struct"
-version = "0.1.0"
+version = "0.1.5"
+
+[[package]]
+name = "voxgig_plugin"
+version = "0.2.0"
 
 [[package]]
 name = "voxgig_sekreto"
 version = "0.1.0"
 dependencies = [
+ "voxgig_plugin",
+]
+
+[[package]]
+name = "voxgig_sekreto_aws"
+version = "0.1.0"
+dependencies = [
+ "voxgig_plugin",
+ "voxgig_sekreto",
+ "voxgig_sekreto_httpjson",
+]
+
+[[package]]
+name = "voxgig_sekreto_azuresecrets"
+version = "0.1.0"
+dependencies = [
+ "voxgig_plugin",
+ "voxgig_sekreto",
+ "voxgig_sekreto_httpjson",
+]
+
+[[package]]
+name = "voxgig_sekreto_boru"
+version = "0.1.0"
+dependencies = [
+ "voxgig_plugin",
+ "voxgig_sekreto",
+ "voxgig_sekreto_httpjson",
+]
+
+[[package]]
+name = "voxgig_sekreto_doppler"
+version = "0.1.0"
+dependencies = [
+ "voxgig_plugin",
+ "voxgig_sekreto",
+ "voxgig_sekreto_httpjson",
+]
+
+[[package]]
+name = "voxgig_sekreto_gcpsecrets"
+version = "0.1.0"
+dependencies = [
+ "voxgig_plugin",
+ "voxgig_sekreto",
+ "voxgig_sekreto_httpjson",
+]
+
+[[package]]
+name = "voxgig_sekreto_hashicorp"
+version = "0.1.0"
+dependencies = [
+ "voxgig_plugin",
+ "voxgig_sekreto",
+ "voxgig_sekreto_httpjson",
+]
+
+[[package]]
+name = "voxgig_sekreto_httpjson"
+version = "0.1.0"
+dependencies = [
  "rustls",
+ "voxgig_sekreto",
  "webpki-roots 0.26.11",
+]
+
+[[package]]
+name = "voxgig_sekreto_infisical"
+version = "0.1.0"
+dependencies = [
+ "voxgig_plugin",
+ "voxgig_sekreto",
+ "voxgig_sekreto_httpjson",
+]
+
+[[package]]
+name = "voxgig_sekreto_minivault"
+version = "0.1.0"
+dependencies = [
+ "ring",
+ "voxgig_plugin",
+ "voxgig_sekreto",
+]
+
+[[package]]
+name = "voxgig_sekreto_onepassword"
+version = "0.1.0"
+dependencies = [
+ "voxgig_plugin",
+ "voxgig_sekreto",
+ "voxgig_sekreto_httpjson",
+]
+
+[[package]]
+name = "voxgig_sekreto_plugins"
+version = "0.1.0"
+dependencies = [
+ "voxgig_plugin",
+ "voxgig_sekreto",
+ "voxgig_sekreto_aws",
+ "voxgig_sekreto_azuresecrets",
+ "voxgig_sekreto_boru",
+ "voxgig_sekreto_doppler",
+ "voxgig_sekreto_gcpsecrets",
+ "voxgig_sekreto_hashicorp",
+ "voxgig_sekreto_httpjson",
+ "voxgig_sekreto_infisical",
+ "voxgig_sekreto_minivault",
+ "voxgig_sekreto_onepassword",
+ "voxgig_sekreto_secretspec",
+]
+
+[[package]]
+name = "voxgig_sekreto_secretspec"
+version = "0.1.0"
+dependencies = [
+ "voxgig_plugin",
+ "voxgig_sekreto",
 ]
 
 [[package]]
@@ -131,6 +251,7 @@ version = "0.1.0"
 dependencies = [
  "voxgig-struct",
  "voxgig_sekreto",
+ "voxgig_sekreto_plugins",
 ]
 
 [[package]]

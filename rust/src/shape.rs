@@ -21,7 +21,8 @@
 
 use std::collections::BTreeMap;
 
-use voxgig_sekreto::{validname, Json};
+use voxgig_sekreto::validname;
+use voxgig_sekreto::voxgig_plugin::value::Value as Json;
 use voxgig_struct::{clone as structclone, validate, InjectDef, Value};
 
 use crate::descriptor::{canonical_serialize, envtoken};
@@ -246,7 +247,7 @@ pub fn config_shape() -> Value {
 }
 
 fn parse_shape() -> Value {
-    let parsed = voxgig_sekreto::json::parse(CONFIG_SHAPE_JSON)
+    let parsed = voxgig_sekreto::voxgig_plugin::value::parse(CONFIG_SHAPE_JSON)
         .expect("station: the embedded config shape is not valid JSON");
     json_to_value(&parsed)
 }
@@ -254,7 +255,7 @@ fn parse_shape() -> Value {
 /// The shape as station's own value model, for the port-local guard
 /// tests (the drift check, and §0's optional shape assertions).
 pub fn config_shape_json() -> Json {
-    voxgig_sekreto::json::parse(CONFIG_SHAPE_JSON)
+    voxgig_sekreto::voxgig_plugin::value::parse(CONFIG_SHAPE_JSON)
         .expect("station: the embedded config shape is not valid JSON")
 }
 
@@ -740,6 +741,8 @@ fn shapekind(val: &Json) -> &'static str {
                 "decimal"
             }
         }
+        // Never reached - see jsonx::jtextof's note on Opaque.
+        Json::Opaque(_) => "opaque",
     }
 }
 
@@ -772,6 +775,10 @@ pub fn json_to_value(val: &Json) -> Value {
                 .iter()
                 .map(|(key, entry)| (key.clone(), json_to_value(entry))),
         ),
+        // Never reached - see jsonx::jtextof's note on Opaque. struct has
+        // no counterpart for a host object, and Null is the one spelling
+        // its validator already understands as "nothing here".
+        Json::Opaque(_) => Value::Null,
     }
 }
 

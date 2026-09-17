@@ -1,4 +1,5 @@
 import { Sekreto, SekretoError } from '@voxgig/sekreto'
+import { allplugins } from '@voxgig/sekreto/plugins'
 
 import { StationError } from './error'
 
@@ -23,7 +24,15 @@ export class SecretBroker {
   private held: string[] = []
 
   constructor(providers: any[]) {
-    this.sekreto = new Sekreto({ providers })
+    // allplugins, because a control surface does not get to choose the
+    // chain: the profile does, at run time, and station must honour any
+    // kind a station.json names. sekreto moved its provider kinds onto
+    // voxgig/plugin (sekreto 43eb579), leaving only dotenv/env/file/memory
+    // built in, so without this a profile naming `hashicorp` - or
+    // `minivault` - fails at open() with "unknown provider kind". This is
+    // the case sekreto's own plugins entry documents as its reason to
+    // exist.
+    this.sekreto = new Sekreto({ plugins: allplugins, providers })
   }
 
   hoist(slug: string, value: string): void {
