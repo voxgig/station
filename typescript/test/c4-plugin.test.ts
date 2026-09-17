@@ -268,7 +268,13 @@ const SECTIONS: SectionSpec[] = [
     name: 'order',
     codemap: ORDER_CODES,
     xentry: (e) => xorderentry(e),
-    subjectfor: () => (e: Entry) => drive(e.cmd as any[]),
+    // `e.in`, not `e.cmd`. voxgig/plugin moved its corpus into omni's
+    // format (plugin 2ceb0af), and omni names an entry's input `in` —
+    // `cmd` has not existed since. Reading the absent key handed `drive`
+    // undefined, its loop ran over nothing, and every row answered
+    // `{result: null}`: ten order/* groups failing while the driver
+    // itself was correct all along.
+    subjectfor: () => (e: Entry) => drive((e as any).in as any[]),
   },
 ]
 
