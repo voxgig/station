@@ -1,10 +1,3 @@
-// The GENERATED-feature path (sdkgen-station's ts adapter), against the
-// live taskpad server: the taskpad SDK here was regenerated with the
-// station feature installed via `package add @voxgig/sdkgen-station`, so
-// its Config carries a real StationFeature class. Inverted binding rides
-// the generated feature alone; connect() rides the generated feature AND
-// the carried adapter - _boundEntry makes the second arrival inert
-// (design §3.1); with no station open the active feature is a no-op.
 
 import { test, describe, before, after, beforeEach } from 'node:test'
 import { equal, ok } from 'node:assert'
@@ -21,13 +14,10 @@ const API_ROOT = Path.join(__dirname, '..', '..', '..', 'test', 'api')
 
 const APIKEY = 'taskpad-key-101'
 
-// Own port: this suite runs in parallel with quickstart's server on the
-// SDK's default 8902, so it spawns its own instance and overrides base.
 const PORT = 8912
 const BASE = 'http://localhost:' + PORT
 
 function loadSDK(): any {
-  // The generated package compiles to dist/; require the built entry.
   return require(Path.join(SDK_ROOT, 'taskpad-sdk', 'ts', 'dist', 'TaskpadSDK'))
     .TaskpadSDK
 }
@@ -113,7 +103,6 @@ describe('generated-feature', { skip: !HAVE_SDKS }, () => {
       const result = await pad.Todo().list()
       ok(Array.isArray(result))
 
-      // One wrap, one hook bridge: no doubled events either.
       equal(1, st.events().filter((e) => 'http' === e.kind).length)
       equal(1, st.events().filter((e) => 'op' === e.kind).length)
 
@@ -125,9 +114,6 @@ describe('generated-feature', { skip: !HAVE_SDKS }, () => {
   })
 
   test('active feature with no open station is an inert no-op', async () => {
-    // No Station.open() anywhere: the activated generated feature finds
-    // no handle and no ambient instance, so it binds nothing and fails
-    // nothing (§3.1) - the op path runs untouched in test mode.
     const TaskpadSDK = loadSDK()
     const pad = new TaskpadSDK({
       feature: {

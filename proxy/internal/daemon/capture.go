@@ -1,17 +1,3 @@
-// The capture store (design §8.5, §15): an in-memory LRU bounded by
-// entry count (default 10k) and total bytes (default 256 MB), truncating
-// `capture: full` bodies at 64 KB with a truncated marker. Redaction is
-// applied AT CAPTURE TIME, never retroactively (§15): redact-list
-// headers, the exchange's transient Station-Redact values, and every
-// value the proxy's broker ever resolved are scrubbed before an entry is
-// stored, so secret bytes never enter the store at all.
-//
-// Truncation and redaction make some captures lossy, and a lossy capture
-// is not a replayable one (§8.5): each entry records `replayable`, false
-// when the request body was truncated or body redaction replaced bytes
-// the request needs. REDACTED AUTH HEADERS ARE THE EXCEPTION - replay
-// restores those through the credential path (§6), so header redaction
-// alone never clears the flag.
 package daemon
 
 import (
@@ -31,12 +17,11 @@ var redactHeaderList = map[string]bool{
 	"idempotency-key": true,
 }
 
-// CaptureEntry is one recorded /v1/forward exchange, post-redaction.
 type CaptureEntry struct {
 	ID      uint64 `json:"id"`
 	T       string `json:"t"`
 	Session string `json:"session"`
-	Plugin  string `json:"plugin"` // instance ref
+	Plugin  string `json:"plugin"`
 	Corr    string `json:"corr,omitempty"`
 	// Depth is the capture depth actually stored - `full` degrades to
 	// `headers` when the envelope carries an unredactable credential
@@ -59,18 +44,11 @@ type CaptureEntry struct {
 	DurationMs   int64               `json:"durationMs"`
 
 	Replayable bool   `json:"replayable"`
-	Reason     string `json:"reason,omitempty"` // why not replayable
+	Reason     string `json:"reason,omitempty"`
 
-	size int64 // accounting for the byte bound
+	size int64
 }
 
-// accounting is the entry's charge against the store's byte bound. It
-// counts EVERY retained string, not just the big ones: `Corr` comes
-// straight off a client-supplied Station-Corr header and is held for
-// the life of the entry, so a fixed metadata estimate would let a
-// stream of large correlation ids consume far more memory than
-// CaptureMaxBytes reports or enforces. The 128 is what remains: the
-// fixed-size fields and the per-entry slice/struct overhead.
 func (e *CaptureEntry) accounting() int64 {
 	n := int64(len(e.ReqURL) + len(e.ReqBody) + len(e.ResBody) + len(e.Reason) + 128)
 	n += int64(len(e.T) + len(e.Session) + len(e.Plugin) + len(e.Corr) +
@@ -90,7 +68,6 @@ func (e *CaptureEntry) accounting() int64 {
 	return n
 }
 
-// CaptureStats is the status view (§8.5: bounds visible in status).
 type CaptureStats struct {
 	Entries    int    `json:"entries"`
 	Bytes      int64  `json:"bytes"`
@@ -127,8 +104,6 @@ func NewCaptureStore(maxEntries int, maxBytes int64) *CaptureStore {
 	return &CaptureStore{maxEntries: maxEntries, maxBytes: maxBytes}
 }
 
-// Add stores one entry (already scrubbed by the caller) and evicts
-// oldest entries while either bound is exceeded.
 func (cs *CaptureStore) Add(e *CaptureEntry) uint64 {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
@@ -199,8 +174,6 @@ func (cs *CaptureStore) Query(cursor uint64, limit int, plugin string, corr stri
 	return entries, false
 }
 
-// Find returns the entry with the given id, nil when evicted or never
-// recorded.
 func (cs *CaptureStore) Find(id uint64) *CaptureEntry {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()

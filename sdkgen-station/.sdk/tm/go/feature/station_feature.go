@@ -6,15 +6,6 @@ import (
 	"GOMODULE/core"
 )
 
-// Binds this SDK to a voxgig/station control surface: registration,
-// wire-truth http events, and placeholder credential injection. Thin by
-// design - all logic it calls lives in the station library (station
-// design §2); station.Bind resolves the station from the feature
-// options or the ambient instance, verifies wrap position, registers,
-// and wraps the transport. No station open -> nil binding, and the
-// feature is an inert no-op (station design §3.1). This file only
-// translates the generated SDK's concrete types into the library's
-// BindSpec seam - never restate a binding rule here.
 type StationFeature struct {
 	BaseFeature
 	binding *station.FeatureBinding

@@ -13,10 +13,6 @@ import (
 	"github.com/voxgig/sekreto/go/sekreto"
 )
 
-// FindConfigFile looks for station.json from `from` (default: the working
-// directory) upward to the repo root, then ~/.voxgig/station.json (design
-// §3.5). A repo root is where .git lives; with no repo the walk stops at
-// the filesystem root. Empty string when nothing is found.
 func FindConfigFile(from string) string {
 	if "" == from {
 		from, _ = os.Getwd()
@@ -55,10 +51,6 @@ func LoadConfig(from string) (map[string]any, error) {
 	return config, err
 }
 
-// LoadConfigOrder is LoadConfig plus the config's KEY DECLARATION ORDER,
-// which §8.4 needs as the last tie-break of the feature order and which
-// a Go map cannot keep (see order.go). Station reads this one; LoadConfig
-// stays for callers that only want the data.
 func LoadConfigOrder(from string) (map[string]any, *Order, error) {
 	file := FindConfigFile(from)
 	if "" == file {
@@ -78,18 +70,6 @@ func LoadConfigOrder(from string) (map[string]any, *Order, error) {
 	}
 	config, is := parsed.(map[string]any)
 	if !is {
-		// Not a map. The canonical library hands the parsed value
-		// straight to ValidateConfig, which rejects it by path; this
-		// port cannot, because the signature is typed to a map and a
-		// nil config is precisely what New() SKIPS validation for
-		// (station.go's `if nil != config`). Returning nil here made a
-		// `station.json` of `[1,2,3]` open a working Station with no
-		// error, where canonical - and every other port - raises
-		// station_config_invalid.
-		//
-		// So validate it HERE, at the point the type is lost, and hand
-		// back that error: the same error, at the same moment, from the
-		// same validator.
 		if _, err := ValidateConfig(NormalizeConfig(parsed)); nil != err {
 			return nil, nil, err
 		}
@@ -98,14 +78,6 @@ func LoadConfigOrder(from string) (map[string]any, *Order, error) {
 	return config, order, nil
 }
 
-// ConfigScope reports which side of the review boundary the discovered
-// config came from (§6.3).
-//
-// `package` and `export` are honoured only from REPO-SCOPED config,
-// because a user-level file is outside the repo's review boundary and a
-// `package` key arriving from it names code to import. Everything else
-// in a user-level config still applies - this narrows one key rather
-// than distrusting the file.
 func ConfigScope(from string) string {
 	file := FindConfigFile(from)
 	if "" == file {
@@ -138,30 +110,10 @@ type ResolvedProfile struct {
 	// Providers is the sekreto ProviderSpec chain, verbatim JSON shapes
 	// (design §5.2 - station neither extends nor validates it).
 	Providers []any
-	// Api holds the api-level defaults in effect for this profile, keyed
-	// by api slug. A REPORT, not an input to the instance merge below -
-	// collapsing each namespace first and composing at the end is the
-	// exact algorithm §3.3 forbids.
-	Api map[string]map[string]any
-	// Sdk holds the resolved instances, keyed by REF (`api$tag`, or a
-	// bare `api` for the untagged one). An api block declares no
-	// instance of its own (§3.1), so it never creates an entry here.
-	Sdk map[string]map[string]any
+	Api       map[string]map[string]any
+	Sdk       map[string]map[string]any
 }
 
-// The block defaults are ONE table with TWO CALLERS AT DIFFERENT
-// MOMENTS (shape.go BlockDefaults): ValidateConfig applies them BEFORE,
-// to every block, because a block with no present keys is an open map;
-// the resolver below applies them AFTER, to the merged instance, because
-// an absent key must stay absent through the merge. MergeSensitive names
-// the key carrying that timing rule.
-
-// RefApi returns the api half of a ref: the substring before the first
-// `$`. An untagged ref IS an api slug (§3.4).
-//
-// LEXICAL, and that is the point: under the old free-form identity which
-// api an instance used was itself a merged value, so a port that got the
-// phasing wrong silently picked another api's defaults.
 func RefApi(ref string) string {
 	if at := strings.Index(ref, "$"); -1 != at {
 		return ref[:at]
@@ -169,10 +121,6 @@ func RefApi(ref string) string {
 	return ref
 }
 
-// shallow merges per key, left to right - each source over the one
-// before it. An overlay's `policy` REPLACES the base's entirely rather
-// than merging `hosts` into it; an allowlist that widens because two
-// precedence levels merged is the failure this rule prevents.
 func shallow(sources ...map[string]any) map[string]any {
 	out := map[string]any{}
 	for _, src := range sources {
@@ -198,23 +146,6 @@ func mergedKeys(maps ...map[string]any) []string {
 	return out
 }
 
-// ResolveProfile merges the base profile ('default') with the selected
-// overlay.
-//
-// §3.3's total order for the two block levels, lowest precedence first:
-//
-//	base.api[<api>] ⊕ base.sdk[<ref>] ⊕ overlay.api[<api>] ⊕ overlay.sdk[<ref>]
-//
-// PROFILE SPECIFICITY OUTRANKS BLOCK SPECIFICITY, and this is ONE FLAT
-// LEFT-TO-RIGHT MERGE. It must not be reorganized into "collapse each
-// namespace, then put instance over api" - that lets every instance
-// value beat every api value, so a production `api.stripe.policy` would
-// fail to override a default profile's `sdk.stripe$test.policy`,
-// silently keeping the wider allowlist in production.
-//
-// secrets.providers replaces wholesale, never merges (§3.5, §5.2 - chain
-// order decides which store wins, so a positional merge would be
-// actively dangerous).
 func ResolveProfile(config map[string]any, profileName string) (*ResolvedProfile, error) {
 	profiles := asMap(config["profiles"])
 	base := asMap(profiles["default"])
@@ -272,16 +203,6 @@ func ResolveProfile(config map[string]any, profileName string) (*ResolvedProfile
 	}, nil
 }
 
-// checkSecrets catches a configured secret name sekreto would reject at
-// profile load, not first request (§14 station_secret_name) - and then
-// checks the DERIVED names for uniqueness, because envtoken is LOSSY.
-//
-// It collapses any run of non-alphanumerics to `_`, so `stripe$test` and
-// an untagged instance of a `stripe-test` api both derive
-// `stripe_test.apikey` and would silently share one credential.
-//
-// Two instances that EXPLICITLY name one secret are not a collision -
-// that is the shared-key case the api-level `secret` exists for.
 func checkSecrets(sdk map[string]map[string]any, profileName string) error {
 	refs := make([]string, 0, len(sdk))
 	for ref := range sdk {

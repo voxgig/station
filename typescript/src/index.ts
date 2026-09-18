@@ -1,10 +1,3 @@
-// @voxgig/station - one control surface for outbound integrations.
-//
-// THE ONLY ENTRY. There was a second, `index.browser.ts`, selected by a
-// `browser` condition: the same surface minus the file-loading half, so
-// no `node:` builtin was reachable from it. Station is server-side only,
-// so that entry, the `ConfigFileIO` seam it needed and the graph-walk
-// test that guarded it are all gone.
 
 export { Station, instanceRef } from './Station'
 export { provide, factoryFor, provided, resetFactories } from './factory'

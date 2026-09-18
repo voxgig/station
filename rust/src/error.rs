@@ -1,12 +1,3 @@
-//! Error codes follow the SDKs' house grammar (design §14):
-//! `<subject>_<condition>`, absence as `no_<thing>`, gates as `_allow`.
-//! The `errors` corpus section pins the exact strings.
-//!
-//! A port of typescript/src/error.ts, which is canonical. Rust has no
-//! exceptions: the operation path returns `StationError` in a `Result`,
-//! and construction-time misconfiguration (open conflicts, wrap order,
-//! double binding) panics with the same `code: message` text - the
-//! generated Rust SDKs' own idiom for a broken constructor.
 
 use std::fmt;
 
@@ -39,8 +30,6 @@ const CODES: &[&str] = &[
     // Instances (design §6.4). `as` is a tag, not a free name.
     "station_instance_api",
 
-    // The declarative front door (design §6.4). Availability errors
-    // are fatal at first use, not at open().
     "station_no_instance",
     "station_instance_inactive",
     "station_sdk_load",

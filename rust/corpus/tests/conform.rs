@@ -1,27 +1,3 @@
-// RUN: make test  (from the port root, after `make vendor`)
-// RUN-SOME: cd corpus && cargo test <name>
-//
-// Both name this SEPARATE package deliberately: the suite lives outside
-// the published crate (omni register 4.13), so `cargo test` from the
-// port root runs only the library's unit tests - a green that ran no
-// conformance at all.
-//
-// The station conformance suite: the pure-contract half of the design's
-// §13 corpus, from spec/station.json, through voxgig/omni - the same
-// file every port runs. Sections that need live SDK machinery (inject,
-// order, event correlation) live in the generated-consumer validation
-// against real generated SDKs; the corpus carries what a port can prove
-// with no SDK present. Mirrors typescript/test/conform.test.ts.
-//
-// THE OPT-IN SURFACE IS THE `drivers()` TABLE, AND THE ONLY ONE. The
-// per-section runs are derived from it, so a section named there cannot
-// silently not run; `PENDING` is the other half - a recorded decision
-// not to run a section, with the reason in the source; and
-// `sections_covered` asserts the two together cover exactly what the
-// corpus carries. Rust has no dynamic test registry, so the table is a
-// static array iterated by the runner rather than a test per section -
-// the same two properties, the shape the design's porting note names for
-// c, cpp, rust, go and java.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -82,7 +58,6 @@ fn o2sopt(val: &OJson) -> Option<Json> {
     }
 }
 
-// station Json -> omni Json, for result comparison.
 fn s2o(val: &Json) -> OJson {
     match val {
         Json::Null => OJson::Null,
@@ -109,9 +84,6 @@ fn runpack() -> voxgig_omni::RunPack {
     runner.runner("station", None).expect("spec")
 }
 
-// The sections this port deliberately does NOT run, with the reason - an
-// entry here is a DECISION, not an omission. EMPTY: this port runs every
-// section the corpus carries, and sections_covered proves it.
 const PENDING: [(&str, &str); 0] = [];
 
 // One driver per section this port RUNS, keyed by the corpus section
@@ -151,10 +123,6 @@ fn drivers() -> Vec<(&'static str, Subject)> {
     let canonical: Subject =
         Rc::new(|args: &[OJson]| Ok(OJson::Str(canonical_serialize(&o2s(&args[0])))));
 
-    // Normalize, then validate (design §4.2). The entry is a RAW config
-    // in, and either the normalized output or the expected error out -
-    // the two steps are one pipeline, and a port that splits them is
-    // free to validate the wrong form.
     let config: Subject = Rc::new(|args: &[OJson]| {
         let raw = o2s(&args[0]);
         match validate_config(&normalize_config(&raw)) {
@@ -163,7 +131,6 @@ fn drivers() -> Vec<(&'static str, Subject)> {
         }
     });
 
-    // The §3.3 merge, and the whole of this port's profile contract.
     let instance: Subject = Rc::new(|args: &[OJson]| {
         let config = o2sopt(&args[0].get("config"));
         let name = args[0]
@@ -206,16 +173,6 @@ fn drivers() -> Vec<(&'static str, Subject)> {
         }
     });
 
-    // §8's pure half (design §10.1): the three-level merge with its depth
-    // boundary, and the §8.4 order resolution. One driver, two entry
-    // shapes - `merged` selects the resolver, anything else the merge -
-    // because a port that guessed from looser cues would run the wrong
-    // subject on a mistyped entry.
-    //
-    // The resolver takes the declared order EXPLICITLY (see
-    // src/feature.rs), and an omni map is a BTreeMap, so there is no
-    // authored order to hand it: the empty slice takes the documented
-    // bytewise fallback.
     let feature: Subject = Rc::new(|args: &[OJson]| {
         if let Some(merged) = o2sopt(&args[0].get("merged")) {
             let ordered = resolve_order(&merged, &[]).map_err(|err| err.to_string())?;
@@ -270,16 +227,6 @@ fn station_conformance() {
     }
 }
 
-// Section completeness: the sections RUN plus the explicit PENDING list
-// must exactly cover what spec/station.json carries. A section added to
-// the corpus and not picked up here fails loudly instead of silently not
-// running, and a section removed or renamed while this port still lists
-// it fails too - so a stale driver or a stale pending pin is caught
-// rather than rotting.
-//
-// The corpus file is read as RAW JSON here, not through the omni runner:
-// the runner resolves and normalizes a named section, and would hide a
-// section it never resolved.
 #[test]
 fn sections_covered() {
     let text = std::fs::read_to_string(specfile()).expect("spec readable");

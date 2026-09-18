@@ -1,13 +1,3 @@
-// RUN: make test
-// RUN-SOME: go test -run 'TestBind'
-//
-// Focused unit tests for the parts the JSON corpus cannot express: the
-// binding (wrap position, placeholder placement, copy-on-inject, mock
-// non-injection, miss-vs-error), the ambient instance, the event ring,
-// and the exact-value scrub. A miniature fake of the generated seam
-// stands in for a real SDK; the true generated adapter is exercised by
-// the end-to-end consumer flow (design §13).
-
 package station_test
 
 import (
@@ -23,8 +13,6 @@ import (
 type fakeClient struct {
 	mode    string
 	fetcher station.TransportFunc
-	// options is the resolved option map the constructor was handed -
-	// what Bind mutates (placeholder, base, policy allowlist).
 	options map[string]any
 }
 

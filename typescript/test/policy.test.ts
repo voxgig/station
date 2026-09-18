@@ -1,19 +1,3 @@
-// RUN: npm test
-//
-// The §16 solo-expressible policy keys, wired:
-//
-//  - `mode` gates the operation path in the library: `live` is the
-//    default, `block` is the kill switch (refused like the hosts
-//    policy), and the proxy-era modes (record|replay|mock) fail
-//    `station_no_proxy` until a proxy is attached - accepted grammar,
-//    honest refusal.
-//  - `allow.op` / `allow.method` are set into the SDK's OWN
-//    `options.allow` at binding time, so enforcement rides the SDK's
-//    own pipeline (point_op_allow / spec_method_allow).
-//  - `budget` composes into the `ratelimit` feature entry of the merged
-//    feature map, so ordering and the station pin hold, §8.5 validates
-//    it against the SDK's declaration, and the fleet view reports it
-//    with `policy.budget` provenance.
 
 import { after, beforeEach, describe, test } from 'node:test'
 import { deepStrictEqual, equal, match, ok, throws } from 'node:assert'
@@ -32,9 +16,6 @@ function fakeClient(slug: string) {
     utility: { fetcher: async () => ({ status: 200 }) },
     options: { feature: {} },
     config: {
-      // Auth-less deliberately (rung 'none'): these tests exercise the
-      // policy gates at the transport seam, not credential injection,
-      // and an R1 client would reach for a secret on the live path.
       main: { slug, name: slug, version: '1.0.0' },
       options: { server: {} },
       entity: {},
@@ -56,7 +37,6 @@ function policyStation(slug: string, policy: any, feature?: any): Station {
   })
 }
 
-// Bind, force live mode, and run one request through the wrap.
 async function liveRequest(st: Station, slug: string): Promise<any> {
   const { ctx } = fakeClient(slug)
   ctx.client._mode = 'live'
@@ -68,11 +48,6 @@ async function liveRequest(st: Station, slug: string): Promise<any> {
 describe('policy-mode', () => {
 
   test('mode "block" refuses a live operation, like the hosts policy', async () => {
-    // §16: "`block` is the kill switch". §14 names no mode-specific
-    // code, so this raises station_host_allow - the closest existing
-    // catalog code: the same `_allow` gate grammar at the same seam,
-    // egress denied by this plugin's policy - with the mode in the
-    // message. No new code is invented.
     const st = policyStation('solar', { mode: 'block' })
     const out = await liveRequest(st, 'solar')
 
@@ -80,8 +55,6 @@ describe('policy-mode', () => {
     equal('station_host_allow', (out as any).code)
     match(String((out as any).message), /mode "block"/)
 
-    // ...and the refusal is an error EVENT too, like every operation
-    // failure at this seam.
     const errs = st.events().filter((e) => 'error' === e.kind)
     equal(1, errs.length)
     equal('station_host_allow', errs[0].err!.code)
@@ -113,9 +86,6 @@ describe('policy-mode', () => {
   })
 
   test('mode gates LIVE traffic only, like hosts', async () => {
-    // A test-mode client's mock transport is not egress; the §16 kill
-    // switch stops requests leaving the process, and in test mode none
-    // do.
     const st = policyStation('solar', { mode: 'block' })
     const { ctx } = fakeClient('solar')
     featureBinding(ctx, { station: st })
@@ -129,10 +99,6 @@ describe('policy-mode', () => {
 describe('policy-allow', () => {
 
   test('allow.op and allow.method reach the SDK s own options.allow', () => {
-    // §16: "the same vocabulary the SDKs already enforce
-    // (`options.allow` ...); station sets these SDK options from policy
-    // so enforcement is in the SDK's own pipeline". The SDK's option
-    // form is the comma-separated string its own default uses.
     const st = policyStation('solar',
       { allow: { op: ['load', 'list'], method: ['GET'] } })
 
@@ -145,9 +111,6 @@ describe('policy-allow', () => {
   })
 
   test('policy sets only the keys it carries, and wins over caller opts', () => {
-    // Unlike `base` (a default the caller may override), an allowlist
-    // is ENFORCEMENT: the policy value wins on the key it sets, and the
-    // caller's other allow keys survive beside it.
     const st = policyStation('solar', { allow: { op: ['load'] } })
 
     const { ctx } = fakeClient('solar')
@@ -160,9 +123,6 @@ describe('policy-allow', () => {
   })
 
   test('an api-level allow reaches a tagged instance', () => {
-    // blockFor's one-rule-one-place: the api block governs an instance
-    // the profile never declares, for allow exactly as it does for
-    // hosts.
     const st = new Station({
       config: {
         station: 1,
@@ -230,8 +190,6 @@ describe('policy-budget', () => {
   })
 
   test('budget composes OVER a config feature entry; other keys survive', () => {
-    // Policy is enforcement, not a default: it wins on the keys it
-    // sets, while the feature entry's own tuning rides along.
     const solar = fakeSDK('solar')
     provide('solar', { construct: (o: any) => new solar.SDK(o), config: solar.config })
 
@@ -261,9 +219,6 @@ describe('policy-budget', () => {
   })
 
   test('a budget on an SDK with no ratelimit feature is an error, not a no-op', () => {
-    // The worst outcome for a policy file is a ceiling that quietly
-    // does nothing (§8.5's whole argument). The budget-composed entry
-    // goes through the same descriptor-derived check as every feature.
     const config: any = {
       main: { slug: 'bare', name: 'bare', version: '1.0.0' },
       options: { auth: { prefix: 'Bearer ' }, server: {} },

@@ -1,9 +1,3 @@
-// Locate the sibling voxgig/omni checkout that drives the shared spec.
-//
-// station's conformance tests are omni tests: the same spec/station.json
-// runs in every port. omni is not published yet, so the tests find it on
-// disk - by $OMNI_HOME, or by looking where a checkout usually sits.
-// (The same convention sekreto uses.)
 
 import { existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'

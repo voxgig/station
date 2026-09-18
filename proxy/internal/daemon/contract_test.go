@@ -10,16 +10,6 @@ import (
 	"time"
 )
 
-// TestContract walks the whole §8 surface end-to-end against ONE
-// spawned daemon, in the order a library client lives it. Every piece
-// has a unit suite of its own; this walk proves they COMPOSE - the
-// §11/§12 loop as a protocol narrative:
-//
-//	discover -> prove -> authenticate -> register (pending) -> approve
-//	-> re-register (grant) -> forward with injection -> capture -> tap
-//	-> revoke -> expire -> renew -> close
-//
-// followed by the negative table: every §8 rejection in one place.
 func TestContract(t *testing.T) {
 	up := newUpstream(t)
 	clk := newFakeClock()
@@ -97,8 +87,6 @@ func TestContract(t *testing.T) {
 		}
 	})
 
-	// --- §3.4/§5.3: re-registration picks the approval up and mints
-	// the per-instance R2 grant (D-2026-08-24-1).
 	t.Run("05 re-register -> approved, grant issued", func(t *testing.T) {
 		var binding map[string]any
 		session, binding = registerInstance(t, ts, ref, up.ts.URL)
@@ -310,8 +298,6 @@ func TestContract(t *testing.T) {
 		}
 	})
 
-	// --- §7/§12: the agent surface composes with everything above -
-	// same daemon, same policy, same stores, one more skin.
 	t.Run("13 agent surface (MCP)", func(t *testing.T) {
 		m := rpc(t, ts, 100, "initialize", map[string]any{"protocolVersion": mcpProtocolVersion})
 		if m["result"].(map[string]any)["serverInfo"].(map[string]any)["name"] != "voxgig-station" {
@@ -341,8 +327,6 @@ func TestContract(t *testing.T) {
 			t.Fatal("traffic output carries the secret")
 		}
 
-		// A mutating tool call is refused: this daemon runs without
-		// --agent-write, and writes are a policy grant, not a default.
 		registerDescriptor(t, ts, ref, fullDescriptor(up.ts.URL))
 		payload, isErr = agentTool(t, ts, "station_call", map[string]any{
 			"plugin": ref, "entity": "planet", "op": "create",

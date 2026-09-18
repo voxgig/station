@@ -14,11 +14,6 @@ import (
 
 var envtokenRe = regexp.MustCompile(`[^A-Z0-9]+`)
 
-// Envtoken is the ONLY way to build an env-var token in station,
-// mirroring sdkgen's packageMeta envToken exactly:
-// 'gnarly-pets' -> 'GNARLY_PETS'. The `secretname` corpus section pins
-// the round-trip against sekreto's EnvKey() and sdkgen's envName() - the
-// one place three grammars meet.
 func Envtoken(name any) string {
 	text := ""
 	if s, is := name.(string); is {
@@ -38,10 +33,6 @@ func SecretnameDefault(slug string) string {
 	return strings.ToLower(Envtoken(slug)) + ".apikey"
 }
 
-// Best-effort slug from a camel name, for SDKs whose embedded config
-// predates main.slug (design §4 legacy sentinels). The hyphen caveat is
-// real: 'VoxgigSolardemo' -> 'voxgigsolardemo', NOT 'voxgig-solardemo' -
-// callers surface a warning event when this path is taken.
 func legacySlug(name string) string {
 	return strings.ToLower(name)
 }
@@ -172,20 +163,6 @@ func NormalizeDescriptor(config map[string]any, activeFeatures map[string]any) (
 		entities[ename] = map[string]any{"fields": fields, "ops": ops}
 	}
 
-	// §8.5: the features list gains `options` and `transport`, because it
-	// was throwing away what the SDK already embeds -
-	// `config.feature[name].options` is the feature's own declared key
-	// set WITH TYPED DEFAULTS, which is the schema §8.5 validates
-	// against, and `transport` is the role §8.4 orders by.
-	//
-	// Both are already inside the SDK; the descriptor stops discarding
-	// them. ADDITIVE, so descriptor v1 consumers are unaffected and the
-	// `descriptor` corpus section still passes unchanged.
-	//
-	// `transport` is CARRIED rather than inferred: the obvious signal, an
-	// empty `hook: {}`, is wrong for station, which both wraps AND
-	// dispatches hooks. Absent until sdkgen emits it, and §8.4's role
-	// checks degrade to nothing until then rather than guessing.
 	features := []any{}
 	fdefs := asMap(config["feature"])
 	for _, fname := range sortedKeys(fdefs) {

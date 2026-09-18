@@ -9,12 +9,6 @@ import (
 	"time"
 )
 
-// Registration state lives with the policy authority (policy.go): a
-// session's pending/approved state is COMPUTED from the proxy-side
-// policy store at each use, never stored here - approval and
-// triple-change-re-enters-pending (§8.3) must apply to live sessions
-// immediately.
-
 // Process is the self-reported process identity from /v1/register
 // (§8.2). Observability only - like the descriptor it is untrusted
 // input and nothing security-relevant may be derived from it (§8.3).
@@ -27,18 +21,10 @@ type Process struct {
 // Session is one registration (§3.4: one register call, one session; a
 // re-registration is a new session).
 type Session struct {
-	ID string
-	// Plugin is the instance ref this registration bound (`name$tag`;
-	// an untagged ref is the api slug, §3.2). Client-claimed - policy
-	// keyed by it stays safe because which secret a ref resolves and
-	// which hosts it may reach come from PROXY-side config (§8.3), and
-	// local v1 is single-team by policy (D-2026-08-24-2).
+	ID     string
 	Plugin string
 	Proc   Process
 
-	// Descriptor is stored verbatim (§8.3: untrusted input, kept for
-	// status/observability; the proxy derives no policy, no secret name
-	// and no egress allowlist from it).
 	Descriptor json.RawMessage
 
 	// DescriptorSHA is the hex SHA-256 of the descriptor bytes as
@@ -47,9 +33,6 @@ type Session struct {
 	// canonical serializer).
 	DescriptorSHA string
 
-	// Identity is §8.2's reserved field: accepted so wire v1 does not
-	// need a v2 for remote mode, ignored by a local proxy (§8.4,
-	// decision D-2026-08-24-2: no per-principal state anywhere in v1).
 	Identity json.RawMessage
 
 	RegisteredAt time.Time
@@ -82,7 +65,6 @@ func newID() string {
 	return hex.EncodeToString(raw)
 }
 
-// Register creates a session for a registration.
 func (s *Sessions) Register(plugin string, proc Process, descriptor json.RawMessage, descriptorSHA string, identity json.RawMessage) *Session {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -105,9 +87,6 @@ func (s *Sessions) expiredLocked(sess *Session, now time.Time) bool {
 	return now.Sub(sess.LastSeen) > s.ttl
 }
 
-// Touch looks up a session, purging it if expired, and refreshes its
-// liveness. Returns false for unknown or expired sessions - the signal
-// for the library to fully re-register (§3.4).
 func (s *Sessions) Touch(id string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -124,7 +103,6 @@ func (s *Sessions) Touch(id string) bool {
 	return true
 }
 
-// Get returns a copy of a live session without touching liveness.
 func (s *Sessions) Get(id string) (Session, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -159,12 +137,6 @@ func (s *Sessions) LatestDescriptorBase(ref string) string {
 	return base
 }
 
-// LatestDescriptor returns the verbatim descriptor of the most recent
-// live registration of ref - the §7 tools' source for entity/op shape.
-// Untrusted input: the agent surface derives candidate lists and
-// request synthesis from it, while hosts policy and secret selection
-// stay proxy-side (§8.3), so a hostile descriptor cannot widen egress
-// or pick a secret.
 func (s *Sessions) LatestDescriptor(ref string) json.RawMessage {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -183,7 +155,6 @@ func (s *Sessions) LatestDescriptor(ref string) json.RawMessage {
 	return descriptor
 }
 
-// Refs lists the distinct instance refs with live sessions, sorted.
 func (s *Sessions) Refs() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -202,7 +173,6 @@ func (s *Sessions) Refs() []string {
 	return out
 }
 
-// AddEvents credits n ingested events to the session, if it still exists.
 func (s *Sessions) AddEvents(id string, n uint64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -211,7 +181,6 @@ func (s *Sessions) AddEvents(id string, n uint64) {
 	}
 }
 
-// Delete removes a session, reporting whether it existed (and was live).
 func (s *Sessions) Delete(id string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -247,6 +216,4 @@ func (s *Sessions) List() []Session {
 	return out
 }
 
-// TTL exposes the configured liveness window (surfaced in bindings and
-// status).
 func (s *Sessions) TTL() time.Duration { return s.ttl }

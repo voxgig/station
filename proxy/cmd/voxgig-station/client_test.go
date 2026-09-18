@@ -12,13 +12,6 @@ import (
 
 const testToken = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
-// TestVerifyProofRejectsRedirect: §8.1's handshake is only worth
-// something if the endpoint that PRODUCES the proof is the endpoint
-// that will RECEIVE the bearer token. A default http.Client follows
-// redirects, so an imposter squatting the configured daemon address can
-// bounce /v1/health to the genuine daemon on another local address and
-// relay its valid Station-Proof; verification then succeeds and the
-// very next request sends the bearer token to the imposter's own URL.
 func TestVerifyProofRejectsRedirect(t *testing.T) {
 	var genuineHits atomic.Int64
 	genuine := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

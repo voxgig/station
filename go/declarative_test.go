@@ -1,17 +1,3 @@
-// RUN: make test
-// RUN-SOME: go test -run 'TestFactory|TestDeclarative|TestFeatures|TestWarm'
-//
-// The declarative front door (design §6) and the §8 feature machinery,
-// for the parts the JSON corpus cannot express: they need a factory, a
-// constructor and a live registry, and the corpus deliberately carries
-// only what a port can prove with no SDK present.
-//
-// The fake factory below is the smallest thing that behaves like a
-// generated package: a `config` constant beside a constructor that
-// builds a client and calls station.Bind. That IS the §6.2 contract - a
-// factory is a constructor PLUS the SDK's static config - so a fake
-// missing either half would not be a fake of anything.
-
 package station_test
 
 import (
@@ -23,9 +9,6 @@ import (
 
 // --- a miniature generated package ---
 
-// fakeSDKConfig is fakeConfig with a declared feature set: `feature` in
-// an SDK's embedded config is name -> {options: <typed defaults>}, and
-// §8.5 validates a station.json feature entry against exactly that.
 func fakeSDKConfig(slug string, features map[string]any) map[string]any {
 	config := fakeConfig(slug, "FakeSDK", true)
 	fmap := map[string]any{"station": map[string]any{}, "test": map[string]any{}}
@@ -36,8 +19,6 @@ func fakeSDKConfig(slug string, features map[string]any) map[string]any {
 	return config
 }
 
-// fakeFactory is what a generated package would register in its
-// func init(): the constructor, and the config beside it.
 func fakeFactory(config map[string]any) station.Factory {
 	return station.Factory{
 		Config: config,
@@ -462,8 +443,6 @@ func TestFeaturesOfComposesThePolicyBudget(t *testing.T) {
 	}
 	entry, _ := resolved.Merged["ratelimit"].(map[string]any)
 
-	// POLICY WINS on exactly the keys it sets - it is enforcement, not a
-	// default - and other tuning keys survive beside it.
 	if true != entry["active"] || 5.0 != toFloat(entry["rate"]) ||
 		2.0 != toFloat(entry["burst"]) || true != entry["jitter"] {
 		t.Fatalf("composed ratelimit: %v", entry)
@@ -606,8 +585,6 @@ func TestWarmDedupesBySecretNameAndMissesTypos(t *testing.T) {
 	}
 }
 
-// --- §6.3: the review boundary ---
-
 func TestRepoScopedReadsTheExplicitOptionFirst(t *testing.T) {
 	st := declarative(t, map[string]any{})
 	if !st.RepoScoped() {
@@ -701,8 +678,6 @@ func TestTwoInstancesOfOneApiAreDistinct(t *testing.T) {
 	}
 }
 
-// --- §16: the policy allowlist is enforcement, applied at binding ---
-
 func TestPolicyAllowlistReachesTheSDKOptions(t *testing.T) {
 	provideFake(t, "fakepad", nil)
 	st := declarative(t, map[string]any{
@@ -741,9 +716,6 @@ func TestPolicyAllowlistReachesTheSDKOptions(t *testing.T) {
 	}
 }
 
-// CheckPackage is the one piece of §6.3 that survives here: pure, and
-// called by nothing this port runs - it exists so a Go-side tool can
-// hold a shared station.json to the same rule the loading ports apply.
 func TestCheckPackageTakesModuleNamesOnly(t *testing.T) {
 	for _, good := range []string{
 		"github.com/acme/stripe-sdk", "@acme-sdk/stripe", "stripe_sdk",

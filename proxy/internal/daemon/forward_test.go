@@ -274,12 +274,6 @@ func TestForwardSemantics(t *testing.T) {
 
 // --- §8.2/§16: the outbound Host authority ------------------------------
 
-// TestForwardHostOverride: the hosts policy approves the ENVELOPE URL's
-// hostname, but the outbound HTTP `Host` is the authority a reverse
-// proxy or a virtual-hosted server actually routes on. An override that
-// disagrees with the target would aim the request - injected credential
-// and all - at an unapproved virtual host behind an approved network
-// destination, with the checked destination unchanged.
 func TestForwardHostOverride(t *testing.T) {
 	up := newUpstream(t)
 	cfgPath := stationJSONFor(t, `"127.0.0.1"`, "proxy", "meta")

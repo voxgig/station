@@ -7,10 +7,6 @@ import { StationError } from './error'
 // broker holds resolved values privately - they never enter options,
 // events, or captures; the SDK sees only the placeholder.
 
-// §7.2: keyed by INSTANCE. Two live instances of one api must have
-// distinct placeholders or the injection seam cannot tell which
-// credential a header wants. For an untagged instance this is the api
-// slug, so the single-instance case is unchanged.
 export function placeholderFor(slug: string): string {
   return '[station:' + slug + ']'
 }
@@ -24,14 +20,6 @@ export class SecretBroker {
   private held: string[] = []
 
   constructor(providers: any[]) {
-    // allplugins, because a control surface does not get to choose the
-    // chain: the profile does, at run time, and station must honour any
-    // kind a station.json names. sekreto moved its provider kinds onto
-    // voxgig/plugin (sekreto 43eb579), leaving only dotenv/env/file/memory
-    // built in, so without this a profile naming `hashicorp` - or
-    // `minivault` - fails at open() with "unknown provider kind". This is
-    // the case sekreto's own plugins entry documents as its reason to
-    // exist.
     this.sekreto = new Sekreto({ plugins: allplugins, providers })
   }
 
@@ -40,21 +28,6 @@ export class SecretBroker {
     this.held.push(value)
   }
 
-  // Resolve the value for a plugin's secret name. Misses and store
-  // errors keep sekreto's distinction (design §5.2): a miss is
-  // station_secret_no_value, a store that could not answer is
-  // station_secret_error with sekreto's message intact - and never a
-  // retry against a weaker store (sekreto owns the chain).
-  // OVERRIDES ARE KEYED BY INSTANCE; THE RESOLUTION CACHE IS KEYED BY
-  // SECRET NAME (§5.3). A hoisted credential belongs to the one instance
-  // it was resident in, but a resolved VALUE belongs to the name it was
-  // resolved for - so several instances sharing one api-level `secret`
-  // cost one lookup rather than one each, and every client an
-  // auto-tagged `create()` produces shares the declared instance's entry
-  // instead of re-resolving per request.
-  //
-  // Keying the cache by instance instead is the defect this replaces: at
-  // 26 instances over 20 apis it turns one store round-trip into 26.
   async value(slug: string, name: string): Promise<string> {
     const override = this.overrides.get(slug)
     if (null != override) { return override }
@@ -79,11 +52,6 @@ export class SecretBroker {
     return value
   }
 
-  // Exact-value scrub, deliberately WITHOUT sekreto's four-character
-  // readability floor (design §7 as revised): on boundaries where the
-  // promise is absolute, every held value is scrubbed whatever its
-  // length. sekreto's own redact() runs too, covering values resolved
-  // by the underlying instance that station never held.
   scrub(text: string): string {
     let out = this.sekreto.redact(text)
     for (const value of this.held) {

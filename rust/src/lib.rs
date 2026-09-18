@@ -1,32 +1,3 @@
-//! voxgig_station - one control surface for outbound integrations.
-//!
-//! The Rust port of [station](https://github.com/voxgig/station): solo
-//! mode only in v1 (the proxy is a deferred amplifier - design §2.1;
-//! `proxy: "require"` fails operations closed with station_no_proxy and
-//! `auto` degrades to solo with one warning event). The canonical
-//! implementation is typescript/src/*; each module here names the file it
-//! ports.
-//!
-//! Single-threaded by design: the generated Rust SDKs are an Rc/RefCell
-//! world (values are neither Send nor Sync, transports are Rc<dyn Fn>),
-//! so this library is `!Send` throughout and the ambient instance is
-//! thread-local.
-//!
-//! Binding is the inverted/ambient form only (design §3.1, tier table):
-//! open the station, then construct the SDK with the station feature
-//! activated in plain options data - the generated adapter (installed by
-//! @voxgig/sdkgen-station) binds to the ambient instance:
-//!
-//! ```ignore
-//! use voxgig_station::{Station, StationOptions};
-//!
-//! let st = Station::open(StationOptions::default());
-//! let sdk = taskpad_sdk::TaskpadSDK::new(jo(vec![(
-//!     "feature", jo(vec![("station", jo(vec![("active", Value::Bool(true))]))]),
-//! )]));
-//! // ... sdk.todo(None).list(...) - placeholder-safe options, injected wire
-//! st.close();
-//! ```
 
 pub mod binding;
 pub mod descriptor;
@@ -42,12 +13,6 @@ pub mod secrets;
 pub mod shape;
 pub mod station;
 
-/// Station's value model IS sekreto's - one dependency, one value type
-/// (design §10). sekreto dropped its own `Json` when its providers moved
-/// onto voxgig/plugin (sekreto 43eb579) and took plugin's `Value`, which
-/// is the same six JSON variants plus an `Opaque` one for host objects
-/// the library never inspects. Station keeps calling it `Json`: the name
-/// is station's value model, and every port spells it that way.
 pub use voxgig_sekreto::voxgig_plugin::value::Value as Json;
 
 pub use crate::binding::{bind, hostname, BindSpec, Binding, Bound, TransportPlan};

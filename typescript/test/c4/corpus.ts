@@ -1,15 +1,3 @@
-/* C4 (plugin/doc/plan/contracts.md, rows C4a/C4b): station runs
- * voxgig/plugin's corpus against its OWN implementation and reports
- * divergence as a plugin issue rather than absorbing it.
- *
- * This file is the corpus-side half of that harness: locating the
- * plugin checkout, loading spec/plugin.json, and the entry-judging
- * helpers PORTED from plugin/typescript/test/corpus.ts - they are the
- * definition of how an entry is judged, so they are ported rather than
- * approximated. The one deliberate departure: `check` takes a CODE
- * TABLE, because station raises its own §14 codes where plugin raises
- * §12 ones, and the mapping between them must be explicit and pinned
- * rather than implied by a regex. */
 
 import * as Fs from 'node:fs'
 import * as Path from 'node:path'
@@ -19,12 +7,7 @@ import * as Path from 'node:path'
 // env var first, then the places a sibling checkout usually sits).
 // ---------------------------------------------------------------------
 
-/** The plugin checkout, or null when none is present. Callers decide
- * what absence means: the suite skips cleanly by default, and fails
- * loudly when STATION_REQUIRE_C4 is set (CI sets it - a missing
- * checkout there is a broken lane, not an optional extra). */
 export function pluginhome(): string | null {
-  // __dirname at runtime is <station>/typescript/dist/test/c4.
   const candidates = [
     process.env.PLUGIN_HOME,
     Path.join(__dirname, '..', '..', '..', '..', 'plugin'),
@@ -40,9 +23,6 @@ export function pluginhome(): string | null {
   return null
 }
 
-// ---------------------------------------------------------------------
-// The corpus, exactly as plugin's own runner reads it
-// ---------------------------------------------------------------------
 
 export type Entry = {
   id?: string
@@ -82,12 +62,7 @@ export function label(sec: string, group: string, i: number, e: Entry): string {
   return e.id ? e.id : sec + '/' + group + '@' + i
 }
 
-// ---------------------------------------------------------------------
-// equal / matches - ported verbatim from plugin's corpus.ts
-// ---------------------------------------------------------------------
 
-/** Deep equality over spec values. Key order never matters; list order
- * always does. */
 export function equal(a: any, b: any): boolean {
   if (a === b) { return true }
   if (Array.isArray(a) || Array.isArray(b)) {
@@ -106,8 +81,6 @@ export function equal(a: any, b: any): boolean {
   return false
 }
 
-/** Partial match: every key the expectation names must agree, and keys
- * it does not name are ignored. */
 export function matches(expect: any, actual: any): boolean {
   if ('__EXISTS__' === expect) { return undefined !== actual }
   if ('__UNDEF__' === expect) { return undefined === actual }
@@ -142,20 +115,9 @@ export function isMap(v: any): boolean {
   return null != v && 'object' === typeof v && !Array.isArray(v)
 }
 
-// ---------------------------------------------------------------------
-// check - ported from plugin's corpus.ts, plus the explicit code table
-// ---------------------------------------------------------------------
 
-/** Expected plugin error code -> the station code that stands for it.
- * Part of the harness, visible and pinned: a raise still compares BY
- * CODE (plugin DOCS.md §4.6), the table only says which station code a
- * plugin code translates to. A plugin code with no row compares
- * untranslated - and therefore never matches a StationError, which is
- * exactly right for a case station does not raise at all. */
 export type CodeMap = { [pluginCode: string]: string }
 
-/** Run one entry against a subject and report the disagreement, if
- * any. Same three-combination rule as plugin's runner. */
 export function check(
   e: Entry, subject: (e: Entry) => any, codemap: CodeMap
 ): string | null {

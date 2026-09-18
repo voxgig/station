@@ -1,29 +1,3 @@
-// RUN: npm test   (or: make test-c4 at the repo root)
-//
-// C4a/C4b (plugin/doc/plan/contracts.md): station runs voxgig/plugin's
-// corpus sections - `ref` + `config` (C4a) and `lifecycle` + `order`
-// (C4b) - from the sibling checkout's spec/plugin.json against
-// STATION'S OWN implementation, and reports divergence as a plugin
-// issue rather than absorbing it.
-//
-// THREE MANIFESTS ARE THE DELIVERABLE, and all three are load-bearing:
-//
-// - SKIP_GROUPS / SKIP_ENTRIES pin what station has NO genuine
-//   counterpart for, each with the reason. The adapters raise
-//   NoCounterpart on that vocabulary, so an entry missing from the
-//   manifest fails instead of half-running - and the dispatch test
-//   fails on any corpus group that is neither mapped nor skipped, so a
-//   new plugin section group cannot arrive silently.
-// - DIVERGE pins the entries where station's implementation DISAGREES
-//   with plugin's corpus today. Each row is asserted to STILL FAIL:
-//   fixing a divergence forces removing its row, and a row that stops
-//   failing without a fix is a corpus change worth noticing. These
-//   rows are the "report as a plugin issue" half of C4.
-//
-// Nothing here reimplements plugin. The subjects are station's own
-// exports - instanceRef (Station.ts), resolveProfile (profile.ts),
-// resolveorder/checkpin (feature.ts) - reached through adapters that
-// translate INPUT vocabulary only (test/c4/*.ts state every mapping).
 
 import { test } from 'node:test'
 import * as Assert from 'node:assert'
@@ -55,7 +29,6 @@ const SKIP_GROUPS: { [sectionGroup: string]: string } = {
     'half and validation/canonicalization live inside instanceRef; the ' +
     'grammar itself is covered by name/tag/bound/boundtag/canon/parsebad',
 
-  // -- config (C4a): outside the joint agreement's documented mapping.
   'config/normarray':
     'the array (positional) instance form: station\'s config grammar has ' +
     'only the map form (sdk/api maps), and the group\'s map-form entry ' +
@@ -76,19 +49,11 @@ const SKIP_GROUPS: { [sectionGroup: string]: string } = {
     'checkshape/$MERGE validation: station has no $MERGE vocabulary to ' +
     'validate',
 
-  // -- order (C4b)
   'order/pinorder':
     'a multi-name pin map ({noisy: first, probe: first}): station\'s pin ' +
     'machinery is checkpin - exactly one name (`station`), innermost; ' +
     'there is no `first` pin and no pin map to sort',
 
-  // -- lifecycle (C4b): no native counterpart until the P3
-  // bridge/library swap. Station's native phase has no probe catalog,
-  // no status ladder (declared/loaded/pending/live/failed), no
-  // instance scope, and no callback log - features bind through the
-  // generated SDK, and station's lifecycle slice is instance
-  // activation (`active`, station_instance_inactive), covered by its
-  // own corpus and suites. Per-group, what each pins:
   'lifecycle/forward': 'the declared->loaded->live staircase',
   'lifecycle/back': 'deactivate/unload transitions and state survival',
   'lifecycle/idem': 'idempotent transitions on the status ladder',
@@ -106,15 +71,6 @@ const SKIP_GROUPS: { [sectionGroup: string]: string } = {
 }
 
 const SKIP_ENTRIES: { [entryLabel: string]: string } = {
-  // -- config: entries inside mapped groups that reach for vocabulary
-  // the §3.2 table does not cover.
-  //
-  // (a) plugin's library-default merge INSIDE options across levels:
-  // station's `options` block key replaces wholesale (§3.3 shallow per
-  // key; joint doc §2.5 records the difference and its resolution -
-  // merge depth is the shape's to declare, and station declares
-  // replace). Translating these expectations would mean this adapter
-  // applying a merge rule, i.e. absorbing the difference.
   'config/optdefault@4':
     'per-key merge of default.options into instance.options; station\'s ' +
     'options block replaces wholesale (joint doc §2.5)',
@@ -123,9 +79,6 @@ const SKIP_ENTRIES: { [entryLabel: string]: string } = {
   'config/optlist@2':
     'library-default deep merge of a map-valued option across levels; ' +
     'same §2.5 rule',
-  // (b) ladder levels 1-2 and 7-10, which the §3.2 table does not map
-  // (station has no definition shape defaults, host defaults, env
-  // option layer, host/load options, or runtime patch in its resolver).
   'config/optladder#1': 'level 1 (definition shape defaults)',
   'config/optladder@1': 'level 2 (hostdefaults)',
   'config/optladder@2': 'level 2 (hostdefaults)',
@@ -142,7 +95,6 @@ const SKIP_ENTRIES: { [entryLabel: string]: string } = {
   'config/optladder#all-ten': 'levels 1-2 and 7-10',
   'config/optladder@18': 'levels 1-2 and 7-9',
   'config/optlist@1': 'level 10 (patch)',
-  // (c) the layered/positional normalized form.
   'config/normmap#pos':
     'positional `pos` on instances: station\'s registry is a keyed map, ' +
     'not positional',
@@ -171,7 +123,6 @@ const SKIP_ENTRIES: { [entryLabel: string]: string } = {
   'config/normpartial#arrayoptions':
     'an array-form overlay and a multi-layer optionlayers expectation',
 
-  // -- order
   'order/pin@2':
     'an `outermost` pin: station\'s checkpin pins exactly one name ' +
     '(`station`) innermost; there is no outermost pin',
@@ -184,20 +135,12 @@ const SKIP_ENTRIES: { [entryLabel: string]: string } = {
 // ---------------------------------------------------------------------
 
 const DIVERGE: { [entryLabel: string]: string } = {
-  // EMPTY, and that is the news: the eight rows this manifest carried
-  // (instanceRef accepting every name and tag plugin's §4 grammar
-  // rejects) were discharged by station adopting the joint ref grammar
-  // in Station.ts - checkref inside instanceRef, with the corpus's
-  // instanceref section pinning the canonical/refused cases. New
-  // divergences land here, each asserted to still-fail until fixed.
 }
 
 // ---------------------------------------------------------------------
 // Section wiring: group -> station subject
 // ---------------------------------------------------------------------
 
-/** plugin code -> station code where a mapped entry expects a raise
- * station spells with its own §14 code. See c4/corpus.ts CodeMap. */
 const REF_CODES: CodeMap = {
   // Station spells every ref-grammar refusal station_instance_api:
   // checkref (name/tag grammar, joint doc §2/§4) and checkapi (a full
@@ -226,7 +169,6 @@ const REF_SUBJECTS: { [group: string]: (e: Entry) => any } = {
   // half - which makes checkapi vacuous and leaves checkref the subject.
   canon: (e) => instanceRef(refapi(e.in), { instance: e.in }),
   parsebad: (e) => instanceRef(refapi(e.in), { instance: e.in }),
-  // checkname/checktag -> the exported predicates.
   name: (e) => checkInstanceName(e.in),
   tag: (e) => checkInstanceTag(e.in),
   bound: (e) => checkInstanceName(e.in),
@@ -245,8 +187,6 @@ const SECTIONS: SectionSpec[] = [
   {
     name: 'config',
     codemap: {},
-    // norm* expectations carry single-layer optionlayers, translated
-    // losslessly to resolved options (c4/config.ts says why).
     xentry: (e) => xnormentry(e),
     subjectfor: (g) => {
       // Before the generic norm* branch: this one group's entities are
@@ -268,19 +208,10 @@ const SECTIONS: SectionSpec[] = [
     name: 'order',
     codemap: ORDER_CODES,
     xentry: (e) => xorderentry(e),
-    // `e.in`, not `e.cmd`. voxgig/plugin moved its corpus into omni's
-    // format (plugin 2ceb0af), and omni names an entry's input `in` —
-    // `cmd` has not existed since. Reading the absent key handed `drive`
-    // undefined, its loop ran over nothing, and every row answered
-    // `{result: null}`: ten order/* groups failing while the driver
-    // itself was correct all along.
     subjectfor: () => (e: Entry) => drive((e as any).in as any[]),
   },
 ]
 
-// ---------------------------------------------------------------------
-// The runner
-// ---------------------------------------------------------------------
 
 const HOME = pluginhome()
 
@@ -320,8 +251,6 @@ else {
       'corpus groups with no subject and no skip row: ' + unknown.join(', '))
   })
 
-  // The manifests may only name things that exist - a corpus change
-  // that renames or removes an entry forces the row to move with it.
   test('c4-plugin: manifest rows resolve', () => {
     const groups = new Set<string>()
     const labels = new Set<string>()

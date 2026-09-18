@@ -1,22 +1,3 @@
-//! Feature management (design §8): the three-level merge, the
-//! constraint-and-band resolver, and the descriptor-derived checker.
-//!
-//! The resolver is written to voxgig/plugin's §7 semantics so plugin can
-//! extract it - this is one of the pieces the joint plan means by
-//! "station builds natively to plugin's semantics".
-//!
-//! A port of typescript/src/feature.ts, which is canonical.
-//!
-//! DECLARATION ORDER, AND WHERE THIS PORT GETS IT. §8.4's LAST tie-break
-//! is the order the config declared its features in. Station's value
-//! model IS sekreto's `Json`, whose maps are `BTreeMap` - and omni's Json
-//! is a `BTreeMap` too, so the authored order is already gone before a
-//! corpus entry reaches a driver. `resolve_order` therefore takes the
-//! declared order as an EXPLICIT list, exactly as the Go port does, and
-//! falls back to bytewise key order when it is empty - which is every
-//! caller in this port today. Deterministic, and identical to the
-//! authored order whenever the config is authored in sorted order (as
-//! every corpus entry is). README.md states the divergence.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -34,19 +15,10 @@ use crate::jsonx::{jget, jmap, jtextof};
 /// the SDK's own option map.
 pub const RESERVED_KEYS: [&str; 2] = ["active", "order"];
 
-/// `test` substitutes the base transport, so it takes the innermost
-/// band; `station` sits immediately outside it, pinned; everything else
-/// is band 0, outside station.
-///
-/// THE DEFAULT IS TODAY'S BEHAVIOUR EXPRESSED IN THE NEW MODEL rather
-/// than as a special case: a project that writes no `order` anywhere sees
-/// exactly today's nesting, and sdkgen's two `makeOptions` special cases
-/// become two band values rather than two branches.
 pub const BAND_DEFAULT: f64 = 0.0;
 pub const BAND_STATION: f64 = 100.0;
 pub const BAND_TEST: f64 = 200.0;
 
-/// Higher is further IN.
 pub fn default_band(name: &str) -> f64 {
     match name {
         "test" => BAND_TEST,
@@ -55,19 +27,6 @@ pub fn default_band(name: &str) -> f64 {
     }
 }
 
-/// The two-level merge - per feature name, then per option key, and NO
-/// DEEPER.
-///
-/// `feature` is the ONE key where §3.3's shallow-per-key rule is wrong:
-/// composition is the entire point, a fleet default plus a per-instance
-/// tweak. A map-valued OPTION replaces wholesale, which is the depth
-/// boundary `{"$MERGE": {"deep": 2}}` states and what a port defaulting
-/// to a deep merge would silently get wrong.
-///
-/// NO DEFAULTS ARE SYNTHESIZED HERE - the caller passes RAW blocks. An
-/// entry mentioned at one level with only a tuning key must NOT
-/// synthesize `active` and switch on a feature a broader level turned
-/// off. That is the §3.3 defect one level down.
 pub fn merge_features(sources: &[Option<&Json>]) -> Json {
     let mut out: BTreeMap<String, Json> = BTreeMap::new();
     for src in sources.iter().flatten() {
@@ -79,7 +38,6 @@ pub fn merge_features(sources: &[Option<&Json>]) -> Json {
             let fields = match entry {
                 Json::Map(fields) => fields,
                 other => {
-                    // A non-map entry replaces wholesale.
                     out.insert(name.clone(), other.clone());
                     continue;
                 }
@@ -88,7 +46,6 @@ pub fn merge_features(sources: &[Option<&Json>]) -> Json {
                 Some(Json::Map(prior)) => prior.clone(),
                 _ => BTreeMap::new(),
             };
-            // Per option key, and NOT deeper.
             for (key, val) in fields.iter() {
                 acc.insert(key.clone(), val.clone());
             }
@@ -98,19 +55,6 @@ pub fn merge_features(sources: &[Option<&Json>]) -> Json {
     Json::Map(out)
 }
 
-/// The six sources for one instance, in §3.3's order extended by the
-/// profile level:
-///
-/// ```text
-/// 1 base.feature            4 overlay.feature
-/// 2 base.api[<api>].feature 5 overlay.api[<api>].feature
-/// 3 base.sdk[<ref>].feature 6 overlay.sdk[<ref>].feature
-/// ```
-///
-/// PROFILE SPECIFICITY OUTRANKS BLOCK SPECIFICITY, and within a profile
-/// the narrower block wins - the same principle as §3.3, one level down.
-/// Assembled here rather than at the call site so the order lives in
-/// exactly one place.
 pub fn feature_sources<'a>(
     base: Option<&'a Json>,
     overlay: Option<&'a Json>,
@@ -141,7 +85,6 @@ pub fn feature_sources<'a>(
 // §8.4 - activation and order
 // ---------------------------------------------------------------------
 
-/// One row of the resolved order, OUTERMOST FIRST.
 #[derive(Clone, Debug)]
 pub struct Ordered {
     pub name: String,
@@ -179,22 +122,6 @@ fn names_in_order(merged: &BTreeMap<String, Json>, declared: &[String]) -> Vec<S
     out
 }
 
-/// Resolve the activation order: constraints, then bands, then the
-/// feature's position in the merged map.
-///
-/// `before`/`after` take a feature name or a list of them and are
-/// SATISFIED VACUOUSLY when the named feature is absent - `after: 'test'`
-/// loads fine in a project with no test feature, which is sdkgen's
-/// `__after__` behaviour kept rather than reinvented.
-///
-/// Constraints beat bands; bands break ties no constraint decides;
-/// remaining ties break by DECLARATION POSITION - `declared`, which this
-/// port's map type cannot supply and every caller therefore passes (an
-/// empty slice falls back to bytewise key order). So the result is a
-/// stable topological sort with no alphabetical accident left in it.
-///
-/// Returns OUTERMOST FIRST, which is the array form the constructor takes
-/// and the direction plugin's chain composes in.
 pub fn resolve_order(merged: &Json, declared: &[String]) -> Result<Vec<Ordered>, StationError> {
     let empty = BTreeMap::new();
     let entries = match merged {
@@ -235,7 +162,6 @@ pub fn resolve_order(merged: &Json, declared: &[String]) -> Result<Vec<Ordered>,
             Some(order @ Json::Map(_)) => order,
             _ => continue,
         };
-        // Vacuous when absent: an unknown name is not an error here.
         for other in listof(jget(order, "after")) {
             if let Some(set) = inner.get_mut(other.as_str()) {
                 set.insert(name.as_str());
@@ -319,16 +245,6 @@ fn listof(val: Option<&Json>) -> Vec<String> {
     }
 }
 
-/// Station's own position is PINNED and not orderable (§8.4): an order
-/// that moves `station` away from immediately-outside-the-base is
-/// REJECTED, not honoured.
-///
-/// THE PIN IS `innermost`, AND THE SPELLING MATTERS. A chain composes
-/// with the FIRST binding outermost, so a pin written in sort terms -
-/// "station first" - would place every other wrapper between the adapter
-/// and the base: the exact inversion of the invariant, and one that would
-/// leave station's wire-truth events observing the wrong boundary while
-/// still looking ordered.
 pub fn check_pin(ordered: &[Ordered]) -> Result<(), StationError> {
     let at = match ordered.iter().position(|row| "station" == row.name) {
         Some(at) => at as i64,
@@ -353,7 +269,6 @@ pub fn check_pin(ordered: &[Ordered]) -> Result<(), StationError> {
     Ok(())
 }
 
-/// Just the names of a resolved order, outermost first.
 pub fn feature_names(ordered: &[Ordered]) -> Vec<String> {
     ordered.iter().map(|row| row.name.clone()).collect()
 }
@@ -361,7 +276,6 @@ pub fn feature_names(ordered: &[Ordered]) -> Vec<String> {
 /// Compose the merged map into the ORDERED ARRAY FORM the generated
 /// constructor takes. No new seam: it is what the binding already does
 /// for station's own placement, with more in it. RESERVED_KEYS are not
-/// options and are never passed through.
 pub fn compose_features(ordered: &[Ordered]) -> Vec<Json> {
     ordered
         .iter()
@@ -395,21 +309,6 @@ pub struct Fault {
     pub message: String,
 }
 
-/// Check a merged feature map against the SDK'S OWN DECLARATION.
-///
-/// The schema arrives with the FACTORY rather than with a live client
-/// (§6.2), so this needs no construction and no network - which is what
-/// lets `check()` run it for every instance in CI, and what lets
-/// `build()` run it before every construction.
-///
-/// Derived from the descriptor, NEVER hand-written, so it cannot drift:
-/// when a feature gains an option, the next regeneration teaches station
-/// about it with no station change.
-///
-/// SCALARS AGREE BY CONSTRUCTION; COMPOUND OPTIONS ARE KIND-CHECKED ONLY,
-/// and that limit is real and deliberate: an empty list default says
-/// nothing reliable about its element type and a nested map default says
-/// nothing about its value shapes.
 pub fn check_features(merged: &Json, descriptor: &Json) -> Vec<Fault> {
     let mut faults: Vec<Fault> = Vec::new();
 
@@ -427,7 +326,6 @@ pub fn check_features(merged: &Json, descriptor: &Json) -> Vec<Fault> {
         _ => &empty,
     };
 
-    // BTreeMap iterates in sorted order, which is the order §8.5 wants.
     for (name, entry) in entries.iter() {
         let spec = match byname.get(name) {
             Some(spec) => spec,
@@ -461,9 +359,7 @@ pub fn check_features(merged: &Json, descriptor: &Json) -> Vec<Fault> {
             let want = match defaults.get(key) {
                 Some(found) => found,
                 None => {
-                    // THE CASE THAT ACTUALLY BITES: `retry.retires: 5` is
                     // accepted and silently ignored today, because the
-                    // SDK's own feature spec is `$OPEN` per feature so
                     // the SDK cannot catch it and nothing else looks.
                     faults.push(Fault {
                         code: "station_feature_option".to_string(),
@@ -503,7 +399,6 @@ pub fn check_features(merged: &Json, descriptor: &Json) -> Vec<Fault> {
     faults
 }
 
-/// Every fault's message, joined - what the callers raise.
 pub fn fault_messages(faults: &[Fault]) -> String {
     faults
         .iter()
@@ -512,9 +407,6 @@ pub fn fault_messages(faults: &[Fault]) -> String {
         .join("; ")
 }
 
-/// The FEATURE kindof. NOT the same function as the shape's
-/// (`shape::shapekind`) - they disagree on numbers and maps deliberately,
-/// and unifying them would make one of the two message sets wrong.
 fn featurekind(val: Option<&Json>) -> &'static str {
     match val {
         None | Some(Json::Null) => "null",
@@ -523,7 +415,6 @@ fn featurekind(val: Option<&Json>) -> &'static str {
         Some(Json::Map(_)) => "map",
         Some(Json::Bool(_)) => "boolean",
         Some(Json::Str(_)) => "string",
-        // Never reached - see jsonx::jtextof's note on Opaque.
         Some(Json::Opaque(_)) => "opaque",
     }
 }

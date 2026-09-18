@@ -1,19 +1,3 @@
-// Proxy-side policy authority (design §8.3, §16).
-//
-// Everything a client registers is untrusted input, so under
-// `resolve: proxy` the instance→secret-name mapping, the provider chain,
-// and the hosts egress allowlist all come from configuration the PROXY
-// loads itself - its own station.json, its own profile resolution, its
-// own sekreto instance. Where nothing proxy-side covers an instance
-// there is no first-seen shortcut: the plugin parks in `pending` -
-// registered, visible in status, capture and library-resolved traffic
-// working - until `approve` explicitly blesses the base/hosts/name
-// triple, and any later change to that triple re-enters pending.
-//
-// The config loading here is a trimmed port of typescript/src/profile.ts
-// (canonical) / go/station/profile.go: same lookup convention, same §3.5
-// flat four-source merge with profile specificity outranking block
-// specificity, same wholesale replacement of `secrets.providers`.
 package daemon
 
 import (
@@ -38,11 +22,6 @@ const (
 	StateApproved = "approved"
 )
 
-// Policy modes (§16). `live` is the default; `block` is the per-plugin
-// kill switch. The proxy enforces `block` itself at the data-plane seam
-// rather than trusting the library's own check: a client that predates
-// the check, or that talks to /v1/forward directly, must not be able to
-// keep an instance running that the proxy-side profile has switched off.
 const (
 	ModeLive  = "live"
 	ModeBlock = "block"
@@ -73,10 +52,6 @@ func refapi(ref string) string {
 	return ref
 }
 
-// FindStationConfig looks for station.json from `from` (default: the
-// working directory) upward to the repo root (where .git lives), then
-// ~/.voxgig/station.json - the §3.5 lookup, same as profile.ts. Empty
-// when nothing is found.
 func FindStationConfig(from string) string {
 	if from == "" {
 		from, _ = os.Getwd()
@@ -114,16 +89,12 @@ func (e instanceEntry) str(key string) string {
 	return s
 }
 
-// agentWrite reads the §16 `agent.write` policy opt-in: mutating agent
-// operations are a per-instance grant, never a default (§7, §12).
 func (e instanceEntry) agentWrite() bool {
 	agent, _ := e["agent"].(map[string]any)
 	write, _ := agent["write"].(bool)
 	return write
 }
 
-// mode reads the §16 `policy.mode` kill switch. Empty means the entry
-// does not declare one and the caller's default (`live`) stands.
 func (e instanceEntry) mode() string {
 	policy, _ := e["policy"].(map[string]any)
 	m, _ := policy["mode"].(string)
@@ -184,18 +155,6 @@ func mergedKeys(maps ...map[string]any) []string {
 	return out
 }
 
-// loadStationConfig reads and resolves the proxy-side station.json at
-// path for profileName. Nil config (no error) when path is empty.
-//
-// §3.5's total order for the two block levels, lowest precedence first -
-// ONE FLAT LEFT-TO-RIGHT MERGE, never "collapse each namespace first":
-//
-//	base.api[<api>] ⊕ base.sdk[<ref>] ⊕ overlay.api[<api>] ⊕ overlay.sdk[<ref>]
-//
-// Merging within a block is shallow per key - an overlay's `policy`
-// REPLACES the base's wholesale rather than merging `hosts` into it,
-// the only safe reading for an allowlist. `secrets.providers` replaces
-// wholesale at the profile level (§5.2).
 func loadStationConfig(path string, profileName string) (*stationConfig, error) {
 	if path == "" {
 		return nil, nil
@@ -279,7 +238,6 @@ type approvalState struct {
 	Approvals map[string]Approval `json:"approvals"`
 }
 
-// Effective is the policy view a forward/register consults for one ref.
 type Effective struct {
 	Ref        string
 	State      string // pending | approved
@@ -289,15 +247,12 @@ type Effective struct {
 	Base       string
 	Resolve    string // library | proxy
 	Capture    string // meta | headers | full
-	Mode       string // §16 policy.mode: live | record | replay | mock | block
-	AgentWrite bool   // the instance's §16 agent.write opt-in
+	Mode       string
+	AgentWrite bool // the instance's §16 agent.write opt-in
 	Version    int
 	Approved   *Approval
 }
 
-// PolicyStore is the proxy-side policy authority: the resolved config,
-// the approval table (persisted), and the per-ref version counters that
-// drive the GET /v1/policy/{ref} long-poll.
 type PolicyStore struct {
 	mu        sync.Mutex
 	cfg       *stationConfig // nil when no proxy-side config
@@ -407,7 +362,6 @@ func equalStrings(a, b []string) bool {
 	return true
 }
 
-// EffectiveFor computes the current policy view for ref.
 func (p *PolicyStore) EffectiveFor(ref string) Effective {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -452,13 +406,6 @@ func (p *PolicyStore) effectiveLocked(ref string) Effective {
 	return eff
 }
 
-// Approve blesses the base/hosts/name triple for ref (§8.3's
-// `voxgig-station approve`). The triple comes from the proxy-side
-// config where it covers the ref; the hosts default falls back to the
-// base URL's host - config base first, else descriptorBase, the
-// proxy-side view of a live registration's descriptor (§16). An
-// approval that cannot determine any hosts allowlist fails: blessing an
-// unbounded egress surface is exactly what approve exists to prevent.
 func (p *PolicyStore) Approve(ref string, descriptorBase string) (Approval, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -509,11 +456,6 @@ func hostOfURL(raw string) string {
 	return strings.ToLower(u.Hostname())
 }
 
-// blockedMessage is the §16 kill-switch refusal, worded like the
-// library's own (typescript/src/Station.ts): §14 names no mode-specific
-// code, so `block` raises station_host_allow - the same `_allow` gate
-// grammar, the same seam, the same meaning (egress denied by this
-// instance's policy), with the message naming the mode.
 func blockedMessage(ref string) string {
 	return fmt.Sprintf(
 		"egress denied: instance %q is policy mode %q, the kill switch (§16)", ref, ModeBlock)
@@ -536,10 +478,6 @@ func hostAllowed(hosts []string, hostname string, port string) bool {
 	return false
 }
 
-// NarrowHosts applies §8.3's narrow-never-widen rule: a registered
-// descriptor whose base host is INSIDE the approved allowlist narrows
-// this session's effective allowlist to that host; a base outside it is
-// ignored entirely - untrusted input cannot widen approved policy.
 func narrowHosts(approved []string, descriptorBase string) []string {
 	dh := hostOfURL(descriptorBase)
 	if dh == "" {
@@ -551,7 +489,6 @@ func narrowHosts(approved []string, descriptorBase string) []string {
 	return approved
 }
 
-// versionLocked returns the current policy version for ref (starts at 1).
 func (p *PolicyStore) versionLocked(ref string) int {
 	if v, ok := p.versions[ref]; ok {
 		return v
@@ -559,7 +496,6 @@ func (p *PolicyStore) versionLocked(ref string) int {
 	return 1
 }
 
-// bumpLocked advances ref's policy version and wakes long-pollers.
 func (p *PolicyStore) bumpLocked(ref string) {
 	p.versions[ref] = p.versionLocked(ref) + 1
 	if ch, ok := p.waiters[ref]; ok {
@@ -568,8 +504,6 @@ func (p *PolicyStore) bumpLocked(ref string) {
 	}
 }
 
-// Bump is bumpLocked for other stores (grant revocation is a policy
-// update the long-poll should deliver).
 func (p *PolicyStore) Bump(ref string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()

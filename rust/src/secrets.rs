@@ -1,12 +1,3 @@
-//! The secret broker (design §5): sekreto resolves, station places. The
-//! broker holds resolved values privately - they never enter options,
-//! events, or captures; the SDK sees only the placeholder.
-//!
-//! A port of typescript/src/secrets.ts, which is canonical. Where the
-//! canonical broker string-matches sekreto's thrown 'unknown secret', this
-//! port uses the Rust sekreto's own miss-vs-error split (`trysecret`
-//! returns Ok(None) for a miss, Err for a store that could not answer) -
-//! the same distinction, natively typed.
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -17,13 +8,6 @@ use voxgig_sekreto::{AuthSpec, Options, ProviderSpec, Sekreto};
 use crate::error::StationError;
 use crate::jsonx::{jget, jstr};
 
-/// The inert value planted in options.apikey (design §5.3 R1). The
-/// `placeholder` corpus section pins the exact string.
-///
-/// §7.2: KEYED BY INSTANCE. Two live instances of one api must have
-/// distinct placeholders or the injection seam cannot tell which
-/// credential a header wants. For an untagged instance this is the api
-/// slug, so the single-instance case is unchanged.
 pub fn placeholder_for(name: &str) -> String {
     format!("[station:{}]", name)
 }
@@ -46,19 +30,6 @@ impl SecretBroker {
     /// error, surfaced as station_secret_error.
     pub fn new(providers: &[Json]) -> Result<SecretBroker, StationError> {
         let specs: Vec<ProviderSpec> = providers.iter().map(providerspec_of).collect();
-        // Sekreto::new(Options), not makechain + Sekreto::new(chain):
-        // sekreto folded the two into one constructor when its provider
-        // kinds moved onto voxgig/plugin (sekreto 43eb579), and building
-        // the chain is now part of building the Sekreto - which is why
-        // this can still fail the same way, on the same configuration
-        // errors (a plaintext vault address, an unknown kind).
-        //
-        // plugins::all(), because a control surface does not get to choose
-        // the chain: the profile does, at run time. Everything except
-        // dotenv/env/file/memory is behind a plugin definition the caller
-        // passes in, so without this a profile naming `hashicorp` - or
-        // `minivault` - fails here with "unknown provider kind". Same call
-        // as the go port's plugins.All(), for the same reason.
         let sek = Sekreto::new(Options {
             plugins: voxgig_sekreto_plugins::all(),
             providers: specs,
@@ -80,21 +51,6 @@ impl SecretBroker {
         self.held.borrow_mut().push(value.to_string());
     }
 
-    /// Resolve the value for an instance's secret name. Misses and store
-    /// errors keep sekreto's distinction (design §5.2): a miss is
-    /// station_secret_no_value, a store that could not answer is
-    /// station_secret_error with sekreto's message intact - and never a
-    /// retry against a weaker store (sekreto owns the chain).
-    ///
-    /// OVERRIDES ARE KEYED BY INSTANCE; THE RESOLUTION CACHE IS KEYED BY
-    /// SECRET NAME (§5.3). A hoisted credential belongs to the one
-    /// instance it was resident in, but a resolved VALUE belongs to the
-    /// name it was resolved for - so several instances sharing one
-    /// api-level `secret` cost one lookup rather than one each, and every
-    /// client an auto-tagged create() produces shares the declared
-    /// instance's entry instead of re-resolving per request. Keying the
-    /// cache by instance instead is the defect this replaces: at 26
-    /// instances over 20 apis it turns one store round-trip into 26.
     pub fn value(&self, instance: &str, name: &str) -> Result<String, StationError> {
         if let Some(over) = self.overrides.borrow().get(instance) {
             return Ok(over.clone());
@@ -124,11 +80,6 @@ impl SecretBroker {
         }
     }
 
-    /// Exact-value scrub, deliberately WITHOUT sekreto's four-character
-    /// readability floor (design §7 as revised): on boundaries where the
-    /// promise is absolute, every held value is scrubbed whatever its
-    /// length. sekreto's own redact() runs too, covering values resolved
-    /// by the underlying instance that station never held.
     pub fn scrub(&self, text: &str) -> String {
         let mut out = self.sekreto.borrow().redact(text);
         for value in self.held.borrow().iter() {

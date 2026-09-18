@@ -1,18 +1,3 @@
-// RUN: make test
-// RUN-SOME: cd testutil && go test -run 'TestStation/secretname'
-//
-// RUN-SOME names this NESTED module deliberately: the suite lives
-// outside the published module (omni register 4.13), so the same
-// command from the port root matches nothing and reports a green that
-// ran no conformance at all.
-//
-// The station conformance suite: the pure-contract half of the design's
-// §13 corpus, from spec/station.json, through voxgig/omni - the same
-// file every port runs. Sections that need live SDK machinery (inject,
-// order, event correlation) live in the integration suites against real
-// generated SDKs; the corpus carries what a port can prove with no SDK
-// present.
-
 package station_test
 
 import (
@@ -92,34 +77,12 @@ func denullmap(value any) map[string]any {
 	return out
 }
 
-// --- declaration order, which a Go map cannot keep ---
-//
-// §8.4's LAST tie-break is the order the config declared its features
-// in. The canonical library gets that free from a JavaScript object and
-// omni hands this port the entry as parsed - a map[string]any, whose key
-// order Go discards. So the spec file is parsed a second time, with the
-// port's own order-preserving reader (station.ParseOrdered), and each
-// `feature` entry's authored key order is indexed by the canonical
-// serialization of its `in` value.
-//
-// Do NOT read this suite as proof that the order machinery works. Every
-// `merged` entry in the corpus happens to have alphabetically-ordered
-// keys, so sorted == declared for all twenty and `order = nil` at the
-// top of namesInOrder leaves this whole file green. The machinery is
-// pinned instead by TestDeclarationOrderIsNotSortedOrder in
-// go/station_regression_test.go, on keys where the two disagree.
 var (
 	orderOnce  sync.Once
 	orderIndex = map[string][]string{}
 	orderErr   error
 )
 
-// mergedOrder returns the authored key order of one entry's `merged`
-// map, and whether it was found. A MISS IS AN ERROR, not a shrug: the
-// fallback is sorted keys, and because every corpus entry's keys are
-// already alphabetical, sorted keys pass ALL twenty - so a silent miss
-// would not fail anything here, it would just stop testing the
-// tie-break entirely.
 func mergedOrder(in any) ([]string, bool) {
 	orderOnce.Do(func() {
 		file, err := findspec("station.json")
@@ -221,10 +184,6 @@ var (
 		return station.CanonicalSerialize(denull(args[0])), nil
 	})
 
-	// Normalize, then validate (design §4.2). The entry is a RAW config
-	// in, and either the normalized output or the expected error out -
-	// the two steps are one pipeline, and a port that splits them is
-	// free to validate the wrong form.
 	CONFIG = omni.Subject(func(args ...any) (any, error) {
 		return station.ValidateConfig(station.NormalizeConfig(denull(args[0])))
 	})
@@ -263,11 +222,6 @@ var (
 		return station.InstanceRef(api, entrymap(entry["opts"]))
 	})
 
-	// §8's pure half (design §10.1): the three-level merge with its
-	// depth boundary, and the §8.4 order resolution. ONE driver, TWO
-	// entry shapes - `merged` selects the resolver, anything else the
-	// merge - because a port that guessed from looser cues would run the
-	// wrong subject on a mistyped entry.
 	FEATURE = omni.Subject(func(args ...any) (any, error) {
 		entry := entrymap(args[0])
 		if raw, has := entry["merged"]; has && nil != raw && omni.NULLMARK != raw {
@@ -299,13 +253,6 @@ var (
 	})
 )
 
-// DRIVERS is the opt-in surface: one driver per corpus section this port
-// RUNS, and the per-section tests below are REGISTERED FROM THIS TABLE,
-// never written out by hand. A section listed here cannot silently fail
-// to execute, and the completeness guard closes the other direction.
-//
-// A slice of pairs rather than a map: Go's map type has no order, and
-// the registration order is the order the failures read in.
 var DRIVERS = []struct {
 	name    string
 	subject omni.Subject
@@ -322,27 +269,11 @@ var DRIVERS = []struct {
 	{"errors", ERRORS},
 }
 
-// PENDING is the sections this port deliberately does NOT run, with the
-// reason - an entry here is a recorded decision, not an omission. It is
-// EMPTY: this port runs every section the corpus carries. The list stays
-// so that a future deferral is a recorded decision rather than a driver
-// quietly missing from the table above.
 var PENDING = []struct {
 	name   string
 	reason string
 }{}
 
-// TestSectionsCovered is the completeness guard: the sections run, plus
-// the explicit PENDING list, must EXACTLY cover what spec/station.json
-// carries - not a subset, not a superset.
-//
-// It reads the corpus file DIRECTLY as raw JSON, not through the omni
-// runner: the runner resolves and normalizes a NAMED section, so it
-// would hide a section it never resolved. A section added to the corpus
-// and not picked up here appears in `present` and not in `covered` and
-// fails loudly instead of silently not running; a section renamed or
-// deleted while this port still lists it fails the other way, so a stale
-// driver or a stale PENDING pin is caught rather than rotting.
 func TestSectionsCovered(t *testing.T) {
 	text, err := os.ReadFile(specfile(t, "station.json"))
 	if nil != err {

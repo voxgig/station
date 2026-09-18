@@ -1,7 +1,3 @@
-// The operator verbs: status, approve, tap - the human skins of the
-// wire API (§6: "the CLI and MCP tools are two skins over one proxy
-// API"). Each verb runs the §8.1 proof-of-token handshake before
-// sending anything sensitive.
 package main
 
 import (

@@ -1,17 +1,3 @@
-// Binds this SDK to a voxgig/station control surface: registration,
-// wire-truth http events, and placeholder credential injection. Thin by
-// design - all logic it calls lives in the voxgig_station library
-// (station design 2); station::bind resolves the ambient station
-// (Station::open - rust options are pure data, so no handle rides them;
-// station design 3.1), verifies wrap position, and registers. No station
-// open -> None, and the feature is an inert no-op. This file only
-// translates the generated SDK's concrete types (Value, Context,
-// FetcherFn) into the library's BindSpec/prepare seams - never restate a
-// binding rule here. The one physical duty the type boundary leaves on
-// this side is the copy-on-inject clone (station design 5.3): the
-// fetchdef is deep-cloned BEFORE the injected header set is applied, so
-// the object graph reachable from ctx/spec/ctrl.explain keeps only the
-// placeholder, ever.
 
 use std::any::Any;
 use std::collections::BTreeMap;
@@ -69,10 +55,6 @@ impl Feature for StationFeature {
         };
         let utility = ctx.util();
 
-        // The client's feature list by name, in init order - the wrap
-        // position guard's input (station design 3.3). The one entry that
-        // cannot be borrowed is this feature itself, mid-init under
-        // feature_init's borrow_mut - its name is by definition ours.
         let names: Vec<String> = client
             .features
             .borrow()
@@ -150,10 +132,6 @@ impl Feature for StationFeature {
     }
 }
 
-// The transport middleware shell: extract what the library's per-request
-// decisions need, apply its plan, report the outcome for the event
-// stream. All decisions (require, hosts policy, injection, event shapes)
-// are the library's.
 fn station_transport(
     binding: &Rc<station::Binding>,
     inner: &FetcherFn,
@@ -202,8 +180,6 @@ fn station_transport(
             }
         }
         if plan.manual_redirect {
-            // In-band annotation honoured by the default transport: with a
-            // hosts policy, redirects come back manual (station design 8.2).
             setp(&cloned, "redirect", Value::str("manual"));
         }
         cloned

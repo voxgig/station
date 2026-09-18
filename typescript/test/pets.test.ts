@@ -1,7 +1,3 @@
-// The awkward cases, against the gnarly-pets test API: Bearer-prefix
-// injection, the hosts policy (including the redirect rule at the
-// library seam), credential echo kept out of the event stream, and a
-// multi-plugin registry.
 
 import { test, describe, before, after, beforeEach } from 'node:test'
 import { equal, ok, match, deepEqual } from 'node:assert'
@@ -145,9 +141,6 @@ describe('gnarly-pets', { skip: !HAVE_SDKS }, () => {
   })
 
   test('an upstream credential echo never reaches the event stream', async () => {
-    // A wrong-but-present credential: the server 401s and echoes the
-    // presented value in its error body (deliberately gnarly). Nothing
-    // holding the value may appear in events.
     process.env.GNARLY_PETS_APIKEY = 'wrong-value-7'
     try {
       const station = Station.open({ config: null })

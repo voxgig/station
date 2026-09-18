@@ -1,12 +1,3 @@
-//! station.json lookup and profile resolution (design §3.5).
-//!
-//! A port of typescript/src/profile.ts, which is canonical: lookup walks
-//! cwd upward to the repo root (where .git lives), then
-//! ~/.voxgig/station.json; profile selection is open() opts, else
-//! VOXGIG_STATION_PROFILE, else 'default'; the merge is deep per plugin
-//! EXCEPT secrets.providers, which replaces wholesale (§3.5, §5.2 - chain
-//! order decides which store wins, so a positional merge would be
-//! actively dangerous). The `instance` corpus section pins the resolution.
 
 use std::collections::BTreeMap;
 use std::env;
@@ -18,9 +9,6 @@ use voxgig_sekreto::voxgig_plugin::value::Value as Json;
 use crate::error::StationError;
 use crate::jsonx::{jget, jmap, jstr};
 
-/// station.json lookup: `from` (or cwd) upward to the repo root, then
-/// ~/.voxgig/station.json. A repo root is where .git lives; with no repo
-/// the walk stops at the filesystem root.
 pub fn find_config_file(from: Option<&Path>) -> Option<PathBuf> {
     let start = match from {
         Some(dir) => dir.to_path_buf(),
@@ -49,14 +37,6 @@ pub fn find_config_file(from: Option<&Path>) -> Option<PathBuf> {
     None
 }
 
-/// Load the discovered station.json, or None when there is none.
-///
-/// A JSON parse failure is `station_config_invalid` NAMING THE FILE, not
-/// a raw parser error escaping open(): the one thing a person needs when
-/// a config will not load is which file it was, and the canonical port
-/// wraps it at exactly this moment for the same reason. An unreadable
-/// file (present, but the process cannot read it) is the same class of
-/// misconfiguration and carries the io error.
 pub fn load_config(from: Option<&Path>) -> Result<Option<Json>, StationError> {
     let file = match find_config_file(from) {
         Some(file) => file,
@@ -68,9 +48,6 @@ pub fn load_config(from: Option<&Path>) -> Result<Option<Json>, StationError> {
             format!("station.json at {} cannot be read: {}", file.display(), err),
         )
     })?;
-    // Ok/Err, not Some/None: the parser came with plugin's value model
-    // (sekreto 43eb579) and it SAYS WHAT IS WRONG. The old message could
-    // only report that no value was found; this one names the fault.
     match voxgig_sekreto::voxgig_plugin::value::parse(&text) {
         Ok(parsed) => Ok(Some(parsed)),
         Err(why) => Err(StationError::new(
@@ -84,15 +61,6 @@ pub fn load_config(from: Option<&Path>) -> Result<Option<Json>, StationError> {
     }
 }
 
-/// Which side of §6.3's review boundary the discovered config came from:
-/// `none` when the lookup found no file, `user` when it found
-/// `~/.voxgig/station.json`, else `repo`.
-///
-/// `package` and `export` are honoured only from REPO-SCOPED config,
-/// because a user-level file sits outside the repo's review boundary and
-/// a `package` key arriving from it names CODE TO LOAD. Everything else
-/// in a user-level config still applies - this narrows one key rather
-/// than distrusting the file.
 pub fn config_scope(from: Option<&Path>) -> String {
     let file = match find_config_file(from) {
         Some(file) => file,
@@ -131,31 +99,12 @@ pub struct ResolvedProfile {
     pub name: String,
     /// sekreto ProviderSpec forms, verbatim from station.json (§5.2).
     pub providers: Vec<Json>,
-    /// The api-level defaults in effect for this profile, keyed by api
-    /// slug. A REPORT, not an input to the instance merge - collapsing
-    /// each namespace first and composing at the end is the exact
-    /// algorithm §3.3 forbids.
     pub api: BTreeMap<String, Json>,
-    /// Resolved instances, keyed by REF (`api$tag`, or a bare `api` for
-    /// the untagged one). An api block declares no instance of its own
-    /// (§3.1), so it never creates an entry here.
     pub sdk: BTreeMap<String, Json>,
 }
 
-// The block defaults and the one merge-sensitive key among them live in
-// shape.rs: ONE TABLE, TWO CALLERS AT DIFFERENT MOMENTS (§4.2).
-// validate_config applies it BEFORE, to every block, because a block with
-// no present keys is an open map; the resolver below applies it AFTER, to
-// the merged instance, because an absent key must stay absent through the
-// merge.
 pub use crate::shape::{block_defaults, MERGE_SENSITIVE};
 
-/// The api half of a ref: the substring before the first `$`. An
-/// untagged ref IS an api slug (§3.4).
-///
-/// LEXICAL, and that is the point: under the old free-form identity
-/// which api an instance used was itself a merged value, so a port that
-/// got the phasing wrong silently picked another api's defaults.
 pub fn refapi(reference: &str) -> String {
     match reference.find('$') {
         Some(at) => reference[..at].to_string(),
@@ -163,10 +112,6 @@ pub fn refapi(reference: &str) -> String {
     }
 }
 
-/// Shallow merge, per key, left to right - each source over the one
-/// before it. An overlay's `policy` REPLACES the base's entirely rather
-/// than merging `hosts` into it; an allowlist that widens because two
-/// precedence levels merged is the failure this rule prevents.
 fn shallow(sources: &[Option<&Json>]) -> Json {
     let mut out: BTreeMap<String, Json> = BTreeMap::new();
     for src in sources.iter().flatten() {
@@ -189,22 +134,6 @@ fn merged_keys(maps: &[Option<&BTreeMap<String, Json>>]) -> Vec<String> {
     keys.into_keys().collect()
 }
 
-/// Merge the base profile ('default') with the selected overlay.
-///
-/// §3.3's total order for the two block levels, lowest precedence first:
-///
-/// ```text
-/// base.api[<api>] + base.sdk[<ref>] + overlay.api[<api>] + overlay.sdk[<ref>]
-/// ```
-///
-/// PROFILE SPECIFICITY OUTRANKS BLOCK SPECIFICITY, and this is ONE FLAT
-/// LEFT-TO-RIGHT MERGE. It must not be reorganized into "collapse each
-/// namespace, then put instance over api" - that lets every instance
-/// value beat every api value, so a production `api.stripe.policy` would
-/// fail to override a default profile's `sdk.stripe$test.policy`,
-/// silently keeping the wider allowlist in production.
-///
-/// `secrets.providers` replaces wholesale, never merges (§3.5, §5.2).
 pub fn resolve_profile(
     config: Option<&Json>,
     profile_name: &str,
@@ -276,16 +205,6 @@ pub fn resolve_profile(
     })
 }
 
-/// A configured secret name sekreto would reject is caught at profile
-/// load, not first request (§14 station_secret_name) - and then the
-/// DERIVED names are checked for uniqueness, because envtoken is LOSSY.
-///
-/// It collapses any run of non-alphanumerics to `_`, so `stripe$test` and
-/// an untagged instance of a `stripe-test` api both derive
-/// `stripe_test.apikey` and would silently share one credential.
-///
-/// Two instances that EXPLICITLY name one secret are not a collision -
-/// that is the shared-key case the api-level `secret` exists for.
 fn checksecrets(
     sdk: &BTreeMap<String, Json>,
     profile_name: &str,

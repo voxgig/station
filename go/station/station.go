@@ -1,23 +1,3 @@
-// The station library core, solo mode (design D1): fully functional
-// in-process with no other component running. The proxy (D2) is a
-// deferred amplifier - `require` therefore fails on the operation path
-// (design §2.1/§14), and `auto` degrades to solo with one warning event.
-//
-// A port of typescript/src/Station.ts, which is canonical. Go's SDKs
-// bind through the INVERTED form (design §3.1): the app constructs the
-// generated SDK with station-built options -
-//
-//	st := station.Open(nil)
-//	sdk := taskpad.NewTaskpadSDK(st.Options(nil))
-//
-// - and the generated station feature reads the handle from its feature
-// options (or falls back to the ambient instance) and calls Bind.
-//
-// The DECLARATIVE front door (design §6) is here too - Instances, SDK,
-// Create, FeaturesOf, Check, Warm - resting on the process-global
-// factory table in factory.go. §6.3's loader is NOT here and cannot be:
-// Go links its dependencies, so there is no import-by-name at run time.
-// See README.md for the §5.4 divergence in full.
 package station
 
 import (
@@ -29,26 +9,19 @@ import (
 	"time"
 )
 
-// Options configure a Station (design §3.5 layer 6).
 type Options struct {
 	// Profile selects the station.json profile ('' = VOXGIG_STATION_PROFILE,
 	// else 'default').
 	Profile string
 	// Proxy is 'auto' (default), 'off', 'require', or a URL. The proxy
 	// itself is deferred; 'require' fails operations closed (§2.1).
-	Proxy string
-	// Folder starts the station.json walk somewhere other than the
-	// working directory.
+	Proxy  string
 	Folder string
 	// Config, when non-nil, is used instead of loading station.json.
 	Config map[string]any
 	// NoConfig true means no config at all: skip the disk lookup (the
 	// explicit `config: null` of the canonical ts library).
-	NoConfig bool
-	// RepoScoped, when non-nil, decides §6.3's review boundary outright.
-	// READ FIRST, before anything is inferred: inferring first makes
-	// `repoScoped: false` unsettable for any caller passing a config in
-	// code, which is every test of the rule.
+	NoConfig   bool
 	RepoScoped *bool
 	// Load is ACCEPTED AND INERT here (§6.3, §5.4 item 4): this port has
 	// no loader to switch off. The field exists so one config and one
@@ -56,18 +29,14 @@ type Options struct {
 	Load *bool
 }
 
-// PluginEntry is one registered INSTANCE (design §3.2, §7.1).
 type PluginEntry struct {
-	// Name is the instance ref - `api$tag`, or a bare api slug for the
-	// untagged one. THE REGISTRY KEY.
 	Name string
-	// API is what groups an instance's siblings.
-	API string
+	API  string
 	// Slug is retained and equals API: it is what `slug` always meant
 	// here, and the two are the same string for an untagged instance.
 	Slug       string
 	Descriptor map[string]any
-	Rung       string // 'none' | 'R1'
+	Rung       string
 	// Secretname is the EFFECTIVE name, resolved once at registration
 	// (§7.4). The transport seam reads it from here with no fallback.
 	Secretname string
@@ -90,19 +59,12 @@ type Instance struct {
 // FeatureSet is the merged, ordered feature set for one instance, with
 // per-value provenance (design §8.7).
 type FeatureSet struct {
-	// Ordered is the resolved order, OUTERMOST FIRST, including the
-	// implicit `station` row §8.4 pins.
-	Ordered []string `json:"ordered"`
-	// Merged is the user's own merge result - `station` is never in it.
-	Merged map[string]any `json:"merged"`
-	// From is feature -> option key -> the config level that set it.
-	From map[string]map[string]string `json:"from"`
-	// Declared is the merged map's DECLARATION ORDER, which §8.4 uses as
-	// its last tie-break and a Go map cannot keep (see order.go).
-	Declared []string `json:"declared"`
+	Ordered  []string                     `json:"ordered"`
+	Merged   map[string]any               `json:"merged"`
+	From     map[string]map[string]string `json:"from"`
+	Declared []string                     `json:"declared"`
 }
 
-// FeatureRow is one row of the fleet view (design §8.7).
 type FeatureRow struct {
 	Instance string                       `json:"instance"`
 	API      string                       `json:"api"`
@@ -111,11 +73,6 @@ type FeatureRow struct {
 	From     map[string]map[string]string `json:"from"`
 }
 
-// FeatureFilter narrows the fleet view. Go cannot overload on a string,
-// so the string shorthand is LooseFilter() and this is the object form -
-// the only one that can express the question the view exists for:
-// {Feature: "debug"}, "is debug on anywhere?", the one that is twenty
-// greps today.
 type FeatureFilter struct {
 	Instance string
 	API      string
@@ -125,32 +82,26 @@ type FeatureFilter struct {
 	Loose bool
 }
 
-// LooseFilter is the string shorthand: "this instance or this api".
 func LooseFilter(text string) *FeatureFilter {
 	return &FeatureFilter{Instance: text, API: text, Loose: true}
 }
 
-// CheckFailure is one instance Check() could not stand up.
 type CheckFailure struct {
 	Name    string `json:"name"`
 	Code    string `json:"code"`
 	Message string `json:"message"`
 }
 
-// CheckResult is the CI answer (design §6.6).
 type CheckResult struct {
 	OK     []string       `json:"ok"`
 	Failed []CheckFailure `json:"failed"`
 }
 
-// WarmResult is the batch secret resolution (design §5.5). Both lists
-// are sorted.
 type WarmResult struct {
 	Warmed []string `json:"warmed"`
 	Missed []string `json:"missed"`
 }
 
-// Status is the solo status surface (design §6).
 type Status struct {
 	Mode    string            `json:"mode"`
 	Profile string            `json:"profile"`
@@ -158,12 +109,6 @@ type Status struct {
 	Events  EventBufferStatus `json:"events"`
 }
 
-// PluginStatus projects one live instance. §7.1: the registry is keyed
-// by INSTANCE, so a status page that projects only `slug` shows two
-// indistinguishable rows for `stripe$test` and `stripe$live` and omits
-// the names it is keyed by - an operator cannot tell which one is
-// unhealthy. `slug` stays for compatibility; `name` and `api` are what
-// answer the question.
 type PluginStatus struct {
 	Name string `json:"name"`
 	API  string `json:"api"`
@@ -171,7 +116,6 @@ type PluginStatus struct {
 	Rung string `json:"rung"`
 }
 
-// describedSDK is one api's shared descriptor (design §7.4).
 type describedSDK struct {
 	descriptor map[string]any
 	warnings   []string
@@ -199,18 +143,13 @@ type Station struct {
 	repoScoped bool
 	broker     *secretBroker
 	buffer     *eventBuffer
-	// registry is keyed by INSTANCE NAME (§7.1). Two clients of one api
-	// is the NORMAL case now; two bindings of one instance is still the
-	// error it was.
-	registry map[string]*PluginEntry
-	// clients is SDK()'s cache; Create() deliberately does not use it.
-	clients map[string]any
+	registry   map[string]*PluginEntry
+	clients    map[string]any
 	// aliasOf maps an auto-assigned tag to the DECLARED instance it
 	// stands for (§5.3). Beside the registry rather than inside it,
 	// because the mapping exists before construction and BlockFor needs
 	// it during registration.
-	aliasOf map[string]string
-	// descriptorCache is the shared per-api descriptor (§7.4).
+	aliasOf         map[string]string
 	descriptorCache map[string]*describedSDK
 	requireProxy    bool
 	closed          bool
@@ -260,12 +199,6 @@ func optsKey(opts *Options) string {
 	return CanonicalSerialize(key)
 }
 
-// Open returns the process-ambient singleton (design §10.2): it is
-// idempotent, and a second Open with conflicting options PANICS with
-// station_open_conflict - construction-time misconfiguration, the same
-// idiom the generated SDKs use for a broken base URL. Open is
-// non-blocking - solo involves no network, and the deferred proxy probe
-// must never change that. Use New for an isolated instance.
 func Open(opts *Options) *Station {
 	ambientMu.Lock()
 	defer ambientMu.Unlock()
@@ -298,7 +231,6 @@ func Current() *Station {
 	return ambient
 }
 
-// Reset is the test seam: drop the ambient instance.
 func Reset() {
 	ambientMu.Lock()
 	defer ambientMu.Unlock()
@@ -306,8 +238,6 @@ func Reset() {
 	ambientOpts = ""
 }
 
-// New creates an isolated Station for tests and multi-tenant hosts
-// (design §10.2).
 func New(opts *Options) (*Station, error) {
 	if nil == opts {
 		opts = &Options{}
@@ -324,11 +254,6 @@ func New(opts *Options) (*Station, error) {
 		config, raworder = loaded, order
 	}
 
-	// §6.3: EXPLICIT WINS, then an in-code config (the application wrote
-	// it, so it is repo-scoped by construction), then where the file was
-	// found. Inferring BEFORE reading the explicit option is a real
-	// precedence bug: it makes RepoScoped=false unsettable for any
-	// caller passing a config in code.
 	repoScoped := false
 	if nil != opts.RepoScoped {
 		repoScoped = *opts.RepoScoped
@@ -342,16 +267,6 @@ func New(opts *Options) (*Station, error) {
 		repoScoped = "user" != ConfigScope(opts.Folder)
 	}
 
-	// Normalize, then validate (design §4.2). A malformed station.json
-	// fails New()/Open() with EVERY error at once - an eighteen-instance
-	// config must not die because the eighteenth has a typo'd package
-	// name.
-	//
-	// ResolveProfile then reads the RAW config, NOT the normalized one.
-	// The normalized form is an input to validation and to nothing else:
-	// block defaults synthesized before the profile merge would let a
-	// one-key overlay overwrite the base's `active: false` and silently
-	// re-enable a barred integration (§3.3, §4.2).
 	if nil != config {
 		if _, err := ValidateConfig(NormalizeConfig(config)); nil != err {
 			return nil, err
@@ -406,13 +321,9 @@ func New(opts *Options) (*Station, error) {
 	return st, nil
 }
 
-// RepoScoped reports which side of §6.3's review boundary this station's
-// config came from.
 func (st *Station) RepoScoped() bool {
 	return st.repoScoped
 }
-
-// --- the inverted binding form (design §3.1) ---
 
 // Options builds the plain options map a generated constructor already
 // accepts - the handle, the activation entry, and the caller's own opts
@@ -458,8 +369,6 @@ func (st *Station) OptionsFor(instance string, extra map[string]any) map[string]
 	return out
 }
 
-// --- registration (design §3 item 1, called by Bind) ---
-
 // boundEntry is the registry entry whose client IS this value, or nil.
 // Used by Bind for idempotency: a construction that reaches the binding
 // twice for one client must no-op the second arrival, while a genuinely
@@ -482,19 +391,6 @@ type registration struct {
 	block       map[string]any
 }
 
-// BlockFor is the profile block that governs an instance - its own if
-// the profile declares it, otherwise its API'S.
-//
-// ResolveProfile builds profile.Sdk from the declared refs alone (an api
-// block declares no instance, §3.1), which leaves an IMPERATIVE instance
-// - named but never written into config - with no block at all, so the
-// api-level `secret`, `base` and most seriously `policy.hosts` did not
-// reach it, and a profile that denied egress everywhere denied nothing
-// for a tagged client.
-//
-// ONE RULE, ONE PLACE: registration and the transport seam both ask
-// here, because them disagreeing is how the credential and the allowlist
-// came apart in the first place.
 func (st *Station) BlockFor(name string) map[string]any {
 	declared := st.DeclaredRef(name)
 	st.mu.Lock()
@@ -505,10 +401,6 @@ func (st *Station) BlockFor(name string) map[string]any {
 	return st.profile.Api[RefApi(name)]
 }
 
-// DeclaredRef is the DECLARED instance an assigned tag stands for, or
-// the name itself. Create("stripe$prod") registers under `stripe$1`, and
-// every question about that client's configuration - its secret, its
-// base, its egress policy - is a question about `stripe$prod`.
 func (st *Station) DeclaredRef(name string) string {
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -535,21 +427,6 @@ func (st *Station) register(client any, config map[string]any,
 
 	block := st.BlockFor(name)
 
-	// Secret name precedence: the feature option (in-code, design §9
-	// config.options.secret) beats the profile, which beats the
-	// INSTANCE-derived default.
-	//
-	// §5.1: SecretnameDefault takes the instance name, not the api slug.
-	// For an untagged instance the two are the same string, so the
-	// single-instance case is unchanged to the byte. And the DEFAULT
-	// takes the DECLARED name, not the assigned tag: `stripe$1` created
-	// from `stripe$test` derives `stripe_test.apikey`, so every
-	// per-request client of one instance shares one broker cache entry
-	// (§5.3).
-	//
-	// The descriptor's own auth.secretname stays the API-level default
-	// and is NOT used here (§7.4): one descriptor is shared by every
-	// instance of an api and cannot hold two instance-derived names.
 	secretname := asString(fopts["secret"])
 	if "" == secretname {
 		secretname = asString(block["secret"])
@@ -603,17 +480,6 @@ func (st *Station) register(client any, config map[string]any,
 	}
 }
 
-// describe is the per-api descriptor cache (§7.4). THE DESCRIPTOR IS
-// SHARED because it describes the API rather than any use of it: at 26
-// instances over 20 apis that is 20 normalizations, not 26, and the
-// canonical serialization the proxy dedupes registrations by is computed
-// once per api too.
-//
-// Normalized with NO per-instance features, so the shared value holds
-// only api-stable metadata - which is what the factory table already
-// does at provide time. Per-instance activation is FeaturesOf's answer;
-// a cache keyed by slug but built from the first instance's feature map
-// would make DescriptorOf construction-order-dependent.
 func (st *Station) describe(config map[string]any) (map[string]any, []string) {
 	slug := asString(asMap(config["main"])["slug"])
 
@@ -648,8 +514,6 @@ func (st *Station) hoist(name string, value string) {
 	})
 }
 
-// --- the transport middleware (design §3.3, §5.3) ---
-
 func (st *Station) transport(entry *PluginEntry, mode func() string,
 	inner TransportFunc, opctx any, fullurl string,
 	fetchdef map[string]any) (any, error) {
@@ -671,12 +535,6 @@ func (st *Station) transport(entry *PluginEntry, mode func() string,
 
 	block := st.BlockFor(name)
 
-	// Egress policy (design §16), solo half: the hosts allowlist is
-	// enforced at the seam every request crosses. When a policy is
-	// present, redirects come back manual - a 3xx is a response like
-	// any other, so a Location off the allowlist cannot pull an
-	// automatic credentialed follow-up to an unapproved host (§8.2's
-	// rule, applied at the library seam).
 	hosts, hasHosts := hostsPolicy(block)
 	if hasHosts && live {
 		hostname := ""
@@ -711,13 +569,6 @@ func (st *Station) transport(entry *PluginEntry, mode func() string,
 	// enter in-memory mock stores. Copy-on-inject: the object graph
 	// reachable from ctx/spec/ctrl keeps the placeholder, ever (§5.3).
 	if live && "R1" == entry.Rung {
-		// §7.4: THE EFFECTIVE NAME, resolved once at registration and
-		// stored on the entry, read here with NO FALLBACK. Re-deriving
-		// it here got the precedence right and the fallback wrong: the
-		// descriptor's auth.secretname is the API-level default, and one
-		// descriptor is shared by every instance of an api - so a tagged
-		// instance with no explicit `secret` read `stripe.apikey` where
-		// registration had recorded `stripe_test.apikey`.
 		value, err := st.broker.value(name, entry.Secretname)
 		if nil != err {
 			st.emitErr(name, opctx, err)
@@ -845,8 +696,6 @@ func (st *Station) emitErr(name string, opctx any, err error) {
 	})
 }
 
-// --- the per-op correlation store (design §3 item 3) ---
-
 // The canonical library hangs {corr, start} on the SDK's own per-op ctx
 // object. A Go struct takes no ad-hoc fields, so the state is keyed by
 // the op context value in a station-held map, swept periodically in case
@@ -899,7 +748,6 @@ func (st *Station) sweepOpsLocked(now int64) {
 	}
 }
 
-// opEvent is the op-kind event from the hook bridge (design §3 item 3).
 func (st *Station) opEvent(name string, opctx any, info OpInfo, outcome string) {
 	corr, start := st.opEnd(opctx)
 	duration := int64(0)
@@ -914,8 +762,6 @@ func (st *Station) opEvent(name string, opctx any, info OpInfo, outcome string) 
 		},
 	})
 }
-
-// --- the declarative front door (design §6) ---
 
 // SDK returns the instance, constructed on first call and CACHED: same
 // name -> same client. That caching is what makes "get it where you need
@@ -941,33 +787,10 @@ func (st *Station) SDK(name string) (any, error) {
 	return client, nil
 }
 
-// Create returns an UNCACHED client from the same resolved config plus
-// overrides, for the case that genuinely wants a distinct one - a
-// per-request credential scope, a test double. Deliberately the longer
-// name.
-//
-// It registers under an AUTO-ASSIGNED TAG, because every constructed
-// adapter registers under its instance name and station_bound_twice
-// fires on a second binding of one name: a second Create("stripe") would
-// otherwise fail, which is exactly the per-request case this exists for.
-// The tag is the lowest unused positive integer, so an auto-tagged
-// instance is an ORDINARY instance rather than a parallel identity
-// scheme - Plugins(), the placeholder, the event stream and
-// station_bound_twice all keep working on one identity model.
 func (st *Station) Create(name string, overrides map[string]any) (any, error) {
 	return st.Build(name, st.Autotag(name), overrides)
 }
 
-// Autotag is the lowest positive integer tag not already taken, by a
-// LIVE instance or a DECLARED one.
-//
-// THE REGISTRY ALONE IS NOT ENOUGH: a profile may declare `stripe$1`,
-// and until something constructs it the registry says false - so
-// Create("stripe$prod") would take that identity, Instances() would
-// report the declared `stripe$1` as live with the wrong client, and a
-// later SDK("stripe$1") would fail station_bound_twice against a binding
-// that was never its own. Declaration reserves the name whether or not
-// it has been built.
 func (st *Station) Autotag(name string) string {
 	api := RefApi(name)
 	st.mu.Lock()
@@ -1022,31 +845,10 @@ func (st *Station) Build(name string, as string, overrides map[string]any) (
 		return nil, err
 	}
 
-	// §8.5 VALIDATES HERE, not only in Check(). The schema arrives with
-	// the factory, so the moment a factory is resolved is the first
-	// moment validation is possible - and running it in Check() alone
-	// left production SDK() silently ignoring an unknown option like
-	// `retry.retires`. One call here closes it, because EVERY path to a
-	// constructor comes through this line.
 	if faults := CheckFeatures(resolved.Merged, entry.Descriptor); 0 < len(faults) {
 		return nil, fail(faults[0].Code, FaultMessages(faults))
 	}
 
-	// §8.4: compose the merged feature map into the form the constructor
-	// takes. Station's own entry is composed AFTER the user merge and
-	// always wins, which is why `station` is dropped here and re-added by
-	// OptionsFor: a config file that can switch off the component
-	// reading it is not a surface, it is a trap. `feature.station` is
-	// already station_feature_reserved at validation, so this is the
-	// second half of one rule rather than a second rule.
-	//
-	// GO CANNOT CARRY THE ORDER IN THE MAP - a Go map has none, and the
-	// generated Go constructor takes options["feature"] as a map. The
-	// order is RESOLVED here (so a cycle or a pin violation fails the
-	// build) and REPORTED by FeaturesOf; what a Go SDK actually inits in
-	// is its own generated feature list, whose one station-relevant
-	// invariant - the pin - Bind still verifies and fails loudly with
-	// station_wrap_order. README.md states the divergence.
 	rows, err := ResolveOrder(resolved.Merged, resolved.Declared)
 	if nil != err {
 		return nil, err
@@ -1084,15 +886,6 @@ func (st *Station) Build(name string, as string, overrides map[string]any) (
 	}
 	opts["feature"] = fmap
 
-	// RECORD THE ALIAS, NOT THE FIELDS. Carrying the declared `secret`
-	// through the feature options and stopping there leaves `policy`,
-	// `base` and everything else behind, so an auto-tagged client
-	// silently loses its declared instance's HOSTS ALLOWLIST and falls
-	// back to the wider api-level one. Recording what the tag STANDS FOR
-	// is one rule that every lookup already goes through.
-	//
-	// Only when the tag was ASSIGNED - a caller naming its own is naming
-	// an instance, not aliasing one.
 	registerAs := name
 	if "" != as && as != name {
 		st.mu.Lock()
@@ -1101,21 +894,9 @@ func (st *Station) Build(name string, as string, overrides map[string]any) (
 		registerAs = as
 	}
 
-	// The instance name reaches the adapter the same way it does on the
-	// imperative path, so registration has one spelling (§7.5). Go has
-	// no carried adapter - a hand-written library cannot implement each
-	// generated SDK's own Feature interface - so the retrofit path here
-	// is regeneration with the station feature installed, and the
-	// constructor's own feature is what binds.
 	return entry.Construct(st.OptionsFor(registerAs, opts)), nil
 }
 
-// ResolveFactory has TWO paths in this port (§5.4 item 3):
-// self-registration through a generated package's func init(), and
-// Provide. THE LOADER IS THE THIRD PATH EVERYWHERE ELSE AND DOES NOT
-// EXIST HERE, so the error names only the remedies Go actually offers -
-// a message telling a Go user to set `api.<slug>.package` would send
-// them down a road with no end.
 func (st *Station) ResolveFactory(api string, block map[string]any) (
 	*FactoryEntry, error) {
 
@@ -1131,12 +912,6 @@ func (st *Station) ResolveFactory(api string, block map[string]any) (
 			"import-by-name at run time (§6.3)")
 }
 
-// LoaderPackage always returns "" here, and says why once per api at
-// open (§5.4 item 2). `package` and `export` stay IN THE GRAMMAR - they
-// are shape keys, the corpus validates configs carrying them, and
-// removing them would break one-config-file-serves-a-polyglot-fleet -
-// but this port cannot honour them, and silence about that is worse than
-// a warning.
 func (st *Station) LoaderPackage(api string, block map[string]any) string {
 	return ""
 }
@@ -1191,12 +966,6 @@ func (st *Station) warnPackages() {
 	}
 }
 
-// FeaturesOf is the merged, ordered feature set for one instance, WITH
-// PROVENANCE (§8.7): which config level set each value.
-//
-// Provenance is the half that makes a fleet view usable rather than
-// merely correct - at 26 instances "why is retry off here" is the
-// question, and a merged map alone cannot answer it.
 func (st *Station) FeaturesOf(name string) (*FeatureSet, error) {
 	api := RefApi(name)
 
@@ -1212,7 +981,6 @@ func (st *Station) FeaturesOf(name string) (*FeatureSet, error) {
 		overlay = asMap(profiles[profileName])
 	}
 
-	// LEVELS: one label per source, in the §3.3 order.
 	levels := []string{
 		"default.feature", "default.api", "default.sdk",
 		profileName + ".feature", profileName + ".api", profileName + ".sdk",
@@ -1249,21 +1017,6 @@ func (st *Station) FeaturesOf(name string) (*FeatureSet, error) {
 	merged := MergeFeatures(sources)
 	declared := MergeFeatureOrder(sources, orders)
 
-	// Policy budget (design §16): rps/concurrency ceilings ride "the SDK
-	// `ratelimit` feature, configured by station". Composed HERE, into
-	// the merged map every consumer reads, rather than patched in at
-	// construction alone - so Build orders it with the ordinary
-	// constraint-and-band rules, Check's §8.5 pass validates it against
-	// the SDK's own declaration (a budget on an SDK with no ratelimit
-	// feature is station_feature_unknown, not a setting that quietly did
-	// nothing), and the fleet view answers "is ratelimit on?" truthfully.
-	//
-	// `rps` maps to the token bucket's refill `rate` (per second - the
-	// same unit); `concurrency` to its capacity `burst`, the number of
-	// requests that can be in flight from a full bucket. POLICY WINS
-	// over a `feature.ratelimit` config entry on the keys it sets - it
-	// is enforcement, not a default - and other tuning keys survive
-	// beside it.
 	if budget, is := asMap(st.BlockFor(name)["policy"])["budget"].(map[string]any); is {
 		entry := map[string]any{}
 		for k, v := range asMap(merged["ratelimit"]) {
@@ -1288,13 +1041,6 @@ func (st *Station) FeaturesOf(name string) (*FeatureSet, error) {
 		merged["ratelimit"] = entry
 	}
 
-	// THE IMPLICIT STATION ENTRY, added for ORDERING ONLY. `station` is
-	// never in Merged - feature.station is reserved and rejected at
-	// validation (§8.4) - so without it CheckPin finds no station row
-	// and is a PERMANENT NO-OP: a constraint like
-	// `retry.order.after: "station"` would be treated as vacuous rather
-	// than rejected, and the reported order would omit the one feature
-	// whose position is supposedly pinned.
 	withStation := map[string]any{}
 	for k, v := range merged {
 		withStation[k] = v
@@ -1383,10 +1129,6 @@ func (st *Station) Features(filter *FeatureFilter) ([]FeatureRow, error) {
 	return narrowed, nil
 }
 
-// Check eagerly resolves and constructs every ACTIVE declared instance -
-// for CI (design §6.6). The point is to turn availability errors, which
-// are deliberately deferred to first use, into ONE failure at a moment
-// somebody is watching.
 func (st *Station) Check() CheckResult {
 	out := CheckResult{OK: []string{}, Failed: []CheckFailure{}}
 
@@ -1420,10 +1162,6 @@ func (st *Station) checkone(row Instance, out *CheckResult) {
 	}()
 
 	{
-		// §8.5 runs FIRST and needs no construction: the schema arrives
-		// with the factory, not with a live client, so a feature typo is
-		// a CI failure rather than a setting that quietly did nothing in
-		// production.
 		if entry := FactoryFor(row.API); nil != entry {
 			resolved, err := st.FeaturesOf(row.Name)
 			if nil != err {
@@ -1455,12 +1193,6 @@ func checkfailure(name string, err error) CheckFailure {
 	return CheckFailure{Name: name, Code: code, Message: err.Error()}
 }
 
-// Warm batch-resolves secrets (design §5.5).
-//
-// With no names it warms the ACTIVE declared instances only, because
-// reaching for a credential belonging to a disabled integration is the
-// wrong default. Warm(names) warms exactly what it is given, inactive
-// included, because an explicit name is an explicit request.
 func (st *Station) Warm(names []string) WarmResult {
 	wanted := names
 	if nil == wanted {
@@ -1475,13 +1207,6 @@ func (st *Station) Warm(names []string) WarmResult {
 	warmed := []string{}
 	missed := []string{}
 
-	// THE REGISTRY IS THE AUTHORITY: a registered instance already
-	// carries the resolved name, in-code `secret` feature option
-	// included. A NAME NOBODY DECLARED OR REGISTERED IS A MISS, not a
-	// lookup - a wider fallback would let a typo like `stripe$prodd`
-	// derive a secret name, call the provider, and report a nonexistent
-	// instance `warmed` off a shared api-level credential. Registered OR
-	// declared, and nothing else.
 	bysecret := map[string][]string{}
 	order := []string{}
 	for _, name := range wanted {
@@ -1512,13 +1237,6 @@ func (st *Station) Warm(names []string) WarmResult {
 		bysecret[secretname] = append(bysecret[secretname], name)
 	}
 
-	// ONE RESOLUTION PER DISTINCT SECRET NAME, run CONCURRENTLY. The
-	// broker's resolution cache is keyed by secret name (§5.3), so
-	// several instances sharing one api-level `secret` should cost one
-	// round-trip - and firing them together without deduplication would
-	// race past the cache and make several. Resolving serially instead
-	// makes Warm cost the SUM of every provider round-trip, which
-	// defeats the one thing the method exists for.
 	sort.Strings(order)
 	results := make([]bool, len(order))
 	var wg sync.WaitGroup
@@ -1547,7 +1265,6 @@ func (st *Station) Warm(names []string) WarmResult {
 	return WarmResult{Warmed: warmed, Missed: missed}
 }
 
-// Instances lists every DECLARED instance, sorted by name.
 func (st *Station) Instances() []Instance {
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -1577,8 +1294,6 @@ func (st *Station) Instances() []Instance {
 	}
 	return out
 }
-
-// --- the query/observe surface (design §3.2, §6) ---
 
 // Plugins lists one entry per LIVE INSTANCE, and it is EXHAUSTIVE:
 // auto-tagged entries are NOT collapsed here, because inspection, health
@@ -1629,8 +1344,6 @@ func (st *Station) DescriptorOf(name string) (map[string]any, error) {
 	return entry.Descriptor, nil
 }
 
-// CanonicalDescriptor is the §4 canonical serialization of an instance's
-// descriptor.
 func (st *Station) CanonicalDescriptor(name string) (string, error) {
 	descriptor, err := st.DescriptorOf(name)
 	if nil != err {
@@ -1639,7 +1352,6 @@ func (st *Station) CanonicalDescriptor(name string) (string, error) {
 	return CanonicalSerialize(descriptor), nil
 }
 
-// Events returns a copy of the ring buffer.
 func (st *Station) Events() []Event {
 	return st.buffer.events()
 }
@@ -1651,7 +1363,6 @@ func (st *Station) Tap(fn func(Event)) func() {
 	return st.buffer.tap(fn)
 }
 
-// Status is the solo status surface (design §6).
 func (st *Station) Status() Status {
 	plugins := []PluginStatus{}
 	for _, entry := range st.Plugins() {
@@ -1684,10 +1395,6 @@ func (st *Station) RefreshSecrets() {
 	st.broker.refresh()
 }
 
-// Close flushes (solo: nothing in flight), then warns on declared
-// instances that matched no registered client - a typo'd key silently
-// configuring nothing is the worst outcome for a secrets-and-policy file
-// (design §11). Idempotent.
 func (st *Station) Close() {
 	st.mu.Lock()
 	if st.closed {

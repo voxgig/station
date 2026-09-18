@@ -1,9 +1,3 @@
-//! Small helpers over the shared JSON value model.
-//!
-//! Station's value model IS sekreto's `Json` (re-exported from lib.rs):
-//! one dependency, one value type, no second JSON library - the modem
-//! principle (design §10). `BTreeMap` keys iterate in bytewise order,
-//! which is exactly the canonical-serialization order (§4).
 
 use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -22,16 +16,6 @@ pub fn jtextof(val: &Json) -> String {
     }
 }
 
-/// THE OPAQUE VARIANT, once, for every `match` in this port.
-///
-/// plugin's value model carries a seventh variant the old `Json` did not:
-/// `Opaque`, a host object published through a plugin's exports, which the
-/// library never inspects. STATION NEVER CONSTRUCTS ONE. Its values come
-/// from `value::parse` (which cannot produce it) and from `jobj`/`jtext`
-/// here, so every `Json::Opaque` arm in this crate is unreachable in
-/// practice - it exists because the enum is shared, and each one is
-/// written to stay total rather than to panic.
-/// A map entry, or None.
 pub fn jget<'a>(val: &'a Json, key: &str) -> Option<&'a Json> {
     match val {
         Json::Map(entries) => entries.get(key),
@@ -39,7 +23,6 @@ pub fn jget<'a>(val: &'a Json, key: &str) -> Option<&'a Json> {
     }
 }
 
-/// A string entry ('' when absent or not a string).
 pub fn jstr(val: &Json, key: &str) -> String {
     match jget(val, key) {
         Some(Json::Str(text)) => text.clone(),
@@ -47,7 +30,6 @@ pub fn jstr(val: &Json, key: &str) -> String {
     }
 }
 
-/// A bool entry (None when absent or not a bool).
 pub fn jbool(val: &Json, key: &str) -> Option<bool> {
     match jget(val, key) {
         Some(Json::Bool(flag)) => Some(*flag),
@@ -71,7 +53,6 @@ pub fn jlist<'a>(val: &'a Json, key: &str) -> Option<&'a Vec<Json>> {
     }
 }
 
-/// Build a map value.
 pub fn jobj(entries: Vec<(&str, Json)>) -> Json {
     let mut out = BTreeMap::new();
     for (key, val) in entries {
@@ -80,7 +61,6 @@ pub fn jobj(entries: Vec<(&str, Json)>) -> Json {
     Json::Map(out)
 }
 
-/// Build a string value.
 pub fn jtext(text: impl Into<String>) -> Json {
     Json::Str(text.into())
 }

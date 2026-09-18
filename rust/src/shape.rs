@@ -1,23 +1,3 @@
-//! The config grammar, as data (design §4).
-//!
-//! TWO STEPS, AND THE FIRST IS WHAT MAKES THE SECOND HONEST.
-//!
-//! struct drops the unexpected-key check for a map whose spec node ends
-//! up EMPTY - "an empty spec object means the object can be open". An
-//! optional key is `['$ONE','$NIL', spec]`, and when the data does not
-//! carry that key the validator REMOVES it from the spec node. So a
-//! block whose keys are all optional degenerates into an open map
-//! exactly when the data has none of them, and `{"solar": {"bass": 1}}`
-//! validates clean - the one property the whole exercise is for,
-//! silently absent in the one case that matters.
-//!
-//! So: `normalize_config` materializes every documented default, and
-//! `validate_config` then runs a shape WITH NO OPTIONAL CONTAINERS AT
-//! ALL. After normalization every container is present, so the shape can
-//! require them, so unexpected-key detection is live at every level and
-//! every error names its path.
-//!
-//! A port of typescript/src/shape.ts, which is canonical.
 
 use std::collections::BTreeMap;
 
@@ -29,9 +9,6 @@ use crate::descriptor::{canonical_serialize, envtoken};
 use crate::error::StationError;
 use crate::jsonx::{jget, jmap};
 
-// ---------------------------------------------------------------------
-// The defaults table - ONE table, two callers
-// ---------------------------------------------------------------------
 
 /// The profile-level containers. Safe to materialize early either way:
 /// they are containers, and a missing one merges as empty regardless.
@@ -56,19 +33,6 @@ pub fn profile_defaults() -> Vec<(&'static str, Json)> {
     ]
 }
 
-/// The block-level defaults. `feature` is a container and safe early.
-///
-/// `active` IS NOT, and that is the whole timing rule: a default
-/// synthesized into an OVERLAY block overwrites the base's real value
-/// and silently reactivates an integration the base deliberately barred
-/// (§3.3). So the two consumers read this same table at different
-/// moments - `validate_config` BEFORE, applied to every block, because a
-/// block with no present keys is an open map; the profile resolver
-/// AFTER, applied to the merged instance, because an absent key must
-/// stay absent through the merge.
-///
-/// `profile::resolve_profile` is the second caller, and it reads this
-/// table rather than a copy of it.
 pub fn block_defaults() -> Vec<(&'static str, Json)> {
     vec![
         ("active", Json::Bool(true)),
@@ -85,19 +49,9 @@ pub const MERGE_SENSITIVE: [&str; 1] = ["active"];
 // normalize_config
 // ---------------------------------------------------------------------
 
-/// Materialize every documented default, DEFENSIVELY: a node that is not
-/// the kind it expects is left alone for validate to reject with a
-/// message that names the path. Pure data-in/data-out, which is what
-/// makes it portable to sixteen languages and expressible in the corpus,
-/// and it NEVER MUTATES ITS INPUT - Rust's ownership makes that a
-/// guarantee rather than a discipline, since the input arrives by
-/// reference and every map is rebuilt.
-///
-/// THE NORMALIZED FORM IS AN INPUT TO VALIDATION AND TO NOTHING ELSE.
 pub fn normalize_config(raw: &Json) -> Json {
     let rawmap = match raw {
         Json::Map(entries) => entries,
-        // Not a map: validate will reject it with a proper message.
         other => return other.clone(),
     };
 
@@ -183,16 +137,6 @@ pub fn normalize_config(raw: &Json) -> Json {
     Json::Map(out)
 }
 
-/// Per feature entry, at every level: `active` -> true.
-///
-/// A FEATURE NAMED IN THE CONFIG IS ONE YOU ARE ASKING FOR. The SDK's
-/// own default is `active: false` for all but `log`, and
-/// `{"retry": {"retries": 3}}` plainly means "retry, with three
-/// attempts". It also keeps the feature map closed, for the same reason
-/// every other block needs one present key.
-///
-/// Defensive like the rest: a non-map is returned untouched for validate
-/// to reject by path.
 fn normfeatures(f: &Json) -> Json {
     let entries = match f {
         Json::Map(entries) => entries,
@@ -218,27 +162,8 @@ fn normfeatures(f: &Json) -> Json {
 // validate_config
 // ---------------------------------------------------------------------
 
-/// `spec/config-shape.json`, §4.3 verbatim - the artifact every port
-/// reads. This crate is PUBLISHED AND COMPILED: it cannot see `spec/` at
-/// run time, and `validate_config` runs at open() rather than only under
-/// test, so the shape is EMBEDDED as a mirror. `make sync-shape`
-/// rewrites the mirror; tests/unit.rs deep-compares the two and fails on
-/// drift.
 const CONFIG_SHAPE_JSON: &str = include_str!("config-shape.json");
 
-/// A FRESH DEEP COPY of the shape on every call.
-///
-/// struct's validate CONSUMES the spec it walks - it deletes satisfied
-/// `$ONE` branches as it goes - so handing it one parsed value twice
-/// would validate the second config against a spec the first had already
-/// eaten. `struct::clone` is used rather than a re-parse so the cost is a
-/// tree copy, not a parse.
-///
-/// (struct's OWN Rust port happens to deep-clone the spec inside
-/// `transform` as well, so today the second copy is belt and braces
-/// there. It stays: the requirement is the contract's, not one struct
-/// build's, and `Value`'s maps are `Rc<RefCell<_>>` - a shared shape is
-/// one struct release away from being eaten.)
 pub fn config_shape() -> Value {
     thread_local! {
         static PARSED: Value = parse_shape();
@@ -273,22 +198,8 @@ const CREDENTIAL_KEYS: [&str; 8] = [
     "bearer",
 ];
 
-/// The suffix rule catches `access_key`, `X-Api-Token` and friends in
-/// one rule rather than a growing list of spellings.
 const CREDENTIAL_SUFFIX: [&str; 4] = ["_KEY", "_TOKEN", "_SECRET", "_PASSWORD"];
 
-/// §5.2's backstop, and it is stated as one rather than as a grammar.
-/// `validname()` is a NAME grammar, not a credential filter: it rejects
-/// uppercase, hyphens, `+`, `/` and `=`, so it excludes most real
-/// credential formats - but a lowercase hex token passes it cleanly. A
-/// character class cannot tell a name from a secret.
-///
-/// Derived names break on every separator (`voxgig_solardemo.apikey`
-/// runs 6/9/6) and a hand-written name for a human to read does too; a
-/// 24-character unbroken run is not a name anybody writes. Note this is
-/// a RUN bound, not a length bound: `acme_internal_billing_service.apikey`
-/// is 36 characters and passes, which is the false positive a naive
-/// length bound would produce.
 const RUN_BOUND: usize = 24;
 
 fn unbroken_run(text: &str) -> bool {
@@ -306,22 +217,6 @@ fn unbroken_run(text: &str) -> bool {
     false
 }
 
-/// Normalize, then validate (§4.2). Raises `station_config_invalid` with
-/// EVERY struct error at once - an eighteen-instance config that touches
-/// three of them must not die because the eighteenth has a typo'd
-/// package name - then the §5.2 scans.
-///
-/// The §4.4 workarounds are merged into the SAME error as struct's own,
-/// which is this tranche's one structural deviation from the canonical
-/// two-throw order: a struct new enough to reject a first-element gap
-/// itself reports a DIFFERENT spelling ("to be one of ..."), and the
-/// corpus pins the explicit one - so the pinned message is produced here
-/// either way, and behavior is identical whatever struct version
-/// resolves.
-///
-/// Takes the NORMALIZED form. Handing it a raw config is the mistake
-/// §4.2 exists to prevent, so every caller goes through
-/// `normalize_config` first.
 pub fn validate_config(normalized: &Json) -> Result<Json, StationError> {
     let errsval = Value::empty_list();
     let def = InjectDef {
@@ -365,11 +260,6 @@ pub fn validate_config(normalized: &Json) -> Result<Json, StationError> {
     Ok(normalized.clone())
 }
 
-/// `plugin` is REMOVED, not aliased (§3.4) - a deprecated alias would be
-/// a second grammar for one concept in sixteen ports. The shape already
-/// rejects it as an unexpected key; this says WHAT TO RENAME, because
-/// "unexpected key: plugin" alone does not, and the migration for a
-/// single-instance project is exactly this one rename.
 fn renamehint(cfg: &Json) -> String {
     let empty = BTreeMap::new();
     let profiles = jmap(cfg, "profiles").unwrap_or(&empty);
@@ -388,9 +278,7 @@ fn renamehint(cfg: &Json) -> String {
     )
 }
 
-/// What the §5.2/§4.4 scans collect. Three lists, three error codes - and
 /// they are COLLECTED rather than raised, because `validate_config` owns
-/// the order.
 #[derive(Default)]
 struct Scanned {
     secrets: Vec<String>,
@@ -398,11 +286,7 @@ struct Scanned {
     invalid: Vec<String>,
 }
 
-/// The §5.2 scans, over the parts of the grammar that hold arbitrary
 /// data. Everything else is closed by construction and needs no scan -
-/// `profiles.<p>.secrets.providers` INCLUDED, which is why a provider
-/// block may legitimately carry its own `auth` sub-map and why
-/// `config#twenty-sdk-fleet` passes.
 fn scan_config(cfg: &Json) -> Scanned {
     let mut out = Scanned::default();
 
@@ -431,15 +315,10 @@ fn scan_config(cfg: &Json) -> Scanned {
                 }
                 let bpath = format!("{}.{}.{}", ppath, bkey, reference);
 
-                // The block's own `secret` holds a NAME. resolve_profile
-                // checks it again per instance (station_secret_name);
-                // this catches it at open(), for the whole file at once.
                 if let Some(secret) = jget(block, "secret") {
                     secretvalue(secret, &format!("{}.secret", bpath), &mut out.secrets);
                 }
 
-                // `options` is passthrough to a generated constructor, so
-                // it is the one place a value can hide.
                 scan(
                     jget(block, "options"),
                     &format!("{}.options", bpath),
@@ -452,10 +331,6 @@ fn scan_config(cfg: &Json) -> Scanned {
                 );
 
                 // §4.4's explicit checks, applied where the shape cannot
-                // reach, raising the same code the shape would - and
-                // pinned in the corpus so each workaround is removed
-                // deliberately when struct is fixed rather than
-                // forgotten.
                 checkpolicy(
                     jget(block, "policy"),
                     &format!("{}.policy", bpath),
@@ -502,19 +377,6 @@ fn checkconfigfeatures(f: Option<&Json>, path: &str, out: &mut Scanned) {
     }
 }
 
-/// The policy block's §4.4 workarounds, in one place because they are one
-/// class of gap: struct cannot check what its own defects hide.
-///
-/// - `hosts`, `allow.op` and `allow.method` are `$CHILD` string lists, so
-///   element 0 escapes the shape (see `firstelement` below).
-/// - `budget` is a map whose keys are ALL optional scalars, and struct
-///   removes an unsatisfied optional key from the spec node - so
-///   `budget: {rp: 1}` degenerates the spec into an open map and the typo
-///   passes. `allow` does not have this problem (its `$CHILD` keys stay
-///   in the spec whether or not the data carries them, keeping the map
-///   closed), and neither does `policy` itself (`hosts` anchors it);
-///   `budget` alone needs the explicit unexpected-key check, phrased as
-///   struct would phrase it.
 const BUDGET_KEYS: [&str; 2] = ["concurrency", "rps"];
 
 fn checkpolicy(policy: Option<&Json>, path: &str, invalid: &mut Vec<String>) {
@@ -535,8 +397,6 @@ fn checkpolicy(policy: Option<&Json>, path: &str, invalid: &mut Vec<String>) {
     }
 
     if let Some(Json::Map(budget)) = entries.get("budget") {
-        // BTreeMap keys already iterate in sorted order, which is the
-        // order the message wants.
         let unknown: Vec<String> = budget
             .keys()
             .filter(|key| !BUDGET_KEYS.contains(&key.as_str()))
@@ -554,13 +414,8 @@ fn checkpolicy(policy: Option<&Json>, path: &str, invalid: &mut Vec<String>) {
 
 /// §4.4: `$CHILD` in LIST mode DOES NOT VALIDATE ELEMENT 0. Verified:
 /// `["a", 1]` fails at index 1, `[1]` passes, at any list length. An
-/// upstream struct defect, filed as voxgig/struct#113.
-///
-/// It reaches THREE string lists in this shape: `policy.hosts`, and the
 /// per-feature `order.before` / `order.after`. Applied where the shape
 /// cannot reach, raising the same code the shape would, and pinned in the
-/// corpus so the workaround is removed deliberately when struct is fixed
-/// rather than forgotten.
 fn firstelement(list: Option<&Json>, path: &str, invalid: &mut Vec<String>) {
     let items = match list {
         Some(Json::List(items)) if !items.is_empty() => items,
@@ -596,10 +451,6 @@ fn scan(node: Option<&Json>, path: &str, out: &mut Scanned) {
             for (key, val) in entries.iter() {
                 let kpath = format!("{}.{}", path, key);
 
-                // §8.6: station owns feature composition, so an
-                // `options.feature` in a declarative config is a second,
-                // unreconciled ordering input - two representations of
-                // one setting resolved differently by sixteen ports is
                 // the drift this design exists to prevent.
                 if "feature" == key {
                     out.reserved.push(format!(
@@ -648,10 +499,7 @@ fn credentialkey(key: &str) -> bool {
 
 /// A `secret`-named key holds a NAME, and that exemption is not a
 /// loophole - it is the whole design, since a blanket deny would reject
-/// the very mechanism that keeps values out of the file. THREE checks,
-/// first failure wins, and they live in the same handful of lines
 /// precisely so a port cannot implement only the first and inherit the
-/// gap the others exist to close.
 fn secretvalue(val: &Json, path: &str, secrets: &mut Vec<String>) {
     let text = match val {
         Json::Str(text) => text,
@@ -684,7 +532,6 @@ fn secretvalue(val: &Json, path: &str, secrets: &mut Vec<String>) {
 
 /// One rule about VALUES rather than keys, because the `proxy` feature
 /// makes it concrete: `http://user:pass@proxy.internal:8080`. A parse
-/// failure is not an error - it returns silently.
 fn userinfo(val: &str, path: &str, secrets: &mut Vec<String>) {
     if !has_scheme(val) {
         return;
@@ -708,7 +555,6 @@ fn userinfo(val: &str, path: &str, secrets: &mut Vec<String>) {
     }
 }
 
-/// `^[a-zA-Z][a-zA-Z0-9+.-]*://`, without a regex engine.
 fn has_scheme(val: &str) -> bool {
     let at = match val.find("://") {
         Some(at) if 0 < at => at,
@@ -725,8 +571,6 @@ fn has_scheme(val: &str) -> bool {
 
 /// The SHAPE kindof, which must agree with struct's own spellings. NOT
 /// the same function as the feature checker's (`feature::featurekind`) -
-/// they disagree on numbers and maps deliberately, and unifying them
-/// would make one of the two message sets wrong.
 fn shapekind(val: &Json) -> &'static str {
     match val {
         Json::Null => "null",
@@ -741,7 +585,6 @@ fn shapekind(val: &Json) -> &'static str {
                 "decimal"
             }
         }
-        // Never reached - see jsonx::jtextof's note on Opaque.
         Json::Opaque(_) => "opaque",
     }
 }
@@ -751,18 +594,11 @@ fn shapekind(val: &Json) -> &'static str {
 // ---------------------------------------------------------------------
 
 // Station's value model IS sekreto's Json (one dependency, one value
-// type - design §10), and struct carries its own `Value` because it needs
-// reference-stable nodes and an insertion-ordered map. The two meet HERE
-// and nowhere else: validate_config converts on the way in, and reads
-// struct's collected errors back on the way out.
-//
 // Json's maps are BTreeMap, so a map's key order becomes BYTEWISE SORTED
 // on the way across. That reaches exactly one observable place - the
 // stringified spec inside a `$ONE` failure message - and every map the
-// shape puts inside a `$ONE` (`policy`, `allow`, `budget`, `agent`) is
 // authored in sorted order already, so the messages are byte-identical.
 
-/// station Json -> struct Value.
 pub fn json_to_value(val: &Json) -> Value {
     match val {
         Json::Null => Value::Null,
@@ -777,12 +613,10 @@ pub fn json_to_value(val: &Json) -> Value {
         ),
         // Never reached - see jsonx::jtextof's note on Opaque. struct has
         // no counterpart for a host object, and Null is the one spelling
-        // its validator already understands as "nothing here".
         Json::Opaque(_) => Value::Null,
     }
 }
 
-/// struct Value -> station Json. `Noval` (struct's `undefined`) and the
 /// non-data variants land as null: nothing station hands struct can
 /// produce them, and an error value that carried one is still readable.
 pub fn value_to_json(val: &Value) -> Json {

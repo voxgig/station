@@ -1,23 +1,3 @@
-//! The station library core, solo mode (design D1): fully functional
-//! in-process with no other component running. The proxy (D2) is a
-//! deferred amplifier - `require` therefore fails on the operation path
-//! (design §2.1/§14), and `auto` degrades to solo with one warning event.
-//!
-//! A port of typescript/src/Station.ts, which is canonical, with the
-//! transport middleware split across the binding seam (src/binding.rs):
-//! generated Rust SDKs each carry their own vendored `Value` type, so the
-//! generated adapter translates at the seam and every rule stays here.
-//!
-//! Single-threaded by design: the generated SDK world is Rc/RefCell
-//! (neither Send nor Sync), so the ambient instance is thread-local and
-//! nothing here synchronizes.
-//!
-//! THE REGISTRY IS KEYED BY INSTANCE NAME (§6.1), not by api slug. Two
-//! clients of one api is the NORMAL case now; two bindings of one
-//! instance is still station_bound_twice. Everything downstream keys on
-//! the instance: the placeholder, the transport wrap, op events, error
-//! events - because two live instances of one api must be
-//! distinguishable at each of them.
 
 use std::any::Any;
 use std::cell::{Cell, RefCell};
@@ -47,22 +27,12 @@ use crate::shape::{normalize_config, validate_config};
 /// `opts.config`: undefined = discover, null = none, object = as given).
 #[derive(Clone, Default)]
 pub enum ConfigSource {
-    /// Look station.json up from cwd (design §3.5). The default.
     #[default]
     Discover,
-    /// No config at all (the canonical `config: null`).
     None,
-    /// An explicit in-memory config.
     Value(Json),
 }
 
-// DERIVED ON EVERY OTHER OPTION TYPE, WRITTEN OUT HERE. The shared value
-// model carries an `Opaque(Rc<dyn Any>)` variant for host objects, so it
-// can derive neither `PartialEq` nor `Debug`: `same()` is its documented
-// equality and `json()` its rendering. These two forward to exactly
-// those, which is what the derive would have produced before sekreto
-// took plugin's value model (sekreto 43eb579) - so `StationOptions` can
-// go on deriving both.
 impl PartialEq for ConfigSource {
     fn eq(&self, other: &ConfigSource) -> bool {
         match (self, other) {
@@ -87,15 +57,9 @@ impl std::fmt::Debug for ConfigSource {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct StationOptions {
     pub profile: Option<String>,
-    /// 'auto' (default) | 'off' | 'require' | a proxy url (deferred).
     pub proxy: Option<String>,
-    /// Where the station.json walk starts (default: cwd).
     pub folder: Option<std::path::PathBuf>,
     pub config: ConfigSource,
-    /// Which side of §6.3's review boundary the config came from.
-    /// EXPLICIT WINS: inferring before reading this is a real precedence
-    /// bug, because it makes `Some(false)` unsettable for any caller
-    /// passing a config in code - which is every test of the rule.
     pub repo_scoped: Option<bool>,
     /// Accepted and INERT in this port (§5.4 item 4): there is no
     /// loader, so `Some(false)` changes nothing and neither does
@@ -104,7 +68,6 @@ pub struct StationOptions {
 }
 
 impl StationOptions {
-    /// Options with config discovery disabled (`config: null`).
     pub fn no_config() -> StationOptions {
         StationOptions {
             config: ConfigSource::None,
@@ -112,7 +75,6 @@ impl StationOptions {
         }
     }
 
-    /// The identity key for the open() conflict check.
     fn key(&self) -> String {
         let mut out = vec![
             ("profile", jtext(self.profile.clone().unwrap_or_default())),
@@ -145,14 +107,10 @@ impl StationOptions {
 /// One live instance (design §6.1): the registry is keyed by `name`, and
 /// `api` is what groups its siblings.
 pub struct PluginEntry {
-    /// The INSTANCE name - the registry key.
     pub name: String,
-    /// The api slug: what an instance is an instance OF.
     pub api: String,
-    /// Retained, and equal to `api` - the descriptor's own slug.
     pub slug: String,
     pub descriptor: Json,
-    /// 'none' | 'R1' (design §5.3).
     pub rung: String,
     /// The EFFECTIVE secret name, resolved once at registration and read
     /// from here at the transport seam with NO FALLBACK: re-deriving it
@@ -165,7 +123,6 @@ pub struct PluginEntry {
     pub warnings: Vec<String>,
 }
 
-/// A plugins() row (design §3.2), one per LIVE INSTANCE.
 #[derive(Clone, Debug)]
 pub struct PluginInfo {
     pub name: String,
@@ -177,7 +134,6 @@ pub struct PluginInfo {
     pub warnings: Vec<String>,
 }
 
-/// An instances() row (design §6.5): one per DECLARED instance.
 #[derive(Clone, Debug)]
 pub struct Instance {
     pub name: String,
@@ -190,21 +146,16 @@ pub struct Instance {
     pub block: Json,
 }
 
-/// One instance's merged feature set, with provenance (§8.7).
 #[derive(Clone, Debug)]
 pub struct FeatureSet {
-    /// The resolved order, OUTERMOST FIRST, station included.
     pub ordered: Vec<String>,
-    /// The user's own merge result - `station` is never in it.
     pub merged: Json,
-    /// feature -> option key -> the level that last wrote it.
     pub from: BTreeMap<String, BTreeMap<String, String>>,
     /// The declaration order the merge saw (see feature.rs: this port
     /// has no ordered map, so it is bytewise key order).
     pub declared: Vec<String>,
 }
 
-/// One row of the fleet feature view (§8.7).
 #[derive(Clone, Debug)]
 pub struct FeatureRow {
     pub instance: String,
@@ -214,10 +165,6 @@ pub struct FeatureRow {
     pub from: BTreeMap<String, BTreeMap<String, String>>,
 }
 
-/// The `features()` filter. A bare string is the LOOSE shorthand -
-/// "this instance or this api" - and the struct form is what can express
-/// the question the view exists for: `{feature: "debug"}`, "is debug on
-/// anywhere?", the one that is twenty greps today.
 #[derive(Clone, Debug, Default)]
 pub struct FeatureFilter {
     pub instance: Option<String>,
@@ -228,7 +175,6 @@ pub struct FeatureFilter {
     pub loose: bool,
 }
 
-/// The string shorthand: "this instance or this api", loose.
 pub fn loose_filter(text: &str) -> FeatureFilter {
     FeatureFilter {
         instance: Some(text.to_string()),
@@ -238,7 +184,6 @@ pub fn loose_filter(text: &str) -> FeatureFilter {
     }
 }
 
-/// One check() failure.
 #[derive(Clone, Debug)]
 pub struct CheckFailure {
     pub name: String,
@@ -252,7 +197,6 @@ pub struct CheckResult {
     pub failed: Vec<CheckFailure>,
 }
 
-/// warm()'s answer, both lists SORTED.
 #[derive(Clone, Debug, Default)]
 pub struct WarmResult {
     pub warmed: Vec<String>,
@@ -272,13 +216,9 @@ pub struct Station {
     repo_scoped: bool,
     broker: SecretBroker,
     buffer: EventBuffer,
-    /// Keyed by INSTANCE NAME (§6.1).
     registry: RefCell<BTreeMap<String, Rc<PluginEntry>>>,
-    /// The sdk() cache: instance name -> client.
     clients: RefCell<BTreeMap<String, Rc<dyn Any>>>,
-    /// An ASSIGNED tag -> the declared ref it stands for.
     alias_of: RefCell<BTreeMap<String, String>>,
-    /// api slug -> normalized descriptor + warnings (§7.4).
     descriptor_cache: RefCell<BTreeMap<String, (Json, Vec<String>)>>,
     require_proxy: bool,
     closed: Cell<bool>,
@@ -292,12 +232,6 @@ impl Station {
         provide(api, factory)
     }
 
-    /// Ambient instance (design §10.2): open() is the idempotent
-    /// process-wide (per-thread - see the module note) singleton; a second
-    /// open() with conflicting options PANICS with station_open_conflict;
-    /// `Station::new` stays isolated for tests and multi-tenant hosts.
-    /// open() is non-blocking - solo involves no network, and the
-    /// deferred proxy probe must never change that.
     pub fn open(opts: StationOptions) -> Rc<Station> {
         let key = opts.key();
         AMBIENT.with(|ambient| {
@@ -319,20 +253,15 @@ impl Station {
 
     /// The ambient instance, or None - never creates one. The generated
     /// station feature binds through this (design §3.1: binding is never
-    /// implicit; only open() creates the ambient instance).
     pub fn current() -> Option<Rc<Station>> {
         AMBIENT.with(|ambient| ambient.borrow().as_ref().map(|(station, _)| station.clone()))
     }
 
-    /// Test seam: drop the ambient instance.
     pub fn reset() {
         AMBIENT.with(|ambient| *ambient.borrow_mut() = None);
     }
 
-    /// An isolated instance. Construction-time misconfiguration (a
     /// malformed station.json, a bad profile secret name, a chain sekreto
-    /// refuses to build) PANICS - the generated SDK constructors' own
-    /// idiom - with the catalog code in the message.
     pub fn new(opts: StationOptions) -> Rc<Station> {
         let incode = matches!(opts.config, ConfigSource::Value(_));
         let noconfig = matches!(opts.config, ConfigSource::None);
@@ -345,29 +274,14 @@ impl Station {
             ConfigSource::Value(val) => Some(val.clone()),
         };
 
-        // §6.3: EXPLICIT WINS, then an in-code config (the application
         // wrote it, so it is repo-scoped by construction), then where the
-        // file was found. Reading the explicit option LAST is the
         // precedence bug this order exists to avoid.
         let repo_scoped = match opts.repo_scoped {
             Some(explicit) => explicit,
-            // `None` config is the canonical library's explicit
-            // `config: null`, which takes the same branch: the
-            // application settled the question in code, so there is no
-            // file whose location could answer it.
             None if incode || noconfig => true,
             None => "user" != config_scope(opts.folder.as_deref()),
         };
 
-        // Normalize, then validate (design §4.2). A malformed config
-        // fails open() with EVERY error at once.
-        //
-        // resolve_profile then reads the RAW config, NOT the normalized
-        // one. The normalized form is an input to validation and to
-        // nothing else: block defaults synthesized before the profile
-        // merge would let a one-key overlay overwrite the base's
-        // `active: false` and silently re-enable a barred integration
-        // (§3.3, §4.2).
         if let Some(config) = &config {
             if let Err(err) = validate_config(&normalize_config(config)) {
                 panic!("{}", err);
@@ -401,8 +315,6 @@ impl Station {
         });
 
         if "auto" == proxy {
-            // The probe is deferred with the proxy itself; absence degrades
-            // to solo with a single warning event naming the cause (§14).
             station.emit(StationEvent {
                 t: now_ms(),
                 kind: "station".to_string(),
@@ -414,16 +326,11 @@ impl Station {
             });
         }
 
-        // §5.4 item 2: `package` stays in the grammar - one config file
-        // serves a polyglot fleet - and is IGNORED HERE, with a warning
-        // event at open rather than an error. One event per api, once.
         station.warn_packages();
 
         station
     }
 
-    /// Which side of §6.3's review boundary this station's config came
-    /// from.
     pub fn repo_scoped(&self) -> bool {
         self.repo_scoped
     }
@@ -433,10 +340,8 @@ impl Station {
         self.raw.as_ref()
     }
 
-    // --- the inverted binding form (design §3.1) ---
 
     /// The plain options map a generated constructor already accepts: the
-    /// caller's own options, plus the station feature activated.
     pub fn options(&self, extra: &Json) -> Json {
         self.options_for("", extra)
     }
@@ -445,8 +350,6 @@ impl Station {
     /// (§6.1). Rust cannot overload on a leading optional argument the
     /// way the canonical `options(instanceName?, extra?)` does, so the
     /// name gets its own method and every existing `options(&extra)` call
-    /// is unchanged - the accommodation §6.3 allows a statically typed
-    /// port, stated in README.md.
     pub fn options_for(&self, instance: &str, extra: &Json) -> Json {
         let mut out: BTreeMap<String, Json> = match extra {
             Json::Map(entries) => entries.clone(),
@@ -476,7 +379,6 @@ impl Station {
     /// The registry entry whose client IS this value, or None. Used by
     /// bind() for idempotency: a second arrival for the same client must
     /// no-op, while a genuinely second client of the same INSTANCE still
-    /// fails register's name check (§10.2).
     pub(crate) fn bound_entry(&self, client: &Rc<dyn Any>) -> Option<Rc<PluginEntry>> {
         let want = Rc::as_ptr(client) as *const ();
         for entry in self.registry.borrow().values() {
@@ -487,19 +389,11 @@ impl Station {
         None
     }
 
-    /// The profile block that governs an instance - ITS OWN if the
     /// profile declares it, otherwise its API'S.
-    ///
-    /// `resolve_profile` builds `profile.sdk` from the declared refs
     /// alone (an api block declares no instance, §3.1), which leaves an
     /// IMPERATIVE instance - named but never written into config - with
-    /// no block at all, so the api-level `secret`, `base` and most
-    /// seriously `policy.hosts` did not reach it, and a profile that
-    /// denied egress everywhere denied nothing for a tagged client.
-    ///
     /// ONE RULE, ONE PLACE: registration and the transport seam both ask
     /// here, because them disagreeing is how the credential and the
-    /// allowlist came apart in the first place.
     pub fn block_for(&self, name: &str) -> Json {
         let declared = self.declared_ref(name);
         if let Some(block) = self.profile.sdk.get(&declared) {
@@ -512,10 +406,8 @@ impl Station {
             .unwrap_or_else(|| Json::Map(BTreeMap::new()))
     }
 
-    /// The DECLARED instance an assigned tag stands for, or the name
     /// itself. `create("stripe$prod")` registers under `stripe$1`, and
     /// every question about that client's configuration - its secret, its
-    /// base, its egress policy - is a question about `stripe$prod`.
     pub fn declared_ref(&self, name: &str) -> String {
         self.alias_of
             .borrow()
@@ -525,10 +417,6 @@ impl Station {
     }
 
     /// Register one construction. `fopts` is the station feature's own
-    /// options entry, which is where the instance name station knew
-    /// BEFORE construction began rides in (§7.5); a bare construction
-    /// with no name falls back to the api slug, which is today's
-    /// behaviour and why the single-instance case is unchanged.
     pub(crate) fn register(
         &self,
         client: Rc<dyn Any>,
@@ -545,22 +433,7 @@ impl Station {
 
         let block = self.block_for(&name);
 
-        // Secret name precedence: the feature option (in-code, design §9
-        // config.options.secret) beats the profile, which beats the
-        // INSTANCE-derived default.
-        //
-        // §5.1: secretname_default takes the INSTANCE name, not the api
-        // slug. For an untagged instance the two are the same string, so
-        // the single-instance case is unchanged to the byte. And the
-        // default takes the DECLARED name, not the assigned tag:
-        // `stripe$1` created from `stripe$test` derives
-        // `stripe_test.apikey`, so every per-request client of one
-        // instance shares one broker cache entry (§5.3).
-        //
-        // The descriptor's own auth.secretname stays the API-level
-        // default and is NOT used here (§7.4): one descriptor is shared
         // by every instance of an api and cannot hold two
-        // instance-derived names.
         let mut secretname = jstr(fopts, "secret");
         if secretname.is_empty() {
             secretname = jstr(&block, "secret");
@@ -629,17 +502,6 @@ impl Station {
         entry
     }
 
-    /// The per-api descriptor cache (§7.4). THE DESCRIPTOR IS SHARED
-    /// because it describes the API rather than any use of it: at 26
-    /// instances over 20 apis that is 20 normalizations, not 26, and the
-    /// canonical serialization is computed once per api too.
-    ///
-    /// Normalized with NO per-instance features, so the shared value
-    /// holds only api-stable metadata - which is what the factory table
-    /// already does at provide time. Per-instance activation is
-    /// `features_of`'s answer; a cache keyed by slug but built from the
-    /// first instance's feature map would make `descriptor_of`
-    /// construction-order-dependent.
     pub(crate) fn describe(&self, config: &Json) -> (Json, Vec<String>) {
         let slug = jget(config, "main")
             .map(|main| jstr(main, "slug"))
@@ -695,22 +557,16 @@ impl Station {
             corr,
             err: Some(ErrEvent {
                 code: Some(err.code.clone()),
-                // The scrub keeps an upstream echo of a credential out of
-                // the event stream (§7 as revised: exact-value, no floor).
                 message: self.redact(&err.message()),
             }),
             ..Default::default()
         });
     }
 
-    // --- the declarative front door (design §6) ---
 
     /// The client for a declared instance, CONSTRUCTED ON FIRST ASK AND
     /// CACHED by name. Synchronous, which is what makes "get it where you
-    /// need it" a real instruction.
-    ///
     /// The client is `Rc<dyn Any>`: a station library cannot name a
-    /// generated crate's type, so the caller downcasts.
     pub fn sdk(&self, name: &str) -> Result<Rc<dyn Any>, StationError> {
         if let Some(cached) = self.clients.borrow().get(name) {
             return Ok(cached.clone());
@@ -722,15 +578,6 @@ impl Station {
         Ok(client)
     }
 
-    /// An UNCACHED client from the same resolved config plus overrides,
-    /// for the case that genuinely wants a distinct one - a per-request
-    /// credential scope, a test double. Deliberately the longer name.
-    ///
-    /// It registers under an AUTO-ASSIGNED TAG, because every constructed
-    /// adapter registers under its instance name and station_bound_twice
-    /// fires on a second binding of one name: a second `create("stripe")`
-    /// would otherwise fail, which is exactly the per-request case this
-    /// exists for.
     pub fn create(
         &self,
         name: &str,
@@ -740,15 +587,9 @@ impl Station {
         self.build(name, Some(&tag), overrides)
     }
 
-    /// The lowest positive integer tag not already taken, by a LIVE
-    /// instance or a DECLARED one.
     ///
     /// THE REGISTRY ALONE IS NOT ENOUGH: a profile may declare `stripe$1`,
-    /// and until something constructs it the registry says false - so
     /// `create("stripe$prod")` would take that identity, `instances()`
-    /// would report the declared `stripe$1` as live with the wrong
-    /// client, and a later `sdk("stripe$1")` would fail
-    /// station_bound_twice against a binding that was never its own.
     /// Declaration reserves the name whether or not it has been built.
     pub fn autotag(&self, name: &str) -> String {
         let api = refapi(name);
@@ -807,12 +648,9 @@ impl Station {
         let entry = self.resolve_factory(&api, &block)?;
         let resolved = self.features_of(name)?;
 
-        // §8.5 VALIDATES HERE, not only in check(). The schema arrives
-        // with the factory, so the moment a factory is resolved is the
         // first moment validation is possible - and running it in check()
         // alone left production sdk() silently ignoring an unknown option
         // like `retry.retires`. One call here closes it, because EVERY
-        // path to a constructor comes through this line.
         let faults = check_features(&resolved.merged, &entry.descriptor);
         if !faults.is_empty() {
             return Err(StationError::new(
@@ -821,23 +659,10 @@ impl Station {
             ));
         }
 
-        // §8.4: compose the merged feature map into the form the
-        // constructor takes. Station's own entry is composed AFTER the
-        // user merge and always wins, which is why `station` is dropped
         // here and re-added by options_for: a config file that can switch
         // off the component reading it is not a surface, it is a trap.
-        // `feature.station` is already station_feature_reserved at
-        // validation, so this is the second half of one rule rather than
-        // a second rule.
-        //
         // THE MAP CANNOT CARRY THE ORDER - a generated Rust constructor
-        // takes options.feature as a map, and this port's map type is
-        // sorted rather than insertion-ordered. The order is RESOLVED
-        // here, so a cycle or a pin violation fails the build, and
-        // REPORTED by features_of; what a Rust SDK actually inits in is
-        // its own generated feature list, whose one station-relevant
         // invariant - the pin - bind() still verifies and fails loudly
-        // with station_wrap_order. README.md states the divergence.
         let rows = resolve_order(&resolved.merged, &resolved.declared)?;
         let kept: Vec<crate::feature::Ordered> = rows
             .into_iter()
@@ -877,16 +702,6 @@ impl Station {
         }
         options.insert("feature".to_string(), Json::Map(features));
 
-        // RECORD THE ALIAS, NOT THE FIELDS. Carrying the declared
-        // `secret` through the feature options and stopping there leaves
-        // `policy`, `base` and everything else behind, so an auto-tagged
-        // client silently loses its declared instance's HOSTS ALLOWLIST
-        // and falls back to the wider api-level one. Recording what the
-        // tag STANDS FOR is one rule that every lookup already goes
-        // through.
-        //
-        // Only when the tag was ASSIGNED - a caller naming its own is
-        // naming an instance, not aliasing one.
         let mut register_as = name.to_string();
         if let Some(tag) = as_tag {
             if !tag.is_empty() && tag != name {
@@ -897,23 +712,17 @@ impl Station {
             }
         }
 
-        // The instance name reaches the adapter the same way it does on
-        // the imperative path, so registration has one spelling (§7.5).
         // THERE IS NO CARRIED ADAPTER IN THIS PORT - Rust SDK options are
         // pure data with no extend seam (§3.1, tier table) - so the
         // retrofit path is regeneration with the station feature
-        // installed, and the constructor's own feature is what binds.
         Ok((entry.construct)(
             &self.options_for(&register_as, &Json::Map(options)),
         ))
     }
 
-    /// §5.4 item 3: TWO PATHS EVERYWHERE ELSE, ONE HERE. Rust has neither
-    /// import-by-name at run time nor a module-init hook, so
     /// self-registration and the loader both fall away and `provide` is
     /// the whole bootstrap. The message names only the remedy this port
     /// actually offers - telling a Rust user to set `api.<slug>.package`
-    /// would send them down a road with no end.
     pub fn resolve_factory(
         &self,
         api: &str,
@@ -940,21 +749,18 @@ impl Station {
     /// keys, the corpus validates configs carrying them, and removing
     /// them would break one-config-file-serves-a-polyglot-fleet - but
     /// this port cannot honour them, and silence about that is worse than
-    /// a warning.
     pub fn loader_package(&self, _api: &str, _block: &Json) -> Option<String> {
         None
     }
 
     /// Present and INERT (§5.4 item 4): the preload exists so one startup
     /// sequence serves a polyglot fleet. `StationOptions { load: Some(false) }`
-    /// is accepted and equally inert.
     pub fn load(&self) -> Result<(), StationError> {
         let _ = self.opts.load;
         Ok(())
     }
 
     /// One warning event per api whose declared block carries a non-empty
-    /// `package`, at open, once.
     fn warn_packages(&self) {
         let mut blocks: BTreeMap<String, Json> = BTreeMap::new();
         for (reference, block) in self.profile.sdk.iter() {
@@ -995,10 +801,7 @@ impl Station {
     }
 
     /// The merged, ordered feature set for one instance, WITH PROVENANCE
-    /// (§8.7): which config level set each value.
-    ///
     /// Provenance is the half that makes a fleet view usable rather than
-    /// merely correct - at 26 instances "why is retry off here" is the
     /// question, and a merged map alone cannot answer it.
     pub fn features_of(&self, name: &str) -> Result<FeatureSet, StationError> {
         let api = refapi(name);
@@ -1016,7 +819,6 @@ impl Station {
             jget(profiles, &self.profile.name).unwrap_or(&empty)
         };
 
-        // LEVELS: one label per source, in the §3.3 order.
         let levels = [
             "default.feature".to_string(),
             "default.api".to_string(),
@@ -1027,8 +829,6 @@ impl Station {
         ];
         let sources = feature_sources(Some(base), Some(overlay), &api, name);
 
-        // Last writer per (feature, key) wins, and the level that wrote
-        // it is what `from` records.
         let mut from: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
         for (at, src) in sources.iter().enumerate() {
             let entries = match src {
@@ -1054,22 +854,8 @@ impl Station {
         };
         let mut declared: Vec<String> = mergedmap.keys().cloned().collect();
 
-        // Policy budget (design §16): rps/concurrency ceilings ride "the
         // SDK `ratelimit` feature, configured by station". Composed HERE,
-        // into the merged map every consumer reads, rather than patched
-        // in at construction alone - so build() orders it with the
-        // ordinary constraint-and-band rules, check()'s §8.5 pass
-        // validates it against the SDK's own declaration (a budget on an
         // SDK with no ratelimit feature is station_feature_unknown, not a
-        // setting that quietly did nothing), and the fleet view answers
-        // "is ratelimit on?" truthfully.
-        //
-        // `rps` maps to the token bucket's refill `rate` (per second -
-        // the same unit); `concurrency` to its capacity `burst`, the
-        // number of requests that can be in flight from a full bucket.
-        // POLICY WINS over a `feature.ratelimit` config entry on the keys
-        // it sets - it is enforcement, not a default - and other tuning
-        // keys survive beside it.
         let block = self.block_for(name);
         if let Some(Json::Map(budget)) = jget(&block, "policy").and_then(|p| jget(p, "budget")) {
             let mut entry: BTreeMap<String, Json> = match mergedmap.get("ratelimit") {
@@ -1100,8 +886,6 @@ impl Station {
         // THE IMPLICIT STATION ENTRY, added for ORDERING ONLY. `station`
         // is never in `merged` - feature.station is reserved and rejected
         // at validation (§8.4) - so without it check_pin finds no station
-        // row and is a PERMANENT NO-OP: a constraint like
-        // `retry.order.after: "station"` would be treated as vacuous
         // rather than rejected, and the reported order would omit the one
         // feature whose position is supposedly pinned.
         let mut withstation = mergedmap.clone();
@@ -1124,8 +908,6 @@ impl Station {
     }
 
     /// The fleet feature view: instance x feature, effective options, and
-    /// which config level set each (§8.7). `None` is everything;
-    /// `loose_filter(text)` is the string shorthand.
     pub fn features(&self, filter: Option<&FeatureFilter>) -> Result<Vec<FeatureRow>, StationError> {
         let none = FeatureFilter::default();
         let want = filter.unwrap_or(&none);
@@ -1164,8 +946,6 @@ impl Station {
         // `feature` filters the ROWS, not the instances: an instance that
         // does not carry the named feature is not part of the answer, and
         // the rows that remain are narrowed to it, so the view answers
-        // "where is debug on, and with what" rather than "here is
-        // everything, go and look".
         let wanted = match &want.feature {
             None => return Ok(rows),
             Some(name) => name.clone(),
@@ -1199,8 +979,6 @@ impl Station {
 
     /// Eagerly resolve and construct every ACTIVE declared instance - for
     /// CI (design §6.6). The point is to turn availability errors, which
-    /// are deliberately deferred to first use, into ONE failure at a
-    /// moment somebody is watching.
     pub fn check(&self) -> CheckResult {
         let mut out = CheckResult::default();
         for row in self.instances() {
@@ -1212,16 +990,10 @@ impl Station {
         out
     }
 
-    /// One instance's turn, with the PANIC SEAM recovered: this port
-    /// panics for construction-time misconfiguration (the wrap-order
     /// guard, a second binding of one instance), and check() exists to
-    /// turn exactly those into one report at a moment somebody is
-    /// watching.
     fn check_one(&self, row: &Instance, out: &mut CheckResult) {
-        // §8.5 runs FIRST and needs no construction: the schema arrives
         // with the factory, not with a live client, so a feature typo is
         // a CI failure rather than a setting that quietly did nothing in
-        // production.
         if let Some(entry) = factory_for(&row.api) {
             match self.features_of(&row.name) {
                 Err(err) => {
@@ -1265,22 +1037,6 @@ impl Station {
         }
     }
 
-    /// Batch-resolve secrets (design §5.5).
-    ///
-    /// With no names it warms the ACTIVE declared instances only, because
-    /// reaching for a credential belonging to a disabled integration is
-    /// the wrong default. `warm(Some(names))` warms exactly what it is
-    /// given, inactive included, because an explicit name is an explicit
-    /// request.
-    ///
-    /// ONE RESOLUTION PER DISTINCT SECRET NAME. The canonical library
-    /// fires them CONCURRENTLY; sekreto's Rust port is synchronous and
-    /// this library is `!Send` throughout, so this port resolves SERIALLY
-    /// over the DEDUPLICATED name set - the accommodation §6.9 allows a
-    /// port with no async idiom, stated in README.md. The deduplication
-    /// is the half that carries the saving anyway: the broker's cache is
-    /// keyed by secret name, so several instances sharing one api-level
-    /// `secret` cost one round-trip either way.
     pub fn warm(&self, names: Option<&[String]>) -> WarmResult {
         let wanted: Vec<String> = match names {
             Some(given) => given.to_vec(),
@@ -1294,13 +1050,8 @@ impl Station {
 
         let mut out = WarmResult::default();
 
-        // THE REGISTRY IS THE AUTHORITY: a registered instance already
-        // carries the resolved name, in-code `secret` feature option
         // included. A NAME NOBODY DECLARED OR REGISTERED IS A MISS, not a
         // lookup - a wider fallback would let a typo like `stripe$prodd`
-        // derive a secret name, call the provider, and report a
-        // nonexistent instance `warmed` off a shared api-level
-        // credential. Registered OR declared, and nothing else.
         let mut bysecret: BTreeMap<String, Vec<String>> = BTreeMap::new();
         for name in wanted {
             let live = self.registry.borrow().get(&name).cloned();
@@ -1339,7 +1090,6 @@ impl Station {
 
     /// Every DECLARED instance, sorted by name. A different question from
     /// `plugins()`, and the answers differ routinely: a lazily-started
-    /// instance is `active: true` and not yet live.
     pub fn instances(&self) -> Vec<Instance> {
         self.profile
             .sdk
@@ -1360,13 +1110,10 @@ impl Station {
             .collect()
     }
 
-    // --- the query/observe surface (design §3.2, §6) ---
 
     /// One entry per LIVE INSTANCE, and EXHAUSTIVE: auto-tagged entries
     /// are NOT collapsed here, because inspection, health reporting and
     /// cleanup all need to enumerate the clients `create()` produced,
-    /// which is exactly when you most want them. Truncation is a
-    /// presentation decision and belongs to `status()`.
     pub fn plugins(&self) -> Vec<PluginInfo> {
         self.registry
             .borrow()
@@ -1383,8 +1130,6 @@ impl Station {
             .collect()
     }
 
-    /// An INSTANCE name's api descriptor - one value shared by every
-    /// instance of that api (§7.4).
     pub fn descriptor_of(&self, name: &str) -> Result<Json, StationError> {
         match self.registry.borrow().get(name) {
             Some(entry) => Ok(entry.descriptor.clone()),
@@ -1412,7 +1157,6 @@ impl Station {
         self.buffer.events()
     }
 
-    /// Live subscription; returns the tap id for untap().
     pub fn tap(&self, tap: TapFn) -> usize {
         self.buffer.tap(tap)
     }
@@ -1459,8 +1203,6 @@ impl Station {
     }
 
     /// close(): flush (solo: nothing in flight), then warn on declared
-    /// instances that matched no live one - a typo'd key silently
-    /// configuring nothing is the worst outcome for a secrets-and-policy
     /// file (design §11). An ASSIGNED tag counts for the instance it
     /// stands for, which is what `declared_ref` is.
     pub fn close(self: &Rc<Station>) {
@@ -1518,7 +1260,6 @@ fn panic_message(payload: &Box<dyn Any + Send>) -> String {
     String::new()
 }
 
-/// The catalog code a `code: message` panic carries, or ''.
 fn code_of(text: &str) -> String {
     match text.find(':') {
         Some(at) if is_known_code(&text[..at]) => text[..at].to_string(),
@@ -1526,8 +1267,6 @@ fn code_of(text: &str) -> String {
     }
 }
 
-/// A profile block's `policy.allow`, as the SDK's own option form: the
-/// keys policy sets, each a comma-joined string (design §16).
 pub(crate) fn policy_allow(block: &Json) -> Option<Json> {
     let allow = match jget(block, "policy").and_then(|policy| jget(policy, "allow")) {
         Some(Json::Map(entries)) => entries,
@@ -1546,7 +1285,6 @@ pub(crate) fn policy_allow(block: &Json) -> Option<Json> {
     Some(Json::Map(out))
 }
 
-/// A block's `policy.hosts`, as strings.
 pub(crate) fn policy_hosts(block: &Json) -> Option<Vec<String>> {
     match jget(block, "policy").and_then(|policy| jget(policy, "hosts")) {
         Some(Json::List(items)) => Some(

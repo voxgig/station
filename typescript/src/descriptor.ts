@@ -1,9 +1,5 @@
 import { Descriptor, DescriptorEntity, DescriptorPoint } from './types'
 
-// The ONLY way to build an env-var token in station, mirroring sdkgen's
-// packageMeta envToken exactly: 'gnarly-pets' -> 'GNARLY_PETS'. The
-// `secretname` corpus section pins the round-trip against sekreto's
-// envkey() and sdkgen's envName() - the one place three grammars meet.
 export function envtoken(name: any): string {
   return String(name || '')
     .toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '')
@@ -16,10 +12,6 @@ export function secretnameDefault(slug: string): string {
   return envtoken(slug).toLowerCase() + '.apikey'
 }
 
-// Best-effort slug from a camel name, for SDKs whose embedded config
-// predates main.slug (design §4 legacy sentinels). The hyphen caveat is
-// real: 'VoxgigSolardemo' -> 'voxgigsolardemo', NOT 'voxgig-solardemo' -
-// callers surface a warning event when this path is taken.
 function legacySlug(name: string): string {
   return String(name || '').toLowerCase()
 }
@@ -90,20 +82,6 @@ export function normalizeDescriptor(config: any, activeFeatures?: Record<string,
     entities[ename] = { fields, ops }
   }
 
-  // §7.4: the features list gains `options` and `transport`, because
-  // it was throwing away what the SDK already embeds -
-  // `config.feature[name].options` is the feature's own declared key
-  // set WITH TYPED DEFAULTS, which is the schema §8.5 validates
-  // against, and `transport` is the role §8.4 orders by.
-  //
-  // Both are already inside the SDK; the descriptor stops discarding
-  // them. ADDITIVE, so descriptor v1 consumers are unaffected.
-  //
-  // `transport` is carried rather than inferred: the obvious signal, an
-  // empty `hook: {}`, is wrong for station, which both wraps AND
-  // dispatches hooks. Absent until sdkgen emits it (§11 items 6-7), and
-  // §8.4's role checks degrade to nothing until then rather than
-  // guessing.
   const features: {
     name: string, active: boolean,
     options?: Record<string, any>, transport?: string,
@@ -134,21 +112,6 @@ export function normalizeDescriptor(config: any, activeFeatures?: Record<string,
   return { descriptor, warnings }
 }
 
-// Canonical serialization (design §4): UTF-8, object keys sorted
-// bytewise, no insignificant whitespace, minimal JSON escaping. The
-// proxy dedupes registrations by a hash of this, so every language must
-// produce identical bytes - the `canonical-serialize` corpus section
-// carries the adversarial cases.
-//
-// The bytewise sort compares UTF-8 BYTE SEQUENCES, not UTF-16 code
-// units, through TextEncoder rather than Buffer: TextEncoder is a
-// standard global, so this module carries no node: dependency. (That
-// last point used to matter because a browser entry had to reach this
-// module; station is server-side only now. TextEncoder stays because
-// the behaviour below is what the corpus pins, not because of where it
-// runs.) Uint8Array elements are unsigned bytes, so plain numeric
-// comparison IS the bytewise order Buffer.compare gave - the corpus'
-// non-ASCII sort case pins the equivalence.
 const UTF8 = new TextEncoder()
 
 function bytecompare(a: string, b: string): number {
@@ -172,7 +135,6 @@ export function canonicalSerialize(value: any): string {
   }
   if ('object' === typeof value) {
     const keys = Object.keys(value).filter((k) => undefined !== value[k])
-    // Bytewise sort: compare UTF-8 byte sequences, not UTF-16 code units.
     keys.sort(bytecompare)
     return '{' + keys.map((k) =>
       JSON.stringify(k) + ':' + canonicalSerialize(value[k])).join(',') + '}'

@@ -1,10 +1,3 @@
-// R2 grants (design §5.3; decision D-2026-08-24-1): a grant is a token
-// bound to the registration session, scoped PER INSTANCE - not per api -
-// TTL'd (default 15m), renewed by re-registration (§3.4), revocable via
-// DELETE /v1/grants/{ref}. Revoking one instance never touches its
-// siblings on the same api. The grant authorizes the proxy to inject
-// that instance's credential on the outbound hop; the application
-// process never holds the value.
 package daemon
 
 import (
@@ -14,7 +7,7 @@ import (
 
 type Grant struct {
 	Token     string
-	Ref       string // instance ref (D-2026-08-24-1: per instance)
+	Ref       string
 	Session   string
 	Secret    string // sekreto NAME, never a value
 	ExpiresAt time.Time
@@ -31,9 +24,6 @@ func NewGrants(ttl time.Duration, now func() time.Time) *Grants {
 	return &Grants{byToken: map[string]*Grant{}, ttl: ttl, now: now}
 }
 
-// Issue mints a grant for one instance registration. Re-registration
-// simply issues a fresh grant (§3.4: grants renew by re-registration);
-// the old one ages out on its TTL.
 func (g *Grants) Issue(ref string, session string, secret string) *Grant {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -58,15 +48,6 @@ func (g *Grants) purgeLocked() {
 	}
 }
 
-// Validate checks a presented grant token for an instance AND for the
-// session spending it. The session half is not decoration: a grant is
-// documented as bound to the registration session (§5.3), and checking
-// only the ref would let a grant outlive its issuing session - after
-// that session expired or was deleted, any new session registered under
-// the same ref could keep spending it until the grant TTL. The reason
-// distinguishes the failure for the error message; all failures are
-// station_grant_expired on the wire (§14: the grant is gone and
-// re-registration is the remedy in every case).
 func (g *Grants) Validate(token string, ref string, session string) (*Grant, string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
