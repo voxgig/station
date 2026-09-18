@@ -90,17 +90,6 @@ func resolveClient(urlFlag string, tokenFlag string, tokenFileFlag string) (*cli
 	return &client{base: base, token: token, http: newDaemonHTTPClient()}, nil
 }
 
-// newDaemonHTTPClient builds the verb client. It NEVER follows
-// redirects, and that is a §8.1 requirement rather than a preference:
-// the proof-of-token handshake is only worth anything if the endpoint
-// that produced the proof is the endpoint that will receive the bearer
-// token. A default client follows 3xx, so an imposter squatting the
-// configured address could bounce /v1/health to the genuine daemon on
-// another local address, relay its valid Station-Proof, pass
-// verification - and then receive the token itself on the next request,
-// which still goes to the imposter's own URL. With redirects off, a 3xx
-// comes back as an ordinary response and the verbs reject it: the proof
-// is necessarily the answering endpoint's own.
 func newDaemonHTTPClient() *http.Client {
 	return &http.Client{
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -109,13 +98,6 @@ func newDaemonHTTPClient() *http.Client {
 	}
 }
 
-// verifyProof performs the §8.1 challenge-response BEFORE any bearer
-// token is sent: a fixed loopback port is not the Docker-socket model -
-// any local user can bind it first - so the client sends a nonce on the
-// exempt health endpoint and checks Station-Proof against its own
-// HMAC. A process that cannot produce the proof does not hold the 0600
-// token file and is treated as an imposter; per §14 that reads exactly
-// like absence.
 func (c *client) verifyProof() error {
 	raw := make([]byte, 16)
 	if _, err := rand.Read(raw); err != nil {

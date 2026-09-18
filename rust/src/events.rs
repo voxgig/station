@@ -1,11 +1,3 @@
-//! The solo event surface (design §6): a bounded ring buffer plus a live
-//! tap with serialized callbacks. Events never fail an operation; overflow
-//! drops oldest and the drop count is visible in status().
-//!
-//! A port of typescript/src/events.ts (and the StationEvent shape of
-//! typescript/src/types.ts), which is canonical. Single-threaded by
-//! design: the whole generated-SDK world is Rc/RefCell (neither Send nor
-//! Sync), so the buffer is interior-mutable, not synchronized.
 
 use std::cell::RefCell;
 use std::collections::VecDeque;

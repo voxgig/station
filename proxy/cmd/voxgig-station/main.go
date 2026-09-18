@@ -1,11 +1,3 @@
-// Command voxgig-station is the station companion daemon (design D2):
-// one Go binary providing the consolidated control surface for every
-// attached station library. This phase ships the control-plane core -
-// token + discovery (§8.1), register/session/events/tap/status
-// (§8.2/§8.3) - single-team, in-memory. The data plane (/v1/forward),
-// grants, proxy-side policy authority, capture store, replay/mock and
-// the MCP surface arrive in later phases; their CLI verbs (tap, status,
-// call, approve, revoke, mcp) land alongside them.
 package main
 
 import (
@@ -170,9 +162,6 @@ func runCmd(args []string) error {
 		return err
 	}
 
-	// §8.3: the proxy loads its OWN station.json - same lookup the
-	// libraries use (cwd upward to the repo root, then
-	// ~/.voxgig/station.json), with --config overriding.
 	cfgPath := *configPath
 	if cfgPath == "" {
 		cfgPath = daemon.FindStationConfig("")

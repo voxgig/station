@@ -31,8 +31,6 @@ func rpc(t *testing.T, ts *httptest.Server, id int, method string, params any) m
 	return decode(t, resp)
 }
 
-// agentTool calls one §7 tool and returns its decoded JSON payload plus
-// the isError flag.
 func agentTool(t *testing.T, ts *httptest.Server, name string, args any) (map[string]any, bool) {
 	t.Helper()
 	m := rpc(t, ts, 42, "tools/call", map[string]any{"name": name, "arguments": args})
@@ -221,8 +219,6 @@ func TestAgentTranscript(t *testing.T) {
 		if payload["status"] != float64(200) {
 			t.Errorf("status = %v", payload["status"])
 		}
-		// The synthesized request went to the canonical point with the
-		// injected credential (§7: same policy/injection/capture path).
 		req := up.last(t)
 		if req.Method != "GET" || req.Path != "/planet" {
 			t.Errorf("upstream saw %s %s, want GET /planet", req.Method, req.Path)
@@ -432,8 +428,6 @@ func TestAgentTranscript(t *testing.T) {
 	})
 }
 
-// TestAgentWriteGates: the two write halves - daemon flag AND per-
-// instance policy - and the open path when both are granted (§7, §16).
 func TestAgentWriteGates(t *testing.T) {
 	up := newUpstream(t)
 
@@ -588,13 +582,6 @@ func TestMCPWire(t *testing.T) {
 	})
 }
 
-// TestAgentWriteGateByMethod: the write gate cannot key off the op NAME
-// alone. The descriptor is untrusted input (§8.3) - it is stored
-// verbatim and nothing security-relevant is derived from it - so a
-// descriptor can declare a `list` or `load` op whose canonical point is
-// a POST, PUT, PATCH or DELETE. The method carries the truth about what
-// the request does, and it is the same classification replay already
-// applies to a capture.
 func TestAgentWriteGateByMethod(t *testing.T) {
 	up := newUpstream(t)
 	ts, _ := newTestProxyServer(t, nil)

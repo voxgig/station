@@ -1,13 +1,3 @@
-// The proxy-side secret broker (design §5.3 R2): the PROXY holds the
-// sekreto instance and the provider credentials; the application process
-// never runs the chain. Resolution happens by the proxy's OWN
-// instance→name mapping (§8.3) - a client can never choose which secret
-// is resolved. Values live in memory only (§8.5); every value this
-// broker ever resolved joins the exact-value scrub set, no length floor
-// (§7 - the promise on the capture/agent boundary is absolute).
-//
-// The sekreto usage pattern follows go/station/secrets.go, the library
-// port.
 package daemon
 
 import (
@@ -24,10 +14,7 @@ type broker struct {
 	mu    sync.Mutex
 	sek   *sekreto.Sekreto
 	cache map[string]string
-	// held is every value ever resolved - the persistent half of the
-	// capture scrub set. (Station-Redact values are deliberately NOT
-	// added here: §15 holds those transiently, for one exchange only.)
-	held []string
+	held  []string
 }
 
 // newBroker builds the broker over sekreto's declarative ProviderSpec
@@ -56,11 +43,6 @@ func newBroker(providers []any) (*broker, error) {
 	}, nil
 }
 
-// resolveErr distinguishes §5.2's two failure kinds on the wire: a miss
-// (no store had the name) is station_secret_no_value; a store that
-// could not answer is station_secret_error with sekreto's message
-// intact - and never retried against a weaker store (sekreto owns the
-// chain).
 type resolveErr struct {
 	code    string
 	message string
@@ -68,9 +50,6 @@ type resolveErr struct {
 
 func (e *resolveErr) Error() string { return e.code + ": " + e.message }
 
-// value resolves a secret name through the proxy's chain. The resolution
-// cache is keyed by secret name (§5.3), so several instances naming one
-// secret share a single resolution.
 func (b *broker) value(ref string, name string) (string, *resolveErr) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -109,17 +88,12 @@ func (b *broker) scrub(text string) string {
 	return out
 }
 
-// heldValues snapshots the persistent scrub set (for capture scrubbing
-// alongside an exchange's transient Station-Redact values).
 func (b *broker) heldValues() []string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return append([]string(nil), b.held...)
 }
 
-// chainSources describes the chain for station_secrets - sekreto's own
-// Sources() strings ("env:<prefix>", "memory", "hashicorp", ...), safe
-// by construction (§7).
 func (b *broker) chainSources() []string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -145,5 +119,4 @@ func (b *broker) storeFor(name string) (string, error) {
 	return "", nil
 }
 
-// redactedMarker replaces scrubbed bytes in captures and tool output.
 const redactedMarker = "[redacted]"

@@ -354,8 +354,6 @@ func TestRegisterValidation(t *testing.T) {
 func TestSessionLifecycle(t *testing.T) {
 	ts := newTestProxy(t, nil)
 
-	// Register: the descriptor is stored verbatim and parks in "pending"
-	// (§8.3 - no proxy-side policy authority in this phase).
 	body := `{"descriptor":{"station":1,"name":"Solardemo","slug":"voxgig-solardemo","base":"https://api.solar.example.com"},` +
 		`"process":{"pid":42,"lang":"go","app":"testapp"},"identity":{"org":"acme"}}`
 	resp := call(t, ts, http.MethodPost, "/v1/register", body, nil, "")
@@ -772,14 +770,6 @@ func waitFor(t *testing.T, cond func() bool) {
 	t.Fatal("condition never became true")
 }
 
-// TestRouteRefWithSlash: an instance NAME is a package-ish specifier and
-// explicitly admits `/` (§6.1's `^[a-zA-Z@][a-zA-Z0-9.~_\-/]*$` -
-// `@scope/pkg` is a valid ref), which the CLI duly sends percent-
-// encoded. Go decodes `%2F` into r.URL.Path before any handler runs, so
-// a router that looks for `/` there cannot tell a segment separator
-// from an escaped character and makes every scoped ref permanently
-// unaddressable: approve, policy polling and grant revocation could
-// never name one.
 func TestRouteRefWithSlash(t *testing.T) {
 	up := newUpstream(t)
 	ts := newTestProxy(t, nil)

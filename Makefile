@@ -121,3 +121,15 @@ omni-isolation:
 .PHONY: pack-diff
 pack-diff:
 	@tools/pack_diff.sh $(PORTS)
+
+.PHONY: comments comments-test hooks
+comments:
+	node tools/comment-gate.cjs
+
+comments-test:
+	node --test tools/comment-gate.test.cjs
+
+hooks:
+	git config core.hooksPath .githooks
+
+test: comments

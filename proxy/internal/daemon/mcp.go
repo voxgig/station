@@ -1,20 +1,3 @@
-// The agent surface (design §7): the daemon is an MCP server. This file
-// is the protocol layer - the minimal MCP surface (initialize,
-// tools/list, tools/call over JSON-RPC 2.0) implemented on the standard
-// library. The official Go SDK was evaluated and declined for v1: it
-// requires go >= 1.25 against this module's 1.21 floor and brings a
-// third-party dependency tree into the one binary §15 names as the
-// hardening focus ("minimal dependencies"). The daemon speaks the
-// streamable-HTTP form on POST /v1/mcp behind the §8.1 auth and
-// Host/Origin middleware; `voxgig-station mcp` bridges stdio to it, so
-// the tools have exactly one implementation (the §6 "two skins over one
-// proxy API" rule).
-//
-// Tool RESULTS are external data (§7, §15): station_traffic and
-// station_call feed upstream-controlled response bodies into the
-// agent's context, so results carry a content-origin label and never
-// embed instructions; every result passes the same credential-aware
-// scrub as captures before leaving the daemon.
 package daemon
 
 import (
@@ -59,13 +42,6 @@ type toolError struct {
 	Candidates []string `json:"candidates,omitempty"`
 }
 
-// handleMCP implements POST /v1/mcp: one JSON-RPC 2.0 message per
-// request, one response - the minimal streamable-HTTP form (a plain
-// JSON response to a single message is spec-conformant; SSE streaming
-// is not needed for request/response tools). Notifications get 202
-// with no body. The route sits behind bearer auth and the Host/Origin
-// checks; the Station-Protocol header is not required here - MCP
-// carries its own version inside initialize (see ServeHTTP).
 func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 4<<20))
 	if err != nil {

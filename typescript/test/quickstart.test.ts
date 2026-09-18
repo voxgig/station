@@ -1,8 +1,3 @@
-// The §11 walkthroughs, run for real: the two-line quickstart against a
-// live test API, injection at the transport seam, placeholder-safe
-// options()/prepare(), and the event stream. The SDK is a REAL generated
-// SDK (taskpad, built by sdkgen from an OpenAPI spec) served by the
-// taskpad test server - nothing here is mocked.
 
 import { test, describe, before, after, beforeEach } from 'node:test'
 import { equal, ok, deepEqual, match } from 'node:assert'

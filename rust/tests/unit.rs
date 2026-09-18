@@ -1,18 +1,3 @@
-// RUN: make test  (cargo test, after `make vendor`)
-//
-// Focused unit tests for the pieces the corpus cannot see: the event
-// ring/tap, the broker's miss-vs-error split and floorless scrub, the
-// bind() guards (wrap order, second arrival, bound twice, inert without
-// an open station), the per-request prepare() decisions (require,
-// hosts policy + manual redirects, injection, mock non-injection), the
-// station.json lookup walk, and - since Stage 5's later tranche - the
-// declarative front door: the factory table, sdk()/create()/build(),
-// features_of's provenance and budget composition, warm(), check(), and
-// the drift guard on the embedded shape mirror. Each test thread gets
-// its own ambient instance and its own factory table (both
-// thread-local), so tests stay isolated without a lock - and each test
-// that uses either resets it first, for the case where the harness runs
-// them on one thread.
 
 use std::any::Any;
 use std::cell::RefCell;
@@ -166,8 +151,6 @@ fn broker_miss_is_no_value_error_is_error() {
 #[test]
 fn broker_scrub_has_no_length_floor() {
     let broker = SecretBroker::new(&[parse(r#"{ "kind": "memory", "values": {} }"#)]).unwrap();
-    // Three characters: under sekreto's own redact() floor, still scrubbed
-    // exactly on station boundaries (design §7 as revised).
     broker.hoist("taskpad", "abc");
     assert_eq!("key=[redacted]!", broker.scrub("key=abc!"));
 }
@@ -546,8 +529,6 @@ fn config_shape_mirror_matches_the_spec() {
     );
 }
 
-// The §0 guards on the shape itself, which are cheap and catch an edit
-// that would quietly change what the grammar means.
 #[test]
 fn config_shape_holds_its_invariants() {
     let shape = config_shape_json();
@@ -555,9 +536,6 @@ fn config_shape_holds_its_invariants() {
         .and_then(|p| jget(p, "`$CHILD`"))
         .expect("profiles.$CHILD");
 
-    // The two block specs are IDENTICAL: an api block and an sdk block
-    // are the same grammar, and a key that reached one but not the other
-    // would be a second grammar nobody declared.
     let api = jget(profile, "api").and_then(|a| jget(a, "`$CHILD`")).expect("api block");
     let sdk = jget(profile, "sdk").and_then(|s| jget(s, "`$CHILD`")).expect("sdk block");
     assert_eq!(
@@ -590,10 +568,6 @@ fn config_shape_holds_its_invariants() {
         );
     }
 
-    // The only `$OPEN` nodes are the three FEATURE-ENTRY nodes: a
-    // feature's own options are the SDK's grammar, not station's, and
-    // §8.5 checks them against the descriptor instead. Anywhere else, an
-    // open map would silently accept a typo.
     let mut open: Vec<String> = Vec::new();
     findopen(&shape, "", &mut open);
     assert_eq!(
@@ -635,15 +609,6 @@ fn findopen(node: &Json, path: &str, out: &mut Vec<String>) {
 // spec the first had already eaten.
 #[test]
 fn config_shape_is_fresh_on_every_call() {
-    // TWO CONFIGS TAKING DIFFERENT `$ONE` BRANCHES OF ONE KEY, run in
-    // both orders. The contract is that every validate gets a fresh deep
-    // copy, because struct's validate CONSUMES the spec it walks - it
-    // deletes the satisfied branch as it goes - and a shared spec would
-    // let the first run eat `library` so the second had no branch to
-    // match. struct's own Rust port also clones internally today, so
-    // this is a regression guard on the pipeline rather than a proof of
-    // the copy; the copy is in config_shape() because the contract, not
-    // one struct build, is what this port holds to.
     let library = parse(r#"{ "station": 1, "profiles": { "default": {
         "sdk": { "solar": { "resolve": "library" } } } } }"#);
     let proxied = parse(r#"{ "station": 1, "profiles": { "default": {
@@ -961,8 +926,6 @@ fn check_features_catches_unknown_features_and_options() {
     assert!(faults.iter().all(|f| f.key.as_deref() != Some("active")));
 }
 
-// The §8.5 pass runs in build(), not only in check() - so a production
-// sdk() cannot silently ignore a typo'd option.
 #[test]
 fn build_runs_the_feature_check() {
     Station::reset();
@@ -1032,8 +995,6 @@ fn warm_resolves_declared_names_and_misses_the_rest() {
                       "taskpad$off": { "active": false } } } } }"#,
     ));
 
-    // Two instances share one api-level `secret`, so they resolve as ONE
-    // name; the inactive one is not warmed by default.
     let warm = station.warm(None);
     assert_eq!(
         vec!["taskpad".to_string(), "taskpad$eu".to_string()],
@@ -1055,7 +1016,6 @@ fn warm_resolves_declared_names_and_misses_the_rest() {
     Station::reset();
 }
 
-// --- §6.3's review boundary -------------------------------------------------
 
 #[test]
 fn repo_scoped_reads_the_explicit_option_first() {
@@ -1149,7 +1109,6 @@ fn features_view_narrows_rows_to_the_named_feature() {
     Station::reset();
 }
 
-// --- policy at the binding seam (design §16) --------------------------------
 
 #[test]
 fn binding_hands_back_the_policy_allowlist() {

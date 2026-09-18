@@ -4,19 +4,6 @@
 // The shape artifact is DATA (design §4.3): `spec/config-shape.json` is
 // the copy every port reads, and this port EMBEDS a mirror of it -
 // go:embed in station/shape.go - because a Go module ships compiled and
-// cannot see spec/ at run time, while ValidateConfig runs at Open().
-//
-// A mirror that can drift is a mirror that will, so this suite fails on
-// drift. `make sync-shape` rewrites it.
-//
-// The rest of these are the shape's own invariants, asserted rather than
-// assumed, because each one is load-bearing for a rule stated somewhere
-// else: the two block specs being identical is what makes an api block
-// and an sdk block the same grammar (§3.4); MERGE_SENSITIVE being
-// exactly the non-container defaults is §3.3's timing rule; and the
-// three `$OPEN` nodes are the only places a foreign grammar passes
-// through, which is what keeps unexpected-key detection live everywhere
-// else (§4.2).
 
 package station_test
 
@@ -137,9 +124,6 @@ func TestShapeOpensOnlyTheFeatureEntries(t *testing.T) {
 	walk(station.ConfigShape(), "")
 	sort.Strings(open)
 
-	// A feature entry is the ONE place a foreign grammar passes through:
-	// the SDK's own feature options are the SDK's business, and §8.5
-	// checks them against the descriptor instead.
 	want := []string{
 		"profiles.`$CHILD`.api.`$CHILD`.feature.`$CHILD`",
 		"profiles.`$CHILD`.feature.`$CHILD`",

@@ -32,11 +32,6 @@ func TestConfigRootMustBeAnObject(t *testing.T) {
 	}
 }
 
-// The declaration-order machinery had NO test that would catch its
-// removal: every `merged` entry in the corpus happens to have
-// alphabetically-ordered keys, so sorted == declared for all of them and
-// `order = nil` at the top of namesInOrder left the whole suite green.
-// This pins it on keys where the two genuinely differ.
 func TestDeclarationOrderIsNotSortedOrder(t *testing.T) {
 	dir := t.TempDir()
 	// zeta before alpha: declared order and sorted order disagree, so a

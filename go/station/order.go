@@ -1,22 +1,3 @@
-// JSON key-declaration order, which Go's map type discards.
-//
-// THIS FILE EXISTS BECAUSE GO HAS NO ORDERED MAP, and §8.4 makes
-// declaration order load-bearing: it is the LAST tie-break of the
-// feature order - after constraints, after bands - so two same-band
-// features neither of which constrains the other come out in the order
-// the config declared them. The canonical library gets that free from a
-// JavaScript object; a Go map would turn it into an alphabetical
-// accident, which is exactly what §8.4 says the tie-break must not be.
-//
-// So station.json is parsed ONCE, into the same plain
-// map[string]any/[]any/float64 tree encoding/json produces PLUS an Order
-// tree mirroring its shape. Everything downstream keeps taking plain
-// maps; only the paths that need order ask for it.
-//
-// A CONFIG PASSED IN CODE (Options.Config) HAS NO ORDER TO READ - a Go
-// map literal simply has none - so those instances fall back to sorted
-// key order. Documented in README.md as this port's one behavioural
-// divergence on §8.4's last tie-break.
 package station
 
 import (
@@ -68,9 +49,6 @@ func (order *Order) At(path ...string) *Order {
 	return at
 }
 
-// ParseOrdered parses JSON into exactly the tree encoding/json produces
-// for `any` - map[string]any, []any, float64, string, bool, nil - plus
-// the key order of every map in it.
 func ParseOrdered(text []byte) (any, *Order, error) {
 	dec := json.NewDecoder(bytes.NewReader(text))
 	value, order, err := parseordered(dec)

@@ -195,3 +195,11 @@ make pack-diff         # what a release would add to or remove from the package
 `make test` and the per-port suites need a **voxgig/omni checkout**
 (`OMNI_HOME`, or a sibling directory). `vendor-refresh` and `vendor-check`
 additionally need a **voxgig/sekreto checkout** (`SEKRETO_HOME`).
+
+## Source code comments
+
+Follow [COMMENT-POLICY.md](COMMENT-POLICY.md): comments are sparse and terse,
+only for intricate or surprising code. Names carry intent; documents carry
+requirements. Run `make comments comments-test` after editing source.
+
+Durable implementation rationale is in [COMMENT-NOTES.md](COMMENT-NOTES.md).

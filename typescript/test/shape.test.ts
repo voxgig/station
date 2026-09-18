@@ -1,9 +1,3 @@
-// RUN: npm test
-//
-// Guards on the config grammar as DATA (design §4.3, §10.1). These
-// assert properties of the shape file itself, not of any config that
-// runs through it - the sdkgen discipline for data that must be
-// duplicated.
 
 import { describe, test } from 'node:test'
 import { deepStrictEqual, ok } from 'node:assert'
@@ -29,16 +23,6 @@ describe('config-shape', () => {
       'edit the JSON and re-run `make sync-shape`')
   })
 
-  // §3.1: the two block positions differ in what they KEY, not in what
-  // they hold. An `sdk` block is keyed by ref and an `api` block by api
-  // slug, and one token carries both - so there is no `api` field to
-  // keep consistent with the key.
-  //
-  // An earlier draft had them differ by exactly one key, `api`, on the
-  // `sdk` side; the ref re-key removed it and with it the merge-phasing
-  // hazard §3.3 used to have to handle. §10.1 still says "differ only by
-  // the `api` key" and is stale on that point - §3.1 is explicit that
-  // they are now identical.
   test('the two block specs are identical', () => {
     const profile = CONFIG_SHAPE.profiles['`$CHILD`']
     deepStrictEqual(profile.api['`$CHILD`'], profile.sdk['`$CHILD`'],
@@ -55,8 +39,6 @@ describe('config-shape', () => {
     for (const k of MERGE_SENSITIVE) {
       ok(k in BLOCK_DEFAULTS, k + ' is merge-sensitive but has no default')
     }
-    // Containers are safe early; a scalar is not. `active` is the only
-    // scalar in either table, which is WHY it is the only entry above.
     for (const [name, table] of
       [['profile', PROFILE_DEFAULTS], ['block', BLOCK_DEFAULTS]] as any[]) {
       for (const k of Object.keys(table)) {
@@ -70,10 +52,6 @@ describe('config-shape', () => {
     }
   })
 
-  // Every map level in the shape must be closed, or §4.2's whole
-  // exercise degenerates. A `$OPEN` node is deliberate and there are
-  // exactly two: the feature entries, which carry per-SDK options this
-  // grammar cannot know (§8.5 checks them against the descriptor).
   test('only the feature entries are open', () => {
     const open: string[] = []
     const walk = (node: any, path: string): void => {

@@ -17,8 +17,6 @@ import (
 // a 0700 directory, created by the proxy on first run. The path is a
 // parameter so tests (and later, packaging) can relocate it.
 
-// LoadOrCreateToken reads the token file at path, creating it (and its
-// directory) with the §8.1 permissions when absent.
 func LoadOrCreateToken(path string) (string, error) {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -60,7 +58,6 @@ func LoadOrCreateToken(path string) (string, error) {
 	return token, nil
 }
 
-// DefaultTokenPath is §8.1's ~/.voxgig/station/token.
 func DefaultTokenPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -69,13 +66,6 @@ func DefaultTokenPath() (string, error) {
 	return filepath.Join(home, ".voxgig", "station", "token"), nil
 }
 
-// Proof computes the §8.1 proof-of-token: hex(HMAC-SHA256 over the nonce,
-// keyed by the token). The client sends its nonce on the already-exempt
-// health endpoint (GET /v1/health?nonce=...) and verifies the returned
-// Station-Proof header before sending anything sensitive - which is what
-// makes a fixed loopback port safe against a port-squatting imposter: an
-// imposter cannot produce the proof without the 0600 token file, and a
-// proof failure degrades exactly like absence (§14).
 func Proof(token string, nonce string) string {
 	mac := hmac.New(sha256.New, []byte(token))
 	mac.Write([]byte(nonce))

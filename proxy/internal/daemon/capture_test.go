@@ -156,9 +156,6 @@ func TestCaptureReplayableBodyScrub(t *testing.T) {
 	}
 }
 
-// TestCaptureTruncation: capture-full bodies cut at the configured limit
-// with the truncated marker; a truncated request body is not replayable
-// while a truncated RESPONSE body alone does not matter (§8.5).
 func TestCaptureTruncation(t *testing.T) {
 	up := newUpstream(t)
 	cfgPath := stationJSONFor(t, `"127.0.0.1"`, "library", "full")
@@ -269,7 +266,6 @@ func TestCaptureStoreEntryBound(t *testing.T) {
 }
 
 func TestCaptureStoreByteBound(t *testing.T) {
-	// Each entry: 172-byte body + 128 accounting overhead = 300 bytes.
 	entry := func() *CaptureEntry {
 		return &CaptureEntry{ReqBody: strings.Repeat("b", 172)}
 	}
@@ -286,12 +282,6 @@ func TestCaptureStoreByteBound(t *testing.T) {
 	}
 }
 
-// TestCaptureAccountingCountsMetadata: the byte bound must charge for
-// the VARIABLE metadata an entry retains, not stand a fixed estimate in
-// for all of it. `Corr` in particular comes straight off a client-
-// supplied Station-Corr header and is referenced for the entry's whole
-// life, so a store that charges it nothing can hold far more memory
-// than CaptureMaxBytes reports or enforces.
 func TestCaptureAccountingCountsMetadata(t *testing.T) {
 	t.Run("every retained string is charged", func(t *testing.T) {
 		e := &CaptureEntry{
@@ -308,9 +298,6 @@ func TestCaptureAccountingCountsMetadata(t *testing.T) {
 	})
 
 	t.Run("a large corr is bounded like a body", func(t *testing.T) {
-		// Each entry: 172-byte Corr + 128 fixed overhead = 300 bytes,
-		// so the third overflows a 700-byte store exactly as a body of
-		// the same size would.
 		entry := func() *CaptureEntry { return &CaptureEntry{Corr: strings.Repeat("c", 172)} }
 		cs := NewCaptureStore(100, 700)
 		cs.Add(entry())
@@ -327,13 +314,6 @@ func TestCaptureAccountingCountsMetadata(t *testing.T) {
 	})
 }
 
-// TestCaptureDegradeBodyCredential extends §15's missing-marker rule to
-// the REQUEST BODY. Under R1-attached the proxy learns transient secret
-// values only from the headers Station-Redact names, so an integration
-// that carries its credential solely in the body - a token exchange is
-// the ordinary case - leaves the proxy with neither a transient value
-// nor a broker-held one, and `capture: full` would store the credential
-// verbatim.
 func TestCaptureDegradeBodyCredential(t *testing.T) {
 	const bodyOnly = "sk-body-only-31"
 	up := newUpstream(t)
@@ -372,8 +352,6 @@ func TestCaptureDegradeBodyCredential(t *testing.T) {
 	})
 
 	t.Run("an ordinary body still captures at full", func(t *testing.T) {
-		// The rule is a credential-SHAPE test, not a "there is a body"
-		// test: degrading every POST would cost §8.5 its whole point.
 		up.respond = nil
 		resp := forward(t, ts, session, nil,
 			envelope(t, up.ts.URL+"/planet", "POST", nil, `{"name":"pluto","mass":1}`))

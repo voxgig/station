@@ -1,12 +1,3 @@
-// The eight §7 tools. Few generic tools driven by descriptors, not
-// tool explosion: go-mcp's precedent (generic tools with an `entity`
-// argument) scales to N plugins; per-entity registration would blow
-// MCP hosts' tool budgets by the second SDK.
-//
-// Agent-facing affordances per §7: entity/op matching is
-// case-insensitive with the canonical form echoed back; unknown
-// plugin/entity/op errors list the valid candidates in the error
-// payload; errors carry the §14 catalog code where one exists.
 package daemon
 
 import (
@@ -37,8 +28,6 @@ var toolHandlers = map[string]toolFunc{
 	"station_policy":       (*Server).toolPolicy,
 }
 
-// toolDefinitions is the tools/list payload. Descriptions state the §7
-// output rules so hosts and agents know results are external data.
 func toolDefinitions() []map[string]any {
 	obj := func(props map[string]any, required ...string) map[string]any {
 		schema := map[string]any{"type": "object", "properties": props}
@@ -149,11 +138,6 @@ func argUint(m map[string]any, key string) uint64 {
 	}
 	return 0
 }
-
-// --- descriptor access (untrusted input, §8.3: shape for candidates
-// and synthesis only - hosts policy and secret selection stay
-// proxy-side, so a hostile descriptor cannot widen egress or pick a
-// secret) ----------------------------------------------------------------
 
 type mcpDescriptor struct {
 	Name     string               `json:"name"`
@@ -268,13 +252,6 @@ func isReadOp(op string) bool {
 	return false
 }
 
-// mutatingMethod is the HTTP-method mutation classification - the one
-// replay already applies to a capture (§7): everything but GET and HEAD
-// mutates. It exists because the op NAME is client-supplied through an
-// explicitly untrusted descriptor (§8.3), so "the op is called list"
-// proves nothing about what the request does. The two rules compose:
-// an operation is read-only only when its name AND its canonical
-// point's method both say so.
 func mutatingMethod(method string) bool {
 	switch strings.ToUpper(method) {
 	case http.MethodGet, http.MethodHead:
@@ -375,10 +352,6 @@ func (s *Server) toolDescribe(raw json.RawMessage) (any, *toolError) {
 
 var pathParamRe = regexp.MustCompile(`\{([A-Za-z0-9_]+)\}`)
 
-// toolCall synthesizes the HTTP request directly from the descriptor
-// (canonical point, §4) and sends it through the same policy,
-// injection, and capture path as library traffic - no language runtime
-// involved (§7).
 func (s *Server) toolCall(raw json.RawMessage) (any, *toolError) {
 	if s.cfg.AgentReadDisabled {
 		return nil, &toolError{Code: CodeAgentAllow, Message: "agent.read is disabled on this daemon"}
@@ -424,15 +397,6 @@ func (s *Server) toolCall(raw json.RawMessage) (any, *toolError) {
 		method = http.MethodGet
 	}
 
-	// §7 safety defaults: load/list by default; a mutating op needs the
-	// daemon gate AND the instance's own policy opt-in - writes are a
-	// policy grant, not a default (§12).
-	//
-	// The name alone does not decide it. The descriptor is untrusted
-	// input (§8.3), so a hostile or merely wrong one can declare a
-	// `list` op whose canonical point is a POST/PUT/PATCH/DELETE; the
-	// method carries the truth about what the request does, and both
-	// halves must read as a read for the call to skip the gate.
 	eff := s.policy.EffectiveFor(ref)
 	// §16's kill switch reaches the agent surface too: station_call is
 	// egress through the same data plane, so `block` refuses it for the
@@ -497,8 +461,6 @@ func (s *Server) toolCall(raw json.RawMessage) (any, *toolError) {
 		target.RawQuery = values.Encode()
 	}
 
-	// The same hosts policy as the data plane (§8.3): approved policy,
-	// narrowed - never widened - by the descriptor.
 	if eff.State == StateApproved {
 		hosts := narrowHosts(eff.Hosts, desc.Base)
 		if !hostAllowed(hosts, target.Hostname(), target.Port()) {
@@ -623,15 +585,6 @@ func (s *Server) toolTraffic(raw json.RawMessage) (any, *toolError) {
 	}
 	grep := argString(args, "grep")
 
-	// Fetch in batches and apply the tool-only since/grep filters,
-	// CONTINUING PAST A BATCH THAT MATCHES NOTHING. A single over-fetch
-	// would strand the caller: with more captures behind the cursor
-	// than one batch holds and the first match after it, the answer was
-	// no captures, `more: true` and no `next` - a cursor the client
-	// cannot advance, and matches it can never reach. The scan runs to
-	// the requested limit or the end of the store (itself bounded by
-	// CaptureMaxEntries), and reports the last examined id as `next` so
-	// a caller can always move forward.
 	plugin := argString(args, "plugin")
 	cursor := argUint(args, "cursor")
 	examined := cursor

@@ -1,10 +1,3 @@
-// The solo event surface (design §6): a bounded ring buffer plus a live
-// tap with serialized callbacks. Events never fail an operation; overflow
-// drops oldest and the drop count is visible in Status().
-//
-// A port of typescript/src/events.ts, which is canonical. StationEvent's
-// shape is pinned by the design's §6 schema; unknown fields are ignored
-// by consumers, so it evolves additively.
 package station
 
 import "sync"

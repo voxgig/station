@@ -10,14 +10,12 @@ import "sync"
 type Ring struct {
 	mu      sync.Mutex
 	buf     [][]byte
-	head    int // index of the oldest entry
+	head    int
 	size    int
-	total   uint64 // entries ever pushed
-	dropped uint64 // entries evicted by overflow
+	total   uint64
+	dropped uint64
 }
 
-// RingStats is the status view of the ring (§8.5: bounds and fill are
-// visible in status).
 type RingStats struct {
 	Capacity int    `json:"capacity"`
 	Size     int    `json:"size"`
@@ -49,9 +47,6 @@ func (r *Ring) Push(line []byte) {
 	r.total++
 }
 
-// Snapshot returns the buffered lines, oldest first. Unused by the v1
-// endpoints (tap is live-only); the seam a later traffic/query surface
-// reads from.
 func (r *Ring) Snapshot() [][]byte {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -81,7 +76,7 @@ type Hub struct {
 
 type tapSub struct {
 	ch     chan []byte
-	plugin string // optional filter: only events whose plugin matches
+	plugin string
 }
 
 func NewHub(buffer int) *Hub {
@@ -91,8 +86,6 @@ func NewHub(buffer int) *Hub {
 	return &Hub{subs: map[uint64]*tapSub{}, buffer: buffer}
 }
 
-// Subscribe registers a tap consumer. plugin narrows the stream to one
-// instance name ("" for everything).
 func (h *Hub) Subscribe(plugin string) (uint64, <-chan []byte) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -109,8 +102,6 @@ func (h *Hub) Unsubscribe(id uint64) {
 	delete(h.subs, id)
 }
 
-// Publish delivers line to every matching subscriber, dropping (and
-// counting) where a buffer is full.
 func (h *Hub) Publish(line []byte, plugin string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -126,7 +117,6 @@ func (h *Hub) Publish(line []byte, plugin string) {
 	}
 }
 
-// Stats returns the subscriber count and cumulative per-subscriber drops.
 func (h *Hub) Stats() (subscribers int, dropped uint64) {
 	h.mu.Lock()
 	defer h.mu.Unlock()

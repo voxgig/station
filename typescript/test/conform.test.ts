@@ -1,11 +1,3 @@
-// RUN: npm test
-//
-// The station conformance suite: the pure-contract half of the design's
-// §13 corpus, from spec/station.json, through voxgig/omni - the same
-// file every future port runs. Sections that need live SDK machinery
-// (inject, order, event correlation) live in the integration suites
-// against real generated SDKs; the corpus carries what a port can prove
-// with no SDK present.
 
 import { before, describe, test } from 'node:test'
 
@@ -84,10 +76,6 @@ describe('station-conform', () => {
     await R.runset(R.spec.canonical, (vin: any) => canonicalSerialize(denull(vin)))
   })
 
-  // Normalize, then validate (design §4.2). The entry is a RAW config
-  // in, and either the normalized output or the expected error out -
-  // the two steps are one pipeline and a port that splits them is free
-  // to validate the wrong form.
   test('config', async () => {
     await R.runset(R.spec.config, (vin: any) =>
       validateConfig(normalizeConfig(denull(vin))))
@@ -99,11 +87,6 @@ describe('station-conform', () => {
       resolveProfile(denull(vin.config), vin.profile))
   })
 
-  // §8's pure half (design §10.1): the three-level merge with its depth
-  // boundary, and the §8.4 order resolution. One driver, two entry
-  // shapes - `merged` selects the resolver, anything else the merge -
-  // because a port that guessed from looser cues would run the wrong
-  // subject on a mistyped entry.
   test('feature', async () => {
     await R.runset(R.spec.feature, (vin: any) => {
       if (null != vin.merged) {

@@ -1,11 +1,3 @@
-// RUN: npm test
-//
-// A station.json that is not JSON must surface as
-// `station_config_invalid`, not as a raw SyntaxError escaping open().
-// The parse path is the one place the config pipeline cannot be
-// corpus-pinned - the corpus can only carry well-formed JSON - so it is
-// pinned here instead, before fifteen ports clone the bare-parse
-// behavior.
 
 import { test } from 'node:test'
 import * as Assert from 'node:assert'

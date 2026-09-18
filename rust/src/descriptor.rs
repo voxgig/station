@@ -8,10 +8,6 @@ use voxgig_sekreto::voxgig_plugin::value::Value as Json;
 
 use crate::jsonx::{jget, jobj, jtext, jtextof};
 
-/// The ONLY way to build an env-var token in station, mirroring sdkgen's
-/// packageMeta envToken exactly: 'gnarly-pets' -> 'GNARLY_PETS'. The
-/// `secretname` corpus section pins the round-trip against sekreto's
-/// envkey() and sdkgen's envName() - the one place three grammars meet.
 pub fn envtoken(name: &str) -> String {
     let mut out = String::new();
     let mut gap = false;
@@ -37,10 +33,6 @@ pub fn secretname_default(slug: &str) -> String {
     format!("{}.apikey", envtoken(slug).to_lowercase())
 }
 
-/// Best-effort slug from a camel name, for SDKs whose embedded config
-/// predates main.slug (design §4 legacy sentinels). The hyphen caveat is
-/// real: 'VoxgigSolardemo' -> 'voxgigsolardemo', NOT 'voxgig-solardemo' -
-/// callers surface a warning event when this path is taken.
 fn legacy_slug(name: &str) -> String {
     name.to_lowercase()
 }
@@ -54,8 +46,6 @@ fn strdef(val: &Json, key: &str) -> String {
     }
 }
 
-/// A carried field with a sentinel default: present (and non-null) values
-/// stringify, absent/null takes the sentinel (design §4 legacy sentinels).
 fn sentinel(val: &Json, key: &str, dflt: &str) -> String {
     match jget(val, key) {
         Some(Json::Null) | None => dflt.to_string(),
@@ -176,19 +166,9 @@ pub fn normalize_descriptor(config: &Json, active_features: &Json) -> (Json, Vec
     }
 
     // §8.5: the features list gains `options` and `transport`, because it
-    // was throwing away what the SDK already embeds -
     // `config.feature[name].options` is the feature's own declared key set
-    // WITH TYPED DEFAULTS, which is the schema §8.5 validates against, and
-    // `transport` is the role §8.4 orders by.
-    //
-    // Both are already inside the SDK; the descriptor stops discarding
     // them. ADDITIVE, so descriptor v1 consumers are unaffected and the
-    // `descriptor` corpus section still passes unchanged.
-    //
     // `transport` is CARRIED rather than inferred: the obvious signal, an
-    // empty `hook: {}`, is wrong for station, which both wraps AND
-    // dispatches hooks. Absent until sdkgen emits it, and §8.4's role
-    // checks degrade to nothing until then rather than guessing.
     let mut features: Vec<Json> = Vec::new();
     if let Some(Json::Map(fdefs)) = jget(config, "feature") {
         for (fname, fdef) in fdefs.iter() {
@@ -233,12 +213,10 @@ pub fn normalize_descriptor(config: &Json, active_features: &Json) -> (Json, Vec
     (descriptor, warnings)
 }
 
-/// Canonical serialization (design §4): UTF-8, object keys sorted
 /// bytewise, no insignificant whitespace, minimal JSON escaping. The
 /// proxy dedupes registrations by a hash of this, so every language must
 /// produce identical bytes - the `canonical-serialize` corpus section
 /// carries the adversarial cases. `BTreeMap` already iterates keys in
-/// bytewise (UTF-8) order, which is the required order.
 pub fn canonical_serialize(val: &Json) -> String {
     match val {
         Json::Null => "null".to_string(),
@@ -249,7 +227,6 @@ pub fn canonical_serialize(val: &Json) -> String {
             let parts: Vec<String> = items.iter().map(canonical_serialize).collect();
             format!("[{}]", parts.join(","))
         }
-        // Never reached - see jsonx::jtextof's note on Opaque. Rendered
         // the way plugin's own json() renders it, so the function is total.
         Json::Opaque(_) => canon_quote("(opaque)"),
         Json::Map(entries) => {
@@ -264,7 +241,6 @@ pub fn canonical_serialize(val: &Json) -> String {
 
 /// Numbers the way JSON.stringify writes them: integers with no trailing
 /// `.0` (covering the full f64-exact range), everything else shortest
-/// round-trip.
 fn canon_num(num: f64) -> String {
     if num.is_finite() && num == num.trunc() && num.abs() < 9.0e18 {
         return format!("{}", num as i64);
@@ -274,7 +250,6 @@ fn canon_num(num: f64) -> String {
 
 /// Minimal JSON escaping, byte-for-byte what JSON.stringify emits: quote,
 /// backslash, the short escapes, `\u00xx` for remaining controls, and
-/// everything else - non-ASCII included - raw UTF-8.
 fn canon_quote(text: &str) -> String {
     let mut out = String::from("\"");
     for head in text.chars() {

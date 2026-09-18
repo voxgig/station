@@ -1,9 +1,3 @@
-// `voxgig-station mcp` - the stdio MCP transport (§7: stdio for
-// `claude mcp add`; streamable HTTP on the daemon for shared use). The
-// verb is a wire client of the running daemon, consistent with every
-// other verb: it bridges newline-delimited JSON-RPC on stdio to POST
-// /v1/mcp, so the eight tools have exactly one implementation - the
-// daemon's - and the stdio and HTTP transports cannot drift.
 package main
 
 import (

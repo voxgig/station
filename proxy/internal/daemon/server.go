@@ -18,20 +18,8 @@ import (
 	"time"
 )
 
-// acceptedProtocols implements §8.6's acceptance policy: the proxy
-// accepts wire protocol versions N and N-1 and rejects unknown versions
-// with a structured station_protocol error the library surfaces. v1 is
-// the first protocol, so N-1 does not exist yet and the accepted set is
-// {1}; when protocol 2 ships this becomes {"2", "1"}, and a later drop
-// of 1 waits until 3.
 var acceptedProtocols = map[string]bool{"1": true}
 
-// Server is the control-plane core: token-authenticated HTTP/1.1 + JSON
-// on loopback (§8.1), sessions and registration (§8.2/§8.3), event
-// ingest into a bounded ring, live tap, and status. The data plane
-// (/v1/forward), grants, policy long-poll and the MCP surface arrive in
-// later phases; the seams they land on are the Sessions store, the Ring
-// snapshot, and this router.
 type Server struct {
 	cfg      Config
 	token    string
@@ -53,12 +41,6 @@ type Server struct {
 	invalidEvents atomic.Uint64
 }
 
-// NewServer builds the daemon handler. cfg.Listen must be the actual
-// bound address (it seeds the Host/Origin allowlist). It loads the
-// proxy-side station.json (cfg.StationConfigPath), the approval state
-// (cfg.StatePath), and builds the proxy's own sekreto chain from the
-// selected profile's providers (§8.3) - failures here are startup
-// failures, not per-request surprises.
 func NewServer(cfg Config, token string) (*Server, error) {
 	cfg = cfg.withDefaults()
 
@@ -96,11 +78,6 @@ func NewServer(cfg Config, token string) (*Server, error) {
 	return s, nil
 }
 
-// allowedHostSet computes the exact Host values a request may carry. A
-// loopback bind answers to the three conventional loopback names on the
-// bound port (with and without the port - some clients omit it); any
-// other bind answers to its own host only. Everything else is treated as
-// a DNS-rebinding attempt (§8.1).
 func allowedHostSet(listen string) map[string]bool {
 	allowed := map[string]bool{}
 	host, port, err := net.SplitHostPort(listen)
@@ -138,12 +115,6 @@ func (s *Server) hostAllowed(hostHeader string) bool {
 	return s.allowedHosts[strings.ToLower(hostHeader)]
 }
 
-// originAllowed accepts an absent Origin (non-browser clients), and a
-// present one only when it names this daemon itself over http(s). The
-// browser is not an expected client of the control plane in v1, so any
-// cross-origin page - the classic loopback-daemon CSRF/DNS-rebinding
-// vector - is rejected (§8.1; the MCP endpoint inherits this per the MCP
-// spec when it lands).
 func (s *Server) originAllowed(origin string) bool {
 	if origin == "" {
 		return true
@@ -172,11 +143,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// /v1/health is the single unauthenticated endpoint (§8.1): the
-	// proof-of-token probe must work before the client trusts us with
-	// anything, including its bearer token. The protocol header is
-	// validated when present but not required here - a probing client
-	// may be version-checking us.
 	if r.URL.Path == "/v1/health" {
 		if r.Method != http.MethodGet {
 			writeError(w, http.StatusMethodNotAllowed, CodeNoRoute, "use GET /v1/health")
@@ -246,18 +212,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// routeRef dispatches a /v1/<verb>/{ref} path, handing the handler the
-// instance ref (D-2026-08-24-1: grants and policy address instances).
-//
-// The ref is read off the ESCAPED path, not r.URL.Path. An instance
-// NAME is a package-ish specifier and explicitly admits `/` (§6.1's
-// `^[a-zA-Z@][a-zA-Z0-9.~_\-/]*$` - `@scope/pkg` is a valid ref), and
-// the CLI duly sends it as `%2F`; but Go decodes that into r.URL.Path
-// before any handler sees it, so a check for `/` there cannot tell the
-// segment separator from an escaped character and would make every
-// scoped ref permanently unaddressable. EscapedPath keeps them apart: a
-// literal `/` is still a separator and still a 404, `%2F` is part of
-// the ref and is unescaped into it.
 func (s *Server) routeRef(w http.ResponseWriter, r *http.Request, method string, prefix string, h func(http.ResponseWriter, *http.Request, string)) {
 	if r.Method != method {
 		writeError(w, http.StatusMethodNotAllowed, CodeNoRoute,
@@ -330,21 +284,10 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 type registerRequest struct {
 	Descriptor json.RawMessage `json:"descriptor"`
 	Process    Process         `json:"process"`
-	// Instance is the ref this registration binds (`name$tag`); an
-	// untagged ref is the api slug and the default is the descriptor's
-	// slug, so single-instance clients need not send it (§3.2).
-	Instance string `json:"instance"`
-	// Identity is reserved (§8.2): accepted on wire v1, ignored by a
-	// local proxy (§8.4; D-2026-08-24-2 - no per-principal state in v1).
-	Identity json.RawMessage `json:"identity"`
+	Instance   string          `json:"instance"`
+	Identity   json.RawMessage `json:"identity"`
 }
 
-// handleRegister implements POST /v1/register (§8.2). The descriptor is
-// untrusted input (§8.3): it is stored verbatim for status and
-// observability, and nothing security-relevant is derived from it - no
-// egress allowlist, no secret name, no policy. With no proxy-side
-// policy authority in this phase, the registration parks in "pending"
-// and the binding says so.
 func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, s.cfg.RegisterBodyLimit))
 	if err != nil {
@@ -382,10 +325,6 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		ref, req.Process, req.Descriptor,
 		hex.EncodeToString(sum[:]), req.Identity)
 
-	// The binding (§3.1) reports the proxy-side effective policy for
-	// this instance (§8.3: derived from the proxy's OWN config and
-	// approvals, never from the registration). A pending instance gets
-	// exactly what §8.3 grants it: capture and library-resolved traffic.
 	eff := s.policy.EffectiveFor(ref)
 	binding := map[string]any{
 		"state":      eff.State,
@@ -398,8 +337,6 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		binding["hosts"] = narrowHosts(eff.Hosts, descriptorBase(req.Descriptor))
 		binding["secret"] = eff.Secret // the NAME (§4 Binding.secretname), never a value
 		if eff.Resolve == "proxy" {
-			// R2 (§5.3, D-2026-08-24-1): a per-INSTANCE grant, bound to
-			// this session, TTL'd, renewed by re-registration (§3.4).
 			grant := s.grants.Issue(ref, sess.ID, eff.Secret)
 			binding["grant"] = grant.Token
 			binding["grantTtlSeconds"] = int(s.grants.TTL().Seconds())
@@ -444,12 +381,6 @@ func (s *Server) handleSessionDelete(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "removed": removed})
 }
 
-// handleEvents implements POST /v1/events (§8.2): an NDJSON batch into
-// the bounded ring, fanned out to tap subscribers. The batch carries
-// session liveness (§3.4 - no separate heartbeat endpoint). Ingest is
-// deliberately lenient (§6: events never fail an operation): a malformed
-// line is counted and skipped, an over-long line truncates the rest of
-// the batch, and both are reported in the response and in status.
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	id := r.Header.Get("Station-Session")
 	if id == "" {
@@ -561,12 +492,6 @@ func (s *Server) handleTap(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleApprove implements POST /v1/approve/{ref} - the HTTP surface
-// under the `voxgig-station approve` CLI verb (§8.3): an explicit human
-// decision blesses the base/hosts/name triple, upgrading the instance
-// from pending. The hosts default may come from the proxy-side view of
-// a live registration's descriptor base (§16) when config declares
-// neither hosts nor base.
 func (s *Server) handleApprove(w http.ResponseWriter, r *http.Request, ref string) {
 	approval, err := s.policy.Approve(ref, s.sessions.LatestDescriptorBase(ref))
 	if err != nil {
@@ -576,19 +501,12 @@ func (s *Server) handleApprove(w http.ResponseWriter, r *http.Request, ref strin
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "approval": approval})
 }
 
-// handleGrantRevoke implements DELETE /v1/grants/{ref} (§5.3,
-// D-2026-08-24-1): revocation is per instance and never touches
-// siblings on the same api. It counts as a policy update, so
-// long-pollers wake.
 func (s *Server) handleGrantRevoke(w http.ResponseWriter, r *http.Request, ref string) {
 	revoked := s.grants.RevokeRef(ref)
 	s.policy.Bump(ref)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "revoked": revoked})
 }
 
-// policyView is the wire shape of GET /v1/policy/{ref}. Names only,
-// never values (§7: secrets are structurally invisible on every
-// observability surface).
 func policyView(eff Effective) map[string]any {
 	view := map[string]any{
 		"ref":     eff.Ref,
@@ -612,10 +530,6 @@ func policyView(eff Effective) map[string]any {
 	return view
 }
 
-// handlePolicy implements GET /v1/policy/{ref} (§8.2): the current
-// policy view, as a long-poll - a caller that passes ?version=<seen>
-// is held until the version changes or the poll timeout (default 25s)
-// passes, then answered with the current view either way.
 func (s *Server) handlePolicy(w http.ResponseWriter, r *http.Request, ref string) {
 	eff := s.policy.EffectiveFor(ref)
 	if vq := r.URL.Query().Get("version"); vq != "" {
@@ -679,8 +593,6 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.statusPayload())
 }
 
-// statusPayload builds the status view - one payload behind both the
-// HTTP endpoint and the station_status tool (§6: two skins, one API).
 func (s *Server) statusPayload() map[string]any {
 	now := s.cfg.Now()
 	sessions := s.sessions.List()
@@ -697,12 +609,9 @@ func (s *Server) statusPayload() map[string]any {
 		DescriptorSHA256 string  `json:"descriptorSha256"`
 	}
 	type pluginView struct {
-		Plugin  string `json:"plugin"`
-		State   string `json:"state"`
-		Resolve string `json:"resolve"`
-		// Rung is the §5.3 isolation rung this registration runs at:
-		// R2 when approved with resolve:proxy (the value never enters
-		// the application process), else R1 (library-resolved hygiene).
+		Plugin   string `json:"plugin"`
+		State    string `json:"state"`
+		Resolve  string `json:"resolve"`
 		Rung     string `json:"rung"`
 		Sessions int    `json:"sessions"`
 	}
@@ -711,9 +620,6 @@ func (s *Server) statusPayload() map[string]any {
 	byPlugin := map[string]*pluginView{}
 	pluginOrder := []string{}
 	for _, sess := range sessions {
-		// State is computed from the policy authority at report time
-		// (§8.3): approval - and a triple change re-entering pending -
-		// applies to live sessions immediately.
 		eff := s.policy.EffectiveFor(sess.Plugin)
 		state := eff.State
 		sessViews = append(sessViews, sessionView{
@@ -762,9 +668,6 @@ func (s *Server) statusPayload() map[string]any {
 		},
 		"captures": s.captures.Stats(),
 		"grants":   map[string]any{"active": s.grants.Active()},
-		// The §7 agent gates, visible as promised: read defaults on
-		// locally; write needs the explicit --agent-write flag AND
-		// per-instance policy (station_policy shows that half).
 		"agent": map[string]any{
 			"read":  !s.cfg.AgentReadDisabled,
 			"write": s.cfg.AgentWrite,

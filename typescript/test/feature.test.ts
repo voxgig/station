@@ -1,12 +1,3 @@
-// RUN: npm test
-//
-// Stage 3b (design §8): the three-level merge, the constraint-and-band
-// resolver, and the descriptor-derived checker.
-//
-// The resolver is deliberately the same shape as voxgig/plugin's `order`
-// corpus section, because it is the one station holds itself to under
-// C4 — a divergence here is a divergence from plugin's §7 semantics,
-// which is the thing the joint plan is trying to prevent.
 
 import { describe, test } from 'node:test'
 import { deepStrictEqual, equal, ok, throws } from 'node:assert'
@@ -23,8 +14,6 @@ const order = (m: any) => resolveorder(m).map((o) => o.name)
 describe('feature-merge', () => {
 
   test('merges per feature name, then per option key', () => {
-    // Composition is the entire point: a fleet default plus a
-    // per-instance tweak.
     const merged = mergefeatures([
       { retry: { active: true, retries: 3 }, log: { active: true } },
       { retry: { retries: 5 } },
@@ -36,9 +25,6 @@ describe('feature-merge', () => {
   })
 
   test('the depth boundary: a map-valued option replaces wholesale', () => {
-    // TWO LEVELS AND NO DEEPER, which is what `{"$MERGE":{"deep":2}}`
-    // states and what a port defaulting to a deep merge would silently
-    // get wrong.
     const merged = mergefeatures([
       { proxy: { headers: { a: '1', b: '2' } } },
       { proxy: { headers: { c: '3' } } },
@@ -61,8 +47,6 @@ describe('feature-merge', () => {
       featuresources(base, overlay, 'stripe', 'stripe$t'))
     equal(6, merged.retry.retries)
 
-    // PROFILE SPECIFICITY OUTRANKS BLOCK SPECIFICITY: an overlay's
-    // PROFILE-level value beats a base profile's INSTANCE-level one.
     const merged2 = mergefeatures(featuresources(
       { sdk: { 'stripe$t': { feature: { retry: { retries: 3 } } } } },
       { feature: { retry: { retries: 4 } } },
@@ -87,9 +71,6 @@ describe('feature-merge', () => {
 describe('feature-order', () => {
 
   test('with no constraints written, the default is today s nesting', () => {
-    // `test` substitutes the base transport so it is innermost;
-    // `station` sits immediately outside it; everything else is outside
-    // station. Two band values rather than two special cases.
     equal(0, defaultband('retry'))
     equal(100, defaultband('station'))
     equal(200, defaultband('test'))
@@ -100,8 +81,6 @@ describe('feature-order', () => {
   })
 
   test('constraints beat bands', () => {
-    // Alphabet is not consulted anywhere: `cache` sorts before `retry`
-    // but the constraint decides.
     deepStrictEqual(
       order({ retry: {}, cache: { order: { after: 'retry' } } }),
       ['retry', 'cache'])
@@ -111,8 +90,6 @@ describe('feature-order', () => {
   })
 
   test('a constraint naming an absent feature is satisfied vacuously', () => {
-    // `after: 'test'` loads fine in a project with no test feature -
-    // sdkgen's `__after__` behaviour kept rather than reinvented.
     deepStrictEqual(order({ retry: { order: { after: 'test' } } }), ['retry'])
     deepStrictEqual(
       order({ retry: { order: { before: ['nope', 'gone'] } } }), ['retry'])
@@ -196,10 +173,8 @@ describe('feature-check', () => {
   })
 
   test('compound options are checked to KIND only, and that limit is real', () => {
-    // A list default establishes list-ness and nothing about elements.
     deepStrictEqual(
       checkfeatures({ retry: { statuses: [{}, 7] } }, descriptor), [])
-    // ...but the kind itself is still checked.
     equal(1, checkfeatures({ retry: { statuses: 'nope' } }, descriptor).length)
   })
 
@@ -216,8 +191,6 @@ describe('feature-check', () => {
 // what it declares can be asserted against the code that consumes it
 // without generating an SDK.
 describe('feature-model-contract', () => {
-  // Mirrors what `.sdk/model/feature/station.aontu` emits into a
-  // generated SDK's config.feature.station.
   const stationFeature = {
     transport: 'wrap',
     options: {
@@ -240,8 +213,6 @@ describe('feature-model-contract', () => {
     // §8.4: the role cannot be inferred - the obvious signal, an empty
     // `hook: {}`, is wrong for exactly this feature. It is carried.
     equal('wrap', f.transport)
-    // §8.5's schema is the SDK's own declared key set with typed
-    // defaults, and it arrives with the factory rather than a client.
     equal('', f.options!.instance)
   })
 
@@ -262,24 +233,15 @@ describe('feature-model-contract', () => {
     deepStrictEqual(
       checkfeatures({ station: { instance: 'pad$eu' } }, descriptor), [])
 
-    // ...and a real typo is still caught.
     equal('station_feature_option',
       checkfeatures({ station: { instanse: 'pad$eu' } }, descriptor)[0].code)
   })
 })
 
-// ---- what review of #9 found ----------------------------------------
 
 describe('the pin check sees the implicit station entry', () => {
 
   test('a constraint against `station` is REJECTED, not vacuous', () => {
-    // `checkpin` looked for a `station` row in the resolved order and
-    // returned immediately when it found none — and it never could,
-    // because `feature.station` is reserved and rejected at validation
-    // (§8.4), so it is never in the merged map. The check was a
-    // permanent no-op: `retry.order.after: 'station'` would place retry
-    // INSIDE the host feature, which is the one position §8.4 says is
-    // not orderable, and nothing said so.
     const st = new Station({
       config: {
         station: 1,
@@ -311,7 +273,6 @@ describe('the pin check sees the implicit station entry', () => {
 
     const { ordered } = st.featuresOf('stripe$a')
     ok(-1 !== ordered.indexOf('station'), 'station is part of the wrap order')
-    // ...and it is innermost, which is what the pin means.
     equal('station', ordered[ordered.length - 1])
     st.close()
   })

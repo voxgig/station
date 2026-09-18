@@ -1,17 +1,3 @@
-// Feature management (design §8): the three-level merge, the
-// constraint-and-band resolver, and the descriptor-derived checker.
-//
-// The resolver is written to voxgig/plugin's §7 semantics so plugin can
-// extract it - this is one of the pieces the joint plan means by
-// "station builds natively to plugin's semantics".
-//
-// A port of typescript/src/feature.ts, which is canonical. The one
-// Go-shaped difference is DECLARATION ORDER, which §8.4 uses as its last
-// tie-break: a Go map has none, so every function that needs it takes
-// the order as an explicit list of names (see Order in order.go for
-// where that list comes from). Passing none falls back to sorted keys,
-// which is deterministic but not the corpus's authored order - so the
-// paths that matter carry it.
 package station
 
 import (
@@ -37,20 +23,6 @@ func reservedkey(key string) bool {
 	return false
 }
 
-// MergeFeatures is the two-level merge - per feature name, then per
-// option key - and NO DEEPER.
-//
-// `feature` is the ONE key where §3.3's shallow-per-key rule is wrong:
-// composition is the entire point, a fleet default plus a per-instance
-// tweak. A map-valued option REPLACES wholesale, which is what
-// `{"$MERGE": {"deep": 2}}` states and what a port defaulting to a deep
-// merge would silently get wrong.
-//
-// Same defaults-after-merge rule as §3.3, one level down: an entry
-// mentioned at one level with only a tuning key must NOT synthesize
-// `active` and switch on a feature a broader level turned off. That is
-// the §3.3 defect one level down, and it is why the caller passes RAW
-// blocks here.
 func MergeFeatures(sources []map[string]any) map[string]any {
 	out := map[string]any{}
 	for _, src := range sources {
@@ -126,17 +98,6 @@ func namesInOrder(node map[string]any, order []string) []string {
 	return out
 }
 
-// FeatureSources returns the six sources for one instance, in §3.3's
-// order extended by the profile level:
-//
-//	1 base.feature            4 overlay.feature
-//	2 base.api[<api>].feature 5 overlay.api[<api>].feature
-//	3 base.sdk[<ref>].feature 6 overlay.sdk[<ref>].feature
-//
-// PROFILE SPECIFICITY OUTRANKS BLOCK SPECIFICITY, and within a profile
-// the narrower block wins - the same principle as §3.3, one level down.
-// Assembled here rather than at the call site so the order lives in
-// exactly one place.
 func FeatureSources(base map[string]any, overlay map[string]any,
 	api string, ref string) []map[string]any {
 
@@ -150,9 +111,6 @@ func FeatureSources(base map[string]any, overlay map[string]any,
 	}
 }
 
-// FeatureSourcePaths names where each of the six sources lives in a raw
-// config, so a caller holding an Order tree can read the six declaration
-// orders without restating §3.3's order.
 func FeatureSourcePaths(baseName string, overlayName string,
 	api string, ref string) [][]string {
 
@@ -170,14 +128,6 @@ func FeatureSourcePaths(baseName string, overlayName string,
 // §8.4 - activation and order
 // ---------------------------------------------------------------------
 
-// The bands. `test` substitutes the base transport, so it takes the
-// innermost band; `station` sits immediately outside it, pinned;
-// everything else is band 0, outside station.
-//
-// THE DEFAULT IS TODAY'S BEHAVIOUR EXPRESSED IN THE NEW MODEL rather
-// than as a special case: a project that writes no `order` anywhere sees
-// exactly today's nesting, and sdkgen's two `makeOptions` special cases
-// become two band values rather than two branches. HIGHER IS FURTHER IN.
 const (
 	BandDefault = 0
 	BandStation = 100
@@ -213,22 +163,6 @@ func Active(entry any) bool {
 	return false != emap["active"]
 }
 
-// ResolveOrder resolves the activation order: constraints, then bands,
-// then the feature's position in the merged map.
-//
-// `before`/`after` take a feature name or a list of them and are
-// SATISFIED VACUOUSLY when the named feature is absent - `after: 'test'`
-// loads fine in a project with no test feature, which is sdkgen's
-// `__after__` behaviour kept rather than reinvented.
-//
-// Constraints beat bands; bands break ties no constraint decides;
-// remaining ties break by DECLARATION POSITION - `declared`, which a Go
-// map cannot supply and every caller therefore passes (nil falls back to
-// sorted keys). So the result is a stable topological sort with no
-// alphabetical accident in it.
-//
-// Returns OUTERMOST FIRST, which is the array form the constructor takes
-// and the direction plugin's chain composes in.
 func ResolveOrder(merged map[string]any, declared []string) (
 	[]OrderedFeature, error) {
 
@@ -345,16 +279,6 @@ func ResolveOrder(merged map[string]any, declared []string) (
 	return out, nil
 }
 
-// CheckPin holds station's own position, which is PINNED and not
-// orderable (§8.4): an order that moves `station` away from
-// immediately-outside-the-base is REJECTED, not honoured.
-//
-// The pin is `innermost`, and the spelling matters. A chain composes
-// with the FIRST binding outermost, so a pin written in sort terms -
-// "station first" - would place every other wrapper between the adapter
-// and the base: the exact inversion of the invariant, and one that would
-// leave station's wire-truth events observing the wrong boundary while
-// still looking ordered.
 func CheckPin(ordered []OrderedFeature) error {
 	at := indexOfFeature(ordered, "station")
 	if -1 == at {
@@ -428,22 +352,6 @@ type Fault struct {
 	Message string
 }
 
-// CheckFeatures checks a merged feature map against the SDK'S OWN
-// DECLARATION.
-//
-// The schema arrives with the FACTORY rather than with a live client
-// (§6.2), so this needs no construction and no network - which is what
-// lets Check() run it for every instance in CI.
-//
-// Derived from the descriptor, never hand-written, so it cannot drift:
-// when a feature gains an option, the next regeneration teaches station
-// about it with no station change.
-//
-// SCALARS AGREE BY CONSTRUCTION; COMPOUND OPTIONS ARE KIND-CHECKED, and
-// that limit is real. An empty list default says nothing reliable about
-// its element type and a nested map default says nothing about its value
-// shapes, so `methods: [{}]` against a `['GET']` default is caught while
-// `noProxy: []` accepts anything list-shaped.
 func CheckFeatures(merged map[string]any, descriptor map[string]any) []Fault {
 	faults := []Fault{}
 
@@ -526,11 +434,6 @@ func FaultMessages(faults []Fault) string {
 	return strings.Join(out, "; ")
 }
 
-// The FEATURE kindof. NOT the same function as the shape checker's
-// (shape.go shapekind): this one calls every number a number and every
-// map a map, because it compares a config value against a declared
-// DEFAULT rather than against struct's own spellings. Unifying them
-// would make one of the two message sets wrong.
 func featurekind(val any) string {
 	switch val.(type) {
 	case nil:
