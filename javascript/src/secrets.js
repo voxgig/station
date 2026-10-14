@@ -17,6 +17,70 @@ function placeholderFor(slug) {
   return '[station:' + slug + ']'
 }
 
+const UNRESERVED = /^[A-Za-z0-9\-._~]$/
+const HEXPAIR = /^[0-9A-Fa-f]{2}$/
+
+// Every UTF-8 byte outside RFC 3986's unreserved set becomes upper-case %XX.
+function encodeQueryValue(value) {
+  let out = ''
+  for (const byte of Buffer.from(value, 'utf8')) {
+    const ch = String.fromCharCode(byte)
+    out += byte < 0x80 && UNRESERVED.test(ch)
+      ? ch
+      : '%' + byte.toString(16).toUpperCase().padStart(2, '0')
+  }
+  return out
+}
+
+function matchAt(text, at, end, placeholder) {
+  let i = at
+  for (const ch of placeholder) {
+    if (i < end && text[i] === ch) { i++; continue }
+    const hex = text.substring(i + 1, i + 3)
+    if (i + 3 <= end && '%' === text[i] && HEXPAIR.test(hex) &&
+      parseInt(hex, 16) === ch.charCodeAt(0)) {
+      i += 3
+      continue
+    }
+    return -1
+  }
+  return i - at
+}
+
+// The placeholder becomes the value in header values and in the URL query,
+// where an SDK percent-encodes it (any hex case) and the value is encoded in
+// turn. The path and fragment are never touched; the headers are a copy.
+function substitute(url, headers, placeholder, value) {
+  const out = { ...(headers || {}) }
+  if ('' === placeholder) { return { url, headers: out } }
+
+  for (const h of Object.keys(out)) {
+    const v = out[h]
+    if ('string' === typeof v && v.includes(placeholder)) {
+      out[h] = v.split(placeholder).join(value)
+    }
+  }
+
+  const q = url.indexOf('?')
+  if (-1 === q) { return { url, headers: out } }
+  const hash = url.indexOf('#', q)
+  const end = -1 === hash ? url.length : hash
+  const encoded = encodeQueryValue(value)
+  let query = ''
+  for (let i = q + 1; i < end;) {
+    const n = matchAt(url, i, end, placeholder)
+    if (0 < n) {
+      query += encoded
+      i += n
+    }
+    else {
+      query += url[i]
+      i++
+    }
+  }
+  return { url: url.substring(0, q + 1) + query + url.substring(end), headers: out }
+}
+
 class SecretBroker {
   constructor(providers) {
     // allplugins, because a control surface does not get to choose the
@@ -89,6 +153,10 @@ class SecretBroker {
     for (const value of this.held) {
       if ('' !== value) {
         out = out.split(value).join('[redacted]')
+        const encoded = encodeQueryValue(value)
+        if (encoded !== value) {
+          out = out.split(encoded).join('[redacted]')
+        }
       }
     }
     return out
@@ -106,5 +174,7 @@ class SecretBroker {
 
 module.exports = {
   SecretBroker,
+  encodeQueryValue,
   placeholderFor,
+  substitute,
 }

@@ -524,6 +524,7 @@ module VoxgigStation
       end
 
       senddef = fetchdef
+      sendurl = fullurl
 
       # Injection: at the last boundary, below every recording feature,
       # and never into mock transports (3.3) - in test/mock modes the
@@ -552,29 +553,32 @@ module VoxgigStation
           return nil, e
         end
 
-        headers = (senddef['headers'].is_a?(Hash) ? senddef['headers'] : {}).dup
-        headers.each do |h, v|
-          headers[h] = v.split(placeholder, -1).join(value) if v.is_a?(String) && v.include?(placeholder)
+        sent = VoxgigStation.substitute(fullurl, senddef['headers'], placeholder, value)
+        sendurl = sent['url']
+        senddef = senddef.merge('headers' => sent['headers'])
+        if senddef['url'].is_a?(String)
+          senddef['url'] = VoxgigStation.substitute(senddef['url'], nil, placeholder, value)['url']
         end
-        senddef = senddef.merge('headers' => headers)
       end
 
       st = fctx.instance_variable_get(:@_station)
       corr = st.is_a?(Hash) ? st['corr'] : nil
       started = now_ms
+      placed = sendurl != fullurl
 
       begin
-        res, err = inner.call(fctx, fullurl, senddef)
+        res, err = inner.call(fctx, sendurl, senddef)
       rescue StandardError => e
         emit_http(name, corr, fullurl, senddef, 0, started, 0)
         emit_err(name, fctx, e)
-        raise
+        # An implicit cause would chain the unscrubbed original.
+        raise scrubbed(e, placed), cause: e.cause
       end
 
       unless err.nil?
         emit_http(name, corr, fullurl, senddef, 0, started, 0)
         emit_err(name, fctx, err)
-        return res, err
+        return res, scrubbed(err, placed)
       end
 
       status = res.is_a?(Hash) && res['status'].is_a?(Numeric) ? res['status'].to_i : 0
@@ -590,7 +594,7 @@ module VoxgigStation
                'api' => VoxgigStation.refapi(name), 'corr' => corr,
                'err' => { 'message' => redact(message) })
         end
-        return res, err
+        return scrubbed_response(res, placed), err
       end
 
       bytes = 0
@@ -1244,11 +1248,34 @@ module VoxgigStation
       # station feature; when the generated class exists the constructor
       # uses it and the extend copy's bind is made inert by _bound_entry
       # (both delegate to feature_binding, so behavior is identical).
-      options = opts.merge(
+      options = opts.except('as', 'instance').merge(
         'feature' => fmap,
         'extend' => extend_list + [VoxgigStation.adapter_feature(self, opts)])
 
       sdk_class.new(options)
+    end
+
+    # A transport error may quote its URL, which carries a query-placed
+    # value. The SDK's own error keeps its message in a writable `msg`.
+    def scrubbed(err, placed)
+      return err unless placed
+      return redact(err) if err.is_a?(String)
+      return err unless err.is_a?(Exception)
+
+      message = redact(err.message)
+      return err if message == err.message
+      return err.exception(message) unless err.respond_to?(:msg=)
+
+      err.msg = message
+      err
+    end
+
+    # A synthesized status-0 response is a transport failure, so each
+    # field the SDK surfaces from it gets the same scrub.
+    def scrubbed_response(res, placed)
+      return res unless placed && res.is_a?(Hash)
+
+      res.transform_values { |v| scrubbed(v, placed) }
     end
 
     def emit(ev)

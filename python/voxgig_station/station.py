@@ -39,7 +39,7 @@ from .profile import (
     resolve_profile,
     select_profile,
 )
-from .secrets import SecretBroker, placeholder_for
+from .secrets import SecretBroker, placeholder_for, substitute
 from .shape import normalize_config, validate_config
 
 
@@ -317,7 +317,8 @@ class Station:
             entry['instance'] = opts['instance']
         fmap['station'] = entry
 
-        options = dict(opts)
+        options = {k: v for k, v in opts.items()
+                   if k not in ('as', 'instance')}
         options['feature'] = fmap
         # The carried adapter rides extend for SDKs generated WITHOUT
         # the station feature; when the generated class exists the
@@ -557,6 +558,7 @@ class Station:
                 return None, err
 
         senddef = fetchdef
+        sendurl = fullurl
         if hosts is not None and live:
             senddef = dict(senddef or {})
             senddef['redirect'] = 'manual'
@@ -585,26 +587,30 @@ class Station:
                 return None, e
 
             senddef = dict(senddef or {})
-            senddef['headers'] = dict(senddef.get('headers') or {})
-            for h, v in list(senddef['headers'].items()):
-                if isinstance(v, str) and placeholder in v:
-                    senddef['headers'][h] = v.replace(placeholder, value)
+            sent = substitute(fullurl, senddef.get('headers'),
+                              placeholder, value)
+            sendurl = sent['url']
+            senddef['headers'] = sent['headers']
+            if isinstance(senddef.get('url'), str):
+                senddef['url'] = substitute(
+                    senddef['url'], None, placeholder, value)['url']
 
         st = getattr(fctx, '_station', None) or {}
         corr = st.get('corr')
         started = _now_ms()
+        placed = sendurl != fullurl
 
         try:
-            res, err = inner(fctx, fullurl, senddef)
+            res, err = inner(fctx, sendurl, senddef)
         except Exception as e:
             self._emit_http(name, corr, fullurl, senddef, 0, started, 0)
             self._emit_err(name, fctx, e)
-            raise
+            raise self._scrubbed(e, placed)
 
         if err is not None:
             self._emit_http(name, corr, fullurl, senddef, 0, started, 0)
             self._emit_err(name, fctx, err)
-            return res, err
+            return res, self._scrubbed(err, placed)
 
         status = 0
         nbytes = 0
@@ -623,6 +629,21 @@ class Station:
         self._emit_http(name, corr, fullurl, senddef, status, started, nbytes)
 
         return res, err
+
+    def _scrubbed(self, err, placed):
+        """A transport error may quote its URL, which carries a
+        query-placed value. An exception is scrubbed in place: its message
+        lives in `args`, and the SDK's own error keeps a copy in `msg`."""
+        if not placed:
+            return err
+        if isinstance(err, str):
+            return self.redact(err)
+        if isinstance(err, BaseException):
+            err.args = tuple(self.redact(a) if isinstance(a, str) else a
+                             for a in err.args)
+            if isinstance(getattr(err, 'msg', None), str):
+                err.msg = self.redact(err.msg)
+        return err
 
     def _emit_http(self, name, corr, fullurl, fetchdef, status, started, nbytes):
         host = ''

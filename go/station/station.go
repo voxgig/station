@@ -1,6 +1,7 @@
 package station
 
 import (
+	"errors"
 	"net/url"
 	"sort"
 	"strconv"
@@ -558,8 +559,9 @@ func (st *Station) transport(entry *PluginEntry, mode func() string,
 	}
 
 	senddef := fetchdef
+	sendurl := fullurl
 	if hasHosts && live {
-		senddef = cloneFetchdef(senddef, false)
+		senddef = cloneFetchdef(senddef)
 		senddef["redirect"] = "manual"
 	}
 
@@ -575,23 +577,23 @@ func (st *Station) transport(entry *PluginEntry, mode func() string,
 			return nil, err
 		}
 
-		senddef = cloneFetchdef(senddef, true)
-		headers := asMap(senddef["headers"])
-		for header, raw := range headers {
-			if text, is := raw.(string); is && strings.Contains(text, placeholder) {
-				headers[header] = strings.ReplaceAll(text, placeholder, value)
-			}
+		var headers map[string]any
+		sendurl, headers = Substitute(fullurl, asMap(senddef["headers"]), placeholder, value)
+		senddef = cloneFetchdef(senddef)
+		senddef["headers"] = headers
+		if defurl, is := senddef["url"].(string); is {
+			senddef["url"], _ = Substitute(defurl, nil, placeholder, value)
 		}
 	}
 
 	corr := st.corrOf(opctx)
 	started := nowMs()
 
-	res, err := inner(opctx, fullurl, senddef)
+	res, err := inner(opctx, sendurl, senddef)
 	if nil != err {
 		st.emitHTTP(name, corr, fullurl, senddef, 0, started, 0)
 		st.emitErr(name, opctx, err)
-		return res, err
+		return res, st.scrubbed(err, sendurl != fullurl)
 	}
 
 	status := 0
@@ -607,22 +609,32 @@ func (st *Station) transport(entry *PluginEntry, mode func() string,
 	return res, nil
 }
 
-// cloneFetchdef copies the fetchdef map, and its headers map when
-// withHeaders - the generated request machinery shares references
-// (fetchdef.headers IS spec.headers, and ctrl.explain stores fetchdef by
-// reference before the fetcher runs), so an in-place swap would leak the
-// real value into ctx/spec/ctrl (design §5.3 copy-on-inject).
-func cloneFetchdef(fetchdef map[string]any, withHeaders bool) map[string]any {
+// A transport error may quote its URL - net/http's *url.Error does - and
+// that URL carries a query-placed value.
+func (st *Station) scrubbed(err error, placed bool) error {
+	if !placed {
+		return err
+	}
+	var urlerr *url.Error
+	if errors.As(err, &urlerr) {
+		urlerr.URL = st.Redact(urlerr.URL)
+	}
+	message := err.Error()
+	if clean := st.Redact(message); clean != message {
+		return errors.New(clean)
+	}
+	return err
+}
+
+// cloneFetchdef copies the fetchdef map; Substitute copies its headers.
+// The generated request machinery shares references (fetchdef.headers IS
+// spec.headers, and ctrl.explain stores fetchdef by reference before the
+// fetcher runs), so an in-place swap would leak the real value into
+// ctx/spec/ctrl (design §5.3 copy-on-inject).
+func cloneFetchdef(fetchdef map[string]any) map[string]any {
 	out := map[string]any{}
 	for k, v := range fetchdef {
 		out[k] = v
-	}
-	if withHeaders {
-		headers := map[string]any{}
-		for k, v := range asMap(out["headers"]) {
-			headers[k] = v
-		}
-		out["headers"] = headers
 	}
 	return out
 }

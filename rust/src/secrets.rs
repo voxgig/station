@@ -12,6 +12,85 @@ pub fn placeholder_for(name: &str) -> String {
     format!("[station:{}]", name)
 }
 
+/// Every UTF-8 byte outside RFC 3986's unreserved set becomes upper-case %XX.
+pub fn encode_query_value(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || b"-._~".contains(&byte) {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{:02X}", byte));
+        }
+    }
+    out
+}
+
+fn match_at(text: &[u8], at: usize, end: usize, placeholder: &[u8]) -> Option<usize> {
+    let hexval = |byte: u8| (byte as char).to_digit(16);
+    let mut i = at;
+    for &ch in placeholder {
+        if i < end && text[i] == ch {
+            i += 1;
+            continue;
+        }
+        if i + 3 <= end && b'%' == text[i] {
+            if let (Some(hi), Some(lo)) = (hexval(text[i + 1]), hexval(text[i + 2])) {
+                if u32::from(ch) == hi * 16 + lo {
+                    i += 3;
+                    continue;
+                }
+            }
+        }
+        return None;
+    }
+    Some(i - at)
+}
+
+/// The placeholder becomes the value in header values and in the URL
+/// query, where an SDK percent-encodes it (any hex case) and the value is
+/// encoded in turn. The path and fragment are never touched; the headers
+/// are a copy.
+pub fn substitute(
+    url: &str,
+    headers: &BTreeMap<String, String>,
+    placeholder: &str,
+    value: &str,
+) -> (String, BTreeMap<String, String>) {
+    let mut out = headers.clone();
+    if placeholder.is_empty() {
+        return (url.to_string(), out);
+    }
+    for entry in out.values_mut() {
+        if entry.contains(placeholder) {
+            *entry = entry.replace(placeholder, value);
+        }
+    }
+
+    let query = match url.find('?') {
+        Some(at) => at + 1,
+        None => return (url.to_string(), out),
+    };
+    let end = url[query..]
+        .find('#')
+        .map_or(url.len(), |hash| query + hash);
+    let encoded = encode_query_value(value);
+    let mut sent = url[..query].to_string();
+    let (mut copied, mut at) = (query, query);
+    while at < end {
+        match match_at(url.as_bytes(), at, end, placeholder.as_bytes()) {
+            Some(len) if 0 < len => {
+                sent.push_str(&url[copied..at]);
+                sent.push_str(&encoded);
+                at += len;
+                copied = at;
+            }
+            _ => at += 1,
+        }
+    }
+    sent.push_str(&url[copied..]);
+    (sent, out)
+}
+
 pub struct SecretBroker {
     sekreto: RefCell<Sekreto>,
     /// Values hoisted from a resident options.apikey (design §3.1),
@@ -88,6 +167,13 @@ impl SecretBroker {
                     .split(value.as_str())
                     .collect::<Vec<&str>>()
                     .join("[redacted]");
+                let encoded = encode_query_value(value);
+                if encoded != *value {
+                    out = out
+                        .split(encoded.as_str())
+                        .collect::<Vec<&str>>()
+                        .join("[redacted]");
+                }
             }
         }
         out

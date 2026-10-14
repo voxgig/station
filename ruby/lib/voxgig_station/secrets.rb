@@ -11,6 +11,8 @@ require 'voxgig_sekreto'
 require_relative 'error'
 
 module VoxgigStation
+  HEXPAIR_RE = /\A[0-9A-Fa-f]{2}\z/.freeze
+
   module_function
 
   # Keyed by INSTANCE (design station.md 7.2). Two live instances of one
@@ -19,6 +21,59 @@ module VoxgigStation
   # api slug, so the single-instance case is unchanged.
   def placeholder_for(name)
     '[station:' + name.to_s + ']'
+  end
+
+  # Every UTF-8 byte outside RFC 3986's unreserved set becomes upper-case %XX.
+  def encode_query_value(value)
+    value.to_s.b.gsub(/[^A-Za-z0-9\-._~]/n) { |c| format('%%%02X', c.ord) }
+      .force_encoding(Encoding::UTF_8)
+  end
+
+  def query_match_at(text, at, stop, placeholder)
+    i = at
+    placeholder.each_char do |ch|
+      if i < stop && text[i] == ch
+        i += 1
+      elsif i + 3 <= stop && '%' == text[i] && HEXPAIR_RE.match?(text[i + 1, 2]) &&
+            text[i + 1, 2].to_i(16) == ch.ord
+        i += 3
+      else
+        return -1
+      end
+    end
+    i - at
+  end
+
+  # The placeholder becomes the value in header values and in the URL query,
+  # where an SDK percent-encodes it (any hex case) and the value is encoded in
+  # turn. The path and fragment are never touched; the headers are a copy.
+  def substitute(url, headers, placeholder, value)
+    out = headers.is_a?(Hash) ? headers.dup : {}
+    return { 'url' => url, 'headers' => out } if '' == placeholder
+
+    out.each do |h, v|
+      out[h] = v.split(placeholder, -1).join(value) if v.is_a?(String) && v.include?(placeholder)
+    end
+
+    q = url.index('?')
+    return { 'url' => url, 'headers' => out } if q.nil?
+
+    hash_at = url.index('#', q)
+    stop = hash_at.nil? ? url.length : hash_at
+    encoded = encode_query_value(value)
+    query = +''
+    i = q + 1
+    while i < stop
+      n = query_match_at(url, i, stop, placeholder)
+      if n.positive?
+        query << encoded
+        i += n
+      else
+        query << url[i]
+        i += 1
+      end
+    end
+    { 'url' => url[0..q] + query + url[stop..], 'headers' => out }
   end
 
   class SecretBroker
@@ -93,6 +148,8 @@ module VoxgigStation
         next if '' == value.to_s
 
         out = out.split(value, -1).join('[redacted]')
+        encoded = VoxgigStation.encode_query_value(value)
+        out = out.split(encoded, -1).join('[redacted]') unless encoded == value
       end
       out
     end

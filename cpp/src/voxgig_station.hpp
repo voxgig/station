@@ -3134,6 +3134,120 @@ inline std::string placeholder_for(const std::string& slug) {
   return "[station:" + slug + "]";
 }
 
+namespace detail {
+
+inline bool unreserved(unsigned char c) {
+  return ('A' <= c && c <= 'Z') || ('a' <= c && c <= 'z') || ('0' <= c && c <= '9') ||
+         '-' == c || '.' == c || '_' == c || '~' == c;
+}
+
+inline int hexdigit(char c) {
+  if ('0' <= c && c <= '9') {
+    return c - '0';
+  }
+  if ('a' <= c && c <= 'f') {
+    return c - 'a' + 10;
+  }
+  if ('A' <= c && c <= 'F') {
+    return c - 'A' + 10;
+  }
+  return -1;
+}
+
+// The length of the placeholder's match at url[at], each character
+// literal or a %XX escape of it, within url[..end); 0 for no match.
+inline size_t query_match(const std::string& url, size_t at, size_t end,
+                          const std::string& placeholder) {
+  size_t i = at;
+  for (char ch : placeholder) {
+    if (i < end && url[i] == ch) {
+      i++;
+    } else if (i + 3 <= end && '%' == url[i] && 0 <= hexdigit(url[i + 1]) &&
+               0 <= hexdigit(url[i + 2]) &&
+               hexdigit(url[i + 1]) * 16 + hexdigit(url[i + 2]) ==
+                   static_cast<unsigned char>(ch)) {
+      i += 3;
+    } else {
+      return 0;
+    }
+  }
+  return i - at;
+}
+
+inline std::string replace_all(std::string text, const std::string& find,
+                               const std::string& rep) {
+  if (find.empty()) {
+    return text;
+  }
+  size_t pos = 0;
+  while ((pos = text.find(find, pos)) != std::string::npos) {
+    text.replace(pos, find.size(), rep);
+    pos += rep.size();
+  }
+  return text;
+}
+
+}  // namespace detail
+
+// Every UTF-8 byte outside RFC 3986's unreserved set becomes upper-case %XX.
+inline std::string encode_query_value(const std::string& value) {
+  static const char HEX[] = "0123456789ABCDEF";
+  std::string out;
+  for (unsigned char byte : value) {
+    if (detail::unreserved(byte)) {
+      out += static_cast<char>(byte);
+    } else {
+      out += '%';
+      out += HEX[byte >> 4];
+      out += HEX[byte & 0x0F];
+    }
+  }
+  return out;
+}
+
+struct Substituted {
+  std::string url;
+  Jval headers;
+};
+
+// The placeholder becomes the value in string header values and in the
+// URL query, where it may arrive percent-encoded (either hex case) and
+// the value goes in strictly encoded; the path and fragment are never
+// touched. The headers are a copy.
+inline Substituted substitute(const std::string& url, const Jval& headers,
+                              const std::string& placeholder, const std::string& value) {
+  Substituted out{url, Jval::map()};
+  if (headers.ismap()) {
+    for (const auto& entry : headers.mval) {
+      out.headers.set(entry.first,
+                      !placeholder.empty() && entry.second.isstr()
+                          ? Jval::str(detail::replace_all(entry.second.sval, placeholder, value))
+                          : entry.second);
+    }
+  }
+
+  size_t q = url.find('?');
+  if (placeholder.empty() || std::string::npos == q) {
+    return out;
+  }
+  size_t hash = url.find('#', q);
+  size_t end = std::string::npos == hash ? url.size() : hash;
+  std::string encoded = encode_query_value(value);
+  std::string query;
+  for (size_t i = q + 1; i < end;) {
+    size_t n = detail::query_match(url, i, end, placeholder);
+    if (0 < n) {
+      query += encoded;
+      i += n;
+    } else {
+      query += url[i];
+      i++;
+    }
+  }
+  out.url = url.substr(0, q + 1) + query + url.substr(end);
+  return out;
+}
+
 class SecretBroker {
  public:
   explicit SecretBroker(const Jval& providers) : providers_(providers) {}
@@ -3206,7 +3320,7 @@ class SecretBroker {
   // Exact-value scrub, deliberately WITHOUT sekreto's four-character
   // readability floor (design station.md 7 as revised): on boundaries
   // where the promise is absolute, every held value is scrubbed
-  // whatever its length.
+  // whatever its length, as is the form a query placement sends.
   std::string scrub(const std::string& text) const {
     std::string out = text;
     std::lock_guard<std::mutex> lock(mutex_);
@@ -3214,10 +3328,10 @@ class SecretBroker {
       if (value.empty()) {
         continue;
       }
-      size_t pos = 0;
-      while ((pos = out.find(value, pos)) != std::string::npos) {
-        out.replace(pos, value.size(), "[redacted]");
-        pos += 10;  // strlen("[redacted]")
+      out = detail::replace_all(out, value, "[redacted]");
+      std::string encoded = encode_query_value(value);
+      if (encoded != value) {
+        out = detail::replace_all(out, encoded, "[redacted]");
       }
     }
     return out;
@@ -4656,7 +4770,7 @@ class Station {
   // The transport middleware (design station.md 3.3, 5.3). `inner` is
   // the transport that was current at init time. Failure follows the
   // C++ SDK convention: thrown SdkErrorPtr - a wrap must catch to
-  // observe, then rethrow unchanged.
+  // observe, then rethrow, scrubbed only when the URL carries a value.
   //
   // KEYED ON THE INSTANCE NAME, not the api slug: two live instances of
   // one api must have distinct placeholders or this seam cannot tell
@@ -4725,6 +4839,7 @@ class Station {
     }
 
     ::sdk::Value senddef = fetchdef;
+    std::string sendurl = fullurl;
     bool copied = false;
     auto ensure_copy = [&]() {
       if (copied) {
@@ -4764,39 +4879,58 @@ class Station {
       }
 
       ensure_copy();
-      ::sdk::Value headers = ::sdk::vmap();
       ::sdk::Value oldheaders = ::sdk::Helpers::toMapAny(::sdk::getp(senddef, "headers"));
+      Jval strings = Jval::map();
       if (oldheaders.is_map()) {
         for (const auto& kv : *oldheaders.as_map()) {
-          ::sdk::Value v = kv.second;
-          if (v.is_string() && v.as_string().find(placeholder) != std::string::npos) {
-            std::string swapped = v.as_string();
-            size_t pos = 0;
-            while ((pos = swapped.find(placeholder, pos)) != std::string::npos) {
-              swapped.replace(pos, placeholder.size(), value);
-              pos += value.size();
-            }
-            v = ::sdk::Value(swapped);
+          if (kv.second.is_string()) {
+            strings.set(kv.first, Jval::str(kv.second.as_string()));
           }
-          ::sdk::map_put(headers, kv.first, v);
+        }
+      }
+      Substituted sent = substitute(fullurl, strings, placeholder, value);
+      sendurl = sent.url;
+      ::sdk::Value headers = ::sdk::vmap();
+      if (oldheaders.is_map()) {
+        for (const auto& kv : *oldheaders.as_map()) {
+          Jval swapped = sent.headers.get(kv.first);
+          ::sdk::map_put(headers, kv.first,
+                         swapped.isstr() ? ::sdk::Value(swapped.sval) : kv.second);
         }
       }
       ::sdk::map_put(senddef, "headers", headers);
+      ::sdk::Value defurl = ::sdk::getp(senddef, "url");
+      if (defurl.is_string()) {
+        ::sdk::map_put(senddef, "url",
+                       ::sdk::Value(substitute(defurl.as_string(), Jval::map(), placeholder,
+                                               value).url));
+      }
     }
 
     std::string method = ::sdk::as_str(::sdk::getp(senddef, "method"), "GET");
     long long started = now_ms();
+    bool placed = sendurl != fullurl;
 
     ::sdk::Value res;
     try {
-      res = inner(fctx, fullurl, senddef);
+      res = inner(fctx, sendurl, senddef);
     } catch (const ::sdk::SdkErrorPtr& err) {
       emit_http(name, corr, fullurl, method, 0, started, 0);
       emit_err(name, corr, err ? err->code : "", err ? err->getMessage() : "");
+      // A transport error may quote its URL, which carries a query-placed value.
+      if (placed && err) {
+        err->msg = redact(err->msg);
+      }
       throw;
     } catch (const std::exception& err) {
       emit_http(name, corr, fullurl, method, 0, started, 0);
       emit_err(name, corr, "", err.what());
+      // what() cannot be rewritten, so a message that needs scrubbing is
+      // rethrown as a new error carrying the scrubbed text.
+      std::string scrubbed = placed ? redact(err.what()) : err.what();
+      if (scrubbed != err.what()) {
+        throw std::runtime_error(scrubbed);
+      }
       throw;
     }
 

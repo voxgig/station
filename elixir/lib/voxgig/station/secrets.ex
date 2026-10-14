@@ -31,7 +31,68 @@ defmodule Voxgig.Station.Secrets do
 
   @namepart ~r/^[a-z0-9_]+$/
 
+  defguardp is_hex(c) when c in ?0..?9 or c in ?a..?f or c in ?A..?F
+
   def placeholder_for(slug), do: "[station:" <> to_string(slug || "") <> "]"
+
+  # Every UTF-8 byte outside RFC 3986's unreserved set becomes upper-case %XX.
+  def encode_query_value(value), do: URI.encode(value, &URI.char_unreserved?/1)
+
+  # The placeholder becomes the value in header values and in the URL query,
+  # where an SDK percent-encodes it (any hex case) and the value is encoded in
+  # turn. The path and fragment are never touched. Returns {url, headers}.
+  def substitute(url, headers, placeholder, value) do
+    headers = if is_map(headers), do: headers, else: %{}
+
+    if "" == placeholder do
+      {url, headers}
+    else
+      {query_swap(url, placeholder, encode_query_value(value)),
+       Map.new(headers, fn {name, v} ->
+         {name, if(is_binary(v), do: String.replace(v, placeholder, value), else: v)}
+       end)}
+    end
+  end
+
+  defp query_swap(url, _placeholder, _encoded) when not is_binary(url), do: url
+
+  defp query_swap(url, placeholder, encoded) do
+    case String.split(url, "?", parts: 2) do
+      [_] ->
+        url
+
+      [head, tail] ->
+        {query, fragment} =
+          case String.split(tail, "#", parts: 2) do
+            [query] -> {query, ""}
+            [query, fragment] -> {query, "#" <> fragment}
+          end
+
+        head <> "?" <> swap(query, placeholder, encoded, "") <> fragment
+    end
+  end
+
+  defp swap("", _placeholder, _encoded, acc), do: acc
+
+  defp swap(<<byte, rest::binary>> = query, placeholder, encoded, acc) do
+    case match_at(query, placeholder) do
+      {:ok, tail} -> swap(tail, placeholder, encoded, acc <> encoded)
+      :nomatch -> swap(rest, placeholder, encoded, <<acc::binary, byte>>)
+    end
+  end
+
+  # Each placeholder byte, literal or as %XX in either hex case.
+  defp match_at(text, ""), do: {:ok, text}
+
+  defp match_at(<<a, rest::binary>>, <<b, more::binary>>) when a == b,
+    do: match_at(rest, more)
+
+  defp match_at(<<?%, hi, lo, rest::binary>>, <<ch, more::binary>>)
+       when is_hex(hi) and is_hex(lo) do
+    if ch == String.to_integer(<<hi, lo>>, 16), do: match_at(rest, more), else: :nomatch
+  end
+
+  defp match_at(_text, _placeholder), do: :nomatch
 
   # sekreto's validname: dot-separated lowercase segments.
   def validname(name) do
@@ -144,7 +205,9 @@ defmodule Voxgig.Station.Secrets do
 
     Enum.reduce(broker.held, text, fn value, out ->
       if is_binary(value) and value != "" do
-        String.replace(out, value, "[redacted]")
+        out = String.replace(out, value, "[redacted]")
+        encoded = encode_query_value(value)
+        if encoded != value, do: String.replace(out, encoded, "[redacted]"), else: out
       else
         out
       end

@@ -8,10 +8,10 @@ use std::rc::Rc;
 
 use voxgig_station::{
     bind, camelify, canonical_serialize, check_features, check_package, config_scope, config_shape,
-    config_shape_json, find_config_file, jget, jobj, jstr, jtext, normalize_config,
-    normalize_descriptor, placeholder_for, provide, provided, reset_factories, validate_config,
-    BindSpec, ConfigSource, EventBuffer, Factory, Json, SecretBroker, Station, StationEvent,
-    StationOptions, MERGE_SENSITIVE,
+    config_shape_json, encode_query_value, find_config_file, jget, jobj, jstr, jtext,
+    normalize_config, normalize_descriptor, placeholder_for, provide, provided, reset_factories,
+    validate_config, BindSpec, ConfigSource, EventBuffer, Factory, Json, SecretBroker, Station,
+    StationEvent, StationOptions, MERGE_SENSITIVE,
 };
 
 fn parse(text: &str) -> Json {
@@ -153,6 +153,16 @@ fn broker_scrub_has_no_length_floor() {
     let broker = SecretBroker::new(&[parse(r#"{ "kind": "memory", "values": {} }"#)]).unwrap();
     broker.hoist("taskpad", "abc");
     assert_eq!("key=[redacted]!", broker.scrub("key=abc!"));
+}
+
+#[test]
+fn broker_scrub_finds_the_query_encoded_form() {
+    let broker = SecretBroker::new(&[parse(r#"{ "kind": "memory", "values": {} }"#)]).unwrap();
+    broker.hoist("taskpad", "a b/c");
+    assert_eq!(
+        "?k=[redacted] [redacted]",
+        broker.scrub(&format!("?k={} a b/c", encode_query_value("a b/c")))
+    );
 }
 
 // --- profile lookup ---------------------------------------------------------
@@ -301,6 +311,45 @@ fn prepare_injects_only_when_live() {
         .prepare(None, false, "http://api.test/api/todo", &headers)
         .expect("plan");
     assert!(plan.headers.is_none(), "no injection into mocks");
+    station.close();
+    Station::reset();
+}
+
+#[test]
+fn prepare_places_a_query_credential_and_the_scrub_finds_it() {
+    let station = open_station(parse(
+        r#"{ "station": 1, "profiles": { "default": {
+             "secrets": { "providers": [ { "kind": "memory",
+               "values": { "TASKPAD_APIKEY": "tok!en 1" } } ] } } } }"#,
+    ));
+    let client: Rc<dyn Any> = Rc::new(());
+    let bound = bind(spec(client, &["test", "station"])).expect("bound");
+
+    // The URL an SDK generated from an `in: query` security scheme sends.
+    let placed = "http://api.test/api/todo?fields=id%2Ctitle&token=%5Bstation%3Ataskpad%5D";
+    let plan = bound
+        .binding
+        .prepare(None, true, placed, &BTreeMap::new())
+        .expect("plan");
+    let sent = plan.place(placed);
+    assert_eq!(
+        "http://api.test/api/todo?fields=id%2Ctitle&token=tok%21en%201",
+        sent
+    );
+    assert_eq!(
+        "failed: GET http://api.test/api/todo?fields=id%2Ctitle&token=[redacted]",
+        bound.binding.redact(&format!("failed: GET {}", sent)),
+        "a transport error quoting the sent URL"
+    );
+
+    let mock = bound
+        .binding
+        .prepare(None, false, placed, &BTreeMap::new())
+        .expect("plan");
+    assert_eq!(placed, mock.place(placed), "nothing placed into mocks");
+
+    let events = format!("{:?}", station.events());
+    assert!(!events.contains("tok%21en%201") && !events.contains("tok!en 1"));
     station.close();
     Station::reset();
 }

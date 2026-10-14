@@ -9,7 +9,7 @@ use voxgig_sekreto::voxgig_plugin::value::Value as Json;
 use crate::error::StationError;
 use crate::events::{HttpEvent, OpEvent, StationEvent};
 use crate::jsonx::{jstr, now_ms};
-use crate::secrets::placeholder_for;
+use crate::secrets::{placeholder_for, substitute};
 use crate::station::{policy_allow, policy_hosts, PluginEntry, Station};
 
 thread_local! {
@@ -55,6 +55,17 @@ pub struct Bound {
 pub struct TransportPlan {
     pub headers: Option<BTreeMap<String, String>>,
     pub manual_redirect: bool,
+    placement: Option<(String, String)>,
+}
+
+impl TransportPlan {
+    /// The URL with the credential placed in its query, when injecting.
+    pub fn place(&self, url: &str) -> String {
+        match &self.placement {
+            Some((placeholder, value)) => substitute(url, &BTreeMap::new(), placeholder, value).0,
+            None => url.to_string(),
+        }
+    }
 }
 
 /// The bound station side the adapter forwards its hooks and transport
@@ -226,6 +237,7 @@ impl Binding {
         }
 
         let mut injected: Option<BTreeMap<String, String>> = None;
+        let mut placement: Option<(String, String)> = None;
         if live && "R1" == self.entry.rung {
             let secretname = self.entry.secretname.clone();
 
@@ -237,18 +249,14 @@ impl Binding {
                 }
             };
 
-            let mut out = headers.clone();
-            for (_name, entry) in out.iter_mut() {
-                if entry.contains(&self.placeholder) {
-                    *entry = entry.replace(&self.placeholder, &value);
-                }
-            }
-            injected = Some(out);
+            injected = Some(substitute(fullurl, headers, &self.placeholder, &value).1);
+            placement = Some((self.placeholder.clone(), value));
         }
 
         Ok(TransportPlan {
             headers: injected,
             manual_redirect: policed,
+            placement,
         })
     }
 
@@ -276,6 +284,10 @@ impl Binding {
         self.emit_http(corr.clone(), method, fullurl, started, 0, 0);
         let err = StationError::new(code, msg);
         self.station.emit_err(&self.name, corr, &err);
+    }
+
+    pub fn redact(&self, text: &str) -> String {
+        self.station.redact(text)
     }
 
     fn emit_http(

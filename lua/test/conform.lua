@@ -172,6 +172,15 @@ testcase('placeholder', function()
   end)
 end)
 
+testcase('substitute', function()
+  R.runset(R.set('substitute'), function(vin)
+    local url, headers = st.substitute(u.get(vin, 'url'),
+      tostation(u.get(vin, 'headers'), false),
+      u.get(vin, 'placeholder'), u.get(vin, 'value'))
+    return toomni({ url = url, headers = headers })
+  end)
+end)
+
 testcase('descriptor', function()
   R.runset(R.set('descriptor'), function(vin)
     local config = tostation(u.get(vin, 'config'), false)

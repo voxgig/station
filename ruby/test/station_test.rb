@@ -74,6 +74,20 @@ class FakeFeature
   end
 end
 
+# The generated rb SDK's error shape: `message` reads a writable `msg`.
+class FakeSdkError < StandardError
+  attr_accessor :msg
+
+  def initialize(msg)
+    super(msg)
+    @msg = msg
+  end
+
+  def to_s
+    @msg
+  end
+end
+
 CONFIG = {
   'main' => { 'name' => 'GnarlyPets', 'slug' => 'gnarly-pets',
               'version' => '0.0.1', 'target' => 'rb' },
@@ -396,6 +410,53 @@ class TestStation < Minitest::Test
     refute_includes JSON.generate(st.events), 'wire-key-9'
   end
 
+  def test_a_query_placed_credential_reaches_the_wire_encoded
+    ENV['GNARLY_PETS_APIKEY'] = 'tok!en 1'
+    st = VoxgigStation::Station.new('config' => nil)
+    seen = nil
+    b = bind(st, lambda { |_c, u, d|
+      seen = [u, d]
+      [okres, nil]
+    })
+
+    url = 'http://localhost:8903/api/pet?fields=id%2Cname&apikey=%5Bstation%3Agnarly-pets%5D'
+    fetchdef = { 'url' => url, 'method' => 'GET', 'headers' => {} }
+    _res, err = b[:utility].fetcher.call(b[:ctx], url, fetchdef)
+    assert_nil err
+
+    sent = 'http://localhost:8903/api/pet?fields=id%2Cname&apikey=tok%21en%201'
+    assert_equal sent, seen[0]
+    assert_equal sent, seen[1]['url']
+    assert_equal url, fetchdef['url']
+    refute_includes JSON.generate(st.events), 'tok%21en%201'
+    refute_includes JSON.generate(st.events), 'tok!en 1'
+  end
+
+  def test_a_transport_error_quoting_the_url_is_scrubbed
+    ENV['GNARLY_PETS_APIKEY'] = 'tok!en 1'
+    url = 'http://localhost:8903/api/pet?apikey=%5Bstation%3Agnarly-pets%5D'
+    inners = {
+      'string' => ->(_c, u, _d) { [nil, 'SocketError: GET ' + u] },
+      'sdk error' => ->(_c, u, _d) { [nil, FakeSdkError.new('failed: GET ' + u)] },
+      'raised' => ->(_c, u, _d) { raise IOError, 'failed: GET ' + u },
+    }
+    inners.each do |shape, inner|
+      st = VoxgigStation::Station.new('config' => nil)
+      b = bind(st, inner)
+      err = begin
+        b[:utility].fetcher.call(b[:ctx], url,
+          'url' => url, 'method' => 'GET', 'headers' => {})[1]
+      rescue IOError => e
+        assert_nil e.cause, 'the unscrubbed original rides no cause'
+        e
+      end
+      message = err.is_a?(String) ? err : err.message
+      refute_includes message, 'tok%21en%201', shape
+      assert_includes message, '[redacted]', shape
+      refute_includes JSON.generate(st.events), 'tok%21en%201', shape
+    end
+  end
+
   def test_no_injection_into_mock_transports
     ENV['GNARLY_PETS_APIKEY'] = 'never-on-mock'
     st = VoxgigStation::Station.new('config' => nil)
@@ -418,15 +479,16 @@ class TestStation < Minitest::Test
   def test_status_0_is_a_transport_failure
     ENV['GNARLY_PETS_APIKEY'] = 'status-zero-key'
     st = VoxgigStation::Station.new('config' => nil)
-    b = bind(st, lambda { |_c, _u, _d|
-      [{ 'status' => 0, 'statusText' => 'SocketError: boom',
-         'headers' => {}, 'json' => -> { nil }, 'body' => nil }, nil]
-    })
+    synthesized = { 'status' => 0, 'statusText' => 'SocketError: boom',
+                    'headers' => {}, 'json' => -> { nil }, 'body' => nil }
+    b = bind(st, ->(_c, _u, _d) { [synthesized, nil] })
 
     res, err = b[:utility].fetcher.call(b[:ctx], 'http://localhost:8903/x',
       'method' => 'GET', 'headers' => {})
     assert_nil err
     assert_equal 0, res['status']
+    # Nothing was placed in the URL, so the response comes back untouched.
+    assert_same synthesized, res
 
     http = st.events.select { |e| 'http' == e['kind'] }
     errs = st.events.select { |e| 'error' == e['kind'] }
@@ -434,6 +496,27 @@ class TestStation < Minitest::Test
     assert_equal 0, http[0]['http']['status']
     assert_equal 1, errs.length
     assert_includes errs[0]['err']['message'], 'SocketError'
+  end
+
+  def test_a_status_0_response_after_a_url_placement_is_scrubbed
+    ENV['GNARLY_PETS_APIKEY'] = 'tok!en 1'
+    st = VoxgigStation::Station.new('config' => nil)
+    b = bind(st, lambda { |_c, u, _d|
+      [{ 'status' => 0, 'statusText' => 'SocketError: GET ' + u,
+         'headers' => {}, 'json' => -> { nil }, 'body' => 'GET ' + u,
+         'err' => FakeSdkError.new('failed: GET ' + u) }, nil]
+    })
+
+    url = 'http://localhost:8903/api/pet?apikey=%5Bstation%3Agnarly-pets%5D'
+    res, err = b[:utility].fetcher.call(b[:ctx], url,
+      'url' => url, 'method' => 'GET', 'headers' => {})
+    assert_nil err
+    assert_equal 0, res['status']
+    [res['statusText'], res['body'], res['err'].message].each do |text|
+      refute_includes text, 'tok%21en%201'
+      assert_includes text, '[redacted]'
+    end
+    refute_includes JSON.generate(st.events), 'tok%21en%201'
   end
 
   def test_hosts_policy_denies_off_list_egress
@@ -1082,6 +1165,17 @@ class TestStation < Minitest::Test
 
     assert_equal ['solar$test'], st.plugins.map { |p| p['name'] }
     assert_equal ['api.solar.test'], st.block_for('solar$test')['policy']['hosts']
+  end
+
+  def test_connect_keeps_as_and_instance_out_of_the_sdk_options
+    st = VoxgigStation::Station.new('config' => nil)
+    sdk = st.connect(RetroPackage::SDK, 'as' => 'spare', 'base' => 'http://x')
+    assert_equal %w[base extend feature], sdk.options.keys.sort
+    assert_equal 'spare', sdk.options['feature']['station']['as']
+
+    sdk = st.connect(RetroPackage::SDK, 'instance' => 'solar$spare')
+    assert_equal %w[extend feature], sdk.options.keys.sort
+    assert_equal 'solar$spare', sdk.options['feature']['station']['instance']
   end
 
   def test_policy_allow_is_enforcement_and_reaches_the_sdk_options

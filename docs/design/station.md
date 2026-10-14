@@ -799,9 +799,12 @@ Two sekreto semantics station must not paper over, both load-bearing:
 - **R1 (solo): hygiene, not a security boundary.** Station asks
   sekreto for the plugin's secret and holds the returned value
   privately; the SDK's `options.apikey` is an inert placeholder;
-  `prepareAuth` runs normally and produces an `authorization` header
-  containing the placeholder; the middleware swaps in the real value
-  at send time. What R1 buys, by construction: `client.options()`
+  `prepareAuth` runs normally and places the placeholder where the
+  API's auth model puts a key, usually an `authorization` header and
+  for some APIs a query parameter; the middleware swaps in the real
+  value at send time, in header values and in the URL query, where it
+  writes the value percent-encoded (the `substitute` corpus section).
+  What R1 buys, by construction: `client.options()`
   never exposes the value; `client.prepare()` output is safe to log or
   hand to an agent (today it carries the real key); captures, events,
   and `ctrl.explain` never contain it. What R1 does **not** buy —
@@ -865,6 +868,15 @@ the object graph reachable from `ctx`/`spec`/`ctrl` holds only the
 placeholder, ever. The `inject` corpus section asserts exactly this
 (after a completed op, `ctrl.explain.fetchdef.headers` still holds
 the placeholder) in every language.
+
+**A placed query reaches error text.** A header never appears in an
+error message, but a URL does: an HTTP client that fails quotes the URL
+it was given (Go's `*url.Error`, Python's requests, Ruby's net/http).
+So once a value is placed in the query, a transport failure is passed
+back up with its text scrubbed by the same exact-value scrub events
+use, which also removes the value's percent-encoded form. A port whose
+errors are immutable returns an equivalent error carrying the scrubbed
+text, and only when scrubbing changed it.
 
 **Injection placement:** below every recording feature and never into
 mock transports (§3.3). In c/zig, where the app supplies the base

@@ -6,6 +6,7 @@
 package station
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -17,6 +18,82 @@ import (
 
 func PlaceholderFor(name string) string {
 	return "[station:" + name + "]"
+}
+
+const upperhex = "0123456789ABCDEF"
+
+// EncodeQueryValue turns every UTF-8 byte outside RFC 3986's unreserved
+// set into upper-case %XX.
+func EncodeQueryValue(value string) string {
+	var out strings.Builder
+	for i := 0; i < len(value); i++ {
+		b := value[i]
+		if ('A' <= b && b <= 'Z') || ('a' <= b && b <= 'z') ||
+			('0' <= b && b <= '9') || 0 <= strings.IndexByte("-._~", b) {
+			out.WriteByte(b)
+		} else {
+			out.WriteByte('%')
+			out.WriteByte(upperhex[b>>4])
+			out.WriteByte(upperhex[b&0x0f])
+		}
+	}
+	return out.String()
+}
+
+func matchAt(text string, at int, end int, placeholder string) int {
+	i := at
+	for j := 0; j < len(placeholder); j++ {
+		if i < end && text[i] == placeholder[j] {
+			i++
+			continue
+		}
+		if i+3 <= end && '%' == text[i] {
+			if decoded, err := hex.DecodeString(text[i+1 : i+3]); nil == err &&
+				decoded[0] == placeholder[j] {
+				i += 3
+				continue
+			}
+		}
+		return -1
+	}
+	return i - at
+}
+
+// Substitute places value where placeholder stands in the header values
+// and in the URL query, where an SDK percent-encodes it (any hex case) and
+// the value is encoded in turn. The path and fragment are never touched;
+// the headers are a copy.
+func Substitute(fullurl string, headers map[string]any, placeholder string,
+	value string) (string, map[string]any) {
+
+	out := make(map[string]any, len(headers))
+	for name, raw := range headers {
+		if text, is := raw.(string); is && "" != placeholder {
+			raw = strings.ReplaceAll(text, placeholder, value)
+		}
+		out[name] = raw
+	}
+
+	q := strings.IndexByte(fullurl, '?')
+	if "" == placeholder || -1 == q {
+		return fullurl, out
+	}
+	end := len(fullurl)
+	if hash := strings.IndexByte(fullurl[q:], '#'); -1 != hash {
+		end = q + hash
+	}
+	encoded := EncodeQueryValue(value)
+	var query strings.Builder
+	for i := q + 1; i < end; {
+		if n := matchAt(fullurl, i, end, placeholder); 0 < n {
+			query.WriteString(encoded)
+			i += n
+		} else {
+			query.WriteByte(fullurl[i])
+			i++
+		}
+	}
+	return fullurl[:q+1] + query.String() + fullurl[end:], out
 }
 
 type secretBroker struct {
@@ -94,6 +171,9 @@ func (broker *secretBroker) scrub(text string) string {
 	for _, value := range broker.held {
 		if "" != value {
 			out = strings.Join(strings.Split(out, value), "[redacted]")
+			if encoded := EncodeQueryValue(value); encoded != value {
+				out = strings.Join(strings.Split(out, encoded), "[redacted]")
+			}
 		}
 	}
 	return out

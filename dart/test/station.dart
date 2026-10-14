@@ -505,6 +505,23 @@ void stationCases(void Function(String, FutureOr<void> Function()) testcase) {
         'one hoist warning');
   });
 
+  testcase('connect keeps as and instance out of the SDK options', () {
+    final st = Station({'config': null, 'proxy': 'off'});
+    dynamic built;
+    String keys() => ((built as Map).keys.toList()..sort()).join(',');
+
+    st.connect((dynamic options) => built = options,
+        {'as': 'spare', 'base': 'http://x'});
+    eq(keys(), 'base,extend,feature', 'sdk options');
+    eq(built['feature']['station']['as'], 'spare', 'as rides the entry');
+
+    st.connect((dynamic options) => built = options,
+        {'instance': r'gnarly-pets$spare'});
+    eq(keys(), 'extend,feature', 'sdk options');
+    eq(built['feature']['station']['instance'], r'gnarly-pets$spare',
+        'instance rides the entry');
+  });
+
   testcase('copy-on-inject: the wire gets the value, ctx keeps the placeholder',
       () async {
     if (!hasEnv('GNARLY_PETS_APIKEY')) {
@@ -549,6 +566,72 @@ void stationCases(void Function(String, FutureOr<void> Function()) testcase) {
     eq(op.length, 1, 'one op event');
     eq(op[0]['corr'], http[0]['corr'], 'op/http correlate');
     eq(op[0]['op']['outcome'], 'ok', 'outcome');
+  });
+
+  testcase('a query-placed credential reaches the wire encoded, and nothing else',
+      () async {
+    final st = Station({'config': null, 'proxy': 'off'});
+    dynamic seenurl;
+    dynamic seendef;
+    final ctx =
+        makeCtx(inner: (dynamic fctx, dynamic wireurl, dynamic def) async {
+      seenurl = wireurl;
+      seendef = def;
+      return {'status': 200, 'headers': {}};
+    });
+    ctx.options['apikey'] = 'tok!en 1';
+    bindCtx(st, ctx);
+
+    const url = 'http://localhost:8903/api/pet/p1?fields=id%2Ctitle&token='
+        '%5Bstation%3Agnarly-pets%5D';
+    final fetchdef = <String, dynamic>{
+      'url': url,
+      'method': 'GET',
+      'headers': <String, dynamic>{},
+    };
+    await ctx.utility.fetcher(FakeCtx(client: ctx.client), url, fetchdef);
+
+    const wire =
+        'http://localhost:8903/api/pet/p1?fields=id%2Ctitle&token=tok%21en%201';
+    eq(seenurl, wire, 'the value reaches the wire encoded');
+    eq(seendef['url'], wire, 'the sent fetchdef url agrees');
+    eq(fetchdef['url'], url, 'the ctx-reachable fetchdef keeps the placeholder');
+    final events = st.events().toString();
+    check(!events.contains('tok%21en%201') && !events.contains('tok!en 1'),
+        'events carry no value');
+  });
+
+  testcase('a transport error quoting the placed URL is scrubbed', () async {
+    const url = 'http://localhost:8903/api/pet/p1?token=%5Bstation%3Agnarly-pets%5D';
+
+    // Thrown, and returned as a value (the generated pipeline's iserr).
+    for (final raise in [true, false]) {
+      final st = Station({'config': null, 'proxy': 'off'});
+      final ctx =
+          makeCtx(inner: (dynamic fctx, dynamic wireurl, dynamic def) async {
+        final failure = Exception('failed: GET ' + wireurl.toString());
+        if (raise) {
+          throw failure;
+        }
+        return failure;
+      });
+      ctx.options['apikey'] = 'tok!en 1';
+      bindCtx(st, ctx);
+
+      dynamic err;
+      try {
+        err = await ctx.utility.fetcher(FakeCtx(client: ctx.client), url,
+            <String, dynamic>{'url': url, 'method': 'GET', 'headers': {}});
+      } catch (e) {
+        err = e;
+      }
+      final text = err.toString();
+      check(err is ScrubbedError, 'scrubbed copy: ' + text);
+      check(!text.contains('tok%21en%201'), 'scrubbed: ' + text);
+      check(text.contains('[redacted]'), 'scrub marker: ' + text);
+      check(!st.events().toString().contains('tok%21en%201'),
+          'events carry no value');
+    }
   });
 
   testcase('no injection into mock transports', () async {

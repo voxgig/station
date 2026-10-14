@@ -93,6 +93,14 @@ public final class StationTest {
   static final Subject PLACEHOLDER = args ->
       SecretBroker.placeholderFor(String.valueOf(args[0]));
 
+  static final Subject SUBSTITUTE = args -> {
+    Map<?, ?> vin = (Map<?, ?>) args[0];
+    SecretBroker.Substituted sent = SecretBroker.substitute(
+        String.valueOf(vin.get("url")), Descriptor.asmap(vin.get("headers")),
+        String.valueOf(vin.get("placeholder")), String.valueOf(vin.get("value")));
+    return map("url", sent.url, "headers", sent.headers);
+  };
+
   static final Subject DESCRIPTOR = args -> {
     Map<?, ?> vin = (Map<?, ?>) args[0];
     return Descriptor.normalizeDescriptor(vin.get("config"), vin.get("feature")).descriptor;
@@ -194,6 +202,7 @@ public final class StationTest {
   static final List<Driver> DRIVERS = List.of(
       new Driver("secretname", SECRETNAME),
       new Driver("placeholder", PLACEHOLDER),
+      new Driver("substitute", SUBSTITUTE),
       new Driver("descriptor", DESCRIPTOR),
       new Driver("descriptorwarnings", DESCWARN),
       new Driver("canonical", CANONICAL),
@@ -1004,6 +1013,52 @@ public final class StationTest {
       Map<String, Object> hm = Descriptor.asmap(http.get("http"));
       check(Integer.valueOf(200).equals(hm.get("status")), "wire status");
       check(Long.valueOf(12L).equals(hm.get("bytes")), "bytes from content-length");
+    });
+
+    // A credential an `in: query` security scheme places in the URL.
+    String queryurl = "http://localhost:8000/api/todo?fields=id%2Ctitle&token="
+        + "%5Bstation%3Atest-plug%5D";
+    String wireurl = "http://localhost:8000/api/todo?fields=id%2Ctitle&token="
+        + "tok%21en%201";
+
+    testcase("transport: a query-placed credential reaches the wire, and nothing else", () -> {
+      Station st = memoryStation(map("TEST_PLUG_APIKEY", "tok!en 1"), null);
+      bind(st, new Object(), st.options(map()));
+
+      Map<String, Object> fetchdef = map("url", queryurl, "method", "GET",
+          "headers", map());
+      List<Object> sent = new ArrayList<>();
+      st.transport("test-plug", queryurl, fetchdef, true, "c1", (url, def) -> {
+        sent.add(url);
+        sent.add(def.get("url"));
+        return map("status", 200);
+      });
+      checkeq(sent.get(0), wireurl, "the encoded value reaches the inner transport");
+      checkeq(sent.get(1), wireurl, "and the sent copy's url");
+      checkeq(fetchdef.get("url"), queryurl, "the SDK's fetchdef keeps the placeholder");
+      String events = Json.stringify(st.events());
+      check(!events.contains("tok%21en%201"), "no encoded value in events");
+      check(!events.contains("tok!en 1"), "no value in events");
+    });
+
+    testcase("transport: a transport error quoting the URL is scrubbed", () -> {
+      Station st = memoryStation(map("TEST_PLUG_APIKEY", "tok!en 1"), null);
+      bind(st, new Object(), st.options(map()));
+
+      RuntimeException caught = null;
+      try {
+        st.transport("test-plug", queryurl, map("headers", map()), true, null,
+            (url, def) -> {
+              throw new IllegalStateException("failed: GET " + url);
+            });
+      } catch (RuntimeException err) {
+        caught = err;
+      }
+      check(null != caught, "the transport error surfaces");
+      check(!caught.getMessage().contains("tok%21en%201"), caught.getMessage());
+      check(caught.getMessage().contains("[redacted]"), caught.getMessage());
+      check(!Json.stringify(st.events()).contains("tok%21en%201"),
+          "no encoded value in events");
     });
 
     testcase("transport: no injection into mock transports", () -> {

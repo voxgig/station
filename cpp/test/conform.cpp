@@ -6,7 +6,7 @@
 // (inject, event correlation) live in generated-SDK runs; the corpus
 // carries what a port can prove with no SDK present.
 //
-// TEN SECTIONS, ALL RUN. The tests are REGISTERED FROM THE `DRIVERS`
+// EVERY SECTION RUNS. The tests are REGISTERED FROM THE `DRIVERS`
 // TABLE below rather than written out by hand, so a section named there
 // cannot silently fail to run; `sections-covered` closes the other
 // direction by reading spec/station.json AS RAW JSON - not through the
@@ -170,6 +170,16 @@ const omni::Subject PLACEHOLDER = [](const std::vector<omni::Json>& args) {
   return omni::Json::str(vs::placeholder_for(args[0].strval));
 };
 
+const omni::Subject SUBSTITUTE = [](const std::vector<omni::Json>& args) {
+  vs::Substituted sent = vs::substitute(
+      args[0].get("url").strval, to_station(args[0].get("headers"), false),
+      args[0].get("placeholder").strval, args[0].get("value").strval);
+  omni::Json out = omni::Json::map();
+  out.set("url", omni::Json::str(sent.url));
+  out.set("headers", to_omni(sent.headers));
+  return out;
+};
+
 const omni::Subject DESCRIPTOR = [](const std::vector<omni::Json>& args) {
   vs::Jval config = to_station(args[0].get("config"), false);
   vs::Jval feature = to_station(args[0].get("feature"), false);
@@ -266,6 +276,7 @@ struct DriverRow {
 const DriverRow DRIVERS[] = {
     {"secretname", &SECRETNAME},
     {"placeholder", &PLACEHOLDER},
+    {"substitute", &SUBSTITUTE},
     {"descriptor", &DESCRIPTOR},
     {"descriptorwarnings", &DESCRIPTORWARNINGS},
     {"canonical", &CANONICAL},

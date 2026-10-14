@@ -17,7 +17,7 @@ use Scalar::Util qw(blessed);
 use Voxgig::Station::Error ();
 
 use Exporter 'import';
-our @EXPORT_OK = qw(placeholder_for);
+our @EXPORT_OK = qw(encode_query_value placeholder_for substitute);
 
 # Keyed by INSTANCE (design station.md 7.2). Two live instances of one
 # api must have distinct placeholders or the injection seam cannot tell
@@ -26,6 +26,75 @@ our @EXPORT_OK = qw(placeholder_for);
 sub placeholder_for {
     my ($name) = @_;
     return '[station:' . ( defined $name ? $name : '' ) . ']';
+}
+
+# Every UTF-8 byte outside RFC 3986's unreserved set becomes upper-case
+# %XX. A byte string, such as a value read from the environment, is
+# already UTF-8.
+sub encode_query_value {
+    my ($value) = @_;
+    my $bytes = defined $value ? "$value" : '';
+    utf8::encode($bytes) if utf8::is_utf8($bytes);
+    $bytes =~ s/([^A-Za-z0-9\-._~])/sprintf('%%%02X', ord($1))/ge;
+    return $bytes;
+}
+
+sub _match_at {
+    my ( $text, $at, $end, $placeholder ) = @_;
+    my $i = $at;
+    for my $ch ( split //, $placeholder ) {
+        if ( $i < $end && substr( $text, $i, 1 ) eq $ch ) {
+            $i++;
+            next;
+        }
+        if (   $i + 3 <= $end
+            && '%' eq substr( $text, $i, 1 )
+            && substr( $text, $i + 1, 2 ) =~ /\A[0-9A-Fa-f]{2}\z/
+            && hex( substr( $text, $i + 1, 2 ) ) == ord($ch) ) {
+            $i += 3;
+            next;
+        }
+        return -1;
+    }
+    return $i - $at;
+}
+
+# The placeholder becomes the value in header values and in the URL
+# query, where an SDK percent-encodes it (any hex case) and the value is
+# encoded in turn. The path and fragment are never touched; the headers
+# are a copy.
+sub substitute {
+    my ( $url, $headers, $placeholder, $value ) = @_;
+    my $out = { %{ ref($headers) eq 'HASH' ? $headers : {} } };
+    return { url => $url, headers => $out } if '' eq $placeholder;
+
+    for my $h ( keys %$out ) {
+        my $v = $out->{$h};
+        next unless defined $v && !ref $v && 0 <= index( $v, $placeholder );
+        $out->{$h} = join( $value, split( /\Q$placeholder\E/, $v, -1 ) );
+    }
+
+    my $q = index( $url, '?' );
+    return { url => $url, headers => $out } if -1 == $q;
+    my $hash    = index( $url, '#', $q );
+    my $end     = -1 == $hash ? length($url) : $hash;
+    my $encoded = encode_query_value($value);
+    my $query   = '';
+    for ( my $i = $q + 1 ; $i < $end ; ) {
+        my $n = _match_at( $url, $i, $end, $placeholder );
+        if ( 0 < $n ) {
+            $query .= $encoded;
+            $i += $n;
+        }
+        else {
+            $query .= substr( $url, $i, 1 );
+            $i++;
+        }
+    }
+    return {
+        url     => substr( $url, 0, $q + 1 ) . $query . substr( $url, $end ),
+        headers => $out,
+    };
 }
 
 package Voxgig::Station::SecretBroker;
@@ -104,6 +173,9 @@ sub scrub {
     for my $value ( @{ $self->{held} } ) {
         next if !defined $value || '' eq $value;
         $out = join( '[redacted]', split( /\Q$value\E/, $out, -1 ) );
+        my $encoded = Voxgig::Station::Secrets::encode_query_value($value);
+        $out = join( '[redacted]', split( /\Q$encoded\E/, $out, -1 ) )
+          if $encoded ne $value;
     }
     return $out;
 }

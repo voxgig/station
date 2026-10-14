@@ -79,6 +79,7 @@ defmodule Voxgig.Station.Adapter do
     calleropts = if S.ismap(opts_node), do: opts_node, else: S.jm([])
     out = if S.ismap(opts_node), do: S.clone(opts_node), else: S.jm([])
     activate(out, station, calleropts)
+    station_keys(out)
 
     adapter = adapter_feature(station, calleropts)
     current = S.getprop(out, "extend")
@@ -98,6 +99,20 @@ defmodule Voxgig.Station.Adapter do
     S.setprop(entry, "active", true)
     S.setprop(entry, "station", fn -> station end)
     S.setprop(entry, "calleropts", calleropts)
+    options
+  end
+
+  # `as` and `instance` are station's own: they ride the feature entry,
+  # never the SDK's options, which a generated SDK checks as closed.
+  defp station_keys(options) do
+    entry = S.getprop(S.getprop(options, "feature"), "station")
+
+    Enum.each(["as", "instance"], fn key ->
+      val = S.getprop(options, key)
+      if nil != val, do: S.setprop(entry, key, val)
+      S.delprop(options, key)
+    end)
+
     options
   end
 
@@ -331,7 +346,7 @@ defmodule Voxgig.Station.Adapter do
       # fetchdef by reference, so the fetchdef (headers included) is
       # cloned before the swap - the object graph reachable from
       # ctx/spec/ctrl keeps the placeholder, ever (station.md 5.3).
-      senddef =
+      {senddef, sendurl} =
         if live and nil != entry and "R1" == entry.rung do
           value =
             case Station.secret_value(station, slug) do
@@ -345,39 +360,42 @@ defmodule Voxgig.Station.Adapter do
 
           d = if senddef == fetchdef, do: S.clone(fetchdef), else: senddef
           headers = S.getprop(d, "headers")
+          {sendurl, sent} = Secrets.substitute(fullurl, plain(headers), placeholder, value)
 
           if S.ismap(headers) do
-            Enum.each(S.keysof(headers), fn h ->
-              v = S.getprop(headers, h)
-
-              if is_binary(v) and String.contains?(v, placeholder) do
-                S.setprop(headers, h, String.replace(v, placeholder, value))
-              end
-            end)
+            Enum.each(sent, fn {h, v} -> if is_binary(v), do: S.setprop(headers, h, v) end)
           end
 
-          d
+          defurl = S.getprop(d, "url")
+
+          if is_binary(defurl) do
+            {url, _} = Secrets.substitute(defurl, nil, placeholder, value)
+            S.setprop(d, "url", url)
+          end
+
+          {d, sendurl}
         else
-          senddef
+          {senddef, fullurl}
         end
 
       method = S.getprop(senddef, "method")
       started = Station.now_ms()
+      placed = sendurl != fullurl
 
       {res, err} =
         try do
-          inner.(fctx, fullurl, senddef)
+          inner.(fctx, sendurl, senddef)
         rescue
           e ->
             Station.emit_http(station, slug, corr, fullurl, method, 0, started, 0)
             Station.emit_err(station, slug, corr, e)
-            reraise(e, __STACKTRACE__)
+            reraise(scrubbed(station, e, placed), __STACKTRACE__)
         end
 
       if nil != err do
         Station.emit_http(station, slug, corr, fullurl, method, 0, started, 0)
         Station.emit_err(station, slug, corr, err)
-        {res, err}
+        {res, scrubbed(station, err, placed)}
       else
         status = int_of(if S.ismap(res), do: S.getprop(res, "status"), else: nil)
         Station.emit_http(station, slug, corr, fullurl, method, status, started, bytes_of(res))
@@ -385,6 +403,32 @@ defmodule Voxgig.Station.Adapter do
       end
     catch
       {:station_ret, ret} -> ret
+    end
+  end
+
+  # A transport error may quote its URL, which carries a query-placed value.
+  # The error comes back as a scrubbed copy; an exception with no message
+  # field to rewrite becomes a RuntimeError carrying the scrubbed text.
+  defp scrubbed(_station, err, false), do: err
+
+  defp scrubbed(station, err, true) do
+    cond do
+      is_binary(err) ->
+        Station.redact(station, err)
+
+      is_exception(err) and is_binary(Map.get(err, :msg)) ->
+        %{err | msg: Station.redact(station, err.msg)}
+
+      is_exception(err) and is_binary(Map.get(err, :message)) ->
+        %{err | message: Station.redact(station, err.message)}
+
+      is_exception(err) ->
+        text = Exception.message(err)
+        clean = Station.redact(station, text)
+        if clean == text, do: err, else: RuntimeError.exception(clean)
+
+      true ->
+        err
     end
   end
 

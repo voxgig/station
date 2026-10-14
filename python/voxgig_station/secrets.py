@@ -7,11 +7,14 @@
 # python port.
 
 import threading
+from urllib.parse import quote
 
 from voxgig_sekreto import Sekreto, SekretoError
 from voxgig_sekreto.plugins import ALL as SEKRETO_PLUGINS
 
 from .error import StationError
+
+_HEXDIGITS = frozenset('0123456789abcdefABCDEF')
 
 
 def placeholder_for(name):
@@ -20,6 +23,59 @@ def placeholder_for(name):
     tell which credential a header wants. For an untagged instance this
     is the api slug, so the single-instance case is unchanged."""
     return '[station:' + name + ']'
+
+
+def encode_query_value(value):
+    """Every UTF-8 byte outside RFC 3986's unreserved set becomes
+    upper-case %XX."""
+    return quote(value, safe='')
+
+
+def _match_at(text, at, end, placeholder):
+    i = at
+    for ch in placeholder:
+        if i < end and text[i] == ch:
+            i += 1
+            continue
+        hexpair = text[i + 1:i + 3]
+        if i + 3 <= end and '%' == text[i] and _HEXDIGITS.issuperset(hexpair) \
+                and int(hexpair, 16) == ord(ch):
+            i += 3
+            continue
+        return -1
+    return i - at
+
+
+def substitute(url, headers, placeholder, value):
+    """The placeholder becomes the value in header values and in the URL
+    query, where an SDK percent-encodes it (any hex case) and the value
+    is encoded in turn. The path and fragment are never touched; the
+    headers are a copy."""
+    out = dict(headers or {})
+    if '' == placeholder:
+        return {'url': url, 'headers': out}
+
+    for h, v in list(out.items()):
+        if isinstance(v, str) and placeholder in v:
+            out[h] = v.replace(placeholder, value)
+
+    q = url.find('?')
+    if -1 == q:
+        return {'url': url, 'headers': out}
+    hash_at = url.find('#', q)
+    end = len(url) if -1 == hash_at else hash_at
+    encoded = encode_query_value(value)
+    query = []
+    i = q + 1
+    while i < end:
+        n = _match_at(url, i, end, placeholder)
+        if 0 < n:
+            query.append(encoded)
+            i += n
+        else:
+            query.append(url[i])
+            i += 1
+    return {'url': url[:q + 1] + ''.join(query) + url[end:], 'headers': out}
 
 
 class SecretBroker:
@@ -100,6 +156,9 @@ class SecretBroker:
         for value in held:
             if '' != value:
                 out = '[redacted]'.join(out.split(value))
+                encoded = encode_query_value(value)
+                if encoded != value:
+                    out = '[redacted]'.join(out.split(encoded))
         return out
 
     def refresh(self):

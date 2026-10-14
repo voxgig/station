@@ -3027,6 +3027,319 @@
       }
      }
     ]
+   },
+   "substitute": {
+    "set": [
+     {
+      "doc": true,
+      "id": "substitute#header-prefix-survives",
+      "in": {
+       "headers": {
+        "accept": "application/json",
+        "authorization": "Bearer [station:pets]"
+       },
+       "placeholder": "[station:pets]",
+       "url": "https://api.example.com/pets",
+       "value": "s3cret"
+      },
+      "out": {
+       "headers": {
+        "accept": "application/json",
+        "authorization": "Bearer s3cret"
+       },
+       "url": "https://api.example.com/pets"
+      }
+     },
+     {
+      "doc": true,
+      "id": "substitute#query-percent-encoded",
+      "in": {
+       "headers": {},
+       "placeholder": "[station:joplin]",
+       "url": "http://127.0.0.1:41184/notes?token=%5Bstation%3Ajoplin%5D",
+       "value": "s3cret"
+      },
+      "out": {
+       "headers": {},
+       "url": "http://127.0.0.1:41184/notes?token=s3cret"
+      }
+     },
+     {
+      "id": "substitute#query-lowercase-hex",
+      "in": {
+       "headers": {},
+       "placeholder": "[station:joplin]",
+       "url": "http://127.0.0.1:41184/notes?token=%5bstation%3ajoplin%5d",
+       "value": "s3cret"
+      },
+      "out": {
+       "headers": {},
+       "url": "http://127.0.0.1:41184/notes?token=s3cret"
+      }
+     },
+     {
+      "id": "substitute#query-raw",
+      "in": {
+       "headers": {},
+       "placeholder": "[station:joplin]",
+       "url": "http://127.0.0.1:41184/notes?token=[station:joplin]",
+       "value": "s3cret"
+      },
+      "out": {
+       "headers": {},
+       "url": "http://127.0.0.1:41184/notes?token=s3cret"
+      }
+     },
+     {
+      "doc": true,
+      "id": "substitute#query-tagged-instance",
+      "in": {
+       "headers": {},
+       "placeholder": "[station:joplin$spare]",
+       "url": "http://h/notes?token=%5Bstation%3Ajoplin%24spare%5D",
+       "value": "s3cret"
+      },
+      "out": {
+       "headers": {},
+       "url": "http://h/notes?token=s3cret"
+      }
+     },
+     {
+      "id": "substitute#query-mixed-encoding",
+      "in": {
+       "headers": {},
+       "placeholder": "[station:joplin$spare]",
+       "url": "http://h/notes?token=%5Bstation%3Ajoplin$spare%5D",
+       "value": "s3cret"
+      },
+      "out": {
+       "headers": {},
+       "url": "http://h/notes?token=s3cret"
+      }
+     },
+     {
+      "doc": true,
+      "id": "substitute#query-sibling-instance-untouched",
+      "in": {
+       "headers": {},
+       "placeholder": "[station:joplin]",
+       "url": "http://h/notes?token=%5Bstation%3Ajoplin%24spare%5D",
+       "value": "s3cret"
+      },
+      "out": {
+       "headers": {},
+       "url": "http://h/notes?token=%5Bstation%3Ajoplin%24spare%5D"
+      }
+     },
+     {
+      "doc": true,
+      "id": "substitute#query-other-parameters-byte-identical",
+      "in": {
+       "headers": {},
+       "placeholder": "[station:joplin]",
+       "url": "http://h/notes?fields=id%2Ctitle&token=%5Bstation%3Ajoplin%5D&limit=10",
+       "value": "s3cret"
+      },
+      "out": {
+       "headers": {},
+       "url": "http://h/notes?fields=id%2Ctitle&token=s3cret&limit=10"
+      }
+     },
+     {
+      "doc": true,
+      "id": "substitute#query-value-encoded-strictly",
+      "in": {
+       "headers": {
+        "x-api-key": "[station:k]"
+       },
+       "placeholder": "[station:k]",
+       "url": "http://h/x?key=%5Bstation%3Ak%5D",
+       "value": "a&b=c d/\u00e9!*'()~"
+      },
+      "out": {
+       "headers": {
+        "x-api-key": "a&b=c d/\u00e9!*'()~"
+       },
+       "url": "http://h/x?key=a%26b%3Dc%20d%2F%C3%A9%21%2A%27%28%29~"
+      }
+     },
+     {
+      "id": "substitute#query-prefix-survives",
+      "in": {
+       "headers": {},
+       "placeholder": "[station:k]",
+       "url": "http://h/x?auth=Bearer%20%5Bstation%3Ak%5D",
+       "value": "s3cret"
+      },
+      "out": {
+       "headers": {},
+       "url": "http://h/x?auth=Bearer%20s3cret"
+      }
+     },
+     {
+      "id": "substitute#query-every-occurrence",
+      "in": {
+       "headers": {},
+       "placeholder": "[station:k]",
+       "url": "http://h/x?a=%5Bstation%3Ak%5D&b=[station:k]",
+       "value": "v"
+      },
+      "out": {
+       "headers": {},
+       "url": "http://h/x?a=v&b=v"
+      }
+     },
+     {
+      "doc": true,
+      "id": "substitute#path-untouched",
+      "in": {
+       "headers": {},
+       "placeholder": "[station:joplin]",
+       "url": "http://h/%5Bstation%3Ajoplin%5D/notes/[station:joplin]",
+       "value": "s3cret"
+      },
+      "out": {
+       "headers": {},
+       "url": "http://h/%5Bstation%3Ajoplin%5D/notes/[station:joplin]"
+      }
+     },
+     {
+      "id": "substitute#path-untouched-with-query",
+      "in": {
+       "headers": {},
+       "placeholder": "[station:joplin]",
+       "url": "http://h/[station:joplin]/x?a=1",
+       "value": "s3cret"
+      },
+      "out": {
+       "headers": {},
+       "url": "http://h/[station:joplin]/x?a=1"
+      }
+     },
+     {
+      "doc": true,
+      "id": "substitute#fragment-untouched",
+      "in": {
+       "headers": {},
+       "placeholder": "[station:joplin]",
+       "url": "http://h/x?a=1#%5Bstation%3Ajoplin%5D",
+       "value": "s3cret"
+      },
+      "out": {
+       "headers": {},
+       "url": "http://h/x?a=1#%5Bstation%3Ajoplin%5D"
+      }
+     },
+     {
+      "id": "substitute#query-before-fragment",
+      "in": {
+       "headers": {},
+       "placeholder": "[station:joplin]",
+       "url": "http://h/x?token=%5Bstation%3Ajoplin%5D#top",
+       "value": "s3cret"
+      },
+      "out": {
+       "headers": {},
+       "url": "http://h/x?token=s3cret#top"
+      }
+     },
+     {
+      "id": "substitute#truncated-escape-untouched",
+      "in": {
+       "headers": {},
+       "placeholder": "[station:joplin]",
+       "url": "http://h/x?t=%5Bstation%3Ajoplin%5",
+       "value": "s3cret"
+      },
+      "out": {
+       "headers": {},
+       "url": "http://h/x?t=%5Bstation%3Ajoplin%5"
+      }
+     },
+     {
+      "id": "substitute#bad-escape-untouched",
+      "in": {
+       "headers": {},
+       "placeholder": "[station:joplin]",
+       "url": "http://h/x?t=%5Bstation%3Ajoplin%ZZ",
+       "value": "s3cret"
+      },
+      "out": {
+       "headers": {},
+       "url": "http://h/x?t=%5Bstation%3Ajoplin%ZZ"
+      }
+     },
+     {
+      "id": "substitute#empty-value",
+      "in": {
+       "headers": {
+        "authorization": "[station:joplin]"
+       },
+       "placeholder": "[station:joplin]",
+       "url": "http://h/x?token=%5Bstation%3Ajoplin%5D",
+       "value": ""
+      },
+      "out": {
+       "headers": {
+        "authorization": ""
+       },
+       "url": "http://h/x?token="
+      }
+     },
+     {
+      "id": "substitute#no-placeholder",
+      "in": {
+       "headers": {
+        "accept": "*/*",
+        "content-length": "12"
+       },
+       "placeholder": "[station:joplin]",
+       "url": "http://h/x?a=%5B1%5D&b=2",
+       "value": "s3cret"
+      },
+      "out": {
+       "headers": {
+        "accept": "*/*",
+        "content-length": "12"
+       },
+       "url": "http://h/x?a=%5B1%5D&b=2"
+      }
+     },
+     {
+      "id": "substitute#header-name-case-kept",
+      "in": {
+       "headers": {
+        "X-Api-Key": "[station:k]"
+       },
+       "placeholder": "[station:k]",
+       "url": "http://h/x",
+       "value": "v"
+      },
+      "out": {
+       "headers": {
+        "X-Api-Key": "v"
+       },
+       "url": "http://h/x"
+      }
+     },
+     {
+      "id": "substitute#empty-placeholder-substitutes-nothing",
+      "in": {
+       "headers": {
+        "authorization": "Bearer t"
+       },
+       "placeholder": "",
+       "url": "http://h/x?a=b",
+       "value": "v"
+      },
+      "out": {
+       "headers": {
+        "authorization": "Bearer t"
+       },
+       "url": "http://h/x?a=b"
+      }
+     }
+    ]
    }
   }
  }

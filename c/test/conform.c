@@ -7,7 +7,7 @@
  * (inject, event correlation) live in the generated-SDK integration
  * flow; the corpus carries what a port can prove with no SDK present.
  *
- * TEN SECTIONS, ALL RUN. The tests are REGISTERED FROM THE `DRIVERS`
+ * EVERY SECTION RUNS. The tests are REGISTERED FROM THE `DRIVERS`
  * TABLE below rather than written out by hand, so a section named there
  * cannot silently fail to run; `sections-covered` closes the other
  * direction by reading spec/station.json AS RAW JSON - not through the
@@ -150,6 +150,20 @@ static omni_result subject_placeholder(omni_subject *self, omni_json **args, siz
   (void)self;
   out.val = omni_str(POOL, ph);
   free(ph);
+  return out;
+}
+
+static omni_result subject_substitute(omni_subject *self, omni_json **args, size_t nargs) {
+  omni_result out = {NULL, NULL};
+  const omni_json *vin = 0 < nargs ? args[0] : NULL;
+  vxstn_val *headers = to_station(omni_map_get(vin, "headers"));
+  vxstn_val *sent = vxstn_substitute(omni_strval(omni_map_get(vin, "url")), headers,
+                                     omni_strval(omni_map_get(vin, "placeholder")),
+                                     omni_strval(omni_map_get(vin, "value")));
+  (void)self;
+  out.val = to_omni(sent);
+  vxstn_val_free(headers);
+  vxstn_val_free(sent);
   return out;
 }
 
@@ -357,6 +371,7 @@ typedef struct {
 static const driver_row DRIVERS[] = {
     {"secretname", subject_secretname},
     {"placeholder", subject_placeholder},
+    {"substitute", subject_substitute},
     {"descriptor", subject_descriptor},
     {"descriptorwarnings", subject_descriptorwarnings},
     {"canonical", subject_canonical},

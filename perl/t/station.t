@@ -599,6 +599,150 @@ subtest 'secret option overrides the default name' => sub {
     is( $seen, 'custom-9', 'override name used' );
 };
 
+# A credential an `in: query` security scheme places in the URL.
+my $QUERY_URL =
+  'http://localhost:8903/api/pet?fields=id%2Cname&token=%5Bstation%3Agnarly-pets%5D';
+my $WIRE_URL = 'http://localhost:8903/api/pet?fields=id%2Cname&token=tok%21en%201';
+
+subtest 'a query-placed credential reaches the wire, and nothing else' => sub {
+    reset_env();
+    local $ENV{GNARLY_PETS_APIKEY} = 'tok!en 1';
+    my $st = Voxgig::Station->new( { config => undef } );
+    my @seen;
+    my $b = bind_client(
+        $st,
+        sub {
+            my ( $fctx, $fullurl, $fetchdef ) = @_;
+            push @seen, [ $fullurl, $fetchdef ];
+            return ( okres(), undef );
+        }
+    );
+
+    my $fetchdef = { url => $QUERY_URL, method => 'GET', headers => {} };
+    my ( undef, $err ) = $b->{utility}{fetcher}->( $b->{ctx}, $QUERY_URL, $fetchdef );
+
+    is( $err,              undef,     'no error' );
+    is( scalar @seen,      1,         'one send' );
+    is( $seen[0][0],       $WIRE_URL, 'the encoded value reaches the inner transport' );
+    is( $seen[0][1]{url},  $WIRE_URL, 'and the sent copy url' );
+    is( $fetchdef->{url}, $QUERY_URL, 'the SDK fetchdef keeps the placeholder' );
+
+    my $blob = JSON::PP->new->allow_blessed(1)->convert_blessed(1)
+      ->allow_unknown(1)->encode( $st->events );
+    ok( 0 > index( $blob, 'tok%21en%201' ), 'no encoded value in events' );
+    ok( 0 > index( $blob, 'tok!en 1' ),     'no value in events' );
+};
+
+{
+
+    package MsgError;
+
+    use overload '""' => sub { $_[0]->{msg} }, fallback => 1;
+
+    sub new { return bless { msg => $_[1] }, $_[0] }
+}
+
+subtest 'a transport error quoting the URL is scrubbed' => sub {
+    reset_env();
+    local $ENV{GNARLY_PETS_APIKEY} = 'tok!en 1';
+    my $fetch = sub {
+        my ($b) = @_;
+        return $b->{utility}{fetcher}
+          ->( $b->{ctx}, $QUERY_URL, { method => 'GET', headers => {} } );
+    };
+
+    my $st = Voxgig::Station->new( { config => undef } );
+    my ( undef, $err ) =
+      $fetch->( bind_client( $st, sub { return ( undef, 'failed: GET ' . $_[1] ) } ) );
+    ok( 0 > index( $err, 'tok%21en%201' ), 'a returned string is scrubbed' );
+    ok( 0 <= index( $err, '[redacted]' ), 'and marked' );
+    my $blob = JSON::PP->new->allow_blessed(1)->convert_blessed(1)
+      ->allow_unknown(1)->encode( $st->events );
+    ok( 0 > index( $blob, 'tok%21en%201' ), 'no encoded value in events' );
+
+    ( undef, $err ) = $fetch->(
+        bind_client(
+            Voxgig::Station->new( { config => undef } ),
+            sub { return ( undef, MsgError->new( 'failed: GET ' . $_[1] ) ) }
+        )
+    );
+    ok( 0 > index( "$err", 'tok%21en%201' ), 'an error object is scrubbed in place' );
+    isa_ok( $err, 'MsgError' );
+
+    eval {
+        $fetch->(
+            bind_client(
+                Voxgig::Station->new( { config => undef } ),
+                sub { die 'failed: GET ' . $_[1] . "\n" }
+            )
+        );
+    };
+    my $died = $@;
+    ok( 0 > index( $died, 'tok%21en%201' ), 'a thrown error is scrubbed' );
+    ok( 0 <= index( $died, '[redacted]' ), 'and marked' );
+};
+
+subtest 'a status-0 response after a placement is scrubbed' => sub {
+    reset_env();
+    local $ENV{GNARLY_PETS_APIKEY} = 'tok!en 1';
+    my $st = Voxgig::Station->new( { config => undef } );
+    my $sent;
+    my $b = bind_client(
+        $st,
+        sub {
+            my ( $fctx, $fullurl ) = @_;
+            $sent = {
+                status     => 0,
+                statusText => 'Connection refused: GET ' . $fullurl,
+                headers    => { 'content-type' => 'text/plain' },
+                json       => sub { undef },
+                body       => 'no answer from ' . $fullurl,
+                err        => MsgError->new( 'failed: GET ' . $fullurl ),
+            };
+            return ( $sent, undef );
+        }
+    );
+
+    my ( $res, $err ) = $b->{utility}{fetcher}
+      ->( $b->{ctx}, $QUERY_URL, { method => 'GET', headers => {} } );
+    is( $err,           undef, 'tuple err stays undef' );
+    is( $res->{status}, 0,     'status kept' );
+    for my $text ( $res->{statusText}, $res->{body}, "$res->{err}" ) {
+        ok( 0 > index( $text, 'tok%21en%201' ), "scrubbed: $text" );
+        ok( 0 <= index( $text, '[redacted]' ), 'and marked' );
+    }
+    is_deeply( $res->{headers}, { 'content-type' => 'text/plain' }, 'headers pass through' );
+    is( ref $res->{json}, 'CODE', 'json reader kept' );
+
+    # Nothing placed: the response comes back untouched.
+    ($res) = $b->{utility}{fetcher}
+      ->( $b->{ctx}, 'http://localhost:8903/x', { method => 'GET', headers => {} } );
+    is( refaddr($res), refaddr($sent), 'an unplaced response is the same object' );
+};
+
+{
+
+    package ClosedSDK;
+
+    sub new { return bless { options => $_[1] }, $_[0] }
+}
+
+subtest 'connect keeps as and instance out of the SDK options' => sub {
+    reset_env();
+    my $st = Voxgig::Station->new( { config => undef } );
+
+    my $sdk = $st->connect( 'ClosedSDK', { as => 'spare', base => 'http://x' } );
+    is_deeply( [ sort keys %{ $sdk->{options} } ], [qw(base extend feature)],
+        'no station-only keys' );
+    is( $sdk->{options}{feature}{station}{as}, 'spare', 'the tag rides the station entry' );
+
+    $sdk = $st->adopt( 'ClosedSDK', { instance => 'gnarly-pets$spare' } );
+    is_deeply( [ sort keys %{ $sdk->{options} } ], [qw(extend feature)],
+        'no station-only keys' );
+    is( $sdk->{options}{feature}{station}{instance},
+        'gnarly-pets$spare', 'the ref rides the station entry' );
+};
+
 # --- events (design station.md 6) ---
 
 subtest 'ring overflow drops oldest and counts' => sub {

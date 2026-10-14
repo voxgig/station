@@ -54,6 +54,7 @@ use function Voxgig\Station\resolve_order;
 use function Voxgig\Station\resolve_profile;
 use function Voxgig\Station\secretname_default;
 use function Voxgig\Station\select_profile;
+use function Voxgig\Station\substitute;
 use function Voxgig\Station\validate_config;
 
 require_once __DIR__ . '/../src/Station.php';
@@ -201,6 +202,9 @@ $DRIVERS = [
     },
 
     'placeholder' => fn($slug) => placeholder_for($slug),
+
+    'substitute' => fn($vin) => substitute($vin['url'], $vin['headers'] ?? null,
+        $vin['placeholder'], $vin['value']),
 
     'descriptor' => fn($vin) => normalize_descriptor(denull($vin['config']),
         denull($vin['feature'] ?? null))['descriptor'],
@@ -708,6 +712,91 @@ testcase('secret_option_overrides_the_default_name', function () {
     }
 });
 
+// A credential an `in: query` security scheme places in the URL.
+const QUERY_URL = 'http://localhost:8903/api/pet?fields=id%2Cname&token=%5Bstation%3Agnarly-pets%5D';
+const WIRE_URL = 'http://localhost:8903/api/pet?fields=id%2Cname&token=tok%21en%201';
+
+testcase('a_query_placed_credential_reaches_the_wire_and_nothing_else', function () {
+    putenv('GNARLY_PETS_APIKEY=tok!en 1');
+    $st = new Station(['config' => null]);
+    $seen = [];
+    $b = bind($st, function ($_c, $u, $d) use (&$seen) {
+        $seen[] = [$u, $d];
+        return [okres(), null];
+    });
+
+    $fetchdef = ['url' => QUERY_URL, 'method' => 'GET', 'headers' => []];
+    [$_res, $err] = ($b['utility']->fetcher)($b['ctx'], QUERY_URL, $fetchdef);
+
+    eq(null, $err);
+    eq(1, count($seen));
+    eq(WIRE_URL, $seen[0][0]);
+    eq(WIRE_URL, $seen[0][1]['url']);
+    eq(QUERY_URL, $fetchdef['url'], 'the SDK fetchdef keeps the placeholder');
+    $events = json_encode($st->events()) ?: '';
+    ok(!str_contains($events, 'tok%21en%201'), 'no encoded value in events');
+    ok(!str_contains($events, 'tok!en 1'), 'no value in events');
+});
+
+testcase('a_returned_transport_error_quoting_the_url_is_scrubbed', function () {
+    putenv('GNARLY_PETS_APIKEY=tok!en 1');
+    $st = new Station(['config' => null]);
+    $b = bind($st, fn($_c, $u, $_d) => [null, 'failed: GET ' . $u]);
+
+    [$_res, $err] = ($b['utility']->fetcher)($b['ctx'], QUERY_URL,
+        ['method' => 'GET', 'headers' => []]);
+    ok(!str_contains($err, 'tok%21en%201'), $err);
+    ok(str_contains($err, '[redacted]'), $err);
+    ok(!str_contains(json_encode($st->events()) ?: '', 'tok%21en%201'));
+});
+
+testcase('a_thrown_transport_error_quoting_the_url_is_scrubbed', function () {
+    putenv('GNARLY_PETS_APIKEY=tok!en 1');
+    $st = new Station(['config' => null]);
+    $b = bind($st, function ($_c, $u, $_d) {
+        throw new \RuntimeException('failed: GET ' . $u);
+    });
+
+    $thrown = null;
+    try {
+        ($b['utility']->fetcher)($b['ctx'], QUERY_URL, ['method' => 'GET', 'headers' => []]);
+    } catch (\RuntimeException $e) {
+        $thrown = $e;
+    }
+    ok(null !== $thrown, 'the transport error surfaces');
+    ok(!str_contains($thrown->getMessage(), 'tok%21en%201'), $thrown->getMessage());
+    ok(str_contains($thrown->getMessage(), '[redacted]'), $thrown->getMessage());
+});
+
+testcase('a_status_0_response_after_a_placement_is_scrubbed', function () {
+    putenv('GNARLY_PETS_APIKEY=tok!en 1');
+    $st = new Station(['config' => null]);
+    $sent = null;
+    $b = bind($st, function ($_c, $u, $_d) use (&$sent) {
+        $sent = ['status' => 0, 'statusText' => 'stream failure: GET ' . $u,
+            'headers' => ['content-type' => 'text/plain'], 'json' => fn() => null,
+            'body' => 'no answer from ' . $u,
+            'err' => new \RuntimeException('failed: GET ' . $u)];
+        return [$sent, null];
+    });
+
+    [$res, $err] = ($b['utility']->fetcher)($b['ctx'], QUERY_URL,
+        ['method' => 'GET', 'headers' => []]);
+    eq(null, $err);
+    eq(0, $res['status']);
+    foreach ([$res['statusText'], $res['body'], $res['err']->getMessage()] as $text) {
+        ok(!str_contains($text, 'tok%21en%201'), $text);
+        ok(str_contains($text, '[redacted]'), $text);
+    }
+    eq(['content-type' => 'text/plain'], $res['headers']);
+    eq(null, ($res['json'])());
+
+    // Nothing placed: the response comes back untouched.
+    [$res, $err] = ($b['utility']->fetcher)($b['ctx'], 'http://localhost:8903/x',
+        ['method' => 'GET', 'headers' => []]);
+    ok($sent === $res, 'an unplaced response is returned as it came');
+});
+
 // --- events (station.md 6) ---
 
 testcase('ring_overflow_drops_oldest_and_counts', function () {
@@ -1211,6 +1300,28 @@ testcase('options_takes_an_optional_leading_instance_name', function () {
     $named = $st->options('solar$eu', ['base' => 'http://x']);
     eq('solar$eu', $named['feature']['station']['instance']);
     eq('http://x', $named['feature']['station']['calleropts']['base']);
+});
+
+class ClosedSDK
+{
+    public function __construct(public array $options)
+    {
+    }
+}
+
+testcase('connect_keeps_as_and_instance_out_of_the_sdk_options', function () {
+    $st = new Station(['config' => null]);
+    $sdk = $st->connect(ClosedSDK::class, ['as' => 'spare', 'base' => 'http://x']);
+    $keys = array_keys($sdk->options);
+    sort($keys);
+    eq(['base', 'extend', 'feature'], $keys);
+    eq('spare', $sdk->options['feature']['station']['as']);
+
+    $sdk = $st->adopt(ClosedSDK::class, ['instance' => 'solar$spare']);
+    $keys = array_keys($sdk->options);
+    sort($keys);
+    eq(['extend', 'feature'], $keys);
+    eq('solar$spare', $sdk->options['feature']['station']['instance']);
 });
 
 echo "\npass: $pass, fail: $fail\n";

@@ -87,6 +87,15 @@ func bind(
     .map([:]), featureOpts, residentApikey)
 }
 
+// A transport failure that quotes the URL it was sent to.
+struct WireError: Error, CustomStringConvertible {
+  let description: String
+}
+
+func eventText(_ st: Station) -> String {
+  return st.events().map { Descriptor.canonicalSerialize($0) }.joined(separator: "\n")
+}
+
 func hasWarn(_ st: Station, _ needle: String) -> Bool {
   for ev in st.events() {
     if let warn = ev.get("meta").get("warn").asStr, warn.contains(needle) {
@@ -289,7 +298,7 @@ final class StationTest: XCTestCase {
     var sent: String? = nil
     let res: [String: Any] = try binding.transport(
       "ctx1", true, "http://localhost:8000/api/todo", "GET", headers,
-      { injected, _ in
+      { _, injected, _ in
         sent = injected?["authorization"]
         return ["status": 200]
       },
@@ -321,6 +330,51 @@ final class StationTest: XCTestCase {
     XCTAssertNil(binding.corrOf("ctx1"), "correlation closed")
   }
 
+  func testTransportPlacesAQueryCredentialEncodedAndNothingElse() throws {
+    setenv("TEST_PLUG_APIKEY", "tok!en 1", 1)
+    let st = try memStation()
+    let binding = (try bind(st, NSObject()))!.binding
+
+    let url = "http://localhost:8000/api/todo?fields=id%2Ctitle&token=%5Bstation%3Atest-plug%5D"
+    var wire: String? = nil
+    let ok: Bool = try binding.transport(
+      nil, true, url, "GET", [:],
+      { place, _, _ in
+        wire = place(url)
+        return true
+      },
+      { _ in (200, 0) })
+
+    XCTAssertTrue(ok, "response returned")
+    XCTAssertEqual(
+      "http://localhost:8000/api/todo?fields=id%2Ctitle&token=tok%21en%201", wire,
+      "the value reaches the wire encoded")
+    let text = eventText(st)
+    XCTAssertFalse(text.contains("tok%21en%201"), "no encoded value in events")
+    XCTAssertFalse(text.contains("tok!en 1"), "no raw value in events")
+  }
+
+  func testTransportErrorQuotingThePlacedUrlIsScrubbed() throws {
+    setenv("TEST_PLUG_APIKEY", "tok!en 1", 1)
+    let st = try memStation()
+    let binding = (try bind(st, NSObject()))!.binding
+
+    let url = "http://localhost:8000/api/todo?token=%5Bstation%3Atest-plug%5D"
+    do {
+      let _: Bool = try binding.transport(
+        nil, true, url, "GET", [:],
+        { place, _, _ in throw WireError(description: "failed: GET " + place(url)) },
+        { _ in (200, 0) })
+      XCTFail("the transport error must surface")
+    } catch {
+      let text = "\(error)"
+      XCTAssertTrue(error is ScrubbedError, "a scrubbed copy: " + text)
+      XCTAssertFalse(text.contains("tok%21en%201"), text)
+      XCTAssertTrue(text.contains("[redacted]"), text)
+    }
+    XCTAssertFalse(eventText(st).contains("tok%21en%201"), "no encoded value in events")
+  }
+
   func testTransportNoInjectionIntoMocks() throws {
     setenv("TEST_PLUG_APIKEY", "real-key-3", 1)
     let st = try memStation()
@@ -330,7 +384,7 @@ final class StationTest: XCTestCase {
     _ = try binding.transport(
       nil, false, "http://localhost:8000/api/todo", "GET",
       ["authorization": "[station:test-plug]"],
-      { injected, _ in
+      { _, injected, _ in
         sawInjected = nil != injected
         return true
       },
@@ -345,7 +399,7 @@ final class StationTest: XCTestCase {
     do {
       _ = try binding.transport(
         nil, true, "http://localhost:8000/api/todo", "GET", [:],
-        { _, _ in true }, { _ in (200, 0) })
+        { _, _, _ in true }, { _ in (200, 0) })
       XCTFail("missing secret must throw")
     } catch let err as StationError {
       XCTAssertEqual("station_secret_no_value", err.code, "miss code")
@@ -372,7 +426,7 @@ final class StationTest: XCTestCase {
     do {
       _ = try binding.transport(
         nil, true, "http://evil.example/x", "GET", [:],
-        { _, _ in true }, { _ in (200, 0) })
+        { _, _, _ in true }, { _ in (200, 0) })
       XCTFail("off-list host must be denied")
     } catch let err as StationError {
       XCTAssertEqual("station_host_allow", err.code, "host code")
@@ -381,7 +435,7 @@ final class StationTest: XCTestCase {
     // A mock-transport call is not egress; the policy does not fire.
     let ok: Bool = try binding.transport(
       nil, false, "http://evil.example/x", "GET", [:],
-      { _, _ in true }, { _ in (200, 0) })
+      { _, _, _ in true }, { _ in (200, 0) })
     XCTAssertTrue(ok, "mock path unaffected")
   }
 
@@ -398,7 +452,7 @@ final class StationTest: XCTestCase {
     var manual = false
     _ = try binding.transport(
       nil, true, "http://api.good.example/x", "GET", [:],
-      { _, manualRedirect in
+      { _, _, manualRedirect in
         manual = manualRedirect
         return true
       },
@@ -413,7 +467,7 @@ final class StationTest: XCTestCase {
     do {
       _ = try binding.transport(
         nil, true, "http://localhost:1/x", "GET", [:],
-        { _, _ in true }, { _ in (200, 0) })
+        { _, _, _ in true }, { _ in (200, 0) })
       XCTFail("require must fail traffic")
     } catch let err as StationError {
       XCTAssertEqual("station_no_proxy", err.code, "no proxy code")

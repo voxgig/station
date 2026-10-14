@@ -470,6 +470,7 @@ namespace Voxgig.Station
             }
 
             Dictionary<string, object> senddef = fetchdef;
+            string sendurl = fullurl;
             if (hosts is IList<object> && live)
             {
                 senddef = new Dictionary<string, object>(senddef);
@@ -506,16 +507,14 @@ namespace Voxgig.Station
                 }
 
                 senddef = new Dictionary<string, object>(senddef);
-                var headers = new Dictionary<string, object>(
-                    Descriptor.AsMap(senddef.GetValueOrDefault("headers")));
-                foreach (string header in new List<string>(headers.Keys))
+                SecretBroker.Substituted sent = SecretBroker.Substitute(fullurl,
+                    Descriptor.AsMap(senddef.GetValueOrDefault("headers")), placeholder, value);
+                sendurl = sent.Url;
+                senddef["headers"] = sent.Headers;
+                if (senddef.GetValueOrDefault("url") is string defurl)
                 {
-                    if (headers[header] is string htext && htext.Contains(placeholder))
-                    {
-                        headers[header] = htext.Replace(placeholder, value);
-                    }
+                    senddef["url"] = SecretBroker.Substitute(defurl, null, placeholder, value).Url;
                 }
-                senddef["headers"] = headers;
             }
 
             long started = Now();
@@ -523,13 +522,18 @@ namespace Voxgig.Station
             object res;
             try
             {
-                res = inner(fullurl, senddef);
+                res = inner(sendurl, senddef);
             }
             catch (Exception err)
             {
                 EmitHttp(slug, corr, fullurl, senddef, 0, started, 0);
                 EmitErr(slug, corr, err);
-                throw;
+                Exception clean = Scrubbed(err, sendurl != fullurl);
+                if (ReferenceEquals(clean, err))
+                {
+                    throw;
+                }
+                throw clean;
             }
 
             int status = 0;
@@ -553,6 +557,20 @@ namespace Voxgig.Station
             EmitHttp(slug, corr, fullurl, senddef, status, started, bytes);
 
             return res;
+        }
+
+        // A transport error may quote its URL, which carries a query-placed
+        // value. Exception.Message is read-only, so an equivalent stands in,
+        // keeping the cause but never the original, which still quotes it.
+        private Exception Scrubbed(Exception err, bool placed)
+        {
+            if (!placed)
+            {
+                return err;
+            }
+            string message = err.Message ?? "";
+            string clean = Redact(message);
+            return clean == message ? err : new Exception(clean, err.InnerException);
         }
 
         /// <summary>Op events from the hook bridge (design 3 item 3).</summary>

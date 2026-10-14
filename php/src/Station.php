@@ -631,6 +631,7 @@ class Station
         }
 
         $senddef = $fetchdef;
+        $sendurl = $fullurl;
         if (is_array($hosts) && $live) {
             $senddef['redirect'] = 'manual';
         }
@@ -661,13 +662,14 @@ class Station
                 return [null, $e];
             }
 
-            $headers = is_array($senddef['headers'] ?? null) ? $senddef['headers'] : [];
-            foreach ($headers as $h => $v) {
-                if (is_string($v) && str_contains($v, $placeholder)) {
-                    $headers[$h] = str_replace($placeholder, $value, $v);
-                }
+            $sent = substitute($fullurl,
+                is_array($senddef['headers'] ?? null) ? $senddef['headers'] : [],
+                $placeholder, $value);
+            $sendurl = $sent['url'];
+            $senddef['headers'] = $sent['headers'];
+            if (is_string($senddef['url'] ?? null)) {
+                $senddef['url'] = substitute($senddef['url'], null, $placeholder, $value)['url'];
             }
-            $senddef['headers'] = $headers;
         }
 
         $st = is_array($fctx->meta ?? null) ? ($fctx->meta['station'] ?? null) : null;
@@ -675,17 +677,17 @@ class Station
         $started = now_ms();
 
         try {
-            [$res, $err] = ($inner)($fctx, $fullurl, $senddef);
+            [$res, $err] = ($inner)($fctx, $sendurl, $senddef);
         } catch (\Throwable $e) {
             $this->emit_http($name, $corr, $fullurl, $senddef, 0, $started, 0);
             $this->emit_err($name, $fctx, $e);
-            throw $e;
+            throw $this->scrubbed($e, $sendurl !== $fullurl);
         }
 
         if (null !== $err) {
             $this->emit_http($name, $corr, $fullurl, $senddef, 0, $started, 0);
             $this->emit_err($name, $fctx, $err);
-            return [$res, $err];
+            return [$res, $this->scrubbed($err, $sendurl !== $fullurl)];
         }
 
         $status = is_array($res) && is_numeric($res['status'] ?? null)
@@ -704,7 +706,7 @@ class Station
                     'plugin' => $name, 'api' => refapi($name), 'corr' => $corr,
                     'err' => ['message' => $this->redact($message)]]);
             }
-            return [$res, $err];
+            return [$this->scrubbed_response($res, $sendurl !== $fullurl), $err];
         }
 
         $bytes = 0;
@@ -717,6 +719,45 @@ class Station
         $this->emit_http($name, $corr, $fullurl, $senddef, $status, $started, $bytes);
 
         return [$res, $err];
+    }
+
+    /**
+     * A transport error may quote its URL, which carries a query-placed
+     * value. Exception::$message cannot be assigned from outside, so the
+     * scrubbed message goes in through reflection; an SDK error keeps a
+     * second copy in its public `msg`.
+     */
+    private function scrubbed(mixed $err, bool $placed): mixed
+    {
+        if (!$placed) {
+            return $err;
+        }
+        if (is_string($err)) {
+            return $this->redact($err);
+        }
+        if ($err instanceof \Throwable) {
+            $clean = $this->redact($err->getMessage());
+            if ($clean !== $err->getMessage()) {
+                $owner = $err instanceof \Exception ? \Exception::class : \Error::class;
+                (new \ReflectionProperty($owner, 'message'))->setValue($err, $clean);
+            }
+        }
+        if (is_object($err) && is_string($err->msg ?? null)) {
+            $err->msg = $this->redact($err->msg);
+        }
+        return $err;
+    }
+
+    /**
+     * A synthesized status-0 response is a transport failure, so each
+     * field the SDK surfaces from it gets the same scrub.
+     */
+    private function scrubbed_response(mixed $res, bool $placed): mixed
+    {
+        if (!$placed || !is_array($res)) {
+            return $res;
+        }
+        return array_map(fn($v) => $this->scrubbed($v, true), $res);
     }
 
     /** Op events from the hook bridge (design station.md 3 item 3). */
@@ -1535,6 +1576,7 @@ class Station
         $extend[] = adapter_feature($this, $opts);
 
         $options = $opts;
+        unset($options['as'], $options['instance']);
         $options['feature'] = $fmap;
         $options['extend'] = $extend;
 

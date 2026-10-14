@@ -33,7 +33,7 @@ use warnings;
 use File::Basename ();
 use File::Spec ();
 use JSON::PP ();
-use Scalar::Util qw(blessed refaddr);
+use Scalar::Util qw(blessed refaddr reftype);
 use Time::HiRes ();
 
 our $VERSION = '0.0.1';
@@ -130,7 +130,7 @@ use Voxgig::Station::Loader qw(load_sync);
 use Voxgig::Station::Profile qw(
   config_scope load_config refapi resolve_profile select_profile
 );
-use Voxgig::Station::Secrets qw(placeholder_for);
+use Voxgig::Station::Secrets qw(placeholder_for substitute);
 use Voxgig::Station::Shape qw(normalize_config validate_config);
 use Voxgig::Station::Struct qw(mapkeys ordered_map);
 use Voxgig::Station::Adapter ();
@@ -434,6 +434,7 @@ sub _construct {
     my %ident;
     $ident{as} = $opts->{as} if defined $opts->{as};
     $ident{instance} = $opts->{instance} if defined $opts->{instance};
+    delete @$options{qw(as instance)};
     $options->{feature} = $self->_activation( $options->{feature}, $opts, \%ident );
 
     # The carried adapter rides extend for SDKs generated WITHOUT the
@@ -763,6 +764,7 @@ sub _transport {
     }
 
     my $senddef = $fetchdef;
+    my $sendurl = $fullurl;
     if ( defined $hosts && $live ) {
         $senddef = { %{ ref($senddef) eq 'HASH' ? $senddef : {} }, redirect => 'manual' };
     }
@@ -798,37 +800,35 @@ sub _transport {
             return ( undef, $err );
         }
 
-        my $headers = {
-            %{
-                ref($senddef) eq 'HASH' && ref( $senddef->{headers} ) eq 'HASH'
-                ? $senddef->{headers}
-                : {}
-            }
+        my $sent = substitute( $fullurl,
+            ref($senddef) eq 'HASH' ? $senddef->{headers} : undef,
+            $placeholder, $value );
+        $sendurl = $sent->{url};
+        $senddef = {
+            %{ ref($senddef) eq 'HASH' ? $senddef : {} },
+            headers => $sent->{headers},
         };
-        for my $h ( keys %$headers ) {
-            my $v = $headers->{$h};
-            next unless defined $v && !ref $v && 0 <= index( $v, $placeholder );
-            $headers->{$h} = join( $value, split( /\Q$placeholder\E/, $v, -1 ) );
-        }
-        $senddef =
-          { %{ ref($senddef) eq 'HASH' ? $senddef : {} }, headers => $headers };
+        $senddef->{url} =
+          substitute( $senddef->{url}, undef, $placeholder, $value )->{url}
+          if defined $senddef->{url} && !ref $senddef->{url};
     }
 
     my $st = ref( $fctx->{'station$'} ) eq 'HASH' ? $fctx->{'station$'} : undef;
     my $corr    = defined $st ? $st->{corr} : undef;
     my $started = _now_ms();
+    my $placed  = $sendurl ne $fullurl;
 
-    my ( $res, $err ) = eval { $inner->( $fctx, $fullurl, $senddef ) };
+    my ( $res, $err ) = eval { $inner->( $fctx, $sendurl, $senddef ) };
     if ( my $died = $@ ) {
         $self->_emit_http( $name, $corr, $fullurl, $senddef, 0, $started, 0 );
         $self->_emit_err( $name, $fctx, $died );
-        die $died;
+        die $self->_scrubbed( $died, $placed );
     }
 
     if ( defined $err ) {
         $self->_emit_http( $name, $corr, $fullurl, $senddef, 0, $started, 0 );
         $self->_emit_err( $name, $fctx, $err );
-        return ( $res, $err );
+        return ( $res, $self->_scrubbed( $err, $placed ) );
     }
 
     my $status =
@@ -858,7 +858,7 @@ sub _transport {
                 }
             );
         }
-        return ( $res, $err );
+        return ( $self->_scrubbed_response( $res, $placed ), $err );
     }
 
     my $bytes = 0;
@@ -1700,6 +1700,38 @@ sub _op_error {
         return $fctx->make_error( $code, $code . ': ' . $message );
     }
     return Voxgig::Station::StationError->new( $code, $message );
+}
+
+# A transport error may quote its URL, which carries a query-placed value.
+# A string error is a value, so its scrubbed copy is returned; a hash-based
+# error object has its message slot rewritten in place.
+sub _scrubbed {
+    my ( $self, $err, $placed ) = @_;
+    return $err unless $placed && defined $err;
+    if ( !ref $err ) {
+        my $clean = $self->redact($err);
+        return $clean eq $err ? $err : $clean;
+    }
+    if ( 'HASH' eq reftype($err) ) {
+        for my $slot (qw(message msg)) {
+            my $text = $err->{$slot};
+            $err->{$slot} = $self->redact($text) if defined $text && !ref $text;
+        }
+    }
+    return $err;
+}
+
+# A synthesized status-0 response is a transport failure, so each field the
+# SDK surfaces from it gets the same scrub. Unblessed containers are data.
+sub _scrubbed_response {
+    my ( $self, $res, $placed ) = @_;
+    return $res unless $placed && ref($res) eq 'HASH';
+    my %out = %$res;
+    for my $key ( keys %out ) {
+        my $v = $out{$key};
+        $out{$key} = $self->_scrubbed( $v, 1 ) if !ref $v || blessed($v);
+    }
+    return \%out;
 }
 
 sub _op_error_from {

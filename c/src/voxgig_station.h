@@ -196,6 +196,17 @@ char* vxstn_envkey(const char* name, vxstn_error** err); /* owned */
  * generated prepare_auth's 1024-byte header buffer). */
 char* vxstn_placeholder(const char* slug); /* owned */
 
+/* Every UTF-8 byte outside RFC 3986's unreserved set becomes upper-case
+ * %XX. */
+char* vxstn_encode_query_value(const char* value); /* owned */
+
+/* The placeholder becomes the value in string header values and in the
+ * URL query, where it may arrive percent-encoded (either hex case) and
+ * the value goes in strictly encoded; the path and fragment are never
+ * touched. An owned map { url, headers }, the headers a copy. */
+vxstn_val* vxstn_substitute(const char* url, const vxstn_val* headers,
+                            const char* placeholder, const char* value);
+
 /* =========================================================================
  * Descriptor (design station.md 4): a view over the SDK's embedded
  * config, normalized - never a second model.
@@ -642,7 +653,8 @@ vxstn_val* vxstn_descriptor_of(vxstn_station* st, const char* name,
 char* vxstn_canonical_descriptor(vxstn_station* st, const char* name,
                                  vxstn_error** err);
 
-/* Exact-value scrub of every value the broker ever held (owned). */
+/* Exact-value scrub of every value the broker ever held, and of its
+ * query-encoded form (owned). */
 char* vxstn_redact(vxstn_station* st, const char* text);
 
 /* Drop the secret cache so the next resolve asks the environment again

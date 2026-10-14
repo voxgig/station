@@ -106,10 +106,11 @@ def base_fetcher(log):
     return fetch
 
 
-def bind(station, mode='live', options=None, config=CONFIG, log=None):
+def bind(station, mode='live', options=None, config=CONFIG, log=None,
+         fetcher=None):
     log = [] if log is None else log
     client = FakeClient(mode)
-    utility = FakeUtility(base_fetcher(log))
+    utility = FakeUtility(fetcher or base_fetcher(log))
     options = {'apikey': ''} if options is None else options
     ctx = FakeCtx(client, utility, options, config)
     adapter = adapter_feature(station, None)
@@ -254,6 +255,64 @@ class TestBinding(unittest.TestCase):
         self.assertEqual(200, http[0]['http']['status'])
         st.close()
 
+    def test_a_query_placed_credential_reaches_the_wire_encoded(self):
+        os.environ['GNARLY_PETS_APIKEY'] = 'tok!en 1'
+        st = Station({'config': None})
+        ctx, log = bind(st)
+
+        url = ('http://localhost:8903/api/pet?fields=id%2Cname'
+               '&apikey=%5Bstation%3Agnarly-pets%5D')
+        fetchdef = {'url': url, 'method': 'GET', 'headers': {}}
+        _res, err = ctx.utility.fetcher(ctx, url, fetchdef)
+        self.assertIsNone(err)
+
+        sent = ('http://localhost:8903/api/pet?fields=id%2Cname'
+                '&apikey=tok%21en%201')
+        self.assertEqual(sent, log[0]['url'])
+        self.assertEqual(sent, log[0]['fetchdef']['url'])
+        self.assertEqual(url, fetchdef['url'])
+        dump = json.dumps(st.events())
+        self.assertNotIn('tok%21en%201', dump)
+        self.assertNotIn('tok!en 1', dump)
+        st.close()
+
+    def test_a_transport_error_quoting_the_url_is_scrubbed(self):
+        os.environ['GNARLY_PETS_APIKEY'] = 'tok!en 1'
+        url = ('http://localhost:8903/api/pet'
+               '?apikey=%5Bstation%3Agnarly-pets%5D')
+
+        # The generated py SDK's error shape: str() reads `msg`.
+        class SdkError(Exception):
+            def __init__(self, msg):
+                super().__init__(msg)
+                self.msg = msg
+
+            def __str__(self):
+                return self.msg
+
+        def returns_text(fctx, fullurl, fetchdef):
+            return None, 'failed: GET ' + fullurl
+
+        def returns_sdk_error(fctx, fullurl, fetchdef):
+            return None, SdkError('failed: GET ' + fullurl)
+
+        def raises(fctx, fullurl, fetchdef):
+            raise RuntimeError('failed: GET ' + fullurl)
+
+        for fetcher in (returns_text, returns_sdk_error, raises):
+            with self.subTest(fetcher.__name__):
+                st = Station({'config': None})
+                ctx, _log = bind(st, fetcher=fetcher)
+                try:
+                    _res, err = ctx.utility.fetcher(
+                        ctx, url, {'url': url, 'method': 'GET', 'headers': {}})
+                except RuntimeError as e:
+                    err = e
+                self.assertNotIn('tok%21en%201', str(err))
+                self.assertIn('[redacted]', str(err))
+                self.assertNotIn('tok%21en%201', json.dumps(st.events()))
+                st.close()
+
     def test_no_injection_into_mock_transports(self):
         st = Station({'config': None})
         ctx, log = bind(st, mode='test')
@@ -352,6 +411,24 @@ class TestBinding(unittest.TestCase):
         with self.assertRaises(StationError) as caught:
             adapter.init(ctx, {'active': True, 'as': 'other$test'})
         self.assertEqual('station_instance_api', caught.exception.code)
+        st.close()
+
+    def test_connect_keeps_as_and_instance_out_of_the_sdk_options(self):
+        built = []
+
+        class ClosedSDK:
+            def __init__(self, options):
+                built.append(options)
+
+        st = Station({'config': None})
+        st.connect(ClosedSDK, {'as': 'spare', 'base': 'http://x'})
+        self.assertEqual(['base', 'extend', 'feature'], sorted(built[-1]))
+        self.assertEqual('spare', built[-1]['feature']['station']['as'])
+
+        st.connect(ClosedSDK, {'instance': 'gnarly-pets$spare'})
+        self.assertEqual(['extend', 'feature'], sorted(built[-1]))
+        self.assertEqual('gnarly-pets$spare',
+                         built[-1]['feature']['station']['instance'])
         st.close()
 
     def test_policy_allow_is_enforcement_not_a_default(self):

@@ -166,6 +166,16 @@ var (
 		return station.PlaceholderFor(name), nil
 	})
 
+	SUBSTITUTE = omni.Subject(func(args ...any) (any, error) {
+		entry := entrymap(args[0])
+		fullurl, _ := entry["url"].(string)
+		placeholder, _ := entry["placeholder"].(string)
+		value, _ := entry["value"].(string)
+		sent, headers := station.Substitute(
+			fullurl, entrymap(entry["headers"]), placeholder, value)
+		return map[string]any{"url": sent, "headers": headers}, nil
+	})
+
 	DESCRIPTOR = omni.Subject(func(args ...any) (any, error) {
 		entry := entrymap(args[0])
 		descriptor, _ := station.NormalizeDescriptor(
@@ -259,6 +269,7 @@ var DRIVERS = []struct {
 }{
 	{"secretname", SECRETNAME},
 	{"placeholder", PLACEHOLDER},
+	{"substitute", SUBSTITUTE},
 	{"descriptor", DESCRIPTOR},
 	{"descriptorwarnings", DESCRIPTORWARNINGS},
 	{"canonical", CANONICAL},

@@ -2,6 +2,8 @@ package station_test
 
 import (
 	"encoding/json"
+	"errors"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -529,6 +531,82 @@ func TestScrubHasNoLengthFloor(t *testing.T) {
 	// boundary promise is absolute (design §7).
 	if "the [redacted] value" != st.Redact("the xy value") {
 		t.Fatalf("short value survived the scrub: %q", st.Redact("the xy value"))
+	}
+}
+
+// --- query-placed credentials ---
+
+const queryValue, querySent = "tok!en 1", "tok%21en%201"
+
+// The URL an SDK generated from an `in: query` security scheme sends.
+func queryPlaced() string {
+	return "http://localhost:8920/api/todo?fields=id%2Ctitle&token=" +
+		url.QueryEscape("[station:fakepad]")
+}
+
+func TestQueryPlacedCredentialReachesOnlyTheWire(t *testing.T) {
+	st := newStation(t, map[string]string{"FAKEPAD_APIKEY": queryValue})
+
+	var seenurl string
+	var seen map[string]any
+	base := func(opctx any, fullurl string, fetchdef map[string]any) (any, error) {
+		seenurl, seen = fullurl, fetchdef
+		return okResponse()(opctx, fullurl, fetchdef)
+	}
+	h := bindOne(t, st, "fakepad", []string{"station"}, base, "")
+
+	placed := queryPlaced()
+	fetchdef := map[string]any{"url": placed, "method": "GET", "headers": map[string]any{}}
+	if _, err := h.client.fetcher(nil, placed, fetchdef); nil != err {
+		t.Fatal(err)
+	}
+
+	sent := "http://localhost:8920/api/todo?fields=id%2Ctitle&token=" + querySent
+	if sent != seenurl || sent != seen["url"] {
+		t.Fatalf("wire url %q, sent fetchdef url %v", seenurl, seen["url"])
+	}
+	if placed != fetchdef["url"] {
+		t.Fatalf("copy-on-inject violated: %v", fetchdef["url"])
+	}
+	dump, _ := json.Marshal(st.Events())
+	if strings.Contains(string(dump), querySent) || strings.Contains(string(dump), queryValue) {
+		t.Fatalf("credential leaked into events: %s", dump)
+	}
+}
+
+func TestTransportErrorQuotingThePlacedURLIsScrubbed(t *testing.T) {
+	st := newStation(t, map[string]string{"FAKEPAD_APIKEY": queryValue})
+
+	var fail func(sendurl string) error
+	base := func(opctx any, fullurl string, fetchdef map[string]any) (any, error) {
+		return nil, fail(fullurl)
+	}
+	h := bindOne(t, st, "fakepad", []string{"station"}, base, "")
+
+	send := func() error {
+		_, err := h.client.fetcher(nil, queryPlaced(), map[string]any{"headers": map[string]any{}})
+		if nil == err || strings.Contains(err.Error(), querySent) ||
+			!strings.Contains(err.Error(), "[redacted]") {
+			t.Fatalf("transport error not scrubbed: %v", err)
+		}
+		return err
+	}
+
+	// net/http's shape keeps its type.
+	fail = func(sendurl string) error {
+		return &url.Error{Op: "Get", URL: sendurl, Err: errors.New("connection refused")}
+	}
+	var urlerr *url.Error
+	if err := send(); !errors.As(err, &urlerr) {
+		t.Fatalf("*url.Error lost: %T", err)
+	}
+
+	fail = func(sendurl string) error { return errors.New("failed: GET " + sendurl) }
+	send()
+
+	dump, _ := json.Marshal(st.Events())
+	if strings.Contains(string(dump), querySent) {
+		t.Fatalf("credential leaked into events: %s", dump)
 	}
 }
 

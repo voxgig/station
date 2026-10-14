@@ -179,6 +179,9 @@ fn station_transport(
                 setp(&hm, name, Value::str(val.clone()));
             }
         }
+        if let Value::Str(defurl) = getp(&cloned, "url") {
+            setp(&cloned, "url", Value::str(plan.place(&defurl)));
+        }
         if plan.manual_redirect {
             setp(&cloned, "redirect", Value::str("manual"));
         }
@@ -187,11 +190,18 @@ fn station_transport(
         fetchdef.clone()
     };
 
+    let sendurl = plan.place(fullurl);
     let started = station::now_ms();
-    let out = inner(ctx, fullurl, &senddef);
+    let mut out = inner(ctx, &sendurl, &senddef);
 
-    match &out {
-        Err(err) => binding.done_err(corr, &method, fullurl, started, &err.code, &err.msg),
+    match &mut out {
+        Err(err) => {
+            binding.done_err(corr, &method, fullurl, started, &err.code, &err.msg);
+            // A transport error may quote its URL, which carries a query-placed value.
+            if sendurl != fullurl {
+                err.msg = binding.redact(&err.msg);
+            }
+        }
         Ok(res) => {
             let status = fres_status(res).unwrap_or(0);
             let bytes = fres_header(res, "content-length")

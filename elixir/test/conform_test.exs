@@ -89,6 +89,17 @@ defmodule Voxgig.Station.ConformTest do
     end)
   end
 
+  test "substitute", %{pack: pack} do
+    pack.runset.(pack.set.("substitute"), fn args ->
+      vin = hd(args)
+
+      {url, headers} =
+        Secrets.substitute(vin["url"], vin["headers"], vin["placeholder"], vin["value"])
+
+      %{"url" => url, "headers" => headers}
+    end)
+  end
+
   test "descriptor", %{pack: pack} do
     pack.runset.(pack.set.("descriptor"), fn args ->
       vin = hd(args)

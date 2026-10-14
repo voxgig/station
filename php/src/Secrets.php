@@ -28,6 +28,76 @@ function placeholder_for(string $name): string
     return '[station:' . $name . ']';
 }
 
+/** Every UTF-8 byte outside RFC 3986's unreserved set becomes upper-case %XX. */
+function encode_query_value(string $value): string
+{
+    return rawurlencode($value);
+}
+
+function placeholder_match_at(string $text, int $at, int $end, string $placeholder): int
+{
+    $i = $at;
+    $len = strlen($placeholder);
+    for ($k = 0; $k < $len; $k++) {
+        $ch = $placeholder[$k];
+        if ($i < $end && $text[$i] === $ch) {
+            $i++;
+            continue;
+        }
+        $hex = substr($text, $i + 1, 2);
+        if ($i + 3 <= $end && '%' === $text[$i] &&
+            2 === strspn($hex, '0123456789abcdefABCDEF') && hexdec($hex) === ord($ch)) {
+            $i += 3;
+            continue;
+        }
+        return -1;
+    }
+    return $i - $at;
+}
+
+/**
+ * The placeholder becomes the value in header values and in the URL
+ * query, where an SDK percent-encodes it (any hex case) and the value is
+ * encoded in turn. The path and fragment are never touched; the headers
+ * are a copy.
+ *
+ * @param array<string, mixed>|null $headers
+ * @return array{url: string, headers: array<string, mixed>}
+ */
+function substitute(string $url, ?array $headers, string $placeholder, string $value): array
+{
+    $out = $headers ?? [];
+    if ('' === $placeholder) {
+        return ['url' => $url, 'headers' => $out];
+    }
+
+    foreach ($out as $h => $v) {
+        if (is_string($v) && str_contains($v, $placeholder)) {
+            $out[$h] = str_replace($placeholder, $value, $v);
+        }
+    }
+
+    $q = strpos($url, '?');
+    if (false === $q) {
+        return ['url' => $url, 'headers' => $out];
+    }
+    $hash = strpos($url, '#', $q);
+    $end = false === $hash ? strlen($url) : $hash;
+    $encoded = encode_query_value($value);
+    $query = '';
+    for ($i = $q + 1; $i < $end;) {
+        $n = placeholder_match_at($url, $i, $end, $placeholder);
+        if (0 < $n) {
+            $query .= $encoded;
+            $i += $n;
+        } else {
+            $query .= $url[$i];
+            $i++;
+        }
+    }
+    return ['url' => substr($url, 0, $q + 1) . $query . substr($url, $end), 'headers' => $out];
+}
+
 class SecretBroker
 {
     private \Voxgig\Sekreto\Sekreto $sekreto;
@@ -115,6 +185,10 @@ class SecretBroker
         foreach ($this->held as $value) {
             if ('' !== $value) {
                 $out = str_replace($value, '[redacted]', $out);
+                $encoded = encode_query_value($value);
+                if ($encoded !== $value) {
+                    $out = str_replace($encoded, '[redacted]', $out);
+                }
             }
         }
         return $out;

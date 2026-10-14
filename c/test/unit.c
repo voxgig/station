@@ -95,6 +95,30 @@ static void test_identity(void) {
   free(t);
 }
 
+static void test_substitute(void) {
+  vxstn_val* headers = vxstn_map();
+  vxstn_val* sent;
+  const vxstn_val* copy;
+  const vxstn_val* length;
+
+  vxstn_map_set(headers, "x-api-key", vxstn_str("[station:k]"));
+  vxstn_map_set(headers, "content-length", vxstn_int(12));
+  sent = vxstn_substitute("http://h/x?k=%5Bstation%3Ak%5D", headers, "[station:k]", "a b");
+  CHECK_STR(vxstn_strval(vxstn_map_get(sent, "url")), "http://h/x?k=a%20b");
+  copy = vxstn_map_get(sent, "headers");
+  CHECK_STR(vxstn_strval(vxstn_map_get(copy, "x-api-key")), "a b");
+  length = vxstn_map_get(copy, "content-length");
+  CHECK(NULL != length && VXSTN_NUM == length->kind && 12 == length->i);
+  CHECK_STR(vxstn_strval(vxstn_map_get(headers, "x-api-key")), "[station:k]");
+  vxstn_val_free(sent);
+  vxstn_val_free(headers);
+
+  sent = vxstn_substitute("http://h/x", NULL, "[station:k]", "v");
+  copy = vxstn_map_get(sent, "headers");
+  CHECK(vxstn_is_map(copy) && 0 == copy->mlen);
+  vxstn_val_free(sent);
+}
+
 static void test_canonical(void) {
   vxstn_val* m = vxstn_map();
   vxstn_val* inner = vxstn_map();
@@ -331,6 +355,12 @@ static void test_secret_broker(void) {
   CHECK_STR(value, "resident-key");
   red = vxstn_redact(st, "saw resident-key here");
   CHECK_STR(red, "saw [redacted] here");
+  free(red);
+
+  /* The form a query placement sends is scrubbed too. */
+  vxstn_hoist(st, "taskpad", "tok!en 1");
+  red = vxstn_redact(st, "GET /x?token=tok%21en%201 for tok!en 1");
+  CHECK_STR(red, "GET /x?token=[redacted] for [redacted]");
   free(red);
 
   unsetenv("TASKPAD_APIKEY");
@@ -1334,6 +1364,7 @@ static void test_open_validates(void) {
 
 int main(void) {
   test_identity();
+  test_substitute();
   test_canonical();
   test_parse_json();
   test_events_ring();

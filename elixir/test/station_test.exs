@@ -231,6 +231,12 @@ defmodule Voxgig.StationTest do
     refute String.contains?(out, " k ")
   end
 
+  test "scrub also removes a held value's strict query encoding" do
+    broker = Secrets.hoist(Secrets.broker(), "joplin", "tok!en 1")
+    out = Secrets.scrub(broker, "GET /notes?token=tok%21en%201 failed for tok!en 1")
+    assert "GET /notes?token=[redacted] failed for [redacted]" == out
+  end
+
   test "redact runs the broker scrub through the station" do
     st = Station.new(%{"config" => nil, "proxy" => "off"})
     Station.hoist(st, "solardemo", "sekrit")
