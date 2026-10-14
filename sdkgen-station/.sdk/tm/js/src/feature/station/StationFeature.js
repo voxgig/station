@@ -1,7 +1,5 @@
 const { BaseFeature } = require('../base/BaseFeature')
 
-const { featureBinding } = require('@voxgig/station-js')
-
 
 // Binds this SDK to a voxgig/station control surface: registration,
 // wire-truth http events, and placeholder credential injection. Thin by
@@ -18,7 +16,10 @@ class StationFeature extends BaseFeature {
   _binding = null
 
 
+  // Loaded here rather than at module load: init runs only for an active
+  // feature, so an SDK that is never bound loads without station installed.
   init(ctx, options) {
+    const { featureBinding } = require('@voxgig/station-js')
     this._binding = featureBinding(ctx, options)
   }
 
