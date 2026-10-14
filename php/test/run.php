@@ -679,6 +679,20 @@ testcase('missing_secret_is_no_value_on_the_op_path', function () {
     eq('station_secret_no_value', $errs[0]['err']['code']);
 });
 
+// sekreto keeps every kind but its built-ins behind a plugin definition, so
+// this pins that the broker passes the full set. minivault reads no file
+// until a lookup, so the vault need not exist.
+testcase('a_profile_naming_a_plugin_kind_opens', function () {
+    $st = new Station(['config' => [
+        'station' => 1,
+        'profiles' => ['default' => ['secrets' => ['providers' => [
+            ['kind' => 'minivault', 'passphrase' => 'p',
+                'file' => sys_get_temp_dir() . '/station-absent.skmv'],
+        ]]]],
+    ]]);
+    eq('default', $st->status()['profile']);
+});
+
 testcase('secret_option_overrides_the_default_name', function () {
     putenv('CUSTOM_TOKEN=custom-9');
     try {

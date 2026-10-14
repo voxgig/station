@@ -1067,6 +1067,20 @@ class TestStation < Minitest::Test
     assert_equal 'v-1', broker.value('solar$eu', 'shared.apikey')
   end
 
+  # sekreto keeps every kind but its built-ins behind a plugin definition,
+  # so this pins that the broker passes the full set. minivault reads no
+  # file until a lookup, so the vault need not exist.
+  def test_a_profile_naming_a_plugin_kind_opens
+    st = VoxgigStation::Station.new('config' => {
+      'station' => 1,
+      'profiles' => { 'default' => { 'secrets' => { 'providers' => [
+        { 'kind' => 'minivault', 'passphrase' => 'p',
+          'file' => File.join(Dir.tmpdir, 'station-absent.skmv') },
+      ] } } },
+    })
+    assert_equal 'default', st.status['profile']
+  end
+
   # --- block_for, policy, options ---
 
   # An IMPERATIVE instance is named but never written into config, so

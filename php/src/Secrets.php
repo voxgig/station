@@ -50,8 +50,15 @@ class SecretBroker
     /** @param array<int, mixed> $providers */
     public function __construct(array $providers)
     {
-        sekreto_load();
-        $this->sekreto = new \Voxgig\Sekreto\Sekreto(['providers' => $providers]);
+        // The full plugin set, because the profile, not station, chooses the
+        // chain: sekreto keeps every kind but dotenv/env/file/memory behind a
+        // plugin definition the caller passes in, so without it a profile
+        // naming hashicorp or minivault fails at open() with "unknown provider kind".
+        $plugins = sekreto_plugins();
+        $this->sekreto = new \Voxgig\Sekreto\Sekreto([
+            'plugins' => $plugins,
+            'providers' => $providers,
+        ]);
     }
 
     public function hoist(string $instance, string $value): void

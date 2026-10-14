@@ -5,9 +5,9 @@ package Voxgig::Station::Secrets;
 # options, events, or captures; the SDK sees only the placeholder.
 #
 # A port of typescript/src/secrets.ts, which is canonical. Voxgig::Sekreto
-# is located and loaded by Voxgig::Station's bootstrap before this module
-# is used (vendored side-by-side, @INC, SEKRETO_HOME, or a sibling
-# checkout).
+# and Voxgig::Sekreto::Plugins are located and loaded by Voxgig::Station's
+# bootstrap before this module is used (vendored side-by-side, @INC,
+# SEKRETO_HOME, or a sibling checkout).
 
 use strict;
 use warnings;
@@ -33,7 +33,17 @@ package Voxgig::Station::SecretBroker;
 sub new {
     my ( $class, $providers ) = @_;
     return bless {
-        sekreto => Voxgig::Sekreto->new( { providers => $providers } ),
+
+        # allplugins, because the profile, not station, chooses the chain:
+        # sekreto keeps every kind but dotenv/env/file/memory behind a plugin
+        # definition the caller passes in, so without it a profile naming
+        # hashicorp or minivault fails at open() with "unknown provider kind".
+        sekreto => Voxgig::Sekreto->new(
+            {
+                plugins   => Voxgig::Sekreto::Plugins::allplugins(),
+                providers => $providers,
+            }
+        ),
 
         # Values hoisted by adopt() from a resident options apikey
         # (design station.md 3.1).

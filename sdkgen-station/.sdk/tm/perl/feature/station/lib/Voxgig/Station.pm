@@ -117,6 +117,31 @@ BEGIN {
     }
 }
 
+# sekreto's plugins are a second @INC root, plugins/ beside lib/ in a
+# checkout and in the vendored payload alike: beside the copy
+# Voxgig::Sekreto loaded from, so core and plugins match, else beside
+# this library - an SDK's secrets feature loads its own sekreto core,
+# with no full-set module beside it.
+BEGIN {
+    if ( !eval { require Voxgig::Sekreto::Plugins; 1 } ) {
+        my $core = File::Basename::dirname(
+            File::Basename::dirname(
+                File::Basename::dirname( $INC{'Voxgig/Sekreto.pm'} ) ) );
+        my ($root) = grep {
+            -e File::Spec->catfile( $_, 'Voxgig', 'Sekreto', 'Plugins.pm' )
+          } (
+            File::Spec->catdir( $core,    'plugins' ),
+            File::Spec->catdir( $LIBROOT, '..', 'plugins' ),
+          );
+        die 'Voxgig::Station: Voxgig::Sekreto::Plugins not found beside '
+          . $INC{'Voxgig/Sekreto.pm'}
+          . ' - vendor sekreto\'s plugins/ tree beside its lib/'
+          unless defined $root;
+        unshift @INC, $root;
+        require Voxgig::Sekreto::Plugins;
+    }
+}
+
 use Voxgig::Station::Error ();
 use Voxgig::Station::Events ();
 use Voxgig::Station::Descriptor qw(
