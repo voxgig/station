@@ -22,7 +22,8 @@ register 4.13). That rule still holds here — but station additionally takes
 sekreto is one of **exactly two** library dependencies a station port may
 take. The other is **voxgig/struct**, which validates `station.json` at
 `open()` rather than only under test (design §4, §9) — it is in
-`typescript/package.json` `dependencies` and in the library `go/go.mod`, and
+`typescript/package.json` `dependencies`, in `javascript/package.json` as
+`@voxgig/struct-js`, and in the library `go/go.mod`, and
 `docs/design/station.md` names the pair. Do not "clean up" either one.
 
 TEN of the sixteen ports take sekreto in shipped code, by six different
@@ -188,7 +189,7 @@ write-up of this design; sekreto's `AGENTS.md` documents the same shape.
 make test              # every port whose toolchain is present
 make omni-isolation    # omni is declared by no shipped library, + the guard's own mutation test
 make vendor-check      # the c/cpp/lua/perl SDK payloads match canonical (+ perl's sekreto copy)
-make sync-shape        # mirror spec/config-shape.json into typescript/src/config-shape.ts
+make sync-shape        # mirror spec/config-shape.json into the typescript and javascript ports
 make pack-diff         # what a release would add to or remove from the package
 ```
 

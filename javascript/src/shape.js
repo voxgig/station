@@ -19,16 +19,14 @@
 //
 // A port of typescript/src/shape.ts, which is canonical.
 
-const Fs = require('node:fs')
-const Path = require('node:path')
-
 const { validname } = require('@voxgig/sekreto-js')
 
-const { structmod } = require('./structhome')
+const { clone, validate } = require('@voxgig/struct-js')
+
+const { CONFIG_SHAPE } = require('./config-shape')
+
 const { StationError } = require('./error')
 const { envtoken } = require('./descriptor')
-
-const { clone, validate } = structmod()
 
 // ---------------------------------------------------------------------
 // The defaults table - ONE table, two callers
@@ -141,22 +139,11 @@ function normfeatures(f) {
 // validateConfig
 // ---------------------------------------------------------------------
 
-// `spec/config-shape.json`, §4.3 verbatim - the artifact every port
-// reads. This port runs straight from src in the repo (like omnihome's
-// specfile), so it reads the JSON itself rather than shipping a mirror
-// the way the published TypeScript package must. Every validate gets a
-// CLONE: struct's validate consumes the spec it walks (it deletes
-// satisfied `$ONE` branches as it goes), so handing it the parsed
-// constant twice would validate the second config against a spec the
+// Every validate gets a CLONE: struct's validate consumes the spec it
+// walks (it deletes satisfied `$ONE` branches as it goes), so handing it
+// the constant twice would validate the second config against a spec the
 // first had already eaten.
-let CONFIG_SHAPE = null
-
 function configShape() {
-  if (null == CONFIG_SHAPE) {
-    const file = Path.resolve(
-      Path.join(__dirname, '..', '..', 'spec', 'config-shape.json'))
-    CONFIG_SHAPE = JSON.parse(Fs.readFileSync(file, 'utf8'))
-  }
   return clone(CONFIG_SHAPE)
 }
 
