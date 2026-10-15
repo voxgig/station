@@ -574,18 +574,15 @@ namespace Voxgig.Station
             Dictionary<string, object> fetchdef, int status, long started, long bytes)
         {
             string host = "";
-            string path = "";
-            try
+            string path = fullurl;
+            // A scheme-less path parses as an implicit file URI on Unix; it is
+            // reported whole, like an unparseable URL.
+            if (Uri.TryCreate(fullurl, UriKind.Absolute, out Uri uri) && !uri.IsFile)
             {
-                var uri = new Uri(fullurl);
                 host = uri.IsDefaultPort
                     ? (uri.Host ?? "")
                     : uri.Host + ":" + uri.Port.ToString(CultureInfo.InvariantCulture);
                 path = uri.AbsolutePath ?? "";
-            }
-            catch (UriFormatException)
-            {
-                path = fullurl;
             }
 
             object method = null == fetchdef ? null : fetchdef.GetValueOrDefault("method");

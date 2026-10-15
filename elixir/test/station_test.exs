@@ -135,6 +135,26 @@ defmodule Voxgig.StationTest do
     assert 2 == Station.status(st)["events"]["buffered"]
   end
 
+  test "the http event path keeps the request escapes" do
+    cases = [
+      {"https://h/vault/projects%2Flaunch%20plan.md", "h", "/vault/projects%2Flaunch%20plan.md"},
+      {"https://h", "h", "/"},
+      {"/vault/projects%2Flaunch%20plan.md?x=1", "", "/vault/projects%2Flaunch%20plan.md?x=1"}
+    ]
+
+    st = Station.new(%{"config" => nil, "proxy" => "off"})
+
+    for {url, _host, _path} <- cases do
+      Station.emit_http(st, "vault", nil, url, "GET", 200, Station.now_ms(), 0)
+    end
+
+    got =
+      for %{"kind" => "http", "http" => http} <- Station.events(st),
+          do: {http["host"], http["path"]}
+
+    assert Enum.map(cases, fn {_url, host, path} -> {host, path} end) == got
+  end
+
   test "status shape" do
     st = Station.new(%{"config" => nil, "proxy" => "off"})
     status = Station.status(st)

@@ -795,12 +795,17 @@ public class Station {
   private void emitHttp(String name, String corr, String fullurl,
       Map<String, Object> fetchdef, int status, long started, long bytes) {
     String host = "";
-    String path = "";
+    String path = fullurl;
     try {
       URI u = URI.create(fullurl);
-      String h = u.getHost();
-      host = null == h ? "" : (0 <= u.getPort() ? h + ":" + u.getPort() : h);
-      path = null == u.getPath() ? "" : u.getPath();
+      // A relative reference is reported whole, like an unparseable URL.
+      // getRawPath keeps the escapes that getPath decodes.
+      if (u.isAbsolute() && null != u.getRawAuthority()) {
+        String h = u.getHost();
+        host = null == h ? "" : (0 <= u.getPort() ? h + ":" + u.getPort() : h);
+        String raw = u.getRawPath();
+        path = null == raw || raw.isEmpty() ? "/" : raw;
+      }
     } catch (RuntimeException ignored) {
       path = fullurl;
     }

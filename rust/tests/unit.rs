@@ -494,6 +494,46 @@ fn op_events_correlate_with_http_events() {
     Station::reset();
 }
 
+#[test]
+fn http_event_path_keeps_the_request_escapes() {
+    let cases = [
+        (
+            "https://h/vault/projects%2Flaunch%20plan.md",
+            "h",
+            "/vault/projects%2Flaunch%20plan.md",
+        ),
+        ("https://h", "h", "/"),
+        (
+            "/vault/projects%2Flaunch%20plan.md?x=1",
+            "",
+            "/vault/projects%2Flaunch%20plan.md?x=1",
+        ),
+    ];
+    let station = open_station(station_config(""));
+    let client: Rc<dyn Any> = Rc::new(());
+    let bound = bind(spec(client, &["test", "station"])).expect("bound");
+    for (url, _, _) in cases {
+        bound
+            .binding
+            .done_ok(None, "GET", url, voxgig_station::now_ms(), 200, 0);
+    }
+
+    let got: Vec<(String, String)> = events_of(&station, "http")
+        .iter()
+        .map(|ev| {
+            let http = ev.http.as_ref().unwrap();
+            (http.host.clone(), http.path.clone())
+        })
+        .collect();
+    let want: Vec<(String, String)> = cases
+        .iter()
+        .map(|(_, host, path)| (host.to_string(), path.to_string()))
+        .collect();
+    assert_eq!(want, got);
+    station.close();
+    Station::reset();
+}
+
 // --- the shape artifact (design §4.3) ---------------------------------------
 
 // spec/config-shape.json walked up from this crate, the way the corpus

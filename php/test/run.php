@@ -590,6 +590,25 @@ testcase('no_injection_into_mock_transports', function () {
     eq(1, count(array_filter($st->events(), fn($e) => 'http' === $e['kind'])));
 });
 
+testcase('http_event_path_keeps_the_request_escapes', function () {
+    $cases = [
+        ['https://h/vault/projects%2Flaunch%20plan.md', 'h',
+            '/vault/projects%2Flaunch%20plan.md'],
+        ['https://h', 'h', '/'],
+        ['/vault/projects%2Flaunch%20plan.md?x=1', '',
+            '/vault/projects%2Flaunch%20plan.md?x=1'],
+    ];
+    $st = new Station(['config' => null]);
+    $b = bind($st, fn($_c, $_u, $_d) => [okres(), null]);
+    $b['client']->mode = 'test';
+    foreach ($cases as [$url]) {
+        ($b['utility']->fetcher)($b['ctx'], $url, ['method' => 'GET', 'headers' => []]);
+    }
+    $http = array_values(array_filter($st->events(), fn($e) => 'http' === $e['kind']));
+    eq(array_map(fn($c) => [$c[1], $c[2]], $cases),
+        array_map(fn($e) => [$e['http']['host'], $e['http']['path']], $http));
+});
+
 testcase('status_0_is_a_transport_failure', function () {
     putenv('GNARLY_PETS_APIKEY=status-zero-key');
     $st = new Station(['config' => null]);

@@ -906,6 +906,14 @@ only knows `plugin` keeps working — it simply sees instance-grained
 events, which is what it wants at 20 SDKs anyway; the per-plugin views
 below are per-instance, with `api` available for grouping siblings.
 
+`http.path` is the request URL's path exactly as sent, as the
+canonical port's `URL.pathname` reads an SDK-built URL: every
+percent-escape is kept and nothing is decoded, so `/vault/a%2Fb` (one
+file) and `/vault/a/b` (a file in a folder) stay distinct. An empty
+path reads `/`, and a URL that does not parse as absolute is reported
+whole as the path, with an empty `host`. No corpus section can see an
+event, so each port's own suite pins this.
+
 Producers: the transport middleware (`http` events — wire truth,
 including `direct()`/`graphql()`, one event per attempt); the hook
 bridge (`op` events, correlated via `corr`); and the existing features
