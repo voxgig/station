@@ -21,13 +21,14 @@ const {
 } = require('../src/descriptor')
 const { isKnownCode } = require('../src/error')
 const {
+  checkfeatures,
   checkpin,
   featuresources,
   mergefeatures,
   resolveorder,
 } = require('../src/feature')
-const { placeholderFor } = require('../src/secrets')
-const { resolveProfile } = require('../src/profile')
+const { placeholderFor, substitute } = require('../src/secrets')
+const { blockOf, instanceOptions, resolveProfile } = require('../src/profile')
 const { normalizeConfig, validateConfig } = require('../src/shape')
 const { instanceRef } = require('../src/Station')
 const { omnihome, specfile } = require('../src/omnihome')
@@ -64,6 +65,9 @@ const DRIVERS = {
 
   placeholder: (slug) => placeholderFor(slug),
 
+  substitute: (vin) =>
+    substitute(vin.url, vin.headers, vin.placeholder, vin.value),
+
   descriptor: (vin) =>
     normalizeDescriptor(vin.config, vin.feature).descriptor,
 
@@ -78,15 +82,27 @@ const DRIVERS = {
   // to validate the wrong form.
   config: (vin) => validateConfig(normalizeConfig(denull(vin))),
 
-  // The §3.3 merge, and the whole of this port's profile contract.
-  instance: (vin) => resolveProfile(denull(vin.config), vin.profile),
+  // The §3.3 merge, and the whole of this port's profile contract. A
+  // `ref` asks for the options that named instance is constructed with.
+  instance: (vin) => {
+    const profile = resolveProfile(denull(vin.config), vin.profile)
+    if (null == vin.ref) { return profile }
+    return instanceOptions(blockOf(profile, vin.ref), denull(vin.opts))
+  },
 
   // §8's pure half (design §10.1): the three-level merge with its depth
-  // boundary, and the §8.4 order resolution. One driver, two entry
-  // shapes - `merged` selects the resolver, anything else the merge -
-  // because a port that guessed from looser cues would run the wrong
-  // subject on a mistyped entry.
+  // boundary, the §8.4 order resolution, and the §8.5 option checker.
+  // One driver, three entry shapes - `check` selects the checker,
+  // `merged` the resolver, anything else the merge - because a port
+  // that guessed from looser cues would run the wrong subject on a
+  // mistyped entry.
   feature: (vin) => {
+    if (null != vin.check) {
+      return checkfeatures(denull(vin.check), { features: denull(vin.features) })
+        .map((f) => null == f.key
+          ? { code: f.code, feature: f.feature }
+          : { code: f.code, feature: f.feature, key: f.key })
+    }
     if (null != vin.merged) {
       const ordered = resolveorder(denull(vin.merged))
       checkpin(ordered)

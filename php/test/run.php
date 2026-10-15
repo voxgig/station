@@ -25,11 +25,13 @@ namespace Voxgig\Station\Test;
 
 use Voxgig\Omni\Runner;
 use Voxgig\Station\EventBuffer;
+use Voxgig\Station\SecretBroker;
 use Voxgig\Station\Station;
 use Voxgig\Station\StationError;
 use Voxgig\Station\TransportWrap;
 
 use function Voxgig\Station\adapter_feature;
+use function Voxgig\Station\block_of;
 use function Voxgig\Station\camelify;
 use function Voxgig\Station\canonical_serialize;
 use function Voxgig\Station\check_features;
@@ -41,6 +43,7 @@ use function Voxgig\Station\envtoken;
 use function Voxgig\Station\factory_for;
 use function Voxgig\Station\factory_from_module;
 use function Voxgig\Station\feature_sources;
+use function Voxgig\Station\instance_options;
 use function Voxgig\Station\instance_ref;
 use function Voxgig\Station\known_code;
 use function Voxgig\Station\merge_features;
@@ -54,6 +57,7 @@ use function Voxgig\Station\resolve_order;
 use function Voxgig\Station\resolve_profile;
 use function Voxgig\Station\secretname_default;
 use function Voxgig\Station\select_profile;
+use function Voxgig\Station\substitute;
 use function Voxgig\Station\validate_config;
 
 require_once __DIR__ . '/../src/Station.php';
@@ -202,6 +206,9 @@ $DRIVERS = [
 
     'placeholder' => fn($slug) => placeholder_for($slug),
 
+    'substitute' => fn($vin) => substitute($vin['url'], $vin['headers'] ?? null,
+        $vin['placeholder'], $vin['value']),
+
     'descriptor' => fn($vin) => normalize_descriptor(denull($vin['config']),
         denull($vin['feature'] ?? null))['descriptor'],
 
@@ -216,15 +223,29 @@ $DRIVERS = [
     // to validate the wrong form.
     'config' => fn($vin) => validate_config(normalize_config(denull($vin))),
 
-    // The 3.3 merge, and the whole of this port's profile contract.
-    'instance' => fn($vin) => resolve_profile(denull($vin['config']), $vin['profile']),
+    // The 3.3 merge, and the whole of this port's profile contract. A
+    // `ref` asks for the options that named instance is constructed with.
+    'instance' => function ($vin) {
+        $profile = resolve_profile(denull($vin['config']), $vin['profile']);
+        if (null === ($vin['ref'] ?? null)) {
+            return $profile;
+        }
+        return instance_options(block_of($profile, $vin['ref']),
+            denull($vin['opts'] ?? null));
+    },
 
     // Design 8's pure half (10.1): the three-level merge with its depth
-    // boundary, and the 8.4 order resolution. ONE driver, TWO entry
-    // shapes - `merged` selects the resolver, anything else the merge -
-    // because a port that guessed from looser cues would run the wrong
-    // subject on a mistyped entry.
+    // boundary, the 8.4 order resolution, and the 8.5 option checker. ONE
+    // driver, THREE entry shapes - `check` selects the checker, `merged`
+    // the resolver, anything else the merge - because a port that guessed
+    // from looser cues would run the wrong subject on a mistyped entry.
     'feature' => function ($vin) {
+        if (null !== ($vin['check'] ?? null)) {
+            return array_map(
+                fn($f) => array_intersect_key($f, ['code' => 1, 'feature' => 1, 'key' => 1]),
+                check_features(denull($vin['check']),
+                    ['features' => denull($vin['features'])]));
+        }
         if (null !== ($vin['merged'] ?? null)) {
             $ordered = resolve_order(denull($vin['merged']));
             check_pin($ordered);
@@ -708,6 +729,146 @@ testcase('secret_option_overrides_the_default_name', function () {
     }
 });
 
+// A credential an `in: query` security scheme places in the URL.
+const QUERY_URL = 'http://localhost:8903/api/pet?fields=id%2Cname&token=%5Bstation%3Agnarly-pets%5D';
+const WIRE_URL = 'http://localhost:8903/api/pet?fields=id%2Cname&token=tok%21en%201';
+
+testcase('a_query_placed_credential_reaches_the_wire_and_nothing_else', function () {
+    putenv('GNARLY_PETS_APIKEY=tok!en 1');
+    $st = new Station(['config' => null]);
+    $seen = [];
+    $b = bind($st, function ($_c, $u, $d) use (&$seen) {
+        $seen[] = [$u, $d];
+        return [okres(), null];
+    });
+
+    $fetchdef = ['url' => QUERY_URL, 'method' => 'GET', 'headers' => []];
+    [$_res, $err] = ($b['utility']->fetcher)($b['ctx'], QUERY_URL, $fetchdef);
+
+    eq(null, $err);
+    eq(1, count($seen));
+    eq(WIRE_URL, $seen[0][0]);
+    eq(WIRE_URL, $seen[0][1]['url']);
+    eq(QUERY_URL, $fetchdef['url'], 'the SDK fetchdef keeps the placeholder');
+    $events = json_encode($st->events()) ?: '';
+    ok(!str_contains($events, 'tok%21en%201'), 'no encoded value in events');
+    ok(!str_contains($events, 'tok!en 1'), 'no value in events');
+});
+
+testcase('a_returned_transport_error_quoting_the_url_is_scrubbed', function () {
+    putenv('GNARLY_PETS_APIKEY=tok!en 1');
+    $st = new Station(['config' => null]);
+    $b = bind($st, fn($_c, $u, $_d) => [null, 'failed: GET ' . $u]);
+
+    [$_res, $err] = ($b['utility']->fetcher)($b['ctx'], QUERY_URL,
+        ['method' => 'GET', 'headers' => []]);
+    ok(!str_contains($err, 'tok%21en%201'), $err);
+    ok(str_contains($err, '[redacted]'), $err);
+    ok(!str_contains(json_encode($st->events()) ?: '', 'tok%21en%201'));
+});
+
+testcase('a_thrown_transport_error_quoting_the_url_is_scrubbed', function () {
+    putenv('GNARLY_PETS_APIKEY=tok!en 1');
+    $st = new Station(['config' => null]);
+    $b = bind($st, function ($_c, $u, $_d) {
+        throw new \RuntimeException('failed: GET ' . $u);
+    });
+
+    $thrown = null;
+    try {
+        ($b['utility']->fetcher)($b['ctx'], QUERY_URL, ['method' => 'GET', 'headers' => []]);
+    } catch (\RuntimeException $e) {
+        $thrown = $e;
+    }
+    ok(null !== $thrown, 'the transport error surfaces');
+    ok(!str_contains($thrown->getMessage(), 'tok%21en%201'), $thrown->getMessage());
+    ok(str_contains($thrown->getMessage(), '[redacted]'), $thrown->getMessage());
+});
+
+testcase('an_error_quoting_only_the_fetchdef_url_is_scrubbed', function () {
+    putenv('GNARLY_PETS_APIKEY=tok!en 1');
+    $url = 'http://localhost:8903/api/pet';
+    $fetchdef = ['url' => QUERY_URL, 'method' => 'GET', 'headers' => []];
+
+    $st = new Station(['config' => null]);
+    $b = bind($st, fn($_c, $_u, $d) => [null, 'failed: GET ' . $d['url']]);
+    [$_res, $err] = ($b['utility']->fetcher)($b['ctx'], $url, $fetchdef);
+    ok(!str_contains($err, 'tok%21en%201'), $err);
+    ok(str_contains($err, '[redacted]'), $err);
+
+    $st = new Station(['config' => null]);
+    $b = bind($st, function ($_c, $_u, $d) {
+        throw new \RuntimeException('failed: GET ' . $d['url']);
+    });
+    $thrown = null;
+    try {
+        ($b['utility']->fetcher)($b['ctx'], $url, $fetchdef);
+    } catch (\RuntimeException $e) {
+        $thrown = $e;
+    }
+    ok(null !== $thrown, 'the transport error surfaces');
+    ok(!str_contains($thrown->getMessage(), 'tok%21en%201'), $thrown->getMessage());
+    ok(str_contains($thrown->getMessage(), '[redacted]'), $thrown->getMessage());
+});
+
+testcase('a_status_0_response_after_a_placement_is_scrubbed', function () {
+    putenv('GNARLY_PETS_APIKEY=tok!en 1');
+    $st = new Station(['config' => null]);
+    $sent = null;
+    $b = bind($st, function ($_c, $u, $_d) use (&$sent) {
+        $sent = ['status' => 0, 'statusText' => 'stream failure: GET ' . $u,
+            'headers' => ['content-type' => 'text/plain'], 'json' => fn() => null,
+            'body' => 'no answer from ' . $u,
+            'err' => new \RuntimeException('failed: GET ' . $u)];
+        return [$sent, null];
+    });
+
+    [$res, $err] = ($b['utility']->fetcher)($b['ctx'], QUERY_URL,
+        ['method' => 'GET', 'headers' => []]);
+    eq(null, $err);
+    eq(0, $res['status']);
+    foreach ([$res['statusText'], $res['body'], $res['err']->getMessage()] as $text) {
+        ok(!str_contains($text, 'tok%21en%201'), $text);
+        ok(str_contains($text, '[redacted]'), $text);
+    }
+    eq(['content-type' => 'text/plain'], $res['headers']);
+    eq(null, ($res['json'])());
+
+    // Nothing placed: the response comes back untouched.
+    [$res, $err] = ($b['utility']->fetcher)($b['ctx'], 'http://localhost:8903/x',
+        ['method' => 'GET', 'headers' => []]);
+    ok($sent === $res, 'an unplaced response is returned as it came');
+});
+
+testcase('a_held_value_inside_another_held_values_encoded_form', function () {
+    foreach ([['%', 'secret!'], ['secret!', '%']] as $held) {
+        $broker = new SecretBroker([]);
+        foreach ($held as $i => $value) {
+            $broker->hoist('k' . $i, $value);
+        }
+        eq('token=[redacted]', $broker->scrub('token=secret%21'), implode(' ', $held));
+    }
+});
+
+testcase('forms_that_overlap_in_the_text_are_redacted_as_one_span', function () {
+    $broker = new SecretBroker([]);
+    $broker->hoist('a', 'ab!');
+    $broker->hoist('b', '!c');
+    eq('x=[redacted]&y=[redacted]', $broker->scrub('x=ab%21c&y=!c'));
+});
+
+testcase('sekretos_own_redact_cannot_hide_an_encoded_form', function () {
+    putenv('SCRUB_APIKEY=abcd');
+    try {
+        $broker = new SecretBroker([['kind' => 'env']]);
+        eq('abcd', $broker->value('scrub', 'scrub.apikey'));
+        $broker->hoist('other', 'abcd!x');
+        eq('k=[redacted]', $broker->scrub('k=abcd%21x'));
+    } finally {
+        putenv('SCRUB_APIKEY');
+    }
+});
+
 // --- events (station.md 6) ---
 
 testcase('ring_overflow_drops_oldest_and_counts', function () {
@@ -792,7 +953,7 @@ const SDKCONFIG = [
     'main' => ['name' => 'Solar', 'slug' => 'solar',
         'version' => '1.0.0', 'target' => 'php'],
     'feature' => [
-        'retry' => ['options' => ['retries' => 3, 'wait' => 100]],
+        'retry' => ['options' => ['retries' => 3, 'wait' => 100], 'strict' => true],
         'test' => [],
     ],
     'options' => ['base' => 'http://solar:1', 'auth' => ['prefix' => 'Bearer']],
@@ -1211,6 +1372,189 @@ testcase('options_takes_an_optional_leading_instance_name', function () {
     $named = $st->options('solar$eu', ['base' => 'http://x']);
     eq('solar$eu', $named['feature']['station']['instance']);
     eq('http://x', $named['feature']['station']['calleropts']['base']);
+});
+
+class ClosedSDK
+{
+    public function __construct(public array $options)
+    {
+    }
+}
+
+testcase('connect_keeps_as_and_instance_out_of_the_sdk_options', function () {
+    $st = new Station(['config' => null]);
+    $sdk = $st->connect(ClosedSDK::class, ['as' => 'spare', 'base' => 'http://x']);
+    $keys = array_keys($sdk->options);
+    sort($keys);
+    eq(['base', 'extend', 'feature'], $keys);
+    eq('spare', $sdk->options['feature']['station']['as']);
+
+    $sdk = $st->adopt(ClosedSDK::class, ['instance' => 'solar$spare']);
+    $keys = array_keys($sdk->options);
+    sort($keys);
+    eq(['extend', 'feature'], $keys);
+    eq('solar$spare', $sdk->options['feature']['station']['instance']);
+});
+
+// A generated SDK is its own client, so the registry holds what connect
+// returns.
+#[\AllowDynamicProperties]
+class SelfBoundSDK extends FakeClient
+{
+    public function __construct(array $options)
+    {
+        $this->options = $options;
+        $utility = new FakeUtility();
+        $utility->fetcher = fn($_c, $_u, $_d) => [okres(), null];
+        $ctx = new FakeCtx($this, $utility, $options, SDKCONFIG);
+        $fopts = is_array($options['feature']['station'] ?? null)
+            ? $options['feature']['station'] : [];
+        foreach (($options['extend'] ?? []) as $f) {
+            $this->features[] = $f;
+            $f->init($ctx, $fopts);
+        }
+    }
+}
+
+const NOTES = [
+    'base' => 'http://127.0.0.1:9',
+    'options' => ['headers' => ['x-api-version' => '2022-06-28'], 'prefix' => '/v1'],
+];
+
+function sdk_options(object $sdk): array
+{
+    $o = $sdk->options;
+    unset($o['feature'], $o['extend']);
+    return $o;
+}
+
+testcase('options_hands_a_named_instance_its_declared_options', function () {
+    $st = new Station(['config' => solarconfig(['notes' => NOTES])]);
+    $named = $st->options('notes', ['suffix' => '.json']);
+    unset($named['feature']);
+    ksort($named);
+    eq(['base' => 'http://127.0.0.1:9', 'headers' => ['x-api-version' => '2022-06-28'],
+        'prefix' => '/v1', 'suffix' => '.json'], $named);
+    $unnamed = $st->options(['suffix' => '.json']);
+    unset($unnamed['feature']);
+    eq(['suffix' => '.json'], $unnamed);
+});
+
+testcase('options_names_the_instance_from_a_top_level_instance_or_as', function () {
+    foreach ([['instance' => 'solar$eu'], ['as' => 'solar$eu']] as $named) {
+        $st = new Station(['config' => solarconfig([
+            'solar' => ['options' => ['headers' => ['x-api-version' => '1']]],
+            'solar$eu' => ['options' => ['prefix' => '/eu']],
+        ])]);
+        $built = $st->options(array_merge($named, ['suffix' => '.json']));
+        $sdkopts = $built;
+        unset($sdkopts['feature']);
+        ksort($sdkopts);
+        eq(['prefix' => '/eu', 'suffix' => '.json'], $sdkopts);
+
+        $client = new FakeClient();
+        $ctx = new FakeCtx($client, new FakeUtility(), $built, SDKCONFIG);
+        $feature = adapter_feature($st, []);
+        $client->features[] = $feature;
+        $feature->init($ctx, $built['feature']['station']);
+        eq(['solar$eu'], array_map(fn($p) => $p['name'], $st->plugins()));
+    }
+});
+
+testcase('connect_and_adopt_hand_a_named_instance_its_options', function () {
+    $st = new Station(['config' => solarconfig(['notes' => NOTES])]);
+    $want = ['base' => 'http://127.0.0.1:9',
+        'headers' => ['x-api-version' => '2022-06-28'], 'prefix' => '/v1'];
+    foreach ([
+        $st->connect(ClosedSDK::class, ['instance' => 'notes']),
+        $st->adopt(ClosedSDK::class, ['instance' => 'notes']),
+        $st->connect(ClosedSDK::class, ['feature' => ['station' => ['instance' => 'notes']]]),
+    ] as $sdk) {
+        $got = sdk_options($sdk);
+        ksort($got);
+        eq($want, $got);
+    }
+
+    // The caller wins per top-level key, as in build().
+    $got = sdk_options($st->connect(ClosedSDK::class, [
+        'as' => 'notes$', 'headers' => ['x-caller' => 'yes'], 'suffix' => '.json']));
+    ksort($got);
+    eq(['base' => 'http://127.0.0.1:9', 'headers' => ['x-caller' => 'yes'],
+        'prefix' => '/v1', 'suffix' => '.json'], $got);
+});
+
+testcase('an_unnamed_connect_warns_that_options_cannot_reach', function () {
+    $st = new Station(['config' => solarconfig(['solar' => [
+        'options' => ['headers' => ['x-api-version' => '1']]]])]);
+    $client = $st->connect(SelfBoundSDK::class, ['prefix' => '/mine']);
+    ok(!array_key_exists('headers', $client->options));
+
+    $warns = [];
+    foreach ($st->events() as $e) {
+        if ('solar' === ($e['plugin'] ?? null) && isset($e['meta']['warn'])) {
+            $warns[] = $e['meta']['warn'];
+        }
+    }
+    eq(1, count($warns));
+    ok(str_contains($warns[0], '[headers]'), $warns[0]);
+    ok(str_contains($warns[0], '{ instance: "solar" }'), $warns[0]);
+});
+
+testcase('an_undeclared_key_is_refused_only_when_strict', function () {
+    $faults = check_features(['retry' => ['retires' => 5]],
+        normalize_descriptor(SDKCONFIG, null)['descriptor']);
+    eq(['retires'], array_map(fn($f) => $f['key'], $faults));
+
+    $loose = ['features' => [['name' => 'retry', 'active' => false,
+        'options' => ['retries' => 3], 'strict' => false]]];
+    eq([], check_features(['retry' => ['retires' => 5]], $loose));
+});
+
+testcase('an_optspec_key_is_declared_and_type_checked', function () {
+    $d = ['features' => [['name' => 'test', 'active' => false,
+        'options' => ['active' => false],
+        'optspec' => ['entity' => '`$MAP`', 'net' => '`$MAP`'], 'strict' => false]]];
+    eq([], check_features(['test' => ['active' => true,
+        'entity' => ['note' => []], 'net' => ['offline' => true]]], $d));
+    // An empty php array is an empty map as well as an empty list.
+    eq([], check_features(['test' => ['entity' => []]], $d));
+    $faults = check_features(['test' => ['net' => 'offline']], $d);
+    ok(str_contains($faults[0]['message'], 'expects map, but found string'),
+        $faults[0]['message']);
+});
+
+testcase('a_native_callable_is_a_function_option', function () {
+    $d = ['features' => [['name' => 'retry', 'active' => false,
+        'options' => ['active' => false],
+        'optspec' => ['sleep' => '`$FUNCTION`', 'label' => '`$STRING`'], 'strict' => false]]];
+    foreach ([fn($ms) => $ms, function ($ms) { return $ms; }, strlen(...), \Closure::fromCallable('strlen')] as $sleep) {
+        eq([], check_features(['retry' => ['sleep' => $sleep]], $d));
+    }
+    eq(1, count(check_features(['retry' => ['sleep' => 'fast']], $d)));
+    // A callable string is a string, as struct's typify has it.
+    eq([], check_features(['retry' => ['label' => 'strlen']], $d));
+    eq(1, count(check_features(['retry' => ['label' => fn() => null]], $d)));
+});
+
+testcase('sdk_takes_the_test_feature_options_its_optspec_declares', function () {
+    $config = SDKCONFIG;
+    $config['main']['slug'] = 'joplin';
+    $config['feature'] = ['test' => [
+        'options' => ['active' => false],
+        'optspec' => ['entity' => '`$MAP`', 'net' => '`$MAP`'],
+        'strict' => false, 'transport' => 'base']];
+    provide('joplin', ['construct' => fn(array $o) => new ClosedSDK($o), 'config' => $config]);
+
+    foreach ([['active' => true, 'entity' => ['note' => ['id' => 'n1']]],
+              ['active' => true, 'net' => ['offline' => true]]] as $test) {
+        (new Station(['config' => solarconfig(['joplin' => ['feature' => ['test' => $test]]])]))
+            ->sdk('joplin');
+    }
+
+    $st = new Station(['config' => solarconfig(['joplin' => [
+        'feature' => ['test' => ['entity' => 'note']]]])]);
+    $e = raises(fn() => $st->sdk('joplin'), 'station_feature_option');
+    ok(str_contains($e->getMessage(), 'expects map, but found string'), $e->getMessage());
 });
 
 echo "\npass: $pass, fail: $fail\n";

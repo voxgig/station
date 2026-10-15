@@ -200,13 +200,35 @@ namespace Voxgig.Station
             var features = new List<object>();
             Dictionary<string, object> featdefs = AsMap(GetProp(config, "feature"));
             Dictionary<string, object> factive = AsMap(activeFeatures);
+            // 7.4: each row carries the feature's declared schema and its
+            // transport role.
             foreach (string fname in SortedKeys(featdefs))
             {
-                features.Add(new Dictionary<string, object>
+                Dictionary<string, object> fdef = AsMap(featdefs[fname]);
+                var row = new Dictionary<string, object>
                 {
                     ["name"] = fname,
                     ["active"] = true.Equals(GetProp(factive.GetValueOrDefault(fname), "active")),
-                });
+                };
+                if (fdef.GetValueOrDefault("options") is IDictionary<string, object> fopts)
+                {
+                    row["options"] = fopts;
+                }
+                if (fdef.GetValueOrDefault("optspec") is IDictionary<string, object> optspec)
+                {
+                    row["optspec"] = optspec;
+                }
+                if (fdef.GetValueOrDefault("strict") is bool strict)
+                {
+                    row["strict"] = strict;
+                }
+                string transport = Convert.ToString(
+                    fdef.GetValueOrDefault("transport"), CultureInfo.InvariantCulture);
+                if (!string.IsNullOrEmpty(transport))
+                {
+                    row["transport"] = transport;
+                }
+                features.Add(row);
             }
 
             var descriptor = new Dictionary<string, object>

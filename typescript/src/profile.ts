@@ -80,6 +80,23 @@ export function resolveProfile(
   return { name: profileName, providers, api, sdk }
 }
 
+/** The block that governs an instance: its own, else its api's. */
+export function blockOf(
+  profile: ResolvedProfile, ref: string
+): SdkBlock | undefined {
+  return profile.sdk[ref] ?? profile.api[refapi(ref)]
+}
+
+/** §3.5 for a named instance: the block's `options`, then its `base`
+ * (steps 3–6), under the caller's options (step 9), per top-level key. */
+export function instanceOptions(block: SdkBlock | undefined, opts?: any): any {
+  return {
+    ...(block?.options || {}),
+    ...(null == block?.base ? {} : { base: block.base }),
+    ...(opts || {}),
+  }
+}
+
 function checksecrets(
   sdk: Record<string, SdkBlock>, profileName: string
 ): void {

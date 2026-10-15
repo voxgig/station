@@ -220,6 +220,26 @@ Map<String, dynamic> resolveProfile(dynamic config, String profileName) {
   };
 }
 
+// The block that governs an instance: its own, else its api's.
+Map<String, dynamic>? blockOf(Map<String, dynamic> profile, String ref) {
+  final own = _mget(profile['sdk'], ref);
+  final block = own is Map ? own : _mget(profile['api'], refapi(ref));
+  return block is Map ? _mmap(block) : null;
+}
+
+// station.md 3.5 for a named instance: the block's `options`, then its
+// `base` (steps 3-6), under the caller's options (step 9), per top-level
+// key.
+Map<String, dynamic> instanceOptions(dynamic block, dynamic opts) {
+  final out = <String, dynamic>{..._mmap(_mget(block, 'options'))};
+  final base = _mget(block, 'base');
+  if (null != base) {
+    out['base'] = base;
+  }
+  out.addAll(_mmap(opts));
+  return out;
+}
+
 // A configured secret name sekreto would reject is caught at profile
 // load, not first request (14 station_secret_name) - and then the
 // DERIVED names are checked for uniqueness, because envtoken is lossy:

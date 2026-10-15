@@ -291,40 +291,85 @@ module VoxgigStation
       next unless entry.is_a?(Hash)
 
       defaults = spec['options'].is_a?(Hash) ? spec['options'] : {}
+      typed = spec['optspec'].is_a?(Hash) ? spec['optspec'] : {}
 
       entry.keys.map(&:to_s).sort.each do |key|
         next if RESERVED_KEYS.include?(key)
 
-        unless defaults.key?(key)
-          # THE CASE THAT ACTUALLY BITES: `retry.retires: 5` is accepted
-          # and silently ignored today, because the SDK's own feature
-          # spec is `$OPEN` per feature so the SDK cannot catch it and
-          # nothing else looks.
+        unless defaults.key?(key) || typed.key?(key)
+          # A feature the SDK does not close is $OPEN in its own option
+          # spec, so refusing the key would be stricter than the SDK.
+          next unless true == spec['strict']
+
           faults << {
             'code' => 'station_feature_option',
             'feature' => name,
             'key' => key,
             'message' => 'feature "' + name + '" declares no option "' + key +
-              '"; it declares [' + defaults.keys.map(&:to_s).sort.join(', ') + ']',
+              '"; it declares [' +
+              (defaults.keys + typed.keys).map(&:to_s).uniq.sort.join(', ') + ']',
           }
           next
         end
 
-        want = feature_kindof(defaults[key])
+        # sdkgen widens every declared option to admit null, and a null
+        # default constrains nothing.
+        next if entry[key].nil?
+
+        # The type outranks the default: sdkgen's option spec does too.
+        want = if typed.key?(key)
+                 spec_kinds(typed[key])
+               elsif !defaults[key].nil?
+                 [feature_kindof(defaults[key])]
+               end
         got = feature_kindof(entry[key])
-        next if want == got
+        next if want.nil? || want.include?(got)
 
         faults << {
           'code' => 'station_feature_option',
           'feature' => name,
           'key' => key,
           'message' => 'feature "' + name + '" option "' + key + '" expects ' +
-            want + ', but found ' + got + ': ' + JSON.generate(entry[key]),
+            want.join(' or ') + ', but found ' + got + ': ' + JSON.generate(entry[key]),
         }
       end
     end
 
     faults
+  end
+
+  TOKEN_KIND = {
+    'MAP' => 'map', 'LIST' => 'list', 'ARRAY' => 'list', 'STRING' => 'string',
+    'NUMBER' => 'number', 'INTEGER' => 'number', 'DECIMAL' => 'number',
+    'BOOLEAN' => 'boolean', 'FUNCTION' => 'function', 'NULL' => 'null', 'NIL' => 'null',
+  }.freeze
+
+  # The kinds an `optspec` type admits, or nil when it admits any.
+  def spec_kinds(spec)
+    if spec.is_a?(String)
+      token = /\A`\$([A-Z]+)`\z/.match(spec)
+      return [feature_kindof(spec)] if token.nil?
+
+      kind = TOKEN_KIND[token[1]]
+      return kind.nil? ? nil : [kind]
+    end
+
+    if spec.is_a?(Array) && '`$ONE`' == spec[0]
+      kinds = []
+      spec[1..].each do |alt|
+        some = spec_kinds(alt)
+        return nil if some.nil?
+
+        some.each { |k| kinds << k unless kinds.include?(k) }
+      end
+      return kinds
+    end
+
+    if spec.is_a?(Array) && '`$EXACT`' == spec[0]
+      return spec[1..].map { |v| feature_kindof(v) }.uniq
+    end
+
+    [feature_kindof(spec)]
   end
 
   # The FEATURE kindof, in the SDK's own words. NOT shape.rb's - the two
@@ -337,6 +382,7 @@ module VoxgigStation
     return 'number' if v.is_a?(Numeric)
     return 'map' if v.is_a?(Hash)
     return 'string' if v.is_a?(String)
+    return 'function' if v.respond_to?(:call)
 
     v.class.name.to_s.downcase
   end

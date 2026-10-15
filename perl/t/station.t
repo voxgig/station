@@ -141,8 +141,11 @@ sub reset_env {
             target  => 'perl',
         },
         feature => {
-            retry => { options => { retries => 1, wait => 100 } },
-            test  => {},
+            retry => {
+                options => { retries => 1, wait => 100 },
+                strict  => JSON::PP::true
+            },
+            test => {},
         },
         options => {
             base   => 'http://localhost:8903',
@@ -597,6 +600,457 @@ subtest 'secret option overrides the default name' => sub {
     );
     is( $err, undef, 'resolved' );
     is( $seen, 'custom-9', 'override name used' );
+};
+
+# A credential an `in: query` security scheme places in the URL.
+my $QUERY_URL =
+  'http://localhost:8903/api/pet?fields=id%2Cname&token=%5Bstation%3Agnarly-pets%5D';
+my $WIRE_URL = 'http://localhost:8903/api/pet?fields=id%2Cname&token=tok%21en%201';
+
+subtest 'a query-placed credential reaches the wire, and nothing else' => sub {
+    reset_env();
+    local $ENV{GNARLY_PETS_APIKEY} = 'tok!en 1';
+    my $st = Voxgig::Station->new( { config => undef } );
+    my @seen;
+    my $b = bind_client(
+        $st,
+        sub {
+            my ( $fctx, $fullurl, $fetchdef ) = @_;
+            push @seen, [ $fullurl, $fetchdef ];
+            return ( okres(), undef );
+        }
+    );
+
+    my $fetchdef = { url => $QUERY_URL, method => 'GET', headers => {} };
+    my ( undef, $err ) = $b->{utility}{fetcher}->( $b->{ctx}, $QUERY_URL, $fetchdef );
+
+    is( $err,              undef,     'no error' );
+    is( scalar @seen,      1,         'one send' );
+    is( $seen[0][0],       $WIRE_URL, 'the encoded value reaches the inner transport' );
+    is( $seen[0][1]{url},  $WIRE_URL, 'and the sent copy url' );
+    is( $fetchdef->{url}, $QUERY_URL, 'the SDK fetchdef keeps the placeholder' );
+
+    my $blob = JSON::PP->new->allow_blessed(1)->convert_blessed(1)
+      ->allow_unknown(1)->encode( $st->events );
+    ok( 0 > index( $blob, 'tok%21en%201' ), 'no encoded value in events' );
+    ok( 0 > index( $blob, 'tok!en 1' ),     'no value in events' );
+};
+
+{
+
+    package MsgError;
+
+    use overload '""' => sub { $_[0]->{msg} }, fallback => 1;
+
+    sub new { return bless { msg => $_[1] }, $_[0] }
+}
+
+subtest 'a transport error quoting the URL is scrubbed' => sub {
+    reset_env();
+    local $ENV{GNARLY_PETS_APIKEY} = 'tok!en 1';
+    my $fetch = sub {
+        my ($b) = @_;
+        return $b->{utility}{fetcher}
+          ->( $b->{ctx}, $QUERY_URL, { method => 'GET', headers => {} } );
+    };
+
+    my $st = Voxgig::Station->new( { config => undef } );
+    my ( undef, $err ) =
+      $fetch->( bind_client( $st, sub { return ( undef, 'failed: GET ' . $_[1] ) } ) );
+    ok( 0 > index( $err, 'tok%21en%201' ), 'a returned string is scrubbed' );
+    ok( 0 <= index( $err, '[redacted]' ), 'and marked' );
+    my $blob = JSON::PP->new->allow_blessed(1)->convert_blessed(1)
+      ->allow_unknown(1)->encode( $st->events );
+    ok( 0 > index( $blob, 'tok%21en%201' ), 'no encoded value in events' );
+
+    ( undef, $err ) = $fetch->(
+        bind_client(
+            Voxgig::Station->new( { config => undef } ),
+            sub { return ( undef, MsgError->new( 'failed: GET ' . $_[1] ) ) }
+        )
+    );
+    ok( 0 > index( "$err", 'tok%21en%201' ), 'an error object is scrubbed in place' );
+    isa_ok( $err, 'MsgError' );
+
+    eval {
+        $fetch->(
+            bind_client(
+                Voxgig::Station->new( { config => undef } ),
+                sub { die 'failed: GET ' . $_[1] . "\n" }
+            )
+        );
+    };
+    my $died = $@;
+    ok( 0 > index( $died, 'tok%21en%201' ), 'a thrown error is scrubbed' );
+    ok( 0 <= index( $died, '[redacted]' ), 'and marked' );
+};
+
+subtest 'an error quoting only the fetchdef url is scrubbed' => sub {
+    reset_env();
+    local $ENV{GNARLY_PETS_APIKEY} = 'tok!en 1';
+    my $fetch = sub {
+        my ($b) = @_;
+        return $b->{utility}{fetcher}->(
+            $b->{ctx},
+            'http://localhost:8903/api/pet',
+            { url => $QUERY_URL, method => 'GET', headers => {} }
+        );
+    };
+
+    my ( undef, $err ) = $fetch->(
+        bind_client(
+            Voxgig::Station->new( { config => undef } ),
+            sub { return ( undef, 'failed: GET ' . $_[2]{url} ) }
+        )
+    );
+    ok( 0 > index( $err, 'tok%21en%201' ), 'a returned string is scrubbed' );
+    ok( 0 <= index( $err, '[redacted]' ), 'and marked' );
+
+    eval {
+        $fetch->(
+            bind_client(
+                Voxgig::Station->new( { config => undef } ),
+                sub { die 'failed: GET ' . $_[2]{url} . "\n" }
+            )
+        );
+    };
+    my $died = $@;
+    ok( 0 > index( $died, 'tok%21en%201' ), 'a thrown error is scrubbed' );
+    ok( 0 <= index( $died, '[redacted]' ), 'and marked' );
+};
+
+subtest 'a status-0 response after a placement is scrubbed' => sub {
+    reset_env();
+    local $ENV{GNARLY_PETS_APIKEY} = 'tok!en 1';
+    my $st = Voxgig::Station->new( { config => undef } );
+    my $sent;
+    my $b = bind_client(
+        $st,
+        sub {
+            my ( $fctx, $fullurl ) = @_;
+            $sent = {
+                status     => 0,
+                statusText => 'Connection refused: GET ' . $fullurl,
+                headers    => { 'content-type' => 'text/plain' },
+                json       => sub { undef },
+                body       => 'no answer from ' . $fullurl,
+                err        => MsgError->new( 'failed: GET ' . $fullurl ),
+            };
+            return ( $sent, undef );
+        }
+    );
+
+    my ( $res, $err ) = $b->{utility}{fetcher}
+      ->( $b->{ctx}, $QUERY_URL, { method => 'GET', headers => {} } );
+    is( $err,           undef, 'tuple err stays undef' );
+    is( $res->{status}, 0,     'status kept' );
+    for my $text ( $res->{statusText}, $res->{body}, "$res->{err}" ) {
+        ok( 0 > index( $text, 'tok%21en%201' ), "scrubbed: $text" );
+        ok( 0 <= index( $text, '[redacted]' ), 'and marked' );
+    }
+    is_deeply( $res->{headers}, { 'content-type' => 'text/plain' }, 'headers pass through' );
+    is( ref $res->{json}, 'CODE', 'json reader kept' );
+
+    # Nothing placed: the response comes back untouched.
+    ($res) = $b->{utility}{fetcher}
+      ->( $b->{ctx}, 'http://localhost:8903/x', { method => 'GET', headers => {} } );
+    is( refaddr($res), refaddr($sent), 'an unplaced response is the same object' );
+};
+
+{
+
+    package ClosedSDK;
+
+    sub new { return bless { options => $_[1] }, $_[0] }
+}
+
+subtest 'connect keeps as and instance out of the SDK options' => sub {
+    reset_env();
+    my $st = Voxgig::Station->new( { config => undef } );
+
+    my $sdk = $st->connect( 'ClosedSDK', { as => 'spare', base => 'http://x' } );
+    is_deeply( [ sort keys %{ $sdk->{options} } ], [qw(base extend feature)],
+        'no station-only keys' );
+    is( $sdk->{options}{feature}{station}{as}, 'spare', 'the tag rides the station entry' );
+
+    $sdk = $st->adopt( 'ClosedSDK', { instance => 'gnarly-pets$spare' } );
+    is_deeply( [ sort keys %{ $sdk->{options} } ], [qw(extend feature)],
+        'no station-only keys' );
+    is( $sdk->{options}{feature}{station}{instance},
+        'gnarly-pets$spare', 'the ref rides the station entry' );
+};
+
+subtest 'options() hands a named instance its declared options' => sub {
+    reset_env();
+    my $st = Voxgig::Station->new(
+        {
+            config => {
+                station  => 1,
+                profiles => {
+                    default => {
+                        sdk => {
+                            notes => {
+                                base    => 'http://127.0.0.1:9',
+                                options => {
+                                    headers => { 'x-api-version' => '2022-06-28' },
+                                    prefix  => '/v1'
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    );
+    my %named = %{ $st->options( 'notes', { suffix => '.json' } ) };
+    delete $named{feature};
+    is_deeply(
+        \%named,
+        {
+            base    => 'http://127.0.0.1:9',
+            headers => { 'x-api-version' => '2022-06-28' },
+            prefix  => '/v1',
+            suffix  => '.json'
+        },
+        'the block options sit under the caller'
+    );
+    my %unnamed = %{ $st->options( { suffix => '.json' } ) };
+    delete $unnamed{feature};
+    is_deeply( \%unnamed, { suffix => '.json' }, 'an unnamed call is untouched' );
+};
+
+subtest 'options() names the instance from a top-level instance or as' => sub {
+    for my $named ( { instance => 'gnarly-pets$eu' }, { as => 'gnarly-pets$eu' } ) {
+        reset_env();
+        my $st = Voxgig::Station->new(
+            {
+                config => {
+                    station  => 1,
+                    profiles => {
+                        default => {
+                            sdk => {
+                                'gnarly-pets' =>
+                                  { options => { headers => { 'x-api-version' => '1' } } },
+                                'gnarly-pets$eu' => { options => { prefix => '/eu' } },
+                            }
+                        }
+                    }
+                }
+            }
+        );
+        my $built   = $st->options( { %$named, suffix => '.json' } );
+        my %sdkopts = %$built;
+        delete $sdkopts{feature};
+        is_deeply( \%sdkopts, { prefix => '/eu', suffix => '.json' }, 'merged, names stripped' );
+
+        my $client = { mode => 'live', features => [], options => undef };
+        my $ctx    = {
+            client  => $client,
+            utility => { fetcher => sub { return; } },
+            options => {%$built},
+            config  => {%$CONFIG},
+        };
+        my $feature = adapter_feature( $st, {} );
+        push @{ $client->{features} }, $feature;
+        $feature->init( $ctx, { %{ $built->{feature}{station} } } );
+        is_deeply( [ map { $_->{name} } @{ $st->plugins } ],
+            ['gnarly-pets$eu'], 'registered under the named ref' );
+    }
+};
+
+subtest 'connect and adopt hand a named instance its declared options' => sub {
+    reset_env();
+    my $st = Voxgig::Station->new(
+        {
+            config => {
+                station  => 1,
+                profiles => {
+                    default => {
+                        sdk => {
+                            notes => {
+                                base    => 'http://127.0.0.1:9',
+                                options => {
+                                    headers => { 'x-api-version' => '2022-06-28' },
+                                    prefix  => '/v1'
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    );
+    my $want = {
+        base    => 'http://127.0.0.1:9',
+        headers => { 'x-api-version' => '2022-06-28' },
+        prefix  => '/v1',
+    };
+    my $plain = sub {
+        my %o = %{ $_[0]{options} };
+        delete @o{qw(feature extend)};
+        return \%o;
+    };
+
+    is_deeply( $plain->( $st->connect( 'ClosedSDK', { instance => 'notes' } ) ),
+        $want, 'connect' );
+    is_deeply( $plain->( $st->adopt( 'ClosedSDK', { instance => 'notes' } ) ),
+        $want, 'adopt' );
+    is_deeply(
+        $plain->(
+            $st->connect( 'ClosedSDK',
+                { feature => { station => { instance => 'notes' } } } )
+        ),
+        $want,
+        'the station entry names it too'
+    );
+
+    is_deeply(
+        $plain->(
+            $st->connect(
+                'ClosedSDK',
+                {
+                    as      => 'notes$',
+                    headers => { 'x-caller' => 'yes' },
+                    suffix  => '.json'
+                }
+            )
+        ),
+        {
+            base    => 'http://127.0.0.1:9',
+            headers => { 'x-caller' => 'yes' },
+            prefix  => '/v1',
+            suffix  => '.json'
+        },
+        'the caller wins per top-level key, as in build()'
+    );
+};
+
+subtest 'an unnamed connect warns that declared options cannot reach' => sub {
+    reset_env();
+    my $st = Voxgig::Station->new(
+        {
+            config => {
+                station  => 1,
+                profiles => {
+                    default => {
+                        sdk => {
+                            'gnarly-pets' =>
+                              { options => { headers => { 'x-api-version' => '1' } } }
+                        }
+                    }
+                }
+            }
+        }
+    );
+    my $client = $st->connect( 'StubSDK', { prefix => '/mine' } );
+    ok( !exists $client->{options}{headers}, 'not applied' );
+
+    my @warns = map { $_->{meta}{warn} }
+      grep { 'gnarly-pets' eq ( $_->{plugin} // '' ) && defined $_->{meta}{warn} }
+      @{ $st->events };
+    is( scalar @warns, 1, 'one warning' );
+    ok( 0 <= index( $warns[0], '[headers]' ),                    'names the options' );
+    ok( 0 <= index( $warns[0], '{ instance: "gnarly-pets" }' ), 'names the fix' );
+};
+
+subtest 'feature options: optspec keys, kinds, and strict' => sub {
+    reset_env();
+    my $test = {
+        features => [
+            {
+                name    => 'test',
+                active  => JSON::PP::false,
+                options => { active => JSON::PP::false },
+                optspec => { entity => '`$MAP`', net => '`$MAP`' },
+                strict  => JSON::PP::false,
+            }
+        ]
+    };
+    is_deeply(
+        checkfeatures(
+            { test => { entity => { note => {} }, net => { offline => JSON::PP::true } } },
+            $test
+        ),
+        [],
+        'an optspec key is declared'
+    );
+    my $faults = checkfeatures( { test => { net => 'offline' } }, $test );
+    ok( 0 <= index( $faults->[0]{message}, 'expects map, but found string' ),
+        'and checked against its type' );
+
+    is_deeply( checkfeatures( { test => { seed => 1 } }, $test ),
+        [], 'a feature that is not strict accepts what its SDK accepts' );
+
+    my ($descriptor) =
+      Voxgig::Station::Descriptor::normalize_descriptor( $StubSDK::CONFIG, undef );
+    $faults = checkfeatures( { retry => { retires => 5 } }, $descriptor );
+    is( scalar @$faults, 1, 'a strict feature refuses an undeclared key' );
+};
+
+subtest 'a native callable is a function option' => sub {
+    my $d = {
+        features => [
+            {
+                name    => 'retry',
+                active  => JSON::PP::false,
+                options => { active => JSON::PP::false },
+                optspec => { sleep => '`$FUNCTION`', label => '`$STRING`' },
+                strict  => JSON::PP::false,
+            }
+        ]
+    };
+    is_deeply( checkfeatures( { retry => { sleep => sub { return; } } }, $d ),
+        [], 'an anonymous sub' );
+    is_deeply( checkfeatures( { retry => { sleep => \&reset_env } }, $d ),
+        [], 'a named sub' );
+    is( scalar @{ checkfeatures( { retry => { sleep => 'fast' } }, $d ) },
+        1, 'a string is not a function' );
+    is( scalar @{ checkfeatures( { retry => { label => sub { return; } } }, $d ) },
+        1, 'a sub is not a string' );
+};
+
+subtest 'sdk() takes the test feature options its optspec declares' => sub {
+    reset_env();
+    my $config = {
+        %$StubSDK::CONFIG,
+        main    => { %{ $StubSDK::CONFIG->{main} }, slug => 'joplin' },
+        feature => {
+            test => {
+                options   => { active => JSON::PP::false },
+                optspec   => { entity => '`$MAP`', net => '`$MAP`' },
+                strict    => JSON::PP::false,
+                transport => 'base',
+            }
+        },
+    };
+    provide( 'joplin',
+        { construct => sub { return ClosedSDK->new( $_[0] ) }, config => $config } );
+
+    my $station = sub {
+        return Voxgig::Station->new(
+            {
+                config => {
+                    station  => 1,
+                    profiles => {
+                        default => { sdk => { joplin => { feature => { test => $_[0] } } } }
+                    }
+                }
+            }
+        );
+    };
+    ok( $station->( { active => JSON::PP::true, entity => { note => {} } } )->sdk('joplin'),
+        'entity' );
+    ok( $station->( { active => JSON::PP::true, net => { offline => JSON::PP::true } } )
+          ->sdk('joplin'),
+        'net' );
+
+    my $err = do {
+        local $@;
+        eval { $station->( { entity => 'note' } )->sdk('joplin') };
+        $@;
+    };
+    ok( ref $err && 0 <= index( $err->message, 'expects map, but found string' ),
+        'a wrong kind is refused' );
 };
 
 # --- events (design station.md 6) ---
@@ -1191,6 +1645,29 @@ subtest 'the broker caches by secret name, not by instance' => sub {
     # store round-trip turned into 26.
     is( $st->{broker}->value( 'b', 'shared.apikey' ), 'once',
         'a second instance of one name is a cache hit' );
+};
+
+subtest 'a held value inside another held value encoded form' => sub {
+    for my $held ( [ '%', 'secret!' ], [ 'secret!', '%' ] ) {
+        my $broker = Voxgig::Station::SecretBroker->new( [] );
+        $broker->hoist( "k$_", $held->[$_] ) for 0 .. $#$held;
+        is( $broker->scrub('token=secret%21'), 'token=[redacted]', "@$held" );
+    }
+};
+
+subtest 'forms that overlap in the text are redacted as one span' => sub {
+    my $broker = Voxgig::Station::SecretBroker->new( [] );
+    $broker->hoist( 'a', 'ab!' );
+    $broker->hoist( 'b', '!c' );
+    is( $broker->scrub('x=ab%21c&y=!c'), 'x=[redacted]&y=[redacted]', 'one span' );
+};
+
+subtest 'sekreto own redact cannot hide an encoded form' => sub {
+    local $ENV{SCRUB_APIKEY} = 'abcd';
+    my $broker = Voxgig::Station::SecretBroker->new( [ { kind => 'env' } ] );
+    is( $broker->value( 'scrub', 'scrub.apikey' ), 'abcd', 'resolves' );
+    $broker->hoist( 'other', 'abcd!x' );
+    is( $broker->scrub('k=abcd%21x'), 'k=[redacted]', 'sekreto runs second' );
 };
 
 subtest 'policy allowlists reach the SDK own options' => sub {

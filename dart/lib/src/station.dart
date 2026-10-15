@@ -34,6 +34,8 @@ class RegisterResult {
 
 int _corrSeq = 0;
 
+dynamic _mget(dynamic m, String k) => m is Map ? m[k] : null;
+
 class Station {
   static Station? _ambient;
   static String? _ambientKey;
@@ -141,8 +143,23 @@ class Station {
     if (_closed) {
       throw StationError('station_no_plugin', 'station is closed');
     }
-    final calleropts = _copy(opts);
+    var calleropts = _copy(opts);
+    final ref = _namedRef(calleropts);
+    if (null != ref) {
+      calleropts = instanceOptions(blockOf(_profile, ref), calleropts);
+    }
     final options = _withActivation(calleropts);
+
+    // `as` and `instance` are station's own: they ride the feature entry,
+    // never the SDK's options, which a generated SDK checks as closed.
+    final sopts = options['feature']['station'] as Map<String, dynamic>;
+    for (final key in const ['as', 'instance']) {
+      final val = options.remove(key);
+      if (null != val) {
+        sopts[key] = val;
+      }
+    }
+
     final extend = <dynamic>[];
     if (calleropts['extend'] is List) {
       extend.addAll(calleropts['extend'] as List);
@@ -153,7 +170,62 @@ class Station {
     // featureBinding, so behavior is identical).
     extend.add(adapterFeature(this, calleropts));
     options['extend'] = extend;
-    return sdk(options);
+    final client = sdk(options);
+    if (null == ref) {
+      _warnUnapplied(client, options);
+    }
+    return client;
+  }
+
+  // The ref a caller names before construction: an explicit instance, or
+  // an `as` that is a full ref. A bare tag needs the SDK's api, so not.
+  static String? _namedRef(Map<String, dynamic> opts) {
+    final sopts = _mget(_mget(opts, 'feature'), 'station');
+    String? pick(String key) {
+      final val = opts[key] ?? _mget(sopts, key);
+      return val is String && '' != val ? val : null;
+    }
+
+    final explicit = pick('instance');
+    final as = pick('as');
+    final ref = explicit ?? (null != as && as.contains(r'$') ? as : null);
+    return null != ref && ref.endsWith(r'$')
+        ? ref.substring(0, ref.length - 1)
+        : ref;
+  }
+
+  // An unnamed connect learns its api from the SDK's config during
+  // construction: too late for the block's options to reach the SDK.
+  void _warnUnapplied(dynamic client, Map<String, dynamic> options) {
+    final entry = boundEntry(client);
+    final declared =
+        null == entry ? null : _mget(blockOf(_profile, entry.slug), 'options');
+    if (null == entry || declared is! Map) {
+      return;
+    }
+    final missed = declared.keys
+        .map((k) => k.toString())
+        .where((k) => !options.containsKey(k))
+        .toList()
+      ..sort();
+    if (missed.isEmpty) {
+      return;
+    }
+    emit(<String, dynamic>{
+      't': _now(),
+      'kind': 'station',
+      'plugin': entry.slug,
+      'meta': {
+        'warn': 'instance "' +
+            entry.slug +
+            '" declares options [' +
+            missed.join(', ') +
+            '] that reach the SDK only when the instance is named before ' +
+            'construction; pass { instance: "' +
+            entry.slug +
+            '" }',
+      },
+    });
   }
 
   // Inverted binding (design station.md 3.1): build the plain options
@@ -344,8 +416,10 @@ class Station {
     }
 
     dynamic senddef = fetchdef;
+    dynamic sendurl = fullurl;
+    var placed = false;
     if (null != hosts && live) {
-      senddef = _copyFetchdef(senddef, copyHeaders: false);
+      senddef = _copyFetchdef(senddef);
       senddef['redirect'] = 'manual';
     }
 
@@ -370,13 +444,16 @@ class Station {
         return e;
       }
 
-      senddef = _copyFetchdef(senddef, copyHeaders: true);
-      final headers = senddef['headers'] as Map;
-      for (final h in headers.keys.toList()) {
-        final v = headers[h];
-        if (v is String && v.contains(placeholder)) {
-          headers[h] = v.split(placeholder).join(value);
-        }
+      senddef = _copyFetchdef(senddef);
+      final sent =
+          substitute(fullurl.toString(), senddef['headers'], placeholder, value);
+      sendurl = sent.url;
+      senddef['headers'] = sent.headers;
+      placed = sendurl != fullurl;
+      final defurl = senddef['url'];
+      if (defurl is String) {
+        senddef['url'] = substitute(defurl, null, placeholder, value).url;
+        placed = placed || senddef['url'] != defurl;
       }
     }
 
@@ -385,17 +462,21 @@ class Station {
 
     dynamic res;
     try {
-      res = await Future.value(inner(fctx, fullurl, senddef));
-    } catch (e) {
+      res = await Future.value(inner(fctx, sendurl, senddef));
+    } catch (e, stack) {
       _emitHttp(slug, corr, fullurl, senddef, 0, started, 0);
       _emitErr(slug, fctx, e);
-      rethrow;
+      final clean = _scrubbed(e, placed);
+      if (identical(clean, e)) {
+        rethrow;
+      }
+      Error.throwWithStackTrace(clean, stack);
     }
 
     if (res is Error || res is Exception) {
       _emitHttp(slug, corr, fullurl, senddef, 0, started, 0);
       _emitErr(slug, fctx, res);
-      return res;
+      return _scrubbed(res, placed);
     }
 
     var bytes = 0;
@@ -416,21 +497,24 @@ class Station {
     return res;
   }
 
-  Map<String, dynamic> _copyFetchdef(dynamic fetchdef,
-      {required bool copyHeaders}) {
+  Map<String, dynamic> _copyFetchdef(dynamic fetchdef) {
     final out = <String, dynamic>{};
     if (fetchdef is Map) {
       fetchdef.forEach((k, v) => out[k.toString()] = v);
     }
-    if (copyHeaders) {
-      final headers = <String, dynamic>{};
-      final oheaders = out['headers'];
-      if (oheaders is Map) {
-        oheaders.forEach((k, v) => headers[k.toString()] = v);
-      }
-      out['headers'] = headers;
-    }
     return out;
+  }
+
+  // A transport error may quote its URL, which carries a query-placed value.
+  // Dart errors expose no settable message, so a changed one comes back as
+  // a ScrubbedError.
+  dynamic _scrubbed(dynamic err, bool placed) {
+    if (!placed) {
+      return err;
+    }
+    final text = err.toString();
+    final clean = redact(text);
+    return clean == text ? err : ScrubbedError(clean);
   }
 
   String _clientMode(dynamic fctx) {

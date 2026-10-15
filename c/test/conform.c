@@ -7,7 +7,7 @@
  * (inject, event correlation) live in the generated-SDK integration
  * flow; the corpus carries what a port can prove with no SDK present.
  *
- * TEN SECTIONS, ALL RUN. The tests are REGISTERED FROM THE `DRIVERS`
+ * EVERY SECTION RUNS. The tests are REGISTERED FROM THE `DRIVERS`
  * TABLE below rather than written out by hand, so a section named there
  * cannot silently fail to run; `sections-covered` closes the other
  * direction by reading spec/station.json AS RAW JSON - not through the
@@ -153,6 +153,20 @@ static omni_result subject_placeholder(omni_subject *self, omni_json **args, siz
   return out;
 }
 
+static omni_result subject_substitute(omni_subject *self, omni_json **args, size_t nargs) {
+  omni_result out = {NULL, NULL};
+  const omni_json *vin = 0 < nargs ? args[0] : NULL;
+  vxstn_val *headers = to_station(omni_map_get(vin, "headers"));
+  vxstn_val *sent = vxstn_substitute(omni_strval(omni_map_get(vin, "url")), headers,
+                                     omni_strval(omni_map_get(vin, "placeholder")),
+                                     omni_strval(omni_map_get(vin, "value")));
+  (void)self;
+  out.val = to_omni(sent);
+  vxstn_val_free(headers);
+  vxstn_val_free(sent);
+  return out;
+}
+
 static omni_result subject_descriptor(omni_subject *self, omni_json **args, size_t nargs) {
   omni_result out = {NULL, NULL};
   const omni_json *vin = 0 < nargs ? args[0] : NULL;
@@ -195,12 +209,14 @@ static omni_result subject_canonical(omni_subject *self, omni_json **args, size_
   return out;
 }
 
-/* The 3.3 merge, and the whole of this port's profile contract. */
+/* The 3.3 merge, and the whole of this port's profile contract. A
+   `ref` asks for the options that named instance is constructed with. */
 static omni_result subject_instance(omni_subject *self, omni_json **args, size_t nargs) {
   omni_result out = {NULL, NULL};
   const omni_json *vin = 0 < nargs ? args[0] : NULL;
   vxstn_val *config = to_station(omni_map_get(vin, "config"));
   const char *profile = omni_strval(omni_map_get(vin, "profile"));
+  const char *ref = omni_strval(omni_map_get(vin, "ref"));
   vxstn_error *err = NULL;
   vxstn_val *resolved =
       vxstn_resolve_profile(config, NULL == profile ? "default" : profile, &err);
@@ -209,6 +225,15 @@ static omni_result subject_instance(omni_subject *self, omni_json **args, size_t
   if (NULL == resolved) {
     out.err = omni_pool_strdup(POOL, NULL == err ? "profile failed" : err->message);
     vxstn_error_free(err);
+    return out;
+  }
+  if (NULL != ref) {
+    vxstn_val *opts = to_station(omni_map_get(vin, "opts"));
+    vxstn_val *built = vxstn_instance_options(vxstn_block_of(resolved, ref), opts);
+    out.val = to_omni(built);
+    vxstn_val_free(built);
+    vxstn_val_free(opts);
+    vxstn_val_free(resolved);
     return out;
   }
   out.val = to_omni(resolved);
@@ -265,16 +290,44 @@ static omni_result subject_instanceref(omni_subject *self, omni_json **args, siz
 }
 
 /* design 8's pure half (design 10.1): the three-level merge with its
-   depth boundary, and the 8.4 order resolution. ONE DRIVER, TWO ENTRY
-   SHAPES - `merged` selects the resolver, anything else the merge -
-   because a port that guessed from looser cues would run the wrong
-   subject on a mistyped entry. */
+   depth boundary, the 8.4 order resolution, and the 8.5 option checker.
+   ONE DRIVER, THREE ENTRY SHAPES - `check` selects the checker, `merged`
+   the resolver, anything else the merge - because a port that guessed
+   from looser cues would run the wrong subject on a mistyped entry. */
 static omni_result subject_feature(omni_subject *self, omni_json **args, size_t nargs) {
   omni_result out = {NULL, NULL};
   const omni_json *vin = 0 < nargs ? args[0] : NULL;
   const omni_json *mergedin = omni_map_get(vin, "merged");
+  const omni_json *checkin = omni_map_get(vin, "check");
   vxstn_error *err = NULL;
   (void)self;
+
+  if (!omni_isnone(checkin)) {
+    vxstn_val *check = to_station(checkin);
+    vxstn_val *descriptor = vxstn_map();
+    vxstn_val *faults;
+    omni_json *rows = omni_list(POOL);
+    size_t i;
+
+    vxstn_map_set(descriptor, "features", to_station(omni_map_get(vin, "features")));
+    faults = vxstn_check_features(check, descriptor);
+    for (i = 0; i < faults->len; i++) {
+      const vxstn_val *fault = faults->items[i];
+      vxstn_val *row = vxstn_map();
+      vxstn_map_set(row, "code", vxstn_clone(vxstn_map_get(fault, "code")));
+      vxstn_map_set(row, "feature", vxstn_clone(vxstn_map_get(fault, "feature")));
+      if (NULL != vxstn_map_get(fault, "key")) {
+        vxstn_map_set(row, "key", vxstn_clone(vxstn_map_get(fault, "key")));
+      }
+      omni_list_push(rows, to_omni(row));
+      vxstn_val_free(row);
+    }
+    vxstn_val_free(faults);
+    vxstn_val_free(descriptor);
+    vxstn_val_free(check);
+    out.val = rows;
+    return out;
+  }
 
   if (!omni_isnone(mergedin)) {
     vxstn_val *merged = to_station(mergedin);
@@ -357,6 +410,7 @@ typedef struct {
 static const driver_row DRIVERS[] = {
     {"secretname", subject_secretname},
     {"placeholder", subject_placeholder},
+    {"substitute", subject_substitute},
     {"descriptor", subject_descriptor},
     {"descriptorwarnings", subject_descriptorwarnings},
     {"canonical", subject_canonical},

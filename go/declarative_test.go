@@ -282,12 +282,11 @@ func TestDeclarativePackageIsNotHonouredHere(t *testing.T) {
 
 func TestDeclarativeFeatureCheckAtBuild(t *testing.T) {
 	provideFake(t, "fakepad", map[string]any{
-		"retry": map[string]any{"options": map[string]any{"max": 1, "wait": 100}},
+		"retry": map[string]any{
+			"options": map[string]any{"max": 1, "wait": 100}, "strict": true},
 	})
 
-	// An unknown option is THE CASE THAT ACTUALLY BITES: `retry.retires`
-	// is accepted and silently ignored by the SDK, because its own
-	// feature spec is `$OPEN` per feature.
+	// An undeclared option on a strict feature is refused.
 	st := declarative(t, map[string]any{
 		"default": map[string]any{
 			"sdk": map[string]any{
@@ -354,6 +353,49 @@ func TestDeclarativeFeatureCheckAtBuild(t *testing.T) {
 	})
 	if _, err := st.SDK("fakepad"); nil != err {
 		t.Fatalf("a declared option must build: %v", err)
+	}
+}
+
+func TestDeclarativeOptspecKeysAndStrict(t *testing.T) {
+	provideFake(t, "joplin", map[string]any{
+		"test": map[string]any{
+			"options":   map[string]any{"active": false},
+			"optspec":   map[string]any{"entity": "`$MAP`", "net": "`$MAP`"},
+			"strict":    false,
+			"transport": "base",
+		},
+		"retry": map[string]any{"options": map[string]any{"max": 1}},
+	})
+	build := func(feature map[string]any) error {
+		st := declarative(t, map[string]any{
+			"default": map[string]any{
+				"sdk": map[string]any{"joplin": map[string]any{"feature": feature}},
+			},
+		})
+		_, err := st.SDK("joplin")
+		return err
+	}
+
+	for _, test := range []map[string]any{
+		{"active": true, "entity": map[string]any{"note": map[string]any{}}},
+		{"active": true, "net": map[string]any{"offline": true}},
+	} {
+		if err := build(map[string]any{"test": test}); nil != err {
+			t.Fatalf("an optspec key must build: %v", err)
+		}
+	}
+
+	err := build(map[string]any{"test": map[string]any{"entity": "note"}})
+	serr := expectCode(t, "station_feature_option", err)
+	if !strings.Contains(serr.Message, "expects map, but found string") {
+		t.Fatalf("message: %v", serr)
+	}
+
+	// No `strict` reads as sdkgen reads it: false, so the SDK's own
+	// option spec is open and station accepts what it accepts.
+	if err := build(map[string]any{
+		"retry": map[string]any{"retires": 5}}); nil != err {
+		t.Fatalf("a feature that is not strict must accept: %v", err)
 	}
 }
 
@@ -675,6 +717,107 @@ func TestTwoInstancesOfOneApiAreDistinct(t *testing.T) {
 		if "" == event.Plugin || "fakepad" != event.API {
 			t.Fatalf("construct event: %+v", event)
 		}
+	}
+}
+
+func TestOptionsForHandsANamedInstanceItsDeclaredOptions(t *testing.T) {
+	st := declarative(t, map[string]any{
+		"default": map[string]any{
+			"sdk": map[string]any{
+				"notes": map[string]any{
+					"base": "http://127.0.0.1:9",
+					"options": map[string]any{
+						"headers": map[string]any{"x-api-version": "2022-06-28"},
+						"prefix":  "/v1",
+					},
+				},
+			},
+		},
+	})
+
+	named := st.OptionsFor("notes", map[string]any{"suffix": ".json"})
+	delete(named, "feature")
+	want := map[string]any{
+		"base":    "http://127.0.0.1:9",
+		"headers": map[string]any{"x-api-version": "2022-06-28"},
+		"prefix":  "/v1",
+		"suffix":  ".json",
+	}
+	if station.CanonicalSerialize(want) != station.CanonicalSerialize(named) {
+		t.Fatalf("named: %v", named)
+	}
+
+	unnamed := st.Options(map[string]any{"suffix": ".json"})
+	delete(unnamed, "feature")
+	if `{"suffix":".json"}` != station.CanonicalSerialize(unnamed) {
+		t.Fatalf("unnamed: %v", unnamed)
+	}
+}
+
+func TestOptionsNamesTheInstanceFromATopLevelInstanceOrAs(t *testing.T) {
+	for _, named := range []map[string]any{
+		{"instance": "notes$eu"},
+		{"as": "notes$eu"},
+	} {
+		st := declarative(t, map[string]any{
+			"default": map[string]any{
+				"sdk": map[string]any{
+					"notes": map[string]any{
+						"options": map[string]any{"headers": map[string]any{"x-api-version": "1"}},
+					},
+					"notes$eu": map[string]any{
+						"options": map[string]any{"prefix": "/eu"},
+					},
+				},
+			},
+		})
+
+		extra := map[string]any{"suffix": ".json"}
+		for k, v := range named {
+			extra[k] = v
+		}
+		built := st.Options(extra)
+		sdkopts := map[string]any{}
+		for k, v := range built {
+			if "feature" != k {
+				sdkopts[k] = v
+			}
+		}
+		if `{"prefix":"/eu","suffix":".json"}` != station.CanonicalSerialize(sdkopts) {
+			t.Fatalf("%v: sdk options: %v", named, sdkopts)
+		}
+
+		fakeFactory(fakeSDKConfig("notes", nil)).Construct(built)
+		names := []string{}
+		for _, p := range st.Plugins() {
+			names = append(names, p.Name)
+		}
+		if "notes$eu" != strings.Join(names, ",") {
+			t.Fatalf("%v: registered as %v", named, names)
+		}
+	}
+}
+
+func TestCheckFeaturesTakesAFuncAsAFunction(t *testing.T) {
+	descriptor := map[string]any{"features": []any{map[string]any{
+		"name": "retry", "active": false,
+		"options": map[string]any{"active": false},
+		"optspec": map[string]any{"sleep": "`$FUNCTION`", "label": "`$STRING`"},
+		"strict":  false,
+	}}}
+	check := func(key string, val any) []station.Fault {
+		return station.CheckFeatures(map[string]any{"retry": map[string]any{key: val}}, descriptor)
+	}
+	for _, sleep := range []any{func(int) {}, strings.ToUpper, (&strings.Builder{}).WriteString} {
+		if faults := check("sleep", sleep); 0 != len(faults) {
+			t.Fatalf("%T: %v", sleep, faults)
+		}
+	}
+	if faults := check("sleep", "fast"); 1 != len(faults) {
+		t.Fatalf("a string is not a function: %v", faults)
+	}
+	if faults := check("label", func() {}); 1 != len(faults) {
+		t.Fatalf("a function is not a string: %v", faults)
 	}
 }
 

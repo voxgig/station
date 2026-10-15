@@ -91,8 +91,9 @@ function normalizeDescriptor(config, activeFeatures) {
   // §7.4: the features list gains `options` and `transport`, because
   // it was throwing away what the SDK already embeds -
   // `config.feature[name].options` is the feature's own declared key
-  // set WITH TYPED DEFAULTS, which is the schema §8.5 validates
-  // against, and `transport` is the role §8.4 orders by.
+  // set WITH TYPED DEFAULTS, which with `optspec` (typed keys with no
+  // default) and `strict` is the schema §8.5 validates against, and
+  // `transport` is the role §8.4 orders by.
   //
   // Both are already inside the SDK; the descriptor stops discarding
   // them. ADDITIVE, so descriptor v1 consumers are unaffected.
@@ -110,6 +111,13 @@ function normalizeDescriptor(config, activeFeatures) {
     const row = { name: fname, active: true === factive[fname]?.active }
     if (null != fdef.options && 'object' === typeof fdef.options) {
       row.options = fdef.options
+    }
+    if (null != fdef.optspec && 'object' === typeof fdef.optspec &&
+      !Array.isArray(fdef.optspec)) {
+      row.optspec = fdef.optspec
+    }
+    if ('boolean' === typeof fdef.strict) {
+      row.strict = fdef.strict
     }
     if (null != fdef.transport && '' !== fdef.transport) {
       row.transport = String(fdef.transport)

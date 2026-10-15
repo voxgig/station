@@ -208,6 +208,24 @@ def _checksecrets(sdk, profile_name):
             seen[name] = (ref, derived)
 
 
+def block_of(profile, ref):
+    """The block that governs an instance: its own, else its api's."""
+    block = profile['sdk'].get(ref)
+    if block is None:
+        block = profile['api'].get(refapi(ref))
+    return block
+
+
+def instance_options(block, opts=None):
+    """3.5 for a named instance: the block's `options`, then its `base`
+    (steps 3-6), under the caller's options (step 9), per top-level key."""
+    out = dict((block or {}).get('options') or {})
+    if (block or {}).get('base') is not None:
+        out['base'] = block['base']
+    out.update(opts or {})
+    return out
+
+
 def _providers_of(profile):
     secrets = profile.get('secrets')
     if not isinstance(secrets, dict):

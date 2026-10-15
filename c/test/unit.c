@@ -95,6 +95,60 @@ static void test_identity(void) {
   free(t);
 }
 
+static void test_substitute(void) {
+  vxstn_val* headers = vxstn_map();
+  vxstn_val* sent;
+  const vxstn_val* copy;
+  const vxstn_val* length;
+
+  vxstn_map_set(headers, "x-api-key", vxstn_str("[station:k]"));
+  vxstn_map_set(headers, "content-length", vxstn_int(12));
+  sent = vxstn_substitute("http://h/x?k=%5Bstation%3Ak%5D", headers, "[station:k]", "a b");
+  CHECK_STR(vxstn_strval(vxstn_map_get(sent, "url")), "http://h/x?k=a%20b");
+  copy = vxstn_map_get(sent, "headers");
+  CHECK_STR(vxstn_strval(vxstn_map_get(copy, "x-api-key")), "a b");
+  length = vxstn_map_get(copy, "content-length");
+  CHECK(NULL != length && VXSTN_NUM == length->kind && 12 == length->i);
+  CHECK_STR(vxstn_strval(vxstn_map_get(headers, "x-api-key")), "[station:k]");
+  vxstn_val_free(sent);
+  vxstn_val_free(headers);
+
+  sent = vxstn_substitute("http://h/x", NULL, "[station:k]", "v");
+  copy = vxstn_map_get(sent, "headers");
+  CHECK(vxstn_is_map(copy) && 0 == copy->mlen);
+  vxstn_val_free(sent);
+}
+
+/* Every form of every held value is matched against the original text. */
+static void test_scrub_forms(void) {
+  static const char* ORDERS[2][2] = {{"%", "secret!"}, {"secret!", "%"}};
+  vxstn_open_opts opts;
+  vxstn_station* st;
+  char* red;
+  int k;
+
+  memset(&opts, 0, sizeof(opts));
+  opts.proxy = "off";
+
+  for (k = 0; k < 2; k++) {
+    st = vxstn_station_new(&opts, NULL);
+    vxstn_hoist(st, "a", ORDERS[k][0]);
+    vxstn_hoist(st, "b", ORDERS[k][1]);
+    red = vxstn_redact(st, "token=secret%21");
+    CHECK_STR(red, "token=[redacted]");
+    free(red);
+    vxstn_station_free(st);
+  }
+
+  st = vxstn_station_new(&opts, NULL);
+  vxstn_hoist(st, "a", "ab!");
+  vxstn_hoist(st, "b", "!c");
+  red = vxstn_redact(st, "x=ab%21c&y=!c");
+  CHECK_STR(red, "x=[redacted]&y=[redacted]");
+  free(red);
+  vxstn_station_free(st);
+}
+
 static void test_canonical(void) {
   vxstn_val* m = vxstn_map();
   vxstn_val* inner = vxstn_map();
@@ -331,6 +385,12 @@ static void test_secret_broker(void) {
   CHECK_STR(value, "resident-key");
   red = vxstn_redact(st, "saw resident-key here");
   CHECK_STR(red, "saw [redacted] here");
+  free(red);
+
+  /* The form a query placement sends is scrubbed too. */
+  vxstn_hoist(st, "taskpad", "tok!en 1");
+  red = vxstn_redact(st, "GET /x?token=tok%21en%201 for tok!en 1");
+  CHECK_STR(red, "GET /x?token=[redacted] for [redacted]");
   free(red);
 
   unsetenv("TASKPAD_APIKEY");
@@ -852,7 +912,7 @@ static void test_compose_and_check(void) {
   vxstn_val* config = vxstn_parse_json(
       "{\"main\":{\"name\":\"Solar\",\"slug\":\"solar\",\"version\":\"1\","
       "\"target\":\"c\"},\"feature\":{\"retry\":{\"options\":{\"max\":3},"
-      "\"transport\":\"base\"}}}",
+      "\"strict\":true,\"transport\":\"base\"}}}",
       NULL);
   vxstn_val* descriptor = vxstn_normalize_descriptor(config, NULL, NULL);
   vxstn_val* faults;
@@ -864,13 +924,13 @@ static void test_compose_and_check(void) {
   CHECK_STR(json, "[{\"active\":true,\"max\":2,\"name\":\"retry\"}]");
   free(json);
 
-  /* design 7.4: the descriptor now carries the feature's declared
-     options and its transport role. ADDITIVE - the `descriptor` corpus
-     fixtures carry neither and are unaffected. */
+  /* design 7.4: the descriptor carries the feature's declared schema
+     and its transport role. */
   {
     const vxstn_val* row = vxstn_list_get(vxstn_map_get(descriptor, "features"), 0);
     CHECK_STR(vxstn_strval(vxstn_map_get(row, "transport")), "base");
     CHECK(3 == vxstn_map_get(vxstn_map_get(row, "options"), "max")->i);
+    CHECK(vxstn_map_get(row, "strict")->b);
   }
 
   /* Known option, right kind: no fault. */
@@ -878,7 +938,7 @@ static void test_compose_and_check(void) {
   CHECK(0 == faults->len);
   vxstn_val_free(faults);
 
-  /* THE CASE THAT ACTUALLY BITES: a typo'd option name. */
+  /* A typo'd option name, on a strict feature. */
   {
     vxstn_val* typo = vxstn_parse_json("{\"retry\":{\"retires\":5}}", NULL);
     faults = vxstn_check_features(typo, descriptor);
@@ -925,7 +985,8 @@ static void test_compose_and_check(void) {
 static const char* SOLAR_CONFIG =
     "{\"main\":{\"name\":\"Solar\",\"slug\":\"solar\",\"version\":\"1.0.0\","
     "\"target\":\"c\"},"
-    "\"feature\":{\"retry\":{\"options\":{\"max\":3}},\"log\":{\"options\":{}},"
+    "\"feature\":{\"retry\":{\"options\":{\"max\":3},\"strict\":true},"
+    "\"log\":{\"options\":{}},"
     "\"ratelimit\":{\"options\":{\"rate\":1,\"burst\":1}}},"
     "\"options\":{\"base\":\"https://solar.example.com\","
     "\"auth\":{\"prefix\":\"Bearer \"}}}";
@@ -964,6 +1025,170 @@ static void fake_free(void* client) {
   free(c->instance);
   vxstn_val_free(c->options);
   free(c);
+}
+
+static const char* JOPLIN_CONFIG =
+    "{\"main\":{\"name\":\"Joplin\",\"slug\":\"joplin\",\"version\":\"1.0.0\","
+    "\"target\":\"c\"},"
+    "\"feature\":{\"test\":{\"options\":{\"active\":false},"
+    "\"optspec\":{\"entity\":\"`$MAP`\",\"net\":\"`$MAP`\"},"
+    "\"strict\":false,\"transport\":\"base\"},"
+    "\"retry\":{\"options\":{\"retries\":2}}},"
+    "\"options\":{\"base\":\"http://localhost:41184\"}}";
+
+static void* joplin_construct(const vxstn_val* options, void* ud) {
+  fake_client* c = (fake_client*)calloc(1, sizeof(fake_client));
+  char* fjson = vxstn_canonical(vxstn_map_get(options, "feature"));
+  vxstn_binding* binding =
+      vxstn_register(vxstn_current(), c, JOPLIN_CONFIG, fjson, NULL, NULL);
+  (void)ud;
+  c->options = vxstn_clone(options);
+  c->instance = vxstn_sdup(NULL == binding ? "" : binding->plugin);
+  vxstn_binding_free(binding);
+  free(fjson);
+  return c;
+}
+
+static void test_optspec_and_strict(void) {
+  vxstn_val* config = vxstn_parse_json(JOPLIN_CONFIG, NULL);
+  vxstn_val* descriptor = vxstn_normalize_descriptor(config, NULL, NULL);
+  vxstn_val* accepted = vxstn_parse_json(
+      "{\"test\":{\"active\":true,\"entity\":{\"note\":{}},\"net\":{\"offline\":true}},"
+      "\"retry\":{\"retires\":5}}",
+      NULL);
+  vxstn_val* refused = vxstn_parse_json("{\"test\":{\"net\":\"offline\"}}", NULL);
+  vxstn_val* faults;
+
+  /* optspec keys are declared, and a feature with no `strict` is open. */
+  faults = vxstn_check_features(accepted, descriptor);
+  CHECK(0 == faults->len);
+  vxstn_val_free(faults);
+
+  faults = vxstn_check_features(refused, descriptor);
+  CHECK(1 == faults->len);
+  CHECK(1 == faults->len &&
+        NULL != strstr(vxstn_strval(vxstn_map_get(faults->items[0], "message")),
+                       "expects map, but found string"));
+  vxstn_val_free(faults);
+
+  vxstn_val_free(refused);
+  vxstn_val_free(accepted);
+  vxstn_val_free(descriptor);
+  vxstn_val_free(config);
+}
+
+static void test_declarative_optspec(void) {
+  vxstn_open_opts opts;
+  vxstn_station* st;
+  vxstn_error* err = NULL;
+  vxstn_val* config;
+  void* client;
+
+  vxstn_reset_factories();
+  vxstn_reset();
+
+  memset(&opts, 0, sizeof(opts));
+  opts.proxy = "off";
+  opts.config_json = "{\"station\":1,\"profiles\":{\"default\":{\"sdk\":{\"joplin\":"
+                     "{\"feature\":{\"test\":{\"active\":true,"
+                     "\"entity\":{\"note\":{}}}}}}}}}";
+  st = vxstn_open(&opts, &err);
+  CHECK(NULL != st && NULL == err);
+
+  config = vxstn_parse_json(JOPLIN_CONFIG, NULL);
+  vxstn_provide("joplin", joplin_construct, NULL, config, NULL);
+
+  client = vxstn_sdk(st, "joplin", &err);
+  CHECK(NULL != client && NULL == err);
+  vxstn_error_free(err);
+
+  vxstn_val_free(config);
+  vxstn_reset_factories();
+  vxstn_station_free(st);
+  fake_free(client);
+  vxstn_reset();
+}
+
+static void test_options_named(void) {
+  vxstn_open_opts opts;
+  vxstn_station* st;
+  vxstn_error* err = NULL;
+  vxstn_val* extra = vxstn_parse_json("{\"suffix\":\".json\"}", NULL);
+  vxstn_val* named;
+  vxstn_val* unnamed;
+
+  vxstn_reset();
+  memset(&opts, 0, sizeof(opts));
+  opts.proxy = "off";
+  opts.config_json = "{\"station\":1,\"profiles\":{\"default\":{\"sdk\":{\"notes\":"
+                     "{\"base\":\"http://127.0.0.1:9\",\"options\":{\"headers\":"
+                     "{\"x-api-version\":\"2022-06-28\"},\"prefix\":\"/v1\"}}}}}}";
+  st = vxstn_open(&opts, &err);
+  CHECK(NULL != st && NULL == err);
+
+  named = vxstn_options(st, "notes", extra);
+  CHECK_STR(vxstn_strval(vxstn_map_get(named, "base")), "http://127.0.0.1:9");
+  CHECK_STR(vxstn_strval(vxstn_map_get(vxstn_map_get(named, "headers"), "x-api-version")),
+            "2022-06-28");
+  CHECK_STR(vxstn_strval(vxstn_map_get(named, "prefix")), "/v1");
+  CHECK_STR(vxstn_strval(vxstn_map_get(named, "suffix")), ".json");
+
+  unnamed = vxstn_options(st, NULL, extra);
+  CHECK(NULL == vxstn_map_get(unnamed, "headers"));
+  CHECK_STR(vxstn_strval(vxstn_map_get(unnamed, "suffix")), ".json");
+
+  vxstn_val_free(unnamed);
+  vxstn_val_free(named);
+  vxstn_val_free(extra);
+  vxstn_station_free(st);
+  vxstn_reset();
+}
+
+static void test_options_top_level_names(void) {
+  static const char* const forms[] = {"{\"instance\":\"notes$eu\",\"suffix\":\".json\"}",
+                                      "{\"as\":\"notes$eu\",\"suffix\":\".json\"}"};
+  static const char* const notes =
+      "{\"main\":{\"name\":\"Notes\",\"slug\":\"notes\",\"version\":\"1.0.0\","
+      "\"target\":\"c\"},\"options\":{\"base\":\"http://127.0.0.1:9\"}}";
+  size_t i;
+  for (i = 0; i < sizeof(forms) / sizeof(forms[0]); i++) {
+    vxstn_open_opts opts;
+    vxstn_station* st;
+    vxstn_error* err = NULL;
+    vxstn_val* extra = vxstn_parse_json(forms[i], NULL);
+    vxstn_val* built;
+    vxstn_binding* binding;
+    char* fjson;
+    int client = 0;
+
+    vxstn_reset();
+    memset(&opts, 0, sizeof(opts));
+    opts.proxy = "off";
+    opts.config_json = "{\"station\":1,\"profiles\":{\"default\":{\"sdk\":{"
+                       "\"notes\":{\"options\":{\"headers\":{\"x-api-version\":\"1\"}}},"
+                       "\"notes$eu\":{\"options\":{\"prefix\":\"/eu\"}}}}}}";
+    st = vxstn_open(&opts, &err);
+    CHECK(NULL != st && NULL == err);
+
+    built = vxstn_options(st, NULL, extra);
+    CHECK(NULL == vxstn_map_get(built, "instance"));
+    CHECK(NULL == vxstn_map_get(built, "as"));
+    CHECK(NULL == vxstn_map_get(built, "headers"));
+    CHECK_STR(vxstn_strval(vxstn_map_get(built, "prefix")), "/eu");
+    CHECK_STR(vxstn_strval(vxstn_map_get(built, "suffix")), ".json");
+
+    fjson = vxstn_canonical(vxstn_map_get(built, "feature"));
+    binding = vxstn_register(st, &client, notes, fjson, NULL, &err);
+    CHECK(NULL != binding);
+    CHECK_STR(NULL == binding ? "" : binding->plugin, "notes$eu");
+    vxstn_error_free(err);
+    vxstn_binding_free(binding);
+    free(fjson);
+    vxstn_val_free(built);
+    vxstn_val_free(extra);
+    vxstn_station_free(st);
+    vxstn_reset();
+  }
 }
 
 static void test_factory_table(void) {
@@ -1334,6 +1559,8 @@ static void test_open_validates(void) {
 
 int main(void) {
   test_identity();
+  test_substitute();
+  test_scrub_forms();
   test_canonical();
   test_parse_json();
   test_events_ring();
@@ -1353,10 +1580,14 @@ int main(void) {
   test_feature_merge();
   test_feature_order();
   test_compose_and_check();
+  test_optspec_and_strict();
+  test_options_named();
+  test_options_top_level_names();
   test_factory_table();
   test_check_package();
   test_declarative();
   test_declarative_feature_faults();
+  test_declarative_optspec();
   test_open_validates();
 
   if (0 == FAILS) {

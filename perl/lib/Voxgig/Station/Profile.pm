@@ -22,8 +22,8 @@ use Voxgig::Station::Struct qw(jsonform struct_parse);
 
 use Exporter 'import';
 our @EXPORT_OK = qw(
-  config_scope find_config_file load_config refapi resolve_profile
-  select_profile
+  block_of config_scope find_config_file instance_options load_config refapi
+  resolve_profile select_profile
 );
 
 sub _ismap { return ref( $_[0] ) eq 'HASH' ? 1 : 0 }
@@ -286,6 +286,23 @@ sub _checksecrets {
         $seen{$name} = [ $ref, $derived ] unless exists $seen{$name};
     }
     return;
+}
+
+# The block that governs an instance: its own, else its api's.
+sub block_of {
+    my ( $profile, $ref ) = @_;
+    my $own = $profile->{sdk}{$ref};
+    return defined $own ? $own : $profile->{api}{ refapi($ref) };
+}
+
+# 3.5 for a named instance: the block's `options`, then its `base`
+# (steps 3-6), under the caller's options (step 9), per top-level key.
+sub instance_options {
+    my ( $block, $opts ) = @_;
+    $block = {} unless ref($block) eq 'HASH';
+    my $out = { %{ ref( $block->{options} ) eq 'HASH' ? $block->{options} : {} } };
+    $out->{base} = $block->{base} if defined $block->{base};
+    return { %$out, %{ ref($opts) eq 'HASH' ? $opts : {} } };
 }
 
 1;

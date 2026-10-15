@@ -93,6 +93,14 @@ public final class StationTest {
   static final Subject PLACEHOLDER = args ->
       SecretBroker.placeholderFor(String.valueOf(args[0]));
 
+  static final Subject SUBSTITUTE = args -> {
+    Map<?, ?> vin = (Map<?, ?>) args[0];
+    SecretBroker.Substituted sent = SecretBroker.substitute(
+        String.valueOf(vin.get("url")), Descriptor.asmap(vin.get("headers")),
+        String.valueOf(vin.get("placeholder")), String.valueOf(vin.get("value")));
+    return map("url", sent.url, "headers", sent.headers);
+  };
+
   static final Subject DESCRIPTOR = args -> {
     Map<?, ?> vin = (Map<?, ?>) args[0];
     return Descriptor.normalizeDescriptor(vin.get("config"), vin.get("feature")).descriptor;
@@ -142,9 +150,16 @@ public final class StationTest {
   static final Subject CONFIG = args ->
       Shape.validateConfig(Shape.normalizeConfig(denull(args[0])));
 
+  // A `ref` asks for the options that named instance is constructed with.
   static final Subject INSTANCE = args -> {
     Map<?, ?> vin = (Map<?, ?>) args[0];
-    return Profile.resolveProfile(vin.get("config"), String.valueOf(vin.get("profile")));
+    Map<String, Object> profile =
+        Profile.resolveProfile(vin.get("config"), String.valueOf(vin.get("profile")));
+    if (!(vin.get("ref") instanceof String)) {
+      return profile;
+    }
+    return Profile.instanceOptions(
+        Profile.blockOf(profile, (String) vin.get("ref")), denullmap(vin.get("opts")));
   };
 
   // Design 6.1's `as` rule: pure over (api, opts), so it is corpus-shaped
@@ -156,12 +171,26 @@ public final class StationTest {
   };
 
   // Design 8's pure half: the three-level merge with its depth boundary,
-  // and the design 8.4 order resolution. ONE driver, TWO entry shapes -
-  // `merged` selects the resolver, anything else the merge - because a
-  // port that guessed from looser cues would run the wrong subject on a
-  // mistyped entry.
+  // the design 8.4 order resolution, and the design 8.5 option checker.
+  // ONE driver, THREE entry shapes - `check` selects the checker, `merged`
+  // the resolver, anything else the merge - because a port that guessed
+  // from looser cues would run the wrong subject on a mistyped entry.
   static final Subject FEATURE = args -> {
     Map<String, Object> vin = (Map<String, Object>) args[0];
+    if (vin.containsKey("check") && !Runner.NULLMARK.equals(vin.get("check"))) {
+      List<Object> out = new ArrayList<>();
+      for (Feature.Fault fault : Feature.checkfeatures(denullmap(vin.get("check")),
+          map("features", denull(vin.get("features"))))) {
+        Map<String, Object> one = new LinkedHashMap<>();
+        one.put("code", fault.code);
+        one.put("feature", fault.feature);
+        if (null != fault.key) {
+          one.put("key", fault.key);
+        }
+        out.add(one);
+      }
+      return out;
+    }
     if (vin.containsKey("merged") && !Runner.NULLMARK.equals(vin.get("merged"))) {
       List<Feature.Ordered> ordered =
           Feature.resolveorder(denullmap(vin.get("merged")));
@@ -194,6 +223,7 @@ public final class StationTest {
   static final List<Driver> DRIVERS = List.of(
       new Driver("secretname", SECRETNAME),
       new Driver("placeholder", PLACEHOLDER),
+      new Driver("substitute", SUBSTITUTE),
       new Driver("descriptor", DESCRIPTOR),
       new Driver("descriptorwarnings", DESCWARN),
       new Driver("canonical", CANONICAL),
@@ -317,7 +347,7 @@ public final class StationTest {
         "main", map("name", "Pad", "slug", "pad", "version", "0.0.1",
             "target", "java"),
         "feature", map(
-            "retry", map("options", map("retries", 3L, "wait", 100L)),
+            "retry", map("options", map("retries", 3L, "wait", 100L), "strict", true),
             "ratelimit", map("options", map("rate", 1L, "burst", 1L)),
             "debug", map("options", map("level", 1L)),
             "test", map()),
@@ -751,6 +781,125 @@ public final class StationTest {
       }
     });
 
+    testcase("feature options: optspec keys, kinds, and strict", () -> {
+      Map<String, Object> test = map("features", List.of(map(
+          "name", "test", "active", false, "options", map("active", false),
+          "optspec", map("entity", "`$MAP`", "net", "`$MAP`"), "strict", false)));
+      checkeq(Feature.checkfeatures(map("test", map("active", true,
+          "entity", map("note", map()), "net", map("offline", true))), test).size(), 0,
+          "an optspec key is declared");
+      List<Feature.Fault> faults =
+          Feature.checkfeatures(map("test", map("net", "offline")), test);
+      check(1 == faults.size()
+          && faults.get(0).message.contains("expects map, but found string"),
+          "and checked against its type");
+      checkeq(Feature.checkfeatures(map("test", map("seed", 1L)), test).size(), 0,
+          "a feature that is not strict accepts what its SDK accepts");
+
+      Map<String, Object> descriptor =
+          Descriptor.normalizeDescriptor(PADCONFIG, null).descriptor;
+      checkeq(Feature.checkfeatures(map("retry", map("retires", 5L)), descriptor).size(),
+          1, "a strict feature refuses an undeclared key");
+      checkeq(Feature.checkfeatures(map("ratelimit", map("rat", 5L)), descriptor).size(),
+          0, "no strict reads as false");
+    });
+
+    testcase("feature options: a native callable is a function option", () -> {
+      Map<String, Object> d = map("features", List.of(map(
+          "name", "retry", "active", false, "options", map("active", false),
+          "optspec", map("sleep", "`$FUNCTION`", "label", "`$STRING`"), "strict", false)));
+      java.util.function.Function<Integer, Integer> lambda = ms -> ms;
+      java.util.function.Supplier<String> reference = String::new;
+      java.util.function.Consumer<Map<String, Object>> sink = record -> {};
+      Runnable anonymous = new Runnable() {
+        @Override
+        public void run() {}
+      };
+      for (Object sleep : List.of(lambda, reference, sink, anonymous)) {
+        checkeq(Feature.checkfeatures(map("retry", map("sleep", sleep)), d).size(), 0,
+            "a callable: " + sleep.getClass().getName());
+      }
+      checkeq(Feature.checkfeatures(map("retry", map("sleep", "fast")), d).size(), 1,
+          "a string is not a function");
+      checkeq(Feature.checkfeatures(map("retry", map("label", lambda)), d).size(), 1,
+          "a function is not a string");
+    });
+
+    testcase("front door: sdk() takes the test feature options its optspec declares", () -> {
+      Factory.resetFactories();
+      try {
+        Map<String, Object> config = padconfig();
+        ((Map<String, Object>) config.get("main")).put("slug", "joplin");
+        config.put("feature", map("test", map(
+            "options", map("active", false),
+            "optspec", map("entity", "`$MAP`", "net", "`$MAP`"),
+            "strict", false, "transport", "base")));
+        Station.provide("joplin", new Factory(options -> {
+          Map<String, Object> fopts = Descriptor.asmap(
+              Descriptor.getprop(options.get("feature"), "station"));
+          Station.from(fopts).featureBinding(new Object(), List.of("station"), null,
+              config, options, fopts);
+          return options;
+        }, config));
+
+        for (Map<String, Object> test : List.of(
+            map("active", true, "entity", map("note", map())),
+            map("active", true, "net", map("offline", true)))) {
+          memoryStation(map(), map("joplin", map("feature", map("test", test))))
+              .sdk("joplin");
+        }
+
+        try {
+          memoryStation(map(), map("joplin", map("feature",
+              map("test", map("entity", "note"))))).sdk("joplin");
+          check(false, "a wrong kind must be refused");
+        } catch (StationError err) {
+          check(err.getMessage().contains("expects map, but found string"),
+              err.getMessage());
+        }
+      } finally {
+        Factory.resetFactories();
+      }
+    });
+
+    testcase("front door: options(name) hands a named instance its declared options", () -> {
+      Station st = memoryStation(map(), map("notes", map(
+          "base", "http://127.0.0.1:9",
+          "options", map("headers", map("x-api-version", "2022-06-28"), "prefix", "/v1"))));
+      Map<String, Object> named = new LinkedHashMap<>(st.options("notes", map("suffix", ".json")));
+      named.remove("feature");
+      checkeq(Descriptor.canonicalSerialize(named),
+          "{\"base\":\"http://127.0.0.1:9\",\"headers\":{\"x-api-version\":\"2022-06-28\"},"
+              + "\"prefix\":\"/v1\",\"suffix\":\".json\"}",
+          "the block options sit under the caller's");
+      Map<String, Object> unnamed = new LinkedHashMap<>(st.options(map("suffix", ".json")));
+      unnamed.remove("feature");
+      checkeq(Descriptor.canonicalSerialize(unnamed), "{\"suffix\":\".json\"}",
+          "an unnamed call is untouched");
+    });
+
+    testcase("front door: options() names the instance from a top-level instance or as", () -> {
+      for (Map<String, Object> named : List.of(map("instance", "pad$eu"), map("as", "pad$eu"))) {
+        Station st = memoryStation(map("PAD_APIKEY", "k"), map(
+            "pad", map("options", map("headers", map("x-api-version", "1"))),
+            "pad$eu", map("options", map("prefix", "/eu"))));
+        Map<String, Object> extra = new LinkedHashMap<>(named);
+        extra.put("suffix", ".json");
+        Map<String, Object> built = st.options(extra);
+        Map<String, Object> sdkopts = new LinkedHashMap<>(built);
+        sdkopts.remove("feature");
+        checkeq(Descriptor.canonicalSerialize(sdkopts), "{\"prefix\":\"/eu\",\"suffix\":\".json\"}",
+            named + ": merged, names stripped");
+
+        new PadSDK(built);
+        List<Object> names = new ArrayList<>();
+        for (Map<String, Object> plugin : st.plugins()) {
+          names.add(plugin.get("name"));
+        }
+        checkeq(names, List.of("pad$eu"), named + ": registered under the named ref");
+      }
+    });
+
     testcase("front door: warm dedupes by secret name; an unknown name is a miss", () -> {
       Station st = memoryStation(map("PAD_APIKEY", "k", "SHARED_APIKEY", "s"),
           map("pad", map(),
@@ -884,6 +1033,31 @@ public final class StationTest {
           "the override is keyed by instance");
     });
 
+    testcase("broker: a held value inside another held value's encoded form", () -> {
+      for (List<String> held : List.of(List.of("%", "secret!"), List.of("secret!", "%"))) {
+        SecretBroker broker = new SecretBroker(List.of());
+        for (int i = 0; i < held.size(); i++) {
+          broker.hoist("k" + i, held.get(i));
+        }
+        checkeq(broker.scrub("token=secret%21"), "token=[redacted]", String.join(" ", held));
+      }
+    });
+
+    testcase("broker: forms that overlap in the text are redacted as one span", () -> {
+      SecretBroker broker = new SecretBroker(List.of());
+      broker.hoist("a", "ab!");
+      broker.hoist("b", "!c");
+      checkeq(broker.scrub("x=ab%21c&y=!c"), "x=[redacted]&y=[redacted]", "one span");
+    });
+
+    testcase("broker: sekreto's own redact cannot hide an encoded form", () -> {
+      SecretBroker broker = new SecretBroker(List.of(
+          map("kind", "memory", "values", map("SCRUB_APIKEY", "abcd"))));
+      checkeq(broker.value("scrub", "scrub.apikey"), "abcd", "resolves");
+      broker.hoist("other", "abcd!x");
+      checkeq(broker.scrub("k=abcd%21x"), "k=[redacted]", "sekreto runs second");
+    });
+
     testcase("open: idempotent ambient, conflicting reopen fails", () -> {
       Station.reset();
       try {
@@ -1004,6 +1178,70 @@ public final class StationTest {
       Map<String, Object> hm = Descriptor.asmap(http.get("http"));
       check(Integer.valueOf(200).equals(hm.get("status")), "wire status");
       check(Long.valueOf(12L).equals(hm.get("bytes")), "bytes from content-length");
+    });
+
+    // A credential an `in: query` security scheme places in the URL.
+    String queryurl = "http://localhost:8000/api/todo?fields=id%2Ctitle&token="
+        + "%5Bstation%3Atest-plug%5D";
+    String wireurl = "http://localhost:8000/api/todo?fields=id%2Ctitle&token="
+        + "tok%21en%201";
+
+    testcase("transport: a query-placed credential reaches the wire, and nothing else", () -> {
+      Station st = memoryStation(map("TEST_PLUG_APIKEY", "tok!en 1"), null);
+      bind(st, new Object(), st.options(map()));
+
+      Map<String, Object> fetchdef = map("url", queryurl, "method", "GET",
+          "headers", map());
+      List<Object> sent = new ArrayList<>();
+      st.transport("test-plug", queryurl, fetchdef, true, "c1", (url, def) -> {
+        sent.add(url);
+        sent.add(def.get("url"));
+        return map("status", 200);
+      });
+      checkeq(sent.get(0), wireurl, "the encoded value reaches the inner transport");
+      checkeq(sent.get(1), wireurl, "and the sent copy's url");
+      checkeq(fetchdef.get("url"), queryurl, "the SDK's fetchdef keeps the placeholder");
+      String events = Json.stringify(st.events());
+      check(!events.contains("tok%21en%201"), "no encoded value in events");
+      check(!events.contains("tok!en 1"), "no value in events");
+    });
+
+    testcase("transport: a transport error quoting the URL is scrubbed", () -> {
+      Station st = memoryStation(map("TEST_PLUG_APIKEY", "tok!en 1"), null);
+      bind(st, new Object(), st.options(map()));
+
+      RuntimeException caught = null;
+      try {
+        st.transport("test-plug", queryurl, map("headers", map()), true, null,
+            (url, def) -> {
+              throw new IllegalStateException("failed: GET " + url);
+            });
+      } catch (RuntimeException err) {
+        caught = err;
+      }
+      check(null != caught, "the transport error surfaces");
+      check(!caught.getMessage().contains("tok%21en%201"), caught.getMessage());
+      check(caught.getMessage().contains("[redacted]"), caught.getMessage());
+      check(!Json.stringify(st.events()).contains("tok%21en%201"),
+          "no encoded value in events");
+    });
+
+    testcase("transport: an error quoting only the fetchdef url is scrubbed", () -> {
+      Station st = memoryStation(map("TEST_PLUG_APIKEY", "tok!en 1"), null);
+      bind(st, new Object(), st.options(map()));
+
+      RuntimeException caught = null;
+      try {
+        st.transport("test-plug", "http://localhost:8000/api/todo",
+            map("url", queryurl, "headers", map()), true, null, (url, def) -> {
+              throw new IllegalStateException("failed: GET " + def.get("url"));
+            });
+      } catch (RuntimeException err) {
+        caught = err;
+      }
+      check(null != caught, "the transport error surfaces");
+      check(!caught.getMessage().contains("tok%21en%201"), caught.getMessage());
+      check(caught.getMessage().contains("[redacted]"), caught.getMessage());
     });
 
     testcase("transport: no injection into mock transports", () -> {

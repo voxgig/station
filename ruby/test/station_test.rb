@@ -74,6 +74,20 @@ class FakeFeature
   end
 end
 
+# The generated rb SDK's error shape: `message` reads a writable `msg`.
+class FakeSdkError < StandardError
+  attr_accessor :msg
+
+  def initialize(msg)
+    super(msg)
+    @msg = msg
+  end
+
+  def to_s
+    @msg
+  end
+end
+
 CONFIG = {
   'main' => { 'name' => 'GnarlyPets', 'slug' => 'gnarly-pets',
               'version' => '0.0.1', 'target' => 'rb' },
@@ -136,7 +150,7 @@ SOLAR_CONFIG = {
   'feature' => {
     'debug' => { 'options' => { 'level' => 0 } },
     'ratelimit' => { 'options' => { 'rate' => 1, 'burst' => 1 } },
-    'retry' => { 'options' => { 'max' => 1, 'wait' => 100 } },
+    'retry' => { 'options' => { 'max' => 1, 'wait' => 100 }, 'strict' => true },
     'test' => { 'transport' => 'base' },
   },
   'options' => {
@@ -161,6 +175,23 @@ class SolarSDK
     (options['extend'] || []).each do |f|
       @client.features << f
       f.init(@ctx, fopts)
+    end
+  end
+end
+
+# A generated SDK is its own client, so the registry holds what
+# connect returns.
+class SelfSolarSDK < FakeClient
+  def initialize(options)
+    super()
+    @options = options
+    utility = FakeUtility.new
+    utility.fetcher = ->(_c, _u, _d) { [{ 'status' => 200 }, nil] }
+    ctx = FakeCtx.new(self, utility, options, SOLAR_CONFIG)
+    fopts = (options['feature'] || {})['station'] || {}
+    (options['extend'] || []).each do |f|
+      @features << f
+      f.init(ctx, fopts)
     end
   end
 end
@@ -396,6 +427,53 @@ class TestStation < Minitest::Test
     refute_includes JSON.generate(st.events), 'wire-key-9'
   end
 
+  def test_a_query_placed_credential_reaches_the_wire_encoded
+    ENV['GNARLY_PETS_APIKEY'] = 'tok!en 1'
+    st = VoxgigStation::Station.new('config' => nil)
+    seen = nil
+    b = bind(st, lambda { |_c, u, d|
+      seen = [u, d]
+      [okres, nil]
+    })
+
+    url = 'http://localhost:8903/api/pet?fields=id%2Cname&apikey=%5Bstation%3Agnarly-pets%5D'
+    fetchdef = { 'url' => url, 'method' => 'GET', 'headers' => {} }
+    _res, err = b[:utility].fetcher.call(b[:ctx], url, fetchdef)
+    assert_nil err
+
+    sent = 'http://localhost:8903/api/pet?fields=id%2Cname&apikey=tok%21en%201'
+    assert_equal sent, seen[0]
+    assert_equal sent, seen[1]['url']
+    assert_equal url, fetchdef['url']
+    refute_includes JSON.generate(st.events), 'tok%21en%201'
+    refute_includes JSON.generate(st.events), 'tok!en 1'
+  end
+
+  def test_a_transport_error_quoting_the_url_is_scrubbed
+    ENV['GNARLY_PETS_APIKEY'] = 'tok!en 1'
+    url = 'http://localhost:8903/api/pet?apikey=%5Bstation%3Agnarly-pets%5D'
+    inners = {
+      'string' => ->(_c, u, _d) { [nil, 'SocketError: GET ' + u] },
+      'sdk error' => ->(_c, u, _d) { [nil, FakeSdkError.new('failed: GET ' + u)] },
+      'raised' => ->(_c, u, _d) { raise IOError, 'failed: GET ' + u },
+    }
+    inners.each do |shape, inner|
+      st = VoxgigStation::Station.new('config' => nil)
+      b = bind(st, inner)
+      err = begin
+        b[:utility].fetcher.call(b[:ctx], url,
+          'url' => url, 'method' => 'GET', 'headers' => {})[1]
+      rescue IOError => e
+        assert_nil e.cause, 'the unscrubbed original rides no cause'
+        e
+      end
+      message = err.is_a?(String) ? err : err.message
+      refute_includes message, 'tok%21en%201', shape
+      assert_includes message, '[redacted]', shape
+      refute_includes JSON.generate(st.events), 'tok%21en%201', shape
+    end
+  end
+
   def test_no_injection_into_mock_transports
     ENV['GNARLY_PETS_APIKEY'] = 'never-on-mock'
     st = VoxgigStation::Station.new('config' => nil)
@@ -418,15 +496,16 @@ class TestStation < Minitest::Test
   def test_status_0_is_a_transport_failure
     ENV['GNARLY_PETS_APIKEY'] = 'status-zero-key'
     st = VoxgigStation::Station.new('config' => nil)
-    b = bind(st, lambda { |_c, _u, _d|
-      [{ 'status' => 0, 'statusText' => 'SocketError: boom',
-         'headers' => {}, 'json' => -> { nil }, 'body' => nil }, nil]
-    })
+    synthesized = { 'status' => 0, 'statusText' => 'SocketError: boom',
+                    'headers' => {}, 'json' => -> { nil }, 'body' => nil }
+    b = bind(st, ->(_c, _u, _d) { [synthesized, nil] })
 
     res, err = b[:utility].fetcher.call(b[:ctx], 'http://localhost:8903/x',
       'method' => 'GET', 'headers' => {})
     assert_nil err
     assert_equal 0, res['status']
+    # Nothing was placed in the URL, so the response comes back untouched.
+    assert_same synthesized, res
 
     http = st.events.select { |e| 'http' == e['kind'] }
     errs = st.events.select { |e| 'error' == e['kind'] }
@@ -434,6 +513,50 @@ class TestStation < Minitest::Test
     assert_equal 0, http[0]['http']['status']
     assert_equal 1, errs.length
     assert_includes errs[0]['err']['message'], 'SocketError'
+  end
+
+  def test_a_status_0_response_after_a_url_placement_is_scrubbed
+    ENV['GNARLY_PETS_APIKEY'] = 'tok!en 1'
+    st = VoxgigStation::Station.new('config' => nil)
+    b = bind(st, lambda { |_c, u, _d|
+      [{ 'status' => 0, 'statusText' => 'SocketError: GET ' + u,
+         'headers' => {}, 'json' => -> { nil }, 'body' => 'GET ' + u,
+         'err' => FakeSdkError.new('failed: GET ' + u) }, nil]
+    })
+
+    url = 'http://localhost:8903/api/pet?apikey=%5Bstation%3Agnarly-pets%5D'
+    res, err = b[:utility].fetcher.call(b[:ctx], url,
+      'url' => url, 'method' => 'GET', 'headers' => {})
+    assert_nil err
+    assert_equal 0, res['status']
+    [res['statusText'], res['body'], res['err'].message].each do |text|
+      refute_includes text, 'tok%21en%201'
+      assert_includes text, '[redacted]'
+    end
+    refute_includes JSON.generate(st.events), 'tok%21en%201'
+  end
+
+  def test_an_error_quoting_only_the_fetchdef_url_is_scrubbed
+    ENV['GNARLY_PETS_APIKEY'] = 'tok!en 1'
+    url = 'http://localhost:8903/api/pet'
+    defurl = url + '?apikey=%5Bstation%3Agnarly-pets%5D'
+    inners = {
+      'string' => ->(_c, _u, d) { [nil, 'SocketError: GET ' + d['url']] },
+      'raised' => ->(_c, _u, d) { raise IOError, 'failed: GET ' + d['url'] },
+    }
+    inners.each do |shape, inner|
+      st = VoxgigStation::Station.new('config' => nil)
+      b = bind(st, inner)
+      err = begin
+        b[:utility].fetcher.call(b[:ctx], url,
+          'url' => defurl, 'method' => 'GET', 'headers' => {})[1]
+      rescue IOError => e
+        e
+      end
+      message = err.is_a?(String) ? err : err.message
+      refute_includes message, 'tok%21en%201', shape
+      assert_includes message, '[redacted]', shape
+    end
   end
 
   def test_hosts_policy_denies_off_list_egress
@@ -671,6 +794,44 @@ class TestStation < Minitest::Test
     testrow = d['features'].find { |f| 'test' == f['name'] }
     assert_equal 'base', testrow['transport']
     refute testrow.key?('options')
+
+    assert_equal true, retryrow['strict']
+    refute testrow.key?('strict')
+  end
+
+  def test_an_undeclared_key_is_refused_only_when_strict
+    d = VoxgigStation.normalize_descriptor(SOLAR_CONFIG, nil)[:descriptor]
+    faults = VoxgigStation.check_features({ 'retry' => { 'retires' => 5 } }, d)
+    assert_equal ['retires'], faults.map { |f| f['key'] }
+
+    # ratelimit carries no `strict`, which sdkgen reads as false.
+    assert_equal [], VoxgigStation.check_features({ 'ratelimit' => { 'rat' => 5 } }, d)
+  end
+
+  def test_a_native_callable_is_a_function_option
+    d = { 'features' => [{
+      'name' => 'retry', 'active' => false, 'options' => { 'active' => false },
+      'optspec' => { 'sleep' => '`$FUNCTION`', 'label' => '`$STRING`' }, 'strict' => false,
+    }] }
+    [proc { |ms| ms }, ->(ms) { ms }, 1.method(:+)].each do |sleep|
+      assert_equal [], VoxgigStation.check_features({ 'retry' => { 'sleep' => sleep } }, d),
+                   sleep.class.name
+    end
+    assert_equal 1, VoxgigStation.check_features({ 'retry' => { 'sleep' => 'fast' } }, d).length
+    assert_equal 1, VoxgigStation.check_features({ 'retry' => { 'label' => -> {} } }, d).length
+  end
+
+  def test_an_optspec_key_is_declared_and_type_checked
+    d = { 'features' => [{
+      'name' => 'test', 'active' => false, 'options' => { 'active' => false },
+      'optspec' => { 'entity' => '`$MAP`', 'net' => '`$MAP`' }, 'strict' => false,
+    }] }
+    assert_equal [], VoxgigStation.check_features(
+      { 'test' => { 'active' => true, 'entity' => { 'note' => {} },
+                    'net' => { 'offline' => true } } }, d)
+
+    faults = VoxgigStation.check_features({ 'test' => { 'net' => 'offline' } }, d)
+    assert_includes faults[0]['message'], 'expects map, but found string'
   end
 
   # --- the ref grammar (design station.md 6.1) ---
@@ -1067,6 +1228,31 @@ class TestStation < Minitest::Test
     assert_equal 'v-1', broker.value('solar$eu', 'shared.apikey')
   end
 
+  def test_a_held_value_inside_another_held_values_encoded_form
+    [['%', 'secret!'], ['secret!', '%']].each do |held|
+      broker = VoxgigStation::SecretBroker.new([])
+      held.each_with_index { |value, i| broker.hoist("k#{i}", value) }
+      assert_equal 'token=[redacted]', broker.scrub('token=secret%21'), held.join(' ')
+    end
+  end
+
+  def test_forms_that_overlap_in_the_text_are_redacted_as_one_span
+    broker = VoxgigStation::SecretBroker.new([])
+    broker.hoist('a', 'ab!')
+    broker.hoist('b', '!c')
+    assert_equal 'x=[redacted]&y=[redacted]', broker.scrub('x=ab%21c&y=!c')
+  end
+
+  def test_sekretos_own_redact_cannot_hide_an_encoded_form
+    ENV['SCRUB_APIKEY'] = 'abcd'
+    broker = VoxgigStation::SecretBroker.new([{ 'kind' => 'env' }])
+    assert_equal 'abcd', broker.value('scrub', 'scrub.apikey')
+    broker.hoist('other', 'abcd!x')
+    assert_equal 'k=[redacted]', broker.scrub('k=abcd%21x')
+  ensure
+    ENV.delete('SCRUB_APIKEY')
+  end
+
   # --- block_for, policy, options ---
 
   # An IMPERATIVE instance is named but never written into config, so
@@ -1082,6 +1268,102 @@ class TestStation < Minitest::Test
 
     assert_equal ['solar$test'], st.plugins.map { |p| p['name'] }
     assert_equal ['api.solar.test'], st.block_for('solar$test')['policy']['hosts']
+  end
+
+  def test_connect_keeps_as_and_instance_out_of_the_sdk_options
+    st = VoxgigStation::Station.new('config' => nil)
+    sdk = st.connect(RetroPackage::SDK, 'as' => 'spare', 'base' => 'http://x')
+    assert_equal %w[base extend feature], sdk.options.keys.sort
+    assert_equal 'spare', sdk.options['feature']['station']['as']
+
+    sdk = st.connect(RetroPackage::SDK, 'instance' => 'solar$spare')
+    assert_equal %w[extend feature], sdk.options.keys.sort
+    assert_equal 'solar$spare', sdk.options['feature']['station']['instance']
+  end
+
+  def test_options_hands_a_named_instance_its_declared_options
+    st = solar_station('sdk' => { 'notes' => {
+      'base' => 'http://127.0.0.1:9',
+      'options' => { 'headers' => { 'x-api-version' => '2022-06-28' }, 'prefix' => '/v1' },
+    } })
+    assert_equal({ 'base' => 'http://127.0.0.1:9',
+                   'headers' => { 'x-api-version' => '2022-06-28' }, 'prefix' => '/v1',
+                   'suffix' => '.json' },
+                 st.options('notes', 'suffix' => '.json').except('feature'))
+    assert_equal({ 'suffix' => '.json' }, st.options('suffix' => '.json').except('feature'))
+  end
+
+  def test_options_names_the_instance_from_a_top_level_instance_or_as
+    [{ 'instance' => 'solar$eu' }, { 'as' => 'solar$eu' }].each do |named|
+      st = solar_station('sdk' => {
+        'solar' => { 'options' => { 'headers' => { 'x-api-version' => '1' } } },
+        'solar$eu' => { 'options' => { 'prefix' => '/eu' } },
+      })
+      built = st.options(named.merge('suffix' => '.json'))
+      assert_equal({ 'prefix' => '/eu', 'suffix' => '.json' }, built.except('feature'))
+
+      client = FakeClient.new
+      client.features << VoxgigStation.adapter_feature(st, {})
+      ctx = FakeCtx.new(client, FakeUtility.new, built.dup, SOLAR_CONFIG)
+      VoxgigStation.feature_binding(ctx, built['feature']['station'])
+      assert_equal ['solar$eu'], st.plugins.map { |p| p['name'] }
+    end
+  end
+
+  def test_connect_and_adopt_hand_a_named_instance_its_options
+    st = solar_station('sdk' => { 'notes' => {
+      'base' => 'http://127.0.0.1:9',
+      'options' => { 'headers' => { 'x-api-version' => '2022-06-28' }, 'prefix' => '/v1' },
+    } })
+    want = { 'base' => 'http://127.0.0.1:9',
+             'headers' => { 'x-api-version' => '2022-06-28' }, 'prefix' => '/v1' }
+
+    [st.connect(RetroPackage::SDK, 'instance' => 'notes'),
+     st.adopt(RetroPackage::SDK, 'instance' => 'notes'),
+     st.connect(RetroPackage::SDK, 'feature' => { 'station' => { 'instance' => 'notes' } })]
+      .each { |sdk| assert_equal want, sdk.options.except('feature', 'extend') }
+
+    # The caller wins per top-level key, as in build().
+    sdk = st.connect(RetroPackage::SDK, 'as' => 'notes$',
+                     'headers' => { 'x-caller' => 'yes' }, 'suffix' => '.json')
+    assert_equal({ 'base' => 'http://127.0.0.1:9', 'headers' => { 'x-caller' => 'yes' },
+                   'prefix' => '/v1', 'suffix' => '.json' },
+                 sdk.options.except('feature', 'extend'))
+  end
+
+  def test_an_unnamed_connect_warns_that_options_cannot_reach
+    st = solar_station('sdk' => { 'solar' => {
+      'options' => { 'headers' => { 'x-api-version' => '1' } },
+    } })
+    client = st.connect(SelfSolarSDK, 'prefix' => '/mine')
+    refute client.options.key?('headers')
+
+    warns = st.events.select { |e| 'solar' == e['plugin'] && (e['meta'] || {})['warn'] }
+                     .map { |e| e['meta']['warn'] }
+    assert_equal 1, warns.length
+    assert_includes warns[0], '[headers]'
+    assert_includes warns[0], '{ instance: "solar" }'
+  end
+
+  def test_sdk_takes_the_test_feature_options_its_optspec_declares
+    config = SOLAR_CONFIG.merge(
+      'main' => SOLAR_CONFIG['main'].merge('slug' => 'joplin', 'name' => 'Joplin'),
+      'feature' => { 'test' => {
+        'options' => { 'active' => false },
+        'optspec' => { 'entity' => '`$MAP`', 'net' => '`$MAP`' },
+        'strict' => false, 'transport' => 'base',
+      } })
+    VoxgigStation::Station.provide('joplin',
+      'construct' => ->(o) { RetroPackage::SDK.new(o) }, 'config' => config)
+
+    [{ 'active' => true, 'entity' => { 'note' => {} } },
+     { 'active' => true, 'net' => { 'offline' => true } }].each do |test|
+      solar_station('sdk' => { 'joplin' => { 'feature' => { 'test' => test } } }).sdk('joplin')
+    end
+
+    st = solar_station('sdk' => { 'joplin' => { 'feature' => { 'test' => { 'entity' => 'note' } } } })
+    err = assert_raises(VoxgigStation::StationError) { st.sdk('joplin') }
+    assert_includes err.message, 'expects map, but found string'
   end
 
   def test_policy_allow_is_enforcement_and_reaches_the_sdk_options

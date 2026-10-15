@@ -815,7 +815,7 @@ section of the conformance corpus (§10.1).
 | `feature.retry.active: "yes"` | `Expected field ... .active to be boolean, but found string: yes` |
 | `order: ["test", 7]` | `to be one of nil, string, [child,string]` |
 | `feature: []` | `Expected field profiles.default.feature to be object, but found list` |
-| `feature.retry.retires: 5` | **passes statically** — caught at registration by §8.5, with the declared key list |
+| `feature.retry.retires: 5` | **passes statically** — caught at registration by §8.5 when `retry` is `strict`, with the declared key list; a feature that is not strict takes it, as the SDK does |
 | `order: [7]` | **passes the shape** (the §4.4 element-0 gap) — caught by `validateConfig`'s explicit first-element check |
 | `policy.hosts: [1]` | same gap, same explicit check |
 | `feature.station.active: false` | `station_feature_reserved` (§8.4) |
@@ -1428,9 +1428,10 @@ guess about the other.
 **One field has to arrive, too.** The descriptor's `features` list is
 `{name, active}` today, which throws away what the SDK already embeds:
 `config.feature[name].options`, the feature's declared option keys with
-typed defaults (§8.1). It gains `options` (the declared defaults) and
-`transport` (the role from §8.4), because that is the schema §8.5
-validates against and the roles §8.4 orders by. Both are already inside
+typed defaults (§8.1). It gains `options` (the declared defaults),
+`optspec` (the declared types) and `strict` (whether the SDK closes the
+key set), which are the schema §8.5 validates against, and `transport`
+(the role from §8.4), which §8.4 orders by. All four are already inside
 the SDK; the descriptor stops discarding them. Additive, so
 `station.md` §4's descriptor v1 consumers are unaffected. The `descriptor` corpus section gains a case
 asserting the shared descriptor is byte-identical across two instances
@@ -1721,14 +1722,43 @@ declaration*:
 
 - **an unknown feature name** → `station_feature_unknown`, with the
   SDK's actual feature list in the message;
-- **an unknown option key** → `station_feature_option`, with that
-  feature's declared keys. This catches `retry.retires: 5`, which today
-  is accepted and silently ignored: `makeOptions`' feature spec is
-  `` `$OPEN` `` per feature, so the SDK cannot catch it and nothing
-  else looks;
-- **a wrong type** → for a **scalar** option, checked against the
-  default's type, since the defaults are typed (`retries: 2` a number,
-  `ttl: 5000` a number, `fromEnv: false` a boolean).
+- **an undeclared option key** → `station_feature_option`, with that
+  feature's declared keys, **on a feature the SDK closes**. A feature
+  declares its keys in two places: `options`, keys with a default, and
+  `optspec`, a type for a key with no default or whose default
+  understates it (a callback, `paging.limit`, the `test` feature's
+  `entity` and `net` seeds). A key in either is declared. Whether an
+  undeclared key is refused follows the SDK's own option spec: sdkgen's
+  `featureOptionSpec` leaves a feature `` `$OPEN` `` unless it declares
+  `strict: true`. So station refuses an undeclared key only under
+  `strict: true`; `strict: false`, and a feature with no `strict`,
+  accept it, because the SDK accepts it and station must not refuse
+  what the SDK it configures would take;
+- **a wrong kind** → checked against the key's `optspec` type when it
+  has one, else against its default's kind (`retries: 2` a number,
+  `fromEnv: false` a boolean). **The type outranks the default**, as in
+  sdkgen's own spec: a key in both is one the author gave a default and
+  a type, and the type is the more specific statement (`netsim.latency`
+  defaults to `0` and admits a map). **Null is never the wrong kind for
+  a declared option**: sdkgen's `optionalSpec` widens every declared
+  option, by default or by type, with `` `$NIL` ``, so `retries: null`
+  and `sleep: null` are taken; and a `null` default constrains nothing,
+  as sdkgen's `byExampleSpec(null)` is `` `$ANY` ``, though an `optspec`
+  type still outranks it. A token names one kind —
+  `` `$MAP` ``, `` `$STRING` ``, `` `$NUMBER` `` (with `` `$INTEGER` ``
+  and `` `$DECIMAL` ``), `` `$BOOLEAN` ``, `` `$FUNCTION` ``,
+  `` `$ARRAY` `` or `` `$LIST` ``, `` `$NULL` ``. `` [`$ONE`, …] ``
+  admits each alternative's kind and `` [`$EXACT`, …] `` the kinds of
+  its values, the values themselves being the SDK's to check.
+  `` `$ANY` ``, and a token station does not know, admit everything, so
+  a token sdkgen adds later is never a refusal. A function is the
+  port's own callable: anything `callable` in Python, a Proc, lambda or
+  Method in Ruby, a func in Go, a lambda, method reference or
+  functional-interface object in Java (the generated features take a
+  `Consumer` or a `Supplier` as readily as a `Function`), a CODE ref in
+  Perl, and a `Closure` in PHP, where a callable *string* stays a
+  string, as struct's PHP `typify` has it. The C, C++ and Rust checkers
+  see configuration as JSON, which carries no function.
 
 **Compound options are checked to kind only, and that limit is real.**
 A default establishes that `statuses` is a list and `noProxy` is a
@@ -1743,9 +1773,12 @@ kind-checked, and closing that needs the feature model to declare an
 explicit option schema rather than only a default** — a further sdkgen
 change, listed in §11 item 8 and deliberately not pretended away here.
 
-What *is* true by construction is the key set: an option the feature
-does not declare is rejected whatever its type, which is the case that
-actually bites. The checker is a struct spec **derived from the
+What *is* true by construction is the key set of a strict feature: an
+option it does not declare is rejected whatever its type. **No feature
+sdkgen generates is strict today** — its feature model defaults
+`strict` to `false` — so for a generated SDK `retry.retires: 5` passes,
+as the SDK itself takes it. Refusing that typo is the feature model's
+call, made by declaring `strict: true`, not station's. The checker is a struct spec **derived from the
 descriptor**, not hand-written, so it cannot drift — when a feature
 gains an option, the next regeneration teaches station about it with no
 station change. And it runs through the same `struct.validate` the
@@ -1923,7 +1956,10 @@ library exists.**
   is still live and still the defect worth guarding — and **a name and
   an untagged ref are the same key string**, so an `api` block and an
   `sdk` block may both exist for one name and are told apart by the map
-  they are in, never lexically.
+  they are in, never lexically. An entry with a `ref` asks for the
+  options that instance is constructed with — the block's `options` and
+  `base` under the entry's `opts` — which holds every construction path
+  to `station.md` §3.5's merge.
 
   The section previously also guarded *the api resolved before its
   defaults are looked up*. That case is **deleted rather than moved**:
@@ -1953,9 +1989,10 @@ library exists.**
   cycle rejected, and an ordering that would move the pinned station
   wrap rejected. That set is deliberately the same shape as plugin's
   `order` corpus section, because it is the one station holds itself to
-  under C4 (`station-and-plugin-plan.md` §3). Feature *option* checking is descriptor-dependent, so
-  it lives in the integration suites (§10.2) with a small
-  descriptor-shaped fixture, not in the JSON corpus. Three rules that
+  under C4 (`station-and-plugin-plan.md` §3). Feature *option* checking
+  (§8.5) is pinned here too, by a third entry shape: `check` holds a
+  merged feature map and `features` the descriptor rows it is checked
+  against, so the checker is held to data without a factory. Three rules that
   *are* pure data are pinned by the **`config`** section rather than
   here, because they are `validateConfig`'s behaviour and Stage 1's exit
   criterion binds them: `feature.station` reserved, `options.feature`
@@ -2004,9 +2041,9 @@ checkable:
 - an instance-level `{retry: {retries: 1}}` tunes it without turning it
   off, and `features()` reports `retries` as instance-set and `active`
   as profile-set;
-- `feature.retry.retires: 5` fails `check()` with
-  `station_feature_option` naming the declared keys — the case the SDK's
-  own `` `$OPEN` `` spec cannot catch;
+- on a feature declaring `strict: true`, `feature.retry.retires: 5`
+  fails `check()` with `station_feature_option` naming the declared
+  keys; on one that does not, it passes, as it does in the SDK;
 - an unknown feature name fails with the SDK's real feature list;
 - an `after` constraint on one feature produces that wrap nesting, a
   constraint naming an absent feature is satisfied vacuously, and one
@@ -2202,7 +2239,8 @@ construction path, and before Stage 4 because the generator work in
 
 *Exit:* §10.3 is green — a fleet-wide feature default reaches an
 instance that never mentions it, a per-instance tweak composes with it,
-and `retry.retires` fails `check()` naming the real keys.
+and `retry.retires` on a strict feature fails `check()` naming the real
+keys.
 
 ### Stage 4 — the generator side
 

@@ -79,10 +79,10 @@ use Voxgig::Station::Descriptor qw(
 );
 use Voxgig::Station::Error qw(is_known_code);
 use Voxgig::Station::Feature qw(
-  checkpin featuresources mergefeatures resolveorder
+  checkfeatures checkpin featuresources mergefeatures resolveorder
 );
-use Voxgig::Station::Profile qw(resolve_profile);
-use Voxgig::Station::Secrets qw(placeholder_for);
+use Voxgig::Station::Profile qw(block_of instance_options resolve_profile);
+use Voxgig::Station::Secrets qw(placeholder_for substitute);
 use Voxgig::Station::Shape qw(normalize_config validate_config);
 use Voxgig::Station::Struct qw(struct_parse);
 
@@ -160,6 +160,14 @@ my @DRIVERS = (
     [ placeholder => sub { return placeholder_for( $_[0] ) } ],
 
     [
+        substitute => sub {
+            my ($vin) = @_;
+            return substitute( $vin->{url}, $vin->{headers}, $vin->{placeholder},
+                $vin->{value} );
+        }
+    ],
+
+    [
         descriptor => sub {
             my ($vin) = @_;
             my ($descriptor) =
@@ -189,11 +197,15 @@ my @DRIVERS = (
         }
     ],
 
-    # The 3.3 merge, and the whole of this port's profile contract.
+    # The 3.3 merge, and the whole of this port's profile contract. A
+    # `ref` asks for the options that named instance is constructed with.
     [
         instance => sub {
             my ($vin) = @_;
-            return resolve_profile( denull( $vin->{config} ), $vin->{profile} );
+            my $profile = resolve_profile( denull( $vin->{config} ), $vin->{profile} );
+            return $profile unless defined $vin->{ref};
+            return instance_options( block_of( $profile, $vin->{ref} ),
+                denull( $vin->{opts} ) );
         }
     ],
 
@@ -201,14 +213,25 @@ my @DRIVERS = (
     # rather than driver-shaped even though it decides a registry key.
     [ instanceref => sub { return instance_ref( $_[0]{api}, $_[0]{opts} ) } ],
 
-    # 8's pure half: the three-level merge with its depth boundary, and
-    # the 8.4 order resolution. ONE driver, TWO entry shapes - `merged`
-    # selects the resolver, anything else the merge - because a port that
-    # guessed from looser cues would run the wrong subject on a mistyped
-    # entry.
+    # 8's pure half: the three-level merge with its depth boundary, the
+    # 8.4 order resolution, and the 8.5 option checker. ONE driver, THREE
+    # entry shapes - `check` selects the checker, `merged` the resolver,
+    # anything else the merge - because a port that guessed from looser
+    # cues would run the wrong subject on a mistyped entry.
     [
         feature => sub {
             my ($vin) = @_;
+            if ( defined $vin->{check} ) {
+                my $faults = checkfeatures( denull( $vin->{check} ),
+                    { features => denull( $vin->{features} ) } );
+                return [
+                    map {
+                        my $f = $_;
+                        +{ map { exists $f->{$_} ? ( $_ => $f->{$_} ) : () }
+                              qw(code feature key) }
+                    } @$faults
+                ];
+            }
             if ( defined $vin->{merged} ) {
                 my $ordered = resolveorder( mergedorder($vin) );
                 checkpin($ordered);

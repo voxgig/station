@@ -58,12 +58,13 @@ export type Descriptor = {
   server: { name: string, value: string }[]
   auth: { active: boolean, prefix: string, secretname: string }
   entities: Record<string, DescriptorEntity>
-  // `options` is the feature's declared key set with typed defaults
-  // (§8.5's schema); `transport` its role (§8.4). Both additive, and
-  // absent when the SDK does not carry them.
+  // §8.5's schema is `options` (keys with typed defaults), `optspec`
+  // (keys with a type and no default) and `strict`; `transport` is the
+  // role (§8.4). All additive, and absent when the SDK does not carry them.
   features: {
     name: string, active: boolean,
-    options?: Record<string, any>, transport?: string,
+    options?: Record<string, any>, optspec?: Record<string, any>,
+    strict?: boolean, transport?: string,
   }[]
 }
 

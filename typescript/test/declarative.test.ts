@@ -240,7 +240,8 @@ describe('declarative-front-door', () => {
   })
 
   test('check() catches a feature typo without constructing anything', () => {
-    const stripe = fakeSDK('stripe', { retry: { options: { retries: 2 } } })
+    const stripe = fakeSDK('stripe',
+      { retry: { options: { retries: 2 }, strict: true } })
     provide('stripe', { construct: (o) => new stripe.SDK(o), config: stripe.config })
 
     const st = station({
@@ -537,7 +538,8 @@ describe('auto-tagged clients keep the declared instance s identity', () => {
     // called `check()` — and `check()` had its own gap when the factory
     // came from the loader. Validating where the factory RESOLVES
     // closes both, because every path to a constructor goes through it.
-    const stripe = fakeSDK('stripe', { retry: { options: { retries: 1 } } })
+    const stripe = fakeSDK('stripe',
+      { retry: { options: { retries: 1 }, strict: true } })
     provide('stripe', { construct: (o) => new stripe.SDK(o), config: stripe.config })
 
     const st = station({ 'stripe$a': { feature: { retry: { retires: 5 } } } })
@@ -570,6 +572,137 @@ describe('auto-tagged clients keep the declared instance s identity', () => {
     equal('one.key',
       st.plugins().filter((p) => 'stripe$1' === p.name)[0].secretname)
 
+    st.close()
+  })
+})
+
+
+describe('declared-options-and-feature-schema', () => {
+  beforeEach(() => resetFactories())
+  after(() => resetFactories())
+
+  const NOTES = {
+    base: 'http://127.0.0.1:9',
+    options: { headers: { 'x-api-version': '2022-06-28' }, prefix: '/v1' },
+  }
+
+  function recorder() {
+    const seen: any[] = []
+    class NotesSDK {
+      constructor(o: any) {
+        const { feature: _f, extend: _e, ...rest } = o
+        seen.push(rest)
+      }
+    }
+    return { NotesSDK, seen }
+  }
+
+  test('connect and adopt hand a named instance its declared options', () => {
+    const st = station({ notes: NOTES }, { proxy: 'off', load: false })
+    const { NotesSDK, seen } = recorder()
+
+    st.connect(NotesSDK, { instance: 'notes' })
+    st.adopt(NotesSDK, { instance: 'notes' })
+    st.connect(NotesSDK, { feature: { station: { instance: 'notes' } } })
+
+    for (const one of seen) {
+      deepStrictEqual(one, {
+        base: 'http://127.0.0.1:9',
+        headers: { 'x-api-version': '2022-06-28' },
+        prefix: '/v1',
+      })
+    }
+    equal(3, seen.length)
+    st.close()
+  })
+
+  test('the caller wins per top-level key, as in build()', () => {
+    const st = station({ notes: NOTES }, { proxy: 'off', load: false })
+    const { NotesSDK, seen } = recorder()
+
+    st.connect(NotesSDK, {
+      as: 'notes$', headers: { 'x-caller': 'yes' }, suffix: '.json',
+    })
+    deepStrictEqual(seen[0], {
+      base: 'http://127.0.0.1:9',
+      headers: { 'x-caller': 'yes' },
+      prefix: '/v1',
+      suffix: '.json',
+    })
+    st.close()
+  })
+
+  test('options() hands a named instance its declared options too', () => {
+    const st = station({ notes: NOTES }, { proxy: 'off', load: false })
+
+    const { feature: _f, ...named } = st.options('notes', { suffix: '.json' })
+    deepStrictEqual(named, {
+      base: 'http://127.0.0.1:9',
+      headers: { 'x-api-version': '2022-06-28' },
+      prefix: '/v1',
+      suffix: '.json',
+    })
+
+    const { feature: _g, ...unnamed } = st.options({ suffix: '.json' })
+    deepStrictEqual(unnamed, { suffix: '.json' })
+    st.close()
+  })
+
+  test('options() names the instance from a top-level instance or as, as connect does', () => {
+    const notes = fakeSDK('notes')
+    const blocks = { notes: NOTES, 'notes$eu': { options: { prefix: '/eu' } } }
+
+    for (const named of [{ instance: 'notes$eu' }, { as: 'notes$eu' }]) {
+      const st = station(blocks, { proxy: 'off', load: false })
+      const built = st.options({ ...named, suffix: '.json' })
+      const { feature: _f, ...sdkopts } = built
+      deepStrictEqual(sdkopts, { prefix: '/eu', suffix: '.json' })
+
+      new notes.SDK(built)
+      deepStrictEqual(st.plugins().map((p) => p.name), ['notes$eu'])
+      st.close()
+    }
+  })
+
+  test('an unnamed connect cannot apply them, and says so', () => {
+    const notes = fakeSDK('notes')
+    const st = station({ notes: NOTES }, { proxy: 'off', load: false })
+
+    const client: any = st.connect(notes.SDK, { prefix: '/mine' })
+    equal(undefined, client.options.headers)
+
+    const warns = st.events()
+      .filter((e) => 'notes' === e.plugin && null != e.meta?.warn)
+      .map((e) => e.meta!.warn)
+    equal(1, warns.length)
+    equal(true, -1 !== warns[0].indexOf('[headers]'))
+    equal(true, -1 !== warns[0].indexOf('{ instance: "notes" }'))
+    st.close()
+  })
+
+  test('sdk() takes the test feature options its optspec declares', () => {
+    const joplin = fakeSDK('joplin', {
+      test: {
+        options: { active: false },
+        optspec: { entity: '`$MAP`', net: '`$MAP`' },
+        strict: false,
+        transport: 'base',
+      },
+    })
+    provide('joplin', { construct: (o) => new joplin.SDK(o), config: joplin.config })
+
+    for (const test of [
+      { active: true, entity: { note: {} } },
+      { active: true, net: { offline: true } },
+    ]) {
+      const st = station({ joplin: { feature: { test } } })
+      st.sdk('joplin')
+      st.close()
+    }
+    equal(2, joplin.builtCount())
+
+    const st = station({ joplin: { feature: { test: { entity: 'note' } } } })
+    throws(() => st.sdk('joplin'), /expects map, but found string/)
     st.close()
   })
 })

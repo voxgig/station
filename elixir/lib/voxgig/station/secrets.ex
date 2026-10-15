@@ -31,7 +31,72 @@ defmodule Voxgig.Station.Secrets do
 
   @namepart ~r/^[a-z0-9_]+$/
 
+  defguardp is_hex(c) when c in ?0..?9 or c in ?a..?f or c in ?A..?F
+
   def placeholder_for(slug), do: "[station:" <> to_string(slug || "") <> "]"
+
+  # Every UTF-8 byte outside RFC 3986's unreserved set becomes upper-case %XX.
+  def encode_query_value(value), do: URI.encode(value, &URI.char_unreserved?/1)
+
+  # The placeholder becomes the value in header values and in the URL query,
+  # where an SDK percent-encodes it (any hex case) and the value is encoded in
+  # turn. The path and fragment are never touched. Returns {url, headers}.
+  def substitute(url, headers, placeholder, value) do
+    headers = if is_map(headers), do: headers, else: %{}
+
+    if "" == placeholder do
+      {url, headers}
+    else
+      {query_swap(url, placeholder, encode_query_value(value)),
+       Map.new(headers, fn {name, v} ->
+         {name, if(is_binary(v), do: String.replace(v, placeholder, value), else: v)}
+       end)}
+    end
+  end
+
+  defp query_swap(url, _placeholder, _encoded) when not is_binary(url), do: url
+
+  defp query_swap(url, placeholder, encoded) do
+    case String.split(url, "?", parts: 2) do
+      [_] ->
+        url
+
+      [head, tail] ->
+        if String.contains?(head, "#") do
+          url
+        else
+          {query, fragment} =
+            case String.split(tail, "#", parts: 2) do
+              [query] -> {query, ""}
+              [query, fragment] -> {query, "#" <> fragment}
+            end
+
+          head <> "?" <> swap(query, placeholder, encoded, "") <> fragment
+        end
+    end
+  end
+
+  defp swap("", _placeholder, _encoded, acc), do: acc
+
+  defp swap(<<byte, rest::binary>> = query, placeholder, encoded, acc) do
+    case match_at(query, placeholder) do
+      {:ok, tail} -> swap(tail, placeholder, encoded, acc <> encoded)
+      :nomatch -> swap(rest, placeholder, encoded, <<acc::binary, byte>>)
+    end
+  end
+
+  # Each placeholder byte, literal or as %XX in either hex case.
+  defp match_at(text, ""), do: {:ok, text}
+
+  defp match_at(<<a, rest::binary>>, <<b, more::binary>>) when a == b,
+    do: match_at(rest, more)
+
+  defp match_at(<<?%, hi, lo, rest::binary>>, <<ch, more::binary>>)
+       when is_hex(hi) and is_hex(lo) do
+    if ch == String.to_integer(<<hi, lo>>, 16), do: match_at(rest, more), else: :nomatch
+  end
+
+  defp match_at(_text, _placeholder), do: :nomatch
 
   # sekreto's validname: dot-separated lowercase segments.
   def validname(name) do
@@ -138,15 +203,50 @@ defmodule Voxgig.Station.Secrets do
   # where the promise is absolute, every held value is scrubbed whatever
   # its length. There is no sekreto instance underneath this env-only
   # broker, so the held list is the complete set of values ever resolved
-  # or hoisted - nothing more to delegate to.
+  # or hoisted - nothing more to delegate to. Every form is matched against
+  # the original text and the union of the matches redacted, so no
+  # replacement can hide another form.
   def scrub(broker, text) do
     text = if is_binary(text), do: text, else: to_string(text)
 
-    Enum.reduce(broker.held, text, fn value, out ->
-      if is_binary(value) and value != "" do
-        String.replace(out, value, "[redacted]")
+    forms =
+      Enum.flat_map(broker.held, fn value ->
+        if is_binary(value) and value != "", do: [value, encode_query_value(value)], else: []
+      end)
+
+    redact_from(text, forms, 0, 0, [])
+  end
+
+  # `copied` is where the run not yet emitted starts; `at` is the scan position.
+  defp redact_from(text, _forms, copied, at, acc) when at >= byte_size(text) do
+    IO.iodata_to_binary(Enum.reverse([binary_part(text, copied, byte_size(text) - copied) | acc]))
+  end
+
+  defp redact_from(text, forms, copied, at, acc) do
+    case reach(text, forms, at) do
+      ^at ->
+        redact_from(text, forms, copied, at + 1, acc)
+
+      stop ->
+        stop = extend(text, forms, at + 1, stop)
+        acc = ["[redacted]", binary_part(text, copied, at - copied) | acc]
+        redact_from(text, forms, stop, stop, acc)
+    end
+  end
+
+  defp extend(text, forms, j, stop) when j < stop,
+    do: extend(text, forms, j + 1, max(stop, reach(text, forms, j)))
+
+  defp extend(_text, _forms, _j, stop), do: stop
+
+  defp reach(text, forms, at) do
+    Enum.reduce(forms, at, fn form, stop ->
+      len = byte_size(form)
+
+      if at + len > stop and at + len <= byte_size(text) and binary_part(text, at, len) == form do
+        at + len
       else
-        out
+        stop
       end
     end)
   end

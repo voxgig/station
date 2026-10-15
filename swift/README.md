@@ -29,6 +29,13 @@ let sdk = TaskpadSDK(stationOptions(st))       // was: TaskpadSDK(opts-with-apik
 _ = st.tap { ev in print(ev) }                 // live events
 ```
 
+`stationOptions(st, instance: "taskpad$eu", extra)` names the instance
+first: the SDK is constructed with that instance's block `options` and
+`base` under your own, one top-level key at a time, and the binding
+registers under `taskpad$eu`. A top-level `instance`, or an `as` that
+is a full ref, names it the same way, and the library's native
+`st.options("taskpad$eu", extra)` builds the same shape.
+
 Map-form activation (`feature: [station: [active: true]]` in the SDK
 options) binds to the ambient instance instead; only `Station.open()`
 creates it (binding is never implicit, design 3.1).

@@ -1,5 +1,5 @@
 
-export { Station, instanceRef } from './Station'
+export { Station, instanceRef, namedRef } from './Station'
 export { provide, factoryFor, provided, resetFactories } from './factory'
 export type { Factory, FactoryEntry } from './factory'
 export {
@@ -16,8 +16,8 @@ export {
 } from './descriptor'
 export { placeholderFor } from './secrets'
 export {
-  configScope, findConfigFile, loadConfig, refapi, resolveProfile,
-  selectProfile,
+  blockOf, configScope, findConfigFile, instanceOptions, loadConfig, refapi,
+  resolveProfile, selectProfile,
 } from './profile'
 export type { ResolvedProfile } from './profile'
 export {

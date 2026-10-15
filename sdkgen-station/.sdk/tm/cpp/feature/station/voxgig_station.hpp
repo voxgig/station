@@ -853,22 +853,9 @@ inline Normalized normalize_descriptor(const Jval& config, const Jval& active_fe
     }
   }
 
-  // features: present features + active state (from the caller's
-  // options.feature map, when given), plus the two fields the
-  // descriptor used to throw away (design 7.4):
-  //
-  //  - `options` is the feature's own declared key set WITH TYPED
-  //    DEFAULTS, which is the schema design 8.5 validates against;
-  //  - `transport` is the role design 8.4 orders by.
-  //
-  // Both are already inside the SDK; the descriptor stops discarding
-  // them. ADDITIVE, so descriptor v1 consumers are unaffected and the
-  // existing `descriptor` corpus section passes unchanged.
-  //
-  // `transport` is CARRIED rather than inferred: the obvious signal, an
-  // empty `hook: {}`, is wrong for station, which both wraps AND
-  // dispatches hooks. Until sdkgen emits it the role checks degrade to
-  // nothing rather than guessing.
+  // design 7.4: each row carries the feature's declared schema
+  // (`options`, `optspec`, `strict`) and its `transport` role, which is
+  // carried rather than inferred.
   Jval features = Jval::list();
   Jval fdefs = config.get("feature");
   if (fdefs.ismap()) {
@@ -884,6 +871,14 @@ inline Normalized normalize_descriptor(const Jval& config, const Jval& active_fe
       Jval fopts = fdef.get("options");
       if (fopts.ismap()) {
         f.set("options", fopts);
+      }
+      Jval foptspec = fdef.get("optspec");
+      if (foptspec.ismap()) {
+        f.set("optspec", foptspec);
+      }
+      Jval fstrict = fdef.get("strict");
+      if (fstrict.isbool()) {
+        f.set("strict", fstrict);
       }
       Jval ftransport = fdef.get("transport");
       if (!ftransport.isnone()) {
@@ -2365,6 +2360,69 @@ inline std::string feature_kindof(const Jval& v) {
   return "null";
 }
 
+// The kinds an `optspec` type admits, in order of first mention; `any`
+// when it admits every kind.
+struct SpecKinds {
+  std::vector<std::string> kinds;
+  bool any = false;
+
+  void add(const std::string& kind) {
+    if (!has(kind)) {
+      kinds.push_back(kind);
+    }
+  }
+
+  bool has(const std::string& kind) const {
+    return std::find(kinds.begin(), kinds.end(), kind) != kinds.end();
+  }
+};
+
+inline bool is_spec_token(const std::string& text) {
+  if (text.size() < 4 || '`' != text[0] || '$' != text[1] || '`' != text.back()) {
+    return false;
+  }
+  for (size_t i = 2; i + 1 < text.size(); i++) {
+    if (text[i] < 'A' || 'Z' < text[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+inline void spec_kinds(const Jval& spec, SpecKinds& out) {
+  static const std::map<std::string, std::string> token_kind = {
+      {"`$MAP`", "map"},          {"`$LIST`", "list"},       {"`$ARRAY`", "list"},
+      {"`$STRING`", "string"},    {"`$NUMBER`", "number"},   {"`$INTEGER`", "number"},
+      {"`$DECIMAL`", "number"},   {"`$BOOLEAN`", "boolean"}, {"`$FUNCTION`", "function"},
+      {"`$NULL`", "null"},        {"`$NIL`", "null"},
+  };
+  if (spec.isstr() && is_spec_token(spec.sval)) {
+    auto found = token_kind.find(spec.sval);
+    if (token_kind.end() == found) {
+      out.any = true;
+    } else {
+      out.add(found->second);
+    }
+    return;
+  }
+  if (spec.islist() && !spec.lval.empty() && spec.lval[0].isstr()) {
+    const std::string& head = spec.lval[0].sval;
+    if ("`$ONE`" == head) {
+      for (size_t i = 1; i < spec.lval.size(); i++) {
+        spec_kinds(spec.lval[i], out);
+      }
+      return;
+    }
+    if ("`$EXACT`" == head) {
+      for (size_t i = 1; i < spec.lval.size(); i++) {
+        out.add(feature_kindof(spec.lval[i]));
+      }
+      return;
+    }
+  }
+  out.add(feature_kindof(spec));
+}
+
 // One design 8.5 fault. COLLECTED, never thrown - the callers own the
 // throw.
 struct FeatureFault {
@@ -2426,7 +2484,19 @@ inline std::vector<FeatureFault> check_features(const Jval& merged,
     if (!defaults.ismap()) {
       defaults = Jval::map();
     }
-    const std::vector<std::string> defaultkeys = sorted_keys_of(defaults);
+    Jval typed = found->second.get("optspec");
+    if (!typed.ismap()) {
+      typed = Jval::map();
+    }
+    Jval strictv = found->second.get("strict");
+    const bool strict = strictv.isbool() && strictv.bval;
+    std::vector<std::string> declaredkeys = sorted_keys_of(defaults);
+    for (const auto& key : sorted_keys_of(typed)) {
+      if (std::find(declaredkeys.begin(), declaredkeys.end(), key) == declaredkeys.end()) {
+        declaredkeys.push_back(key);
+      }
+    }
+    std::sort(declaredkeys.begin(), declaredkeys.end());
 
     for (const auto& key : sorted_keys_of(entry)) {
       const auto& reserved = reserved_keys();
@@ -2434,30 +2504,46 @@ inline std::vector<FeatureFault> check_features(const Jval& merged,
         continue;
       }
 
-      if (!defaults.has(key)) {
-        // THE CASE THAT ACTUALLY BITES: `retry.retires: 5` is accepted
-        // and silently ignored today, because the SDK's own feature
-        // spec is `$OPEN` per feature so the SDK cannot catch it and
-        // nothing else looks.
+      if (!defaults.has(key) && !typed.has(key)) {
+        // A feature the SDK does not close is $OPEN in its own option
+        // spec, so refusing the key would be stricter than the SDK.
+        if (!strict) {
+          continue;
+        }
         FeatureFault fault;
         fault.code = "station_feature_option";
         fault.feature = name;
         fault.key = key;
         fault.message = "feature \"" + name + "\" declares no option \"" + key +
-                        "\"; it declares [" + join_strings(defaultkeys, ", ") + "]";
+                        "\"; it declares [" + join_strings(declaredkeys, ", ") + "]";
         faults.push_back(fault);
         continue;
       }
 
-      std::string want = feature_kindof(defaults.get(key));
+      // sdkgen widens every declared option to admit null, and a null
+      // default constrains nothing.
+      const Jval value = entry.get(key);
+      if (value.isnull() || value.isabsent()) {
+        continue;
+      }
+
+      // The type outranks the default: sdkgen's option spec does too.
+      SpecKinds want;
+      if (typed.has(key)) {
+        spec_kinds(typed.get(key), want);
+      } else if (defaults.get(key).isnull()) {
+        want.any = true;
+      } else {
+        want.add(feature_kindof(defaults.get(key)));
+      }
       std::string got = feature_kindof(entry.get(key));
-      if (want != got) {
+      if (!want.any && !want.has(got)) {
         FeatureFault fault;
         fault.code = "station_feature_option";
         fault.feature = name;
         fault.key = key;
         fault.message = "feature \"" + name + "\" option \"" + key + "\" expects " +
-                        want + ", but found " + got + ": " +
+                        join_strings(want.kinds, " or ") + ", but found " + got + ": " +
                         canonical_serialize(entry.get(key));
         faults.push_back(fault);
       }
@@ -2733,6 +2819,37 @@ inline ResolvedProfile resolve_profile(const Jval& config, const std::string& pr
   out.providers = providers;
   out.api = api;
   out.sdk = sdk;
+  return out;
+}
+
+// The block that governs an instance: its own, else its api's.
+inline Jval block_of(const ResolvedProfile& profile, const std::string& ref) {
+  if (profile.sdk.has(ref)) {
+    return profile.sdk.get(ref);
+  }
+  return profile.api.get(refapi(ref));
+}
+
+// design 3.5 for a named instance: the block's `options`, then its
+// `base` (steps 3-6), under the caller's options (step 9), per top-level
+// key.
+inline Jval instance_options(const Jval& block, const Jval& opts) {
+  Jval out = Jval::map();
+  Jval blockopts = block.get("options");
+  if (blockopts.ismap()) {
+    for (const auto& kv : blockopts.mval) {
+      out.set(kv.first, kv.second);
+    }
+  }
+  std::string base = block.get("base").str_or("");
+  if (!base.empty()) {
+    out.set("base", Jval::str(base));
+  }
+  if (opts.ismap()) {
+    for (const auto& kv : opts.mval) {
+      out.set(kv.first, kv.second);
+    }
+  }
   return out;
 }
 
@@ -3134,6 +3251,120 @@ inline std::string placeholder_for(const std::string& slug) {
   return "[station:" + slug + "]";
 }
 
+namespace detail {
+
+inline bool unreserved(unsigned char c) {
+  return ('A' <= c && c <= 'Z') || ('a' <= c && c <= 'z') || ('0' <= c && c <= '9') ||
+         '-' == c || '.' == c || '_' == c || '~' == c;
+}
+
+inline int hexdigit(char c) {
+  if ('0' <= c && c <= '9') {
+    return c - '0';
+  }
+  if ('a' <= c && c <= 'f') {
+    return c - 'a' + 10;
+  }
+  if ('A' <= c && c <= 'F') {
+    return c - 'A' + 10;
+  }
+  return -1;
+}
+
+// The length of the placeholder's match at url[at], each character
+// literal or a %XX escape of it, within url[..end); 0 for no match.
+inline size_t query_match(const std::string& url, size_t at, size_t end,
+                          const std::string& placeholder) {
+  size_t i = at;
+  for (char ch : placeholder) {
+    if (i < end && url[i] == ch) {
+      i++;
+    } else if (i + 3 <= end && '%' == url[i] && 0 <= hexdigit(url[i + 1]) &&
+               0 <= hexdigit(url[i + 2]) &&
+               hexdigit(url[i + 1]) * 16 + hexdigit(url[i + 2]) ==
+                   static_cast<unsigned char>(ch)) {
+      i += 3;
+    } else {
+      return 0;
+    }
+  }
+  return i - at;
+}
+
+inline std::string replace_all(std::string text, const std::string& find,
+                               const std::string& rep) {
+  if (find.empty()) {
+    return text;
+  }
+  size_t pos = 0;
+  while ((pos = text.find(find, pos)) != std::string::npos) {
+    text.replace(pos, find.size(), rep);
+    pos += rep.size();
+  }
+  return text;
+}
+
+}  // namespace detail
+
+// Every UTF-8 byte outside RFC 3986's unreserved set becomes upper-case %XX.
+inline std::string encode_query_value(const std::string& value) {
+  static const char HEX[] = "0123456789ABCDEF";
+  std::string out;
+  for (unsigned char byte : value) {
+    if (detail::unreserved(byte)) {
+      out += static_cast<char>(byte);
+    } else {
+      out += '%';
+      out += HEX[byte >> 4];
+      out += HEX[byte & 0x0F];
+    }
+  }
+  return out;
+}
+
+struct Substituted {
+  std::string url;
+  Jval headers;
+};
+
+// The placeholder becomes the value in string header values and in the
+// URL query, where it may arrive percent-encoded (either hex case) and
+// the value goes in strictly encoded; the path and fragment are never
+// touched. The headers are a copy.
+inline Substituted substitute(const std::string& url, const Jval& headers,
+                              const std::string& placeholder, const std::string& value) {
+  Substituted out{url, Jval::map()};
+  if (headers.ismap()) {
+    for (const auto& entry : headers.mval) {
+      out.headers.set(entry.first,
+                      !placeholder.empty() && entry.second.isstr()
+                          ? Jval::str(detail::replace_all(entry.second.sval, placeholder, value))
+                          : entry.second);
+    }
+  }
+
+  size_t q = url.find('?');
+  size_t hash = url.find('#');
+  if (placeholder.empty() || std::string::npos == q || (std::string::npos != hash && hash < q)) {
+    return out;
+  }
+  size_t end = std::string::npos == hash ? url.size() : hash;
+  std::string encoded = encode_query_value(value);
+  std::string query;
+  for (size_t i = q + 1; i < end;) {
+    size_t n = detail::query_match(url, i, end, placeholder);
+    if (0 < n) {
+      query += encoded;
+      i += n;
+    } else {
+      query += url[i];
+      i++;
+    }
+  }
+  out.url = url.substr(0, q + 1) + query + url.substr(end);
+  return out;
+}
+
 class SecretBroker {
  public:
   explicit SecretBroker(const Jval& providers) : providers_(providers) {}
@@ -3206,19 +3437,43 @@ class SecretBroker {
   // Exact-value scrub, deliberately WITHOUT sekreto's four-character
   // readability floor (design station.md 7 as revised): on boundaries
   // where the promise is absolute, every held value is scrubbed
-  // whatever its length.
+  // whatever its length, as is the form a query placement sends. Every
+  // form is matched against the original text and the union of the
+  // matches redacted, so no replacement can hide another form.
   std::string scrub(const std::string& text) const {
-    std::string out = text;
-    std::lock_guard<std::mutex> lock(mutex_);
-    for (const auto& value : held_) {
-      if (value.empty()) {
+    std::vector<std::string> forms;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      for (const auto& value : held_) {
+        if (!value.empty()) {
+          forms.push_back(value);
+          forms.push_back(encode_query_value(value));
+        }
+      }
+    }
+    auto reach = [&](size_t at) {
+      size_t end = at;
+      for (const auto& form : forms) {
+        if (at + form.size() > end && 0 == text.compare(at, form.size(), form)) {
+          end = at + form.size();
+        }
+      }
+      return end;
+    };
+
+    std::string out;
+    for (size_t i = 0; i < text.size();) {
+      size_t stop = reach(i);
+      if (stop == i) {
+        out += text[i];
+        i++;
         continue;
       }
-      size_t pos = 0;
-      while ((pos = out.find(value, pos)) != std::string::npos) {
-        out.replace(pos, value.size(), "[redacted]");
-        pos += 10;  // strlen("[redacted]")
+      for (size_t j = i + 1; j < stop; j++) {
+        stop = std::max(stop, reach(j));
       }
+      out += "[redacted]";
+      i = stop;
     }
     return out;
   }
@@ -3548,11 +3803,7 @@ class Station {
   // profile that denied egress everywhere denied nothing for a tagged
   // client. Registration and the transport seam must both ask HERE.
   Jval block_for(const std::string& name) const {
-    std::string declared = declared_ref(name);
-    if (profile_.sdk.has(declared)) {
-      return profile_.sdk.get(declared);
-    }
-    return profile_.api.get(refapi(name));
+    return block_of(profile_, declared_ref(name));
   }
 
   // The per-api descriptor cache (design 6.11). THE DESCRIPTOR IS
@@ -4173,21 +4424,8 @@ class Station {
       fmap.set(composed.get("name").str_or(""), rest);
     }
 
-    Jval opts = Jval::map();
-    Jval blockopts = block.get("options");
-    if (blockopts.ismap()) {
-      for (const auto& kv : blockopts.mval) {
-        opts.set(kv.first, kv.second);
-      }
-    }
-    std::string base = block.get("base").str_or("");
-    if (!base.empty()) {
-      opts.set("base", Jval::str(base));
-    }
+    Jval opts = instance_options(block, overrides);
     if (overrides.ismap()) {
-      for (const auto& kv : overrides.mval) {
-        opts.set(kv.first, kv.second);
-      }
       Jval ofeature = overrides.get("feature");
       if (ofeature.ismap()) {
         for (const auto& kv : ofeature.mval) {
@@ -4598,6 +4836,73 @@ class Station {
     return options(std::string(), extra);
   }
 
+  // The ref a caller names before construction: an explicit instance, or
+  // an `as` that is a full ref. A bare tag needs the SDK's api, and an
+  // invalid name is left for registration to refuse.
+  static std::string _named_ref(const std::string& instance, const ::sdk::Value& extra,
+                                const ::sdk::Value& entry) {
+    auto text = [](const ::sdk::Value& v) { return v.is_string() ? v.as_string() : std::string(); };
+    std::string name = instance;
+    std::string as = text(::sdk::getp(extra, "as"));
+    if (as.empty()) {
+      as = text(::sdk::getp(entry, "as"));
+    }
+    if (name.empty()) {
+      name = text(::sdk::getp(extra, "instance"));
+    }
+    if (name.empty()) {
+      name = text(::sdk::getp(entry, "instance"));
+    }
+    if (name.empty() && std::string::npos != as.find('$')) {
+      name = as;
+    }
+    if (name.empty()) {
+      return "";
+    }
+    try {
+      return check_ref(name);
+    } catch (const StationError&) {
+      return "";
+    }
+  }
+
+  // The library's own value model as an SDK Value, for the block options
+  // the inverted binding hands the constructor.
+  static ::sdk::Value _sdk_value(const Jval& v) {
+    switch (v.type) {
+      case Jval::Type::Bool:
+        return ::sdk::Value(v.bval);
+      case Jval::Type::Num:
+        if (v.nval > -9.0e15 && v.nval < 9.0e15 &&
+            v.nval == static_cast<double>(static_cast<long long>(v.nval))) {
+          return ::sdk::Value(static_cast<long long>(v.nval));
+        }
+        return ::sdk::Value(v.nval);
+      case Jval::Type::Str:
+        return ::sdk::Value(v.sval);
+      case Jval::Type::List: {
+        ::sdk::Value out = ::sdk::vlist();
+        for (const auto& item : v.lval) {
+          out.as_list()->push_back(_sdk_value(item));
+        }
+        return out;
+      }
+      case Jval::Type::Map: {
+        ::sdk::Value out = ::sdk::vmap();
+        for (const auto& kv : v.mval) {
+          if (Jval::Type::Absent != kv.second.type) {
+            ::sdk::map_put(out, kv.first, _sdk_value(kv.second));
+          }
+        }
+        return out;
+      }
+      case Jval::Type::Absent:
+      case Jval::Type::Null:
+        break;
+    }
+    return ::sdk::Value(nullptr);
+  }
+
   // options() with the INSTANCE NAME the construction registers under
   // (design 6.1). C++ cannot overload on a LEADING optional argument
   // the way the canonical `options(instanceName?, extra?)` does, so the
@@ -4606,6 +4911,17 @@ class Station {
   // (options_for) - this is its SDK-Value spelling.
   ::sdk::Value options(const std::string& instance, const ::sdk::Value& extra) const {
     ::sdk::Value out = extra.is_map() ? ::sdk::Struct::clone(extra) : ::sdk::vmap();
+    std::string ref =
+        _named_ref(instance, extra, ::sdk::getp(::sdk::getp(extra, "feature"), "station"));
+    ::sdk::map_remove(out, "as");
+    ::sdk::map_remove(out, "instance");
+    if (!ref.empty()) {
+      for (const auto& kv : instance_options(block_for(ref), Jval::map()).mval) {
+        if (!::sdk::map_contains(out, kv.first)) {
+          ::sdk::map_put(out, kv.first, _sdk_value(kv.second));
+        }
+      }
+    }
     ::sdk::Value fmap = ::sdk::Helpers::toMapAny(::sdk::getp(out, "feature"));
     if (!fmap.is_map()) {
       fmap = ::sdk::vmap();
@@ -4619,6 +4935,11 @@ class Station {
     ::sdk::map_put(entry, "active", ::sdk::Value(true));
     ::sdk::map_put(entry, "calleropts",
                    extra.is_map() ? ::sdk::Struct::clone(extra) : ::sdk::vmap());
+    for (const char* key : {"as", "instance"}) {
+      if (::sdk::map_contains(extra, key)) {
+        ::sdk::map_put(entry, key, ::sdk::getp(extra, key));
+      }
+    }
     if (!instance.empty()) {
       ::sdk::map_put(entry, "instance", ::sdk::Value(instance));
     }
@@ -4656,7 +4977,7 @@ class Station {
   // The transport middleware (design station.md 3.3, 5.3). `inner` is
   // the transport that was current at init time. Failure follows the
   // C++ SDK convention: thrown SdkErrorPtr - a wrap must catch to
-  // observe, then rethrow unchanged.
+  // observe, then rethrow, scrubbed only when the URL carries a value.
   //
   // KEYED ON THE INSTANCE NAME, not the api slug: two live instances of
   // one api must have distinct placeholders or this seam cannot tell
@@ -4725,6 +5046,8 @@ class Station {
     }
 
     ::sdk::Value senddef = fetchdef;
+    std::string sendurl = fullurl;
+    bool placed = false;
     bool copied = false;
     auto ensure_copy = [&]() {
       if (copied) {
@@ -4764,24 +5087,33 @@ class Station {
       }
 
       ensure_copy();
-      ::sdk::Value headers = ::sdk::vmap();
       ::sdk::Value oldheaders = ::sdk::Helpers::toMapAny(::sdk::getp(senddef, "headers"));
+      Jval strings = Jval::map();
       if (oldheaders.is_map()) {
         for (const auto& kv : *oldheaders.as_map()) {
-          ::sdk::Value v = kv.second;
-          if (v.is_string() && v.as_string().find(placeholder) != std::string::npos) {
-            std::string swapped = v.as_string();
-            size_t pos = 0;
-            while ((pos = swapped.find(placeholder, pos)) != std::string::npos) {
-              swapped.replace(pos, placeholder.size(), value);
-              pos += value.size();
-            }
-            v = ::sdk::Value(swapped);
+          if (kv.second.is_string()) {
+            strings.set(kv.first, Jval::str(kv.second.as_string()));
           }
-          ::sdk::map_put(headers, kv.first, v);
+        }
+      }
+      Substituted sent = substitute(fullurl, strings, placeholder, value);
+      sendurl = sent.url;
+      placed = sendurl != fullurl;
+      ::sdk::Value headers = ::sdk::vmap();
+      if (oldheaders.is_map()) {
+        for (const auto& kv : *oldheaders.as_map()) {
+          Jval swapped = sent.headers.get(kv.first);
+          ::sdk::map_put(headers, kv.first,
+                         swapped.isstr() ? ::sdk::Value(swapped.sval) : kv.second);
         }
       }
       ::sdk::map_put(senddef, "headers", headers);
+      ::sdk::Value defurl = ::sdk::getp(senddef, "url");
+      if (defurl.is_string()) {
+        std::string sentdef = substitute(defurl.as_string(), Jval::map(), placeholder, value).url;
+        placed = placed || sentdef != defurl.as_string();
+        ::sdk::map_put(senddef, "url", ::sdk::Value(sentdef));
+      }
     }
 
     std::string method = ::sdk::as_str(::sdk::getp(senddef, "method"), "GET");
@@ -4789,14 +5121,24 @@ class Station {
 
     ::sdk::Value res;
     try {
-      res = inner(fctx, fullurl, senddef);
+      res = inner(fctx, sendurl, senddef);
     } catch (const ::sdk::SdkErrorPtr& err) {
       emit_http(name, corr, fullurl, method, 0, started, 0);
       emit_err(name, corr, err ? err->code : "", err ? err->getMessage() : "");
+      // A transport error may quote its URL, which carries a query-placed value.
+      if (placed && err) {
+        err->msg = redact(err->msg);
+      }
       throw;
     } catch (const std::exception& err) {
       emit_http(name, corr, fullurl, method, 0, started, 0);
       emit_err(name, corr, "", err.what());
+      // what() cannot be rewritten, so a message that needs scrubbing is
+      // rethrown as a new error carrying the scrubbed text.
+      std::string scrubbed = placed ? redact(err.what()) : err.what();
+      if (scrubbed != err.what()) {
+        throw std::runtime_error(scrubbed);
+      }
       throw;
     }
 

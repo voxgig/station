@@ -113,6 +113,25 @@ final class ConformTest: XCTestCase {
       })
   }
 
+  func testSubstitute() throws {
+    let R = try pack()
+    try R.runset(
+      R.set("substitute"),
+      { args in
+        var headers: [String: String] = [:]
+        for (name, entry) in args[0].get("headers").asmap ?? [] {
+          headers[name] = entry.asstr
+        }
+        let sent = SecretBroker.substitute(
+          args[0].get("url").asstr ?? "", headers,
+          args[0].get("placeholder").asstr ?? "", args[0].get("value").asstr ?? "")
+        let pairs: [(String, OJson)] = sent.headers.keys.sorted().map {
+          ($0, .str(sent.headers[$0] ?? ""))
+        }
+        return OJson.mapOf([("url", .str(sent.url)), ("headers", .map(pairs))])
+      })
+  }
+
   func testDescriptor() throws {
     let R = try pack()
     try R.runset(
@@ -146,7 +165,8 @@ final class ConformTest: XCTestCase {
       })
   }
 
-  // The 3.3 merge, and the whole of this port's profile contract.
+  // The 3.3 merge, and the whole of this port's profile contract. A
+  // `ref` asks for the options that named instance is constructed with.
   func testInstance() throws {
     let R = try pack()
     try R.runset(
@@ -155,7 +175,23 @@ final class ConformTest: XCTestCase {
         let out = try Profile.resolveProfile(
           stationJson(denull(args[0].get("config"))),
           args[0].get("profile").asstr ?? "")
-        return omniJson(out)
+        guard let ref = args[0].get("ref").asstr else {
+          return omniJson(out)
+        }
+        return omniJson(
+          Profile.instanceOptions(
+            Profile.blockOf(out, ref), stationJson(denull(args[0].get("opts")))))
+      })
+  }
+
+  func testInstanceRef() throws {
+    let R = try pack()
+    try R.runset(
+      R.set("instanceref"),
+      { args in
+        let ref = try Station.instanceRef(
+          args[0].get("api").asstr ?? "", stationJson(denull(args[0].get("opts"))))
+        return .str(ref)
       })
   }
 

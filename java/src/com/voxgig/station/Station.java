@@ -269,6 +269,27 @@ public class Station {
   }
 
   /**
+   * The ref a caller names before construction: an explicit instance, or
+   * an `as` that is a full ref. A bare tag needs the SDK's api, and an
+   * invalid name is left for registration to refuse.
+   */
+  static String namedRef(Map<String, Object> fopts) {
+    Object explicit = Descriptor.getprop(fopts, "instance");
+    Object as = Descriptor.getprop(fopts, "as");
+    String name = explicit instanceof String && !((String) explicit).isEmpty()
+        ? (String) explicit
+        : as instanceof String && ((String) as).contains("$") ? (String) as : null;
+    if (null == name) {
+      return null;
+    }
+    try {
+      return checkref(name);
+    } catch (StationError err) {
+      return null;
+    }
+  }
+
+  /**
    * Validate a ref against the joint grammar and return its CANONICAL
    * spelling: a trailing `$` (empty tag) is never kept, so `stripe$` and
    * `stripe` are ONE registry key rather than two.
@@ -362,8 +383,26 @@ public class Station {
   }
 
   public Map<String, Object> options(String instance, Map<String, Object> extra) {
-    Map<String, Object> calleropts = null == extra ? new LinkedHashMap<>() : extra;
+    Map<String, Object> names = new LinkedHashMap<>();
+    for (String key : List.of("as", "instance")) {
+      Object val = Descriptor.getprop(extra, key);
+      if (null != val) {
+        names.put(key, val);
+      }
+    }
+    if (null != instance && !instance.isEmpty()) {
+      names.put("instance", instance);
+    }
+    Map<String, Object> named = new LinkedHashMap<>(Descriptor.asmap(
+        Descriptor.getprop(Descriptor.getprop(extra, "feature"), "station")));
+    named.putAll(names);
+    String ref = namedRef(named);
+    Map<String, Object> given = null == extra ? new LinkedHashMap<>() : extra;
+    Map<String, Object> calleropts =
+        null == ref ? given : Profile.instanceOptions(blockFor(ref), given);
     Map<String, Object> out = new LinkedHashMap<>(calleropts);
+    out.remove("as");
+    out.remove("instance");
 
     Map<String, Object> fmap = new LinkedHashMap<>(
         Descriptor.asmap(out.get("feature")));
@@ -372,9 +411,7 @@ public class Station {
     entry.put("active", true);
     entry.put("station", this);
     entry.put("calleropts", calleropts);
-    if (null != instance && !instance.isEmpty()) {
-      entry.put("instance", instance);
-    }
+    entry.putAll(names);
     fmap.put("station", entry);
     out.put("feature", fmap);
 
@@ -599,12 +636,7 @@ public class Station {
    * came apart in the first place.
    */
   public Map<String, Object> blockFor(String name) {
-    Object own = Descriptor.getprop(profile.get("sdk"), declaredRef(name));
-    if (own instanceof Map) {
-      return (Map<String, Object>) own;
-    }
-    return Descriptor.asmap(
-        Descriptor.getprop(profile.get("api"), Profile.refapi(name)));
+    return Profile.blockOf(profile, declaredRef(name));
   }
 
   /**
@@ -705,6 +737,8 @@ public class Station {
     }
 
     Map<String, Object> senddef = fetchdef;
+    String sendurl = fullurl;
+    boolean placed = false;
     if (hosts instanceof List && live) {
       senddef = new LinkedHashMap<>(senddef);
       senddef.put("redirect", "manual");
@@ -732,27 +766,30 @@ public class Station {
         throw err;
       }
 
+      SecretBroker.Substituted sent = SecretBroker.substitute(fullurl,
+          Descriptor.asmap(senddef.get("headers")), placeholder, value);
+      sendurl = sent.url;
       senddef = new LinkedHashMap<>(senddef);
-      Map<String, Object> headers = new LinkedHashMap<>(
-          Descriptor.asmap(senddef.get("headers")));
-      for (Map.Entry<String, Object> header : headers.entrySet()) {
-        Object v = header.getValue();
-        if (v instanceof String && ((String) v).contains(placeholder)) {
-          header.setValue(((String) v).replace(placeholder, value));
-        }
+      senddef.put("headers", sent.headers);
+      placed = !sendurl.equals(fullurl);
+      Object defurl = senddef.get("url");
+      if (defurl instanceof String) {
+        String sentdef =
+            SecretBroker.substitute((String) defurl, null, placeholder, value).url;
+        senddef.put("url", sentdef);
+        placed = placed || !sentdef.equals(defurl);
       }
-      senddef.put("headers", headers);
     }
 
     long started = System.currentTimeMillis();
 
     Object res;
     try {
-      res = inner.send(fullurl, senddef);
+      res = inner.send(sendurl, senddef);
     } catch (RuntimeException err) {
       emitHttp(name, corr, fullurl, senddef, 0, started, 0);
       emitErr(name, corr, err);
-      throw err;
+      throw scrubbed(err, placed);
     }
 
     int status = 0;
@@ -775,6 +812,22 @@ public class Station {
     emitHttp(name, corr, fullurl, senddef, status, started, bytes);
 
     return res;
+  }
+
+  // A transport error may quote its URL, which carries a query-placed value.
+  // A java message cannot be rewritten, so an equivalent error stands in.
+  private RuntimeException scrubbed(RuntimeException err, boolean placed) {
+    String message = err.getMessage();
+    if (!placed || null == message) {
+      return err;
+    }
+    String clean = redact(message);
+    if (clean.equals(message)) {
+      return err;
+    }
+    RuntimeException out = new RuntimeException(clean, err.getCause());
+    out.setStackTrace(err.getStackTrace());
+    return out;
   }
 
   /** Op events from the hook bridge (design 3 item 3). */
@@ -971,14 +1024,7 @@ public class Station {
       fmap.put(String.valueOf(fname), rest);
     }
 
-    Map<String, Object> built = new LinkedHashMap<>();
-    built.putAll(Descriptor.asmap(block.get("options")));
-    if (null != block.get("base")) {
-      built.put("base", block.get("base"));
-    }
-    if (null != overrides) {
-      built.putAll(overrides);
-    }
+    Map<String, Object> built = Profile.instanceOptions(block, overrides);
     fmap.putAll(Descriptor.asmap(
         Descriptor.getprop(overrides, "feature")));
     built.put("feature", fmap);

@@ -196,6 +196,17 @@ char* vxstn_envkey(const char* name, vxstn_error** err); /* owned */
  * generated prepare_auth's 1024-byte header buffer). */
 char* vxstn_placeholder(const char* slug); /* owned */
 
+/* Every UTF-8 byte outside RFC 3986's unreserved set becomes upper-case
+ * %XX. */
+char* vxstn_encode_query_value(const char* value); /* owned */
+
+/* The placeholder becomes the value in string header values and in the
+ * URL query, where it may arrive percent-encoded (either hex case) and
+ * the value goes in strictly encoded; the path and fragment are never
+ * touched. An owned map { url, headers }, the headers a copy. */
+vxstn_val* vxstn_substitute(const char* url, const vxstn_val* headers,
+                            const char* placeholder, const char* value);
+
 /* =========================================================================
  * Descriptor (design station.md 4): a view over the SDK's embedded
  * config, normalized - never a second model.
@@ -230,6 +241,15 @@ char* vxstn_select_profile(const char* opt_profile);
 vxstn_val* vxstn_resolve_profile(const vxstn_val* config,
                                  const char* profile_name,
                                  vxstn_error** err);
+
+/* The block that governs an instance in a resolved profile: its own,
+ * else its api's. Borrowed; NULL when neither level declares one. */
+const vxstn_val* vxstn_block_of(const vxstn_val* profile, const char* ref);
+
+/* design 3.5 for a named instance: the block's `options`, then its
+ * `base` (steps 3-6), under the caller's `opts` (step 9), per top-level
+ * key. Owned. */
+vxstn_val* vxstn_instance_options(const vxstn_val* block, const vxstn_val* opts);
 
 /* =========================================================================
  * The config grammar, as data (design station.md 4). Stage 5.
@@ -642,7 +662,8 @@ vxstn_val* vxstn_descriptor_of(vxstn_station* st, const char* name,
 char* vxstn_canonical_descriptor(vxstn_station* st, const char* name,
                                  vxstn_error** err);
 
-/* Exact-value scrub of every value the broker ever held (owned). */
+/* Exact-value scrub of every value the broker ever held, and of its
+ * query-encoded form (owned). */
 char* vxstn_redact(vxstn_station* st, const char* text);
 
 /* Drop the secret cache so the next resolve asks the environment again
@@ -739,7 +760,8 @@ const char* vxstn_declared_ref(vxstn_station* st, const char* name);
 
 /* The inverted binding (design 3.1): the options map a generated
  * constructor accepts, with the station activation entry and the
- * instance name in it. `instance` is OPTIONAL (NULL) and LEADING.
+ * instance name in it. `instance` is OPTIONAL (NULL) and LEADING; a
+ * named instance's block options sit under `extra` (design 3.5).
  * The station HANDLE does not ride the map - a C value tree holds JSON,
  * not pointers - so the generated feature binds to the ambient instance
  * or to a handle the host gives it. Owned. */

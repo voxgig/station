@@ -6,6 +6,8 @@
 
 using System.Collections;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Text;
 
 using Voxgig.Sekreto;
 using Voxgig.Sekreto.Plugins;
@@ -14,6 +16,19 @@ namespace Voxgig.Station
 {
     public class SecretBroker
     {
+        /// <summary>A substituted URL plus its header copy.</summary>
+        public sealed class Substituted
+        {
+            public readonly string Url;
+            public readonly Dictionary<string, object> Headers;
+
+            internal Substituted(string url, Dictionary<string, object> headers)
+            {
+                Url = url;
+                Headers = headers;
+            }
+        }
+
         private readonly Sekreto.Sekreto sekreto;
 
         // Values hoisted by adopt-style binding from a resident options
@@ -31,6 +46,178 @@ namespace Voxgig.Station
         public static string PlaceholderFor(string slug)
         {
             return "[station:" + slug + "]";
+        }
+
+        /// <summary>
+        /// Every UTF-8 byte outside RFC 3986's unreserved set becomes upper-case %XX.
+        /// </summary>
+        public static string EncodeQueryValue(string value)
+        {
+            var out_ = new StringBuilder();
+            foreach (byte b in Encoding.UTF8.GetBytes(value ?? ""))
+            {
+                if (IsUnreserved(b))
+                {
+                    out_.Append((char)b);
+                }
+                else
+                {
+                    out_.Append('%').Append(b.ToString("X2", CultureInfo.InvariantCulture));
+                }
+            }
+            return out_.ToString();
+        }
+
+        /// <summary>
+        /// The placeholder becomes the value in header values and in the URL
+        /// query, where an SDK percent-encodes it (any hex case) and the value
+        /// is encoded in turn. The path and fragment are never touched; the
+        /// headers are a copy.
+        /// </summary>
+        public static Substituted Substitute(string url, IDictionary<string, object> headers,
+            string placeholder, string value)
+        {
+            var out_ = null == headers
+                ? new Dictionary<string, object>()
+                : new Dictionary<string, object>(headers);
+            if (string.IsNullOrEmpty(placeholder))
+            {
+                return new Substituted(url, out_);
+            }
+
+            foreach (string name in new List<string>(out_.Keys))
+            {
+                if (out_[name] is string text && text.Contains(placeholder))
+                {
+                    out_[name] = text.Replace(placeholder, value);
+                }
+            }
+
+            int q = url.IndexOf('?');
+            int hash = url.IndexOf('#');
+            if (0 > q || (0 <= hash && hash < q))
+            {
+                return new Substituted(url, out_);
+            }
+            int end = 0 > hash ? url.Length : hash;
+            string encoded = EncodeQueryValue(value);
+            var query = new StringBuilder();
+            for (int i = q + 1; i < end;)
+            {
+                int n = MatchAt(url, i, end, placeholder);
+                if (0 < n)
+                {
+                    query.Append(encoded);
+                    i += n;
+                }
+                else
+                {
+                    query.Append(url[i]);
+                    i++;
+                }
+            }
+            return new Substituted(
+                url.Substring(0, q + 1) + query.ToString() + url.Substring(end), out_);
+        }
+
+        // Every form of every value is matched against the original text and
+        // the union of the matches redacted, so no replacement can hide
+        // another form.
+        private static string RedactValues(string text, List<string> values)
+        {
+            var forms = new List<string>();
+            foreach (string value in values)
+            {
+                if (0 != value.Length)
+                {
+                    forms.Add(value);
+                    forms.Add(EncodeQueryValue(value));
+                }
+            }
+            var out_ = new StringBuilder();
+            for (int i = 0; i < text.Length;)
+            {
+                int stop = Reach(text, i, forms);
+                if (stop == i)
+                {
+                    out_.Append(text[i]);
+                    i++;
+                    continue;
+                }
+                for (int j = i + 1; j < stop; j++)
+                {
+                    int end = Reach(text, j, forms);
+                    if (end > stop)
+                    {
+                        stop = end;
+                    }
+                }
+                out_.Append("[redacted]");
+                i = stop;
+            }
+            return out_.ToString();
+        }
+
+        private static int Reach(string text, int at, List<string> forms)
+        {
+            int end = at;
+            foreach (string form in forms)
+            {
+                if (at + form.Length > end && at + form.Length <= text.Length
+                    && 0 == string.CompareOrdinal(text, at, form, 0, form.Length))
+                {
+                    end = at + form.Length;
+                }
+            }
+            return end;
+        }
+
+        private static int MatchAt(string text, int at, int end, string placeholder)
+        {
+            int i = at;
+            foreach (char ch in placeholder)
+            {
+                if (i < end && text[i] == ch)
+                {
+                    i++;
+                    continue;
+                }
+                if (i + 3 <= end && '%' == text[i])
+                {
+                    int hi = HexValue(text[i + 1]);
+                    int lo = HexValue(text[i + 2]);
+                    if (0 <= hi && 0 <= lo && hi * 16 + lo == ch)
+                    {
+                        i += 3;
+                        continue;
+                    }
+                }
+                return -1;
+            }
+            return i - at;
+        }
+
+        private static int HexValue(char c)
+        {
+            if ('0' <= c && c <= '9')
+            {
+                return c - '0';
+            }
+            if ('A' <= c && c <= 'F')
+            {
+                return c - 'A' + 10;
+            }
+            if ('a' <= c && c <= 'f')
+            {
+                return c - 'a' + 10;
+            }
+            return -1;
+        }
+
+        private static bool IsUnreserved(byte b)
+        {
+            return ('A' <= b && b <= 'Z') || ('a' <= b && b <= 'z') || ('0' <= b && b <= '9')
+                || '-' == b || '.' == b || '_' == b || '~' == b;
         }
 
         /// <summary>
@@ -133,22 +320,15 @@ namespace Voxgig.Station
         /// Exact-value scrub, deliberately WITHOUT sekreto's four-character
         /// readability floor (design 7 as revised): on boundaries where the
         /// promise is absolute, every held value is scrubbed whatever its
-        /// length. sekreto's own Redact() runs too, covering values resolved
-        /// by the underlying instance that station never held.
+        /// length. sekreto's own Redact() runs after, covering values resolved
+        /// by the underlying instance that station never held; run first, its
+        /// raw-value replacement could split an encoded form.
         /// </summary>
         public string Scrub(string text)
         {
             lock (gate)
             {
-                string out_ = sekreto.Redact(text ?? "");
-                foreach (string value in held)
-                {
-                    if (0 != value.Length)
-                    {
-                        out_ = out_.Replace(value, "[redacted]");
-                    }
-                }
-                return out_;
+                return sekreto.Redact(RedactValues(text ?? "", held));
             }
         }
 

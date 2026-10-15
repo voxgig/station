@@ -63,8 +63,9 @@ from `.aon` sources with `@voxgig/model` and gate freshness in CI. **Do not
 step, and there is nothing to regenerate.
 
 `spec/README.md` carries the honest coverage count: eleven of the sixteen
-ports run all ten sections, five run seven, and typescript — the canonical
-port — has no completeness guard. Read it before adding a section.
+ports run all eleven sections, three run eight, two run nine, and typescript —
+the canonical port — has no completeness guard. Read it before adding a
+section.
 
 ### 3. The one `.aontu` file must stay `.aontu`
 
