@@ -1,7 +1,5 @@
 # ProjectName SDK station feature
 
-require 'voxgig_station'
-
 require_relative 'base_feature'
 
 # Binds this SDK to a voxgig/station control surface: registration,
@@ -20,7 +18,10 @@ class ProjectNameStationFeature < ProjectNameBaseFeature
     @_binding = nil
   end
 
+  # Required here rather than at load: init runs only for an active
+  # feature, so an SDK that is never bound loads without station.
   def init(ctx, options)
+    require 'voxgig_station'
     @_binding = VoxgigStation.feature_binding(ctx, options)
   end
 
