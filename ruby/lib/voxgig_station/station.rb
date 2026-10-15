@@ -138,6 +138,20 @@ module VoxgigStation
     checkref(as.index('$').nil? ? api.to_s + '$' + as : checkapi(api, as))
   end
 
+  # The ref a caller names before construction: an explicit instance, or
+  # an `as` that is a full ref. A bare tag needs the SDK's api, so not.
+  def named_ref(fopts)
+    fopts = {} unless fopts.is_a?(Hash)
+
+    explicit = fopts['instance']
+    return checkref(explicit) if !explicit.nil? && '' != explicit
+
+    as = fopts['as']
+    return nil if as.nil? || '' == as || as.index('$').nil?
+
+    checkref(as)
+  end
+
   class Station
     AMBIENT_MUTEX = Mutex.new
     @ambient = nil
@@ -305,6 +319,11 @@ module VoxgigStation
       instance = named ? a : nil
       extra = named ? b : a
       extra = extra.is_a?(Hash) ? extra : {}
+      sopts = extra['feature'].is_a?(Hash) && extra['feature']['station'].is_a?(Hash) ?
+        extra['feature']['station'].dup : {}
+      sopts['instance'] = instance unless instance.nil?
+      ref = VoxgigStation.named_ref(sopts)
+      extra = VoxgigStation.instance_options(block_for(ref), extra) unless ref.nil?
 
       fmap = extra['feature'].is_a?(Hash) ? extra['feature'].dup : {}
       entry = (fmap['station'].is_a?(Hash) ? fmap['station'] : {})
@@ -349,10 +368,7 @@ module VoxgigStation
     # here, because them disagreeing is how the credential and the
     # allowlist came apart in the first place.
     def block_for(name)
-      declared = @profile['sdk'][declared_ref(name)]
-      return declared unless declared.nil?
-
-      @profile['api'][VoxgigStation.refapi(name)]
+      VoxgigStation.block_of(@profile, declared_ref(name))
     end
 
     # The DECLARED instance an assigned tag stands for, or the name
@@ -744,9 +760,7 @@ module VoxgigStation
         fmap[fname] = rest
       end
 
-      opts = block['options'].is_a?(Hash) ? block['options'].dup : {}
-      opts['base'] = block['base'] unless block['base'].nil?
-      opts = opts.merge(overrides) if overrides.is_a?(Hash)
+      opts = VoxgigStation.instance_options(block, overrides)
       over_feature = overrides.is_a?(Hash) && overrides['feature'].is_a?(Hash) ?
         overrides['feature'] : {}
       opts['feature'] = fmap.merge(over_feature)
@@ -1234,6 +1248,13 @@ module VoxgigStation
       end
 
       opts = opts.is_a?(Hash) ? opts : {}
+      sopts = opts['feature'].is_a?(Hash) && opts['feature']['station'].is_a?(Hash) ?
+        opts['feature']['station'].dup : {}
+      sopts['as'] = opts['as'] unless opts['as'].nil?
+      sopts['instance'] = opts['instance'] unless opts['instance'].nil?
+      ref = VoxgigStation.named_ref(sopts)
+      opts = VoxgigStation.instance_options(block_for(ref), opts) unless ref.nil?
+
       fmap = opts['feature'].is_a?(Hash) ? opts['feature'].dup : {}
       entry = (fmap['station'].is_a?(Hash) ? fmap['station'] : {})
         .merge('active' => true, 'station' => self, 'calleropts' => opts)
@@ -1254,7 +1275,28 @@ module VoxgigStation
         'feature' => fmap,
         'extend' => extend_list + [VoxgigStation.adapter_feature(self, opts)])
 
-      sdk_class.new(options)
+      client = sdk_class.new(options)
+      warn_unapplied(client, options) if ref.nil?
+      client
+    end
+
+    # An unnamed connect learns its api from the SDK's config during
+    # construction: too late for the block's options to reach the SDK.
+    def warn_unapplied(client, options)
+      entry = _bound_entry(client)
+      return if entry.nil?
+
+      name = entry[:name]
+      declared = (block_for(name) || {})['options']
+      return unless declared.is_a?(Hash)
+
+      missed = declared.keys.map(&:to_s).reject { |k| options.key?(k) }.sort
+      return if missed.empty?
+
+      emit('t' => now_ms, 'kind' => 'station', 'plugin' => name, 'api' => entry[:api],
+           'meta' => { 'warn' => 'instance "' + name + '" declares options [' +
+             missed.join(', ') + '] that reach the SDK only when the instance is ' \
+             'named before construction; pass { instance: "' + name + '" }' })
     end
 
     # A transport error may quote its URL, which carries a query-placed

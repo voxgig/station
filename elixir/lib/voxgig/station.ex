@@ -193,7 +193,40 @@ defmodule Voxgig.Station do
       Error.fail("station_no_plugin", "station is closed")
     end
 
-    sdk_module.new(Voxgig.Station.Adapter.construct_options(station, opts))
+    options = Voxgig.Station.Adapter.construct_options(station, opts)
+    named = Voxgig.Station.Adapter.named_ref(options)
+    client = sdk_module.new(options)
+    if nil == named, do: warn_unapplied(station, client, options)
+    client
+  end
+
+  # An unnamed connect learns its api from the SDK's config during
+  # construction: too late for the block's options to reach the SDK.
+  defp warn_unapplied(station, client, options) do
+    entry = bound_entry(station, client)
+    declared = if nil == entry, do: nil, else: (block_for(station, entry.slug) || %{})["options"]
+
+    missed =
+      if is_map(declared),
+        do: Voxgig.Station.Adapter.absent_keys(options, Enum.map(Map.keys(declared), &to_string/1)),
+        else: []
+
+    if [] != missed do
+      emit(station, %{
+        "t" => now_ms(),
+        "kind" => "station",
+        "plugin" => entry.slug,
+        "meta" => %{
+          "warn" =>
+            "instance \"" <>
+              entry.slug <>
+              "\" declares options [" <>
+              Enum.join(Enum.sort(missed), ", ") <>
+              "] that reach the SDK only when the instance is named before " <>
+              "construction; pass { instance: \"" <> entry.slug <> "\" }"
+        }
+      })
+    end
   end
 
   # Inverted binding: the plain options map a generated constructor
@@ -327,6 +360,9 @@ defmodule Voxgig.Station do
 
   @doc false
   def profile_plugin(station, slug), do: state!(station).profile["sdk"][slug]
+
+  @doc false
+  def block_for(station, ref), do: Profile.block_of(state!(station).profile, ref)
 
   # Resolve the plugin's secret value through the env-only broker,
   # re-applying the name precedence on every call (override beats

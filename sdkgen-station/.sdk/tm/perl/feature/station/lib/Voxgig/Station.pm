@@ -129,7 +129,8 @@ use Voxgig::Station::Feature qw(
 );
 use Voxgig::Station::Loader qw(load_sync);
 use Voxgig::Station::Profile qw(
-  config_scope load_config refapi resolve_profile select_profile
+  block_of config_scope instance_options load_config refapi resolve_profile
+  select_profile
 );
 use Voxgig::Station::Secrets qw(placeholder_for substitute);
 use Voxgig::Station::Shape qw(normalize_config validate_config);
@@ -137,7 +138,7 @@ use Voxgig::Station::Struct qw(mapkeys ordered_map);
 use Voxgig::Station::Adapter ();
 
 use Exporter 'import';
-our @EXPORT_OK = qw(check_instance_name check_instance_tag instance_ref);
+our @EXPORT_OK = qw(check_instance_name check_instance_tag instance_ref named_ref);
 
 my $AMBIENT;
 my $AMBIENT_OPTS;
@@ -256,6 +257,20 @@ sub instance_ref {
     $as = "$as";
     return _checkref(
         -1 == index( $as, '$' ) ? $api . '$' . $as : _checkapi( $api, $as ) );
+}
+
+# The ref a caller names before construction: an explicit instance, or an
+# `as` that is a full ref. A bare tag needs the SDK's api, so not.
+sub named_ref {
+    my ($fopts) = @_;
+    $fopts = {} unless ref($fopts) eq 'HASH';
+
+    my $explicit = _first_non_empty( $fopts->{instance} );
+    return _checkref("$explicit") if defined $explicit;
+
+    my $as = _first_non_empty( $fopts->{as} );
+    return undef if !defined $as || -1 == index( "$as", '$' );
+    return _checkref("$as");
 }
 
 # --- ambient instance (design station.md 10.2) ---
@@ -427,6 +442,12 @@ sub _construct {
     }
 
     $opts = {} unless ref($opts) eq 'HASH';
+    my $feature = ref( $opts->{feature} ) eq 'HASH' ? $opts->{feature} : {};
+    my %named = %{ ref( $feature->{station} ) eq 'HASH' ? $feature->{station} : {} };
+    $named{as}       = $opts->{as}       if defined $opts->{as};
+    $named{instance} = $opts->{instance} if defined $opts->{instance};
+    my $ref = named_ref( \%named );
+    $opts = instance_options( $self->block_for($ref), $opts ) if defined $ref;
     my $options = { %$opts };
 
     # 6.1: `as` is a TAG, resolved against the api in _register - the api
@@ -446,7 +467,40 @@ sub _construct {
     $options->{extend} =
       [ @$extend, Voxgig::Station::Adapter::adapter_feature( $self, $opts ) ];
 
-    return $sdk_class->new($options);
+    my $client = $sdk_class->new($options);
+    $self->_warn_unapplied( $client, $options ) unless defined $ref;
+    return $client;
+}
+
+# An unnamed connect learns its api from the SDK's config during
+# construction: too late for the block's options to reach the SDK.
+sub _warn_unapplied {
+    my ( $self, $client, $options ) = @_;
+    my $entry = $self->_bound_entry($client);
+    return unless defined $entry;
+
+    my $block    = $self->block_for( $entry->{name} );
+    my $declared = ref($block) eq 'HASH' ? $block->{options} : undef;
+    return unless ref($declared) eq 'HASH';
+
+    my @missed = sort grep { !exists $options->{$_} } keys %$declared;
+    return unless @missed;
+
+    $self->_emit(
+        {
+            t      => _now_ms(),
+            kind   => 'station',
+            plugin => $entry->{name},
+            api    => $entry->{api},
+            meta   => {
+                warn => 'instance "' . $entry->{name} . '" declares options ['
+                  . join( ', ', @missed )
+                  . '] that reach the SDK only when the instance is named before '
+                  . 'construction; pass { instance: "' . $entry->{name} . '" }'
+            },
+        }
+    );
+    return;
 }
 
 # Inverted binding (design station.md 3.1): build the plain options map a
@@ -463,6 +517,12 @@ sub options {
     my $instance = $named ? $a : undef;
     my $extra = $named ? $b : $a;
     $extra = {} unless ref($extra) eq 'HASH';
+
+    my $feature = ref( $extra->{feature} ) eq 'HASH' ? $extra->{feature} : {};
+    my %named = %{ ref( $feature->{station} ) eq 'HASH' ? $feature->{station} : {} };
+    $named{instance} = $instance if defined $instance;
+    my $ref = named_ref( \%named );
+    $extra = instance_options( $self->block_for($ref), $extra ) if defined $ref;
 
     my %ident;
     $ident{instance} = $instance if defined $instance;
@@ -542,9 +602,7 @@ sub _bound_entry {
 # apart in the first place.
 sub block_for {
     my ( $self, $name ) = @_;
-    my $declared = $self->{profile}{sdk}{ $self->declared_ref($name) };
-    return $declared if defined $declared;
-    return $self->{profile}{api}{ refapi($name) };
+    return block_of( $self->{profile}, $self->declared_ref($name) );
 }
 
 # The DECLARED instance an assigned tag stands for, or the name itself.
@@ -1069,9 +1127,7 @@ sub build {
     }
 
     my $overmap = ref($overrides) eq 'HASH' ? $overrides : {};
-    my $opts = { %{ ref( $block->{options} ) eq 'HASH' ? $block->{options} : {} } };
-    $opts->{base} = $block->{base} if defined $block->{base};
-    $opts = { %$opts, %$overmap };
+    my $opts = instance_options( $block, $overmap );
 
     my $overfeature =
       ref( $overmap->{feature} ) eq 'HASH' ? $overmap->{feature} : {};

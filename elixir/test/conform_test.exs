@@ -122,11 +122,20 @@ defmodule Voxgig.Station.ConformTest do
     end)
   end
 
-  # The 3.3 merge, and the whole of this port's profile contract.
+  # The 3.3 merge, and the whole of this port's profile contract. A
+  # `ref` asks for the options that named instance is constructed with.
   test "instance", %{pack: pack} do
     pack.runset.(pack.set.("instance"), fn args ->
       vin = hd(args)
-      Profile.resolve(denull(vin["config"]), vin["profile"])
+      profile = Profile.resolve(denull(vin["config"]), vin["profile"])
+
+      case vin["ref"] do
+        ref when is_binary(ref) ->
+          Profile.instance_options(Profile.block_of(profile, ref), denull(vin["opts"]))
+
+        _ ->
+          profile
+      end
     end)
   end
 

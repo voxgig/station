@@ -1,6 +1,9 @@
 package station
 
-import "regexp"
+import (
+	"regexp"
+	"strings"
+)
 
 var (
 	refNameRe = regexp.MustCompile(`^[a-zA-Z@][a-zA-Z0-9.~_\-/]*$`)
@@ -98,6 +101,26 @@ func InstanceRef(api string, fopts map[string]any) (string, error) {
 		return "", err
 	}
 	return CheckRef(as)
+}
+
+// namedRef is the ref a caller names before construction: an explicit
+// instance, or an `as` that is a full ref. A bare tag needs the SDK's
+// api, and an invalid name is left for registration to refuse.
+func namedRef(fopts map[string]any) string {
+	name := textopt(fopts, "instance")
+	if "" == name {
+		if as := textopt(fopts, "as"); strings.Contains(as, "$") {
+			name = as
+		}
+	}
+	if "" == name {
+		return ""
+	}
+	ref, err := CheckRef(name)
+	if nil != err {
+		return ""
+	}
+	return ref
 }
 
 func textopt(opts map[string]any, key string) string {

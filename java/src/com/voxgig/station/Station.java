@@ -273,6 +273,27 @@ public class Station {
    * spelling: a trailing `$` (empty tag) is never kept, so `stripe$` and
    * `stripe` are ONE registry key rather than two.
    */
+  /**
+   * The ref a caller names before construction: an explicit instance, or
+   * an `as` that is a full ref. A bare tag needs the SDK's api, and an
+   * invalid name is left for registration to refuse.
+   */
+  static String namedRef(Map<String, Object> fopts) {
+    Object explicit = Descriptor.getprop(fopts, "instance");
+    Object as = Descriptor.getprop(fopts, "as");
+    String name = explicit instanceof String && !((String) explicit).isEmpty()
+        ? (String) explicit
+        : as instanceof String && ((String) as).contains("$") ? (String) as : null;
+    if (null == name) {
+      return null;
+    }
+    try {
+      return checkref(name);
+    } catch (StationError err) {
+      return null;
+    }
+  }
+
   public static String checkref(String ref) {
     int cut = ref.indexOf('$');
     String name = -1 == cut ? ref : ref.substring(0, cut);
@@ -362,7 +383,15 @@ public class Station {
   }
 
   public Map<String, Object> options(String instance, Map<String, Object> extra) {
-    Map<String, Object> calleropts = null == extra ? new LinkedHashMap<>() : extra;
+    Map<String, Object> named = new LinkedHashMap<>(Descriptor.asmap(
+        Descriptor.getprop(Descriptor.getprop(extra, "feature"), "station")));
+    if (null != instance && !instance.isEmpty()) {
+      named.put("instance", instance);
+    }
+    String ref = namedRef(named);
+    Map<String, Object> given = null == extra ? new LinkedHashMap<>() : extra;
+    Map<String, Object> calleropts =
+        null == ref ? given : Profile.instanceOptions(blockFor(ref), given);
     Map<String, Object> out = new LinkedHashMap<>(calleropts);
 
     Map<String, Object> fmap = new LinkedHashMap<>(
@@ -599,12 +628,7 @@ public class Station {
    * came apart in the first place.
    */
   public Map<String, Object> blockFor(String name) {
-    Object own = Descriptor.getprop(profile.get("sdk"), declaredRef(name));
-    if (own instanceof Map) {
-      return (Map<String, Object>) own;
-    }
-    return Descriptor.asmap(
-        Descriptor.getprop(profile.get("api"), Profile.refapi(name)));
+    return Profile.blockOf(profile, declaredRef(name));
   }
 
   /**
@@ -992,14 +1016,7 @@ public class Station {
       fmap.put(String.valueOf(fname), rest);
     }
 
-    Map<String, Object> built = new LinkedHashMap<>();
-    built.putAll(Descriptor.asmap(block.get("options")));
-    if (null != block.get("base")) {
-      built.put("base", block.get("base"));
-    }
-    if (null != overrides) {
-      built.putAll(overrides);
-    }
+    Map<String, Object> built = Profile.instanceOptions(block, overrides);
     fmap.putAll(Descriptor.asmap(
         Descriptor.getprop(overrides, "feature")));
     built.put("feature", fmap);

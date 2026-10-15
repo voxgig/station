@@ -1038,6 +1038,30 @@ fn check_features_catches_unknown_features_and_options() {
 }
 
 #[test]
+fn options_for_hands_a_named_instance_its_declared_options() {
+    Station::reset();
+    let station = open_station(station_config(
+        r#", "sdk": { "notes": { "base": "http://127.0.0.1:9",
+             "options": { "headers": { "x-api-version": "2022-06-28" }, "prefix": "/v1" } } }"#,
+    ));
+
+    let named = station.options_for("notes", &parse(r#"{ "suffix": ".json" }"#));
+    let mut plain = match named {
+        Json::Map(entries) => entries,
+        _ => panic!("options are a map"),
+    };
+    plain.remove("feature");
+    assert_eq!(
+        canonical_serialize(&Json::Map(plain)),
+        r#"{"base":"http://127.0.0.1:9","headers":{"x-api-version":"2022-06-28"},"prefix":"/v1","suffix":".json"}"#
+    );
+
+    let unnamed = station.options(&parse(r#"{ "suffix": ".json" }"#));
+    assert!(jget(&unnamed, "headers").is_none(), "an unnamed call is untouched");
+    Station::reset();
+}
+
+#[test]
 fn build_runs_the_feature_check() {
     Station::reset();
     reset_factories();

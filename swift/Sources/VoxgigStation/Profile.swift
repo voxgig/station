@@ -97,6 +97,27 @@ public enum Profile {
     return ref
   }
 
+  /// The block that governs an instance: its own, else its api's.
+  public static func blockOf(_ profile: Json, _ ref: String) -> Json {
+    let own = profile.get("sdk").get(ref)
+    return own.isNull ? profile.get("api").get(refapi(ref)) : own
+  }
+
+  /// Design 3.5 for a named instance: the block's `options`, then its
+  /// `base` (steps 3-6), under the caller's options (step 9), per
+  /// top-level key.
+  public static func instanceOptions(_ block: Json, _ opts: Json) -> Json {
+    var out = block.get("options").asMap ?? [:]
+    let base = block.get("base")
+    if !base.isNull {
+      out["base"] = base
+    }
+    for (key, entry) in opts.asMap ?? [:] {
+      out[key] = entry
+    }
+    return .map(out)
+  }
+
   /// Shallow merge, per key, left to right - each source over the one
   /// before it, non-maps skipped. ONE level only: an overlay's `policy`
   /// REPLACES the base's entirely rather than merging `hosts` into it -

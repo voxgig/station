@@ -842,6 +842,31 @@ function M.refapi(ref)
   return string.sub(s, 1, at - 1)
 end
 
+-- The block that governs an instance: its own, else its api's.
+function M.block_of(profile, ref)
+  local own = getk(getk(profile, 'sdk'), ref)
+  if own ~= nil then
+    return own
+  end
+  return getk(getk(profile, 'api'), M.refapi(ref))
+end
+
+-- design 3.5 for a named instance: the block's `options`, then its
+-- `base` (steps 3-6), under the caller's options (step 9), per top-level
+-- key.
+function M.instance_options(block, opts)
+  local out = M.map(shallowcopy(getk(block, 'options')))
+  if getk(block, 'base') ~= nil then
+    out.base = getk(block, 'base')
+  end
+  if type(opts) == 'table' then
+    for k, v in pairs(opts) do
+      out[k] = v
+    end
+  end
+  return out
+end
+
 -- Shallow merge, per key, left to right - each source over the one
 -- before it; non-map sources are skipped. ONE level only: an overlay's
 -- `policy` REPLACES the base's entirely rather than merging `hosts`
@@ -1413,11 +1438,65 @@ local function activation(self, fmap, calleropts)
   return out
 end
 
+-- The ref a caller names before construction: an explicit instance, or
+-- an `as` that is a full ref. A bare tag needs the SDK's api, so not.
+local function named_ref(opts)
+  local entry = getk(getk(opts, 'feature'), 'station')
+  local function pick(key)
+    for _, v in ipairs({ getk(opts, key) or false, getk(entry, key) or false }) do
+      if type(v) == 'string' and v ~= '' then
+        return v
+      end
+    end
+    return nil
+  end
+  local ref = pick('instance')
+  if ref == nil then
+    local as = pick('as')
+    if as ~= nil and string.find(as, '$', 1, true) then
+      ref = as
+    end
+  end
+  return ref and (string.gsub(ref, '%$+$', ''))
+end
+
+-- An unnamed connect learns its api from the SDK's config during
+-- construction: too late for the block's options to reach the SDK.
+local function warn_unapplied(self, client, options)
+  local entry = self:_bound_entry(client)
+  local declared = entry and getk(M.block_of(self.profile, entry.slug), 'options')
+  if not M.ismap(declared) then
+    return
+  end
+  local missed = {}
+  for _, key in ipairs(sortedkeys(declared)) do
+    if options[key] == nil then
+      missed[#missed + 1] = key
+    end
+  end
+  if #missed == 0 then
+    return
+  end
+  self:_emit({
+    t = now_ms(), kind = 'station', plugin = entry.slug,
+    meta = {
+      warn = 'instance "' .. entry.slug .. '" declares options ['
+        .. table.concat(missed, ', ') .. '] that reach the SDK only when the '
+        .. 'instance is named before construction; pass { instance: "'
+        .. entry.slug .. '" }',
+    },
+  })
+end
+
 local function construct(self, SDK, opts)
   if self.closed then
     fail('station_no_plugin', 'station is closed')
   end
   opts = type(opts) == 'table' and opts or {}
+  local ref = named_ref(opts)
+  if ref ~= nil then
+    opts = M.instance_options(M.block_of(self.profile, ref), opts)
+  end
   local options = shallowcopy(opts)
   options.feature = activation(self, options.feature, opts)
 
@@ -1443,13 +1522,18 @@ local function construct(self, SDK, opts)
   extend[#extend + 1] = M.adapter_feature(self, opts)
   options.extend = extend
 
+  local client
   if type(SDK) == 'table' and type(SDK.new) == 'function' then
-    return SDK.new(options)
+    client = SDK.new(options)
+  elseif type(SDK) == 'function' then
+    client = SDK(options)
+  else
+    fail('station_no_plugin', 'connect: not a constructable SDK')
   end
-  if type(SDK) == 'function' then
-    return SDK(options)
+  if ref == nil then
+    warn_unapplied(self, client, options)
   end
-  fail('station_no_plugin', 'connect: not a constructable SDK')
+  return client
 end
 
 -- connect(SDK, opts): station constructs the SDK itself, activating the

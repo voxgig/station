@@ -46,6 +46,12 @@ to under C4. One driver, two entry shapes: `merged` selects the
 resolver, anything else the merge. Feature *option* checking is
 descriptor-dependent and stays in the integration suites.
 
+`instance` is the §3.3 merge. An entry with a `ref` asks instead for the
+options that instance is constructed with: its block's `options` and
+`base` under the entry's `opts`, one top-level key at a time, which is
+what `sdk(name)`, `create`, and a named `connect`, `adopt` or
+`options(name, extra)` all hand the SDK.
+
 The sections that need live SDK machinery - `inject` (copy-on-inject,
 placeholder-safe `ctrl.explain`), `order` (wrap position, retry
 attempts, cache hits), `event` correlation, `degrade` - are exercised by

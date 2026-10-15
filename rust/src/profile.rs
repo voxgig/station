@@ -7,7 +7,7 @@ use voxgig_sekreto::validname;
 use voxgig_sekreto::voxgig_plugin::value::Value as Json;
 
 use crate::error::StationError;
-use crate::jsonx::{jget, jmap, jstr};
+use crate::jsonx::{jget, jmap, jstr, jtext};
 
 pub fn find_config_file(from: Option<&Path>) -> Option<PathBuf> {
     let start = match from {
@@ -258,4 +258,33 @@ fn jlist_of(val: &Json, key: &str) -> Option<Vec<Json>> {
         Some(Json::List(items)) => Some(items.clone()),
         _ => None,
     }
+}
+
+/// The block that governs an instance: its own, else its api's.
+pub fn block_of(profile: &ResolvedProfile, reference: &str) -> Json {
+    profile
+        .sdk
+        .get(reference)
+        .or_else(|| profile.api.get(&refapi(reference)))
+        .cloned()
+        .unwrap_or_else(|| Json::Map(BTreeMap::new()))
+}
+
+/// §3.5 for a named instance: the block's `options`, then its `base`
+/// (steps 3-6), under the caller's options (step 9), per top-level key.
+pub fn instance_options(block: &Json, opts: Option<&Json>) -> BTreeMap<String, Json> {
+    let mut out: BTreeMap<String, Json> = match jget(block, "options") {
+        Some(Json::Map(entries)) => entries.clone(),
+        _ => BTreeMap::new(),
+    };
+    let base = jstr(block, "base");
+    if !base.is_empty() {
+        out.insert("base".to_string(), jtext(base));
+    }
+    if let Some(Json::Map(extra)) = opts {
+        for (key, val) in extra.iter() {
+            out.insert(key.clone(), val.clone());
+        }
+    }
+    out
 }

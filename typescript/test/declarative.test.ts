@@ -573,3 +573,92 @@ describe('auto-tagged clients keep the declared instance s identity', () => {
     st.close()
   })
 })
+
+
+describe('declared-options-and-feature-schema', () => {
+  beforeEach(() => resetFactories())
+  after(() => resetFactories())
+
+  const NOTES = {
+    base: 'http://127.0.0.1:9',
+    options: { headers: { 'x-api-version': '2022-06-28' }, prefix: '/v1' },
+  }
+
+  function recorder() {
+    const seen: any[] = []
+    class NotesSDK {
+      constructor(o: any) {
+        const { feature: _f, extend: _e, ...rest } = o
+        seen.push(rest)
+      }
+    }
+    return { NotesSDK, seen }
+  }
+
+  test('connect and adopt hand a named instance its declared options', () => {
+    const st = station({ notes: NOTES }, { proxy: 'off', load: false })
+    const { NotesSDK, seen } = recorder()
+
+    st.connect(NotesSDK, { instance: 'notes' })
+    st.adopt(NotesSDK, { instance: 'notes' })
+    st.connect(NotesSDK, { feature: { station: { instance: 'notes' } } })
+
+    for (const one of seen) {
+      deepStrictEqual(one, {
+        base: 'http://127.0.0.1:9',
+        headers: { 'x-api-version': '2022-06-28' },
+        prefix: '/v1',
+      })
+    }
+    equal(3, seen.length)
+    st.close()
+  })
+
+  test('the caller wins per top-level key, as in build()', () => {
+    const st = station({ notes: NOTES }, { proxy: 'off', load: false })
+    const { NotesSDK, seen } = recorder()
+
+    st.connect(NotesSDK, {
+      as: 'notes$', headers: { 'x-caller': 'yes' }, suffix: '.json',
+    })
+    deepStrictEqual(seen[0], {
+      base: 'http://127.0.0.1:9',
+      headers: { 'x-caller': 'yes' },
+      prefix: '/v1',
+      suffix: '.json',
+    })
+    st.close()
+  })
+
+  test('options() hands a named instance its declared options too', () => {
+    const st = station({ notes: NOTES }, { proxy: 'off', load: false })
+
+    const { feature: _f, ...named } = st.options('notes', { suffix: '.json' })
+    deepStrictEqual(named, {
+      base: 'http://127.0.0.1:9',
+      headers: { 'x-api-version': '2022-06-28' },
+      prefix: '/v1',
+      suffix: '.json',
+    })
+
+    const { feature: _g, ...unnamed } = st.options({ suffix: '.json' })
+    deepStrictEqual(unnamed, { suffix: '.json' })
+    st.close()
+  })
+
+  test('an unnamed connect cannot apply them, and says so', () => {
+    const notes = fakeSDK('notes')
+    const st = station({ notes: NOTES }, { proxy: 'off', load: false })
+
+    const client: any = st.connect(notes.SDK, { prefix: '/mine' })
+    equal(undefined, client.options.headers)
+
+    const warns = st.events()
+      .filter((e) => 'notes' === e.plugin && null != e.meta?.warn)
+      .map((e) => e.meta!.warn)
+    equal(1, warns.length)
+    equal(true, -1 !== warns[0].indexOf('[headers]'))
+    equal(true, -1 !== warns[0].indexOf('{ instance: "notes" }'))
+    st.close()
+  })
+})

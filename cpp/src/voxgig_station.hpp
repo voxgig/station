@@ -2736,6 +2736,37 @@ inline ResolvedProfile resolve_profile(const Jval& config, const std::string& pr
   return out;
 }
 
+// The block that governs an instance: its own, else its api's.
+inline Jval block_of(const ResolvedProfile& profile, const std::string& ref) {
+  if (profile.sdk.has(ref)) {
+    return profile.sdk.get(ref);
+  }
+  return profile.api.get(refapi(ref));
+}
+
+// design 3.5 for a named instance: the block's `options`, then its
+// `base` (steps 3-6), under the caller's options (step 9), per top-level
+// key.
+inline Jval instance_options(const Jval& block, const Jval& opts) {
+  Jval out = Jval::map();
+  Jval blockopts = block.get("options");
+  if (blockopts.ismap()) {
+    for (const auto& kv : blockopts.mval) {
+      out.set(kv.first, kv.second);
+    }
+  }
+  std::string base = block.get("base").str_or("");
+  if (!base.empty()) {
+    out.set("base", Jval::str(base));
+  }
+  if (opts.ismap()) {
+    for (const auto& kv : opts.mval) {
+      out.set(kv.first, kv.second);
+    }
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------
 // The instance ref grammar (design station.md 6.1), pinned by the
 // `instanceref` corpus section.
@@ -3686,11 +3717,7 @@ class Station {
   // profile that denied egress everywhere denied nothing for a tagged
   // client. Registration and the transport seam must both ask HERE.
   Jval block_for(const std::string& name) const {
-    std::string declared = declared_ref(name);
-    if (profile_.sdk.has(declared)) {
-      return profile_.sdk.get(declared);
-    }
-    return profile_.api.get(refapi(name));
+    return block_of(profile_, declared_ref(name));
   }
 
   // The per-api descriptor cache (design 6.11). THE DESCRIPTOR IS
@@ -4311,21 +4338,8 @@ class Station {
       fmap.set(composed.get("name").str_or(""), rest);
     }
 
-    Jval opts = Jval::map();
-    Jval blockopts = block.get("options");
-    if (blockopts.ismap()) {
-      for (const auto& kv : blockopts.mval) {
-        opts.set(kv.first, kv.second);
-      }
-    }
-    std::string base = block.get("base").str_or("");
-    if (!base.empty()) {
-      opts.set("base", Jval::str(base));
-    }
+    Jval opts = instance_options(block, overrides);
     if (overrides.ismap()) {
-      for (const auto& kv : overrides.mval) {
-        opts.set(kv.first, kv.second);
-      }
       Jval ofeature = overrides.get("feature");
       if (ofeature.ismap()) {
         for (const auto& kv : ofeature.mval) {
@@ -4736,6 +4750,67 @@ class Station {
     return options(std::string(), extra);
   }
 
+  // The ref a caller names before construction: an explicit instance, or
+  // an `as` that is a full ref. A bare tag needs the SDK's api, and an
+  // invalid name is left for registration to refuse.
+  static std::string _named_ref(const std::string& instance, const ::sdk::Value& entry) {
+    std::string name = instance;
+    if (name.empty()) {
+      ::sdk::Value given = ::sdk::getp(entry, "instance");
+      ::sdk::Value as = ::sdk::getp(entry, "as");
+      if (given.is_string() && !given.as_string().empty()) {
+        name = given.as_string();
+      } else if (as.is_string() && std::string::npos != as.as_string().find('$')) {
+        name = as.as_string();
+      }
+    }
+    if (name.empty()) {
+      return "";
+    }
+    try {
+      return check_ref(name);
+    } catch (const StationError&) {
+      return "";
+    }
+  }
+
+  // The library's own value model as an SDK Value, for the block options
+  // the inverted binding hands the constructor.
+  static ::sdk::Value _sdk_value(const Jval& v) {
+    switch (v.type) {
+      case Jval::Type::Bool:
+        return ::sdk::Value(v.bval);
+      case Jval::Type::Num:
+        if (v.nval > -9.0e15 && v.nval < 9.0e15 &&
+            v.nval == static_cast<double>(static_cast<long long>(v.nval))) {
+          return ::sdk::Value(static_cast<long long>(v.nval));
+        }
+        return ::sdk::Value(v.nval);
+      case Jval::Type::Str:
+        return ::sdk::Value(v.sval);
+      case Jval::Type::List: {
+        ::sdk::Value out = ::sdk::vlist();
+        for (const auto& item : v.lval) {
+          out.as_list()->push_back(_sdk_value(item));
+        }
+        return out;
+      }
+      case Jval::Type::Map: {
+        ::sdk::Value out = ::sdk::vmap();
+        for (const auto& kv : v.mval) {
+          if (Jval::Type::Absent != kv.second.type) {
+            ::sdk::map_put(out, kv.first, _sdk_value(kv.second));
+          }
+        }
+        return out;
+      }
+      case Jval::Type::Absent:
+      case Jval::Type::Null:
+        break;
+    }
+    return ::sdk::Value(nullptr);
+  }
+
   // options() with the INSTANCE NAME the construction registers under
   // (design 6.1). C++ cannot overload on a LEADING optional argument
   // the way the canonical `options(instanceName?, extra?)` does, so the
@@ -4744,6 +4819,14 @@ class Station {
   // (options_for) - this is its SDK-Value spelling.
   ::sdk::Value options(const std::string& instance, const ::sdk::Value& extra) const {
     ::sdk::Value out = extra.is_map() ? ::sdk::Struct::clone(extra) : ::sdk::vmap();
+    std::string ref = _named_ref(instance, ::sdk::getp(::sdk::getp(extra, "feature"), "station"));
+    if (!ref.empty()) {
+      for (const auto& kv : instance_options(block_for(ref), Jval::map()).mval) {
+        if (!::sdk::map_contains(out, kv.first)) {
+          ::sdk::map_put(out, kv.first, _sdk_value(kv.second));
+        }
+      }
+    }
     ::sdk::Value fmap = ::sdk::Helpers::toMapAny(::sdk::getp(out, "feature"));
     if (!fmap.is_map()) {
       fmap = ::sdk::vmap();

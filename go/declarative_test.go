@@ -678,6 +678,40 @@ func TestTwoInstancesOfOneApiAreDistinct(t *testing.T) {
 	}
 }
 
+func TestOptionsForHandsANamedInstanceItsDeclaredOptions(t *testing.T) {
+	st := declarative(t, map[string]any{
+		"default": map[string]any{
+			"sdk": map[string]any{
+				"notes": map[string]any{
+					"base": "http://127.0.0.1:9",
+					"options": map[string]any{
+						"headers": map[string]any{"x-api-version": "2022-06-28"},
+						"prefix":  "/v1",
+					},
+				},
+			},
+		},
+	})
+
+	named := st.OptionsFor("notes", map[string]any{"suffix": ".json"})
+	delete(named, "feature")
+	want := map[string]any{
+		"base":    "http://127.0.0.1:9",
+		"headers": map[string]any{"x-api-version": "2022-06-28"},
+		"prefix":  "/v1",
+		"suffix":  ".json",
+	}
+	if station.CanonicalSerialize(want) != station.CanonicalSerialize(named) {
+		t.Fatalf("named: %v", named)
+	}
+
+	unnamed := st.Options(map[string]any{"suffix": ".json"})
+	delete(unnamed, "feature")
+	if `{"suffix":".json"}` != station.CanonicalSerialize(unnamed) {
+		t.Fatalf("unnamed: %v", unnamed)
+	}
+}
+
 func TestPolicyAllowlistReachesTheSDKOptions(t *testing.T) {
 	provideFake(t, "fakepad", nil)
 	st := declarative(t, map[string]any{

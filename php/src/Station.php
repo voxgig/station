@@ -159,6 +159,23 @@ function instance_ref(string $api, mixed $fopts): string
     return checkref(!str_contains($as, '$') ? $api . '$' . $as : checkapi($api, $as));
 }
 
+/**
+ * The ref a caller names before construction: an explicit instance, or
+ * an `as` that is a full ref. A bare tag needs the SDK's api, so not.
+ */
+function named_ref(mixed $fopts): ?string
+{
+    $fopts = is_array($fopts) ? $fopts : [];
+
+    $explicit = first_non_empty($fopts['instance'] ?? null);
+    if (null !== $explicit) {
+        return checkref($explicit);
+    }
+
+    $as = first_non_empty($fopts['as'] ?? null);
+    return null !== $as && str_contains($as, '$') ? checkref($as) : null;
+}
+
 /** The first non-empty value, as a string, or null. */
 function first_non_empty(mixed ...$vals): ?string
 {
@@ -382,6 +399,14 @@ class Station
         $instance = $named ? $a : null;
         $extra = $named ? $b : $a;
         $extra = is_array($extra) ? $extra : [];
+        $sopts = is_array($extra['feature']['station'] ?? null) ? $extra['feature']['station'] : [];
+        if (null !== $instance) {
+            $sopts['instance'] = $instance;
+        }
+        $ref = named_ref($sopts);
+        if (null !== $ref) {
+            $extra = instance_options($this->block_for($ref), $extra);
+        }
 
         $fmap = is_array($extra['feature'] ?? null) ? $extra['feature'] : [];
         $sf = is_array($fmap['station'] ?? null) ? $fmap['station'] : [];
@@ -440,11 +465,7 @@ class Station
      */
     public function block_for(string $name): ?array
     {
-        $own = $this->profile['sdk'][$this->declared_ref($name)] ?? null;
-        if (null !== $own) {
-            return $own;
-        }
-        return $this->profile['api'][refapi($name)] ?? null;
+        return block_of($this->profile, $this->declared_ref($name));
     }
 
     /**
@@ -926,13 +947,7 @@ class Station
             $fmap[$fname] = $f;
         }
 
-        $opts = is_array($block['options'] ?? null) ? $block['options'] : [];
-        if (null !== ($block['base'] ?? null)) {
-            $opts['base'] = $block['base'];
-        }
-        foreach (($overrides ?? []) as $k => $v) {
-            $opts[$k] = $v;
-        }
+        $opts = instance_options($block, $overrides);
         $ofeature = is_array(($overrides ?? [])['feature'] ?? null)
             ? $overrides['feature'] : [];
         foreach ($ofeature as $k => $v) {
@@ -1554,6 +1569,17 @@ class Station
             throw new StationError('station_no_plugin', 'station is closed');
         }
         $opts = $opts ?? [];
+        $named = is_array($opts['feature']['station'] ?? null) ? $opts['feature']['station'] : [];
+        foreach (['as', 'instance'] as $k) {
+            if (null !== ($opts[$k] ?? null)) {
+                $named[$k] = $opts[$k];
+            }
+        }
+        $ref = named_ref($named);
+        if (null !== $ref) {
+            $opts = instance_options($this->block_for($ref), $opts);
+        }
+
         $fmap = is_array($opts['feature'] ?? null) ? $opts['feature'] : [];
         $sf = is_array($fmap['station'] ?? null) ? $fmap['station'] : [];
         $sf['active'] = true;
@@ -1584,7 +1610,42 @@ class Station
         $options['feature'] = $fmap;
         $options['extend'] = $extend;
 
-        return new $sdk_class($options);
+        $client = new $sdk_class($options);
+        if (null === $ref) {
+            $this->warn_unapplied($client, $options);
+        }
+        return $client;
+    }
+
+    /**
+     * An unnamed connect learns its api from the SDK's config during
+     * construction: too late for the block's options to reach the SDK.
+     *
+     * @param array<string, mixed> $options
+     */
+    private function warn_unapplied(object $client, array $options): void
+    {
+        $entry = $this->_bound_entry($client);
+        if (null === $entry) {
+            return;
+        }
+        $declared = ($this->block_for($entry['name']) ?? [])['options'] ?? null;
+        if (!is_array($declared)) {
+            return;
+        }
+        $missed = array_values(array_filter(array_map('strval', array_keys($declared)),
+            fn($k) => !array_key_exists($k, $options)));
+        if ([] === $missed) {
+            return;
+        }
+        sort($missed, SORT_STRING);
+        $this->emit([
+            't' => now_ms(), 'kind' => 'station', 'plugin' => $entry['name'],
+            'api' => $entry['api'],
+            'meta' => ['warn' => 'instance "' . $entry['name'] . '" declares options [' .
+                implode(', ', $missed) . '] that reach the SDK only when the instance ' .
+                'is named before construction; pass { instance: "' . $entry['name'] . '" }'],
+        ]);
     }
 
     /** @param array<string, mixed> $ev */

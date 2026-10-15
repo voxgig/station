@@ -777,6 +777,140 @@ subtest 'connect keeps as and instance out of the SDK options' => sub {
         'gnarly-pets$spare', 'the ref rides the station entry' );
 };
 
+subtest 'options() hands a named instance its declared options' => sub {
+    reset_env();
+    my $st = Voxgig::Station->new(
+        {
+            config => {
+                station  => 1,
+                profiles => {
+                    default => {
+                        sdk => {
+                            notes => {
+                                base    => 'http://127.0.0.1:9',
+                                options => {
+                                    headers => { 'x-api-version' => '2022-06-28' },
+                                    prefix  => '/v1'
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    );
+    my %named = %{ $st->options( 'notes', { suffix => '.json' } ) };
+    delete $named{feature};
+    is_deeply(
+        \%named,
+        {
+            base    => 'http://127.0.0.1:9',
+            headers => { 'x-api-version' => '2022-06-28' },
+            prefix  => '/v1',
+            suffix  => '.json'
+        },
+        'the block options sit under the caller'
+    );
+    my %unnamed = %{ $st->options( { suffix => '.json' } ) };
+    delete $unnamed{feature};
+    is_deeply( \%unnamed, { suffix => '.json' }, 'an unnamed call is untouched' );
+};
+
+subtest 'connect and adopt hand a named instance its declared options' => sub {
+    reset_env();
+    my $st = Voxgig::Station->new(
+        {
+            config => {
+                station  => 1,
+                profiles => {
+                    default => {
+                        sdk => {
+                            notes => {
+                                base    => 'http://127.0.0.1:9',
+                                options => {
+                                    headers => { 'x-api-version' => '2022-06-28' },
+                                    prefix  => '/v1'
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    );
+    my $want = {
+        base    => 'http://127.0.0.1:9',
+        headers => { 'x-api-version' => '2022-06-28' },
+        prefix  => '/v1',
+    };
+    my $plain = sub {
+        my %o = %{ $_[0]{options} };
+        delete @o{qw(feature extend)};
+        return \%o;
+    };
+
+    is_deeply( $plain->( $st->connect( 'ClosedSDK', { instance => 'notes' } ) ),
+        $want, 'connect' );
+    is_deeply( $plain->( $st->adopt( 'ClosedSDK', { instance => 'notes' } ) ),
+        $want, 'adopt' );
+    is_deeply(
+        $plain->(
+            $st->connect( 'ClosedSDK',
+                { feature => { station => { instance => 'notes' } } } )
+        ),
+        $want,
+        'the station entry names it too'
+    );
+
+    is_deeply(
+        $plain->(
+            $st->connect(
+                'ClosedSDK',
+                {
+                    as      => 'notes$',
+                    headers => { 'x-caller' => 'yes' },
+                    suffix  => '.json'
+                }
+            )
+        ),
+        {
+            base    => 'http://127.0.0.1:9',
+            headers => { 'x-caller' => 'yes' },
+            prefix  => '/v1',
+            suffix  => '.json'
+        },
+        'the caller wins per top-level key, as in build()'
+    );
+};
+
+subtest 'an unnamed connect warns that declared options cannot reach' => sub {
+    reset_env();
+    my $st = Voxgig::Station->new(
+        {
+            config => {
+                station  => 1,
+                profiles => {
+                    default => {
+                        sdk => {
+                            'gnarly-pets' =>
+                              { options => { headers => { 'x-api-version' => '1' } } }
+                        }
+                    }
+                }
+            }
+        }
+    );
+    my $client = $st->connect( 'StubSDK', { prefix => '/mine' } );
+    ok( !exists $client->{options}{headers}, 'not applied' );
+
+    my @warns = map { $_->{meta}{warn} }
+      grep { 'gnarly-pets' eq ( $_->{plugin} // '' ) && defined $_->{meta}{warn} }
+      @{ $st->events };
+    is( scalar @warns, 1, 'one warning' );
+    ok( 0 <= index( $warns[0], '[headers]' ),                    'names the options' );
+    ok( 0 <= index( $warns[0], '{ instance: "gnarly-pets" }' ), 'names the fix' );
+};
+
 # --- events (design station.md 6) ---
 
 subtest 'ring overflow drops oldest and counts' => sub {

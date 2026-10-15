@@ -198,7 +198,8 @@ var (
 		return station.ValidateConfig(station.NormalizeConfig(denull(args[0])))
 	})
 
-	// The §3.3 merge, and the whole of this port's profile contract.
+	// The §3.3 merge, and the whole of this port's profile contract. A
+	// `ref` asks for the options that named instance is constructed with.
 	INSTANCE = omni.Subject(func(args ...any) (any, error) {
 		entry := entrymap(args[0])
 		// A NULLMARK config (spec null) is no config at all.
@@ -207,6 +208,10 @@ var (
 		resolved, err := station.ResolveProfile(config, profileName)
 		if nil != err {
 			return nil, err
+		}
+		if ref, named := entry["ref"].(string); named {
+			return station.InstanceOptions(
+				station.BlockOf(resolved, ref), denullmap(entry["opts"])), nil
 		}
 		api := map[string]any{}
 		for slug, one := range resolved.Api {

@@ -199,11 +199,17 @@ const omni::Subject CANONICAL = [](const std::vector<omni::Json>& args) {
   return omni::Json::str(vs::canonical_serialize(to_station(args[0], true)));
 };
 
-// The 3.3 merge, and the whole of this port's profile contract.
+// The 3.3 merge, and the whole of this port's profile contract. A `ref`
+// asks for the options that named instance is constructed with.
 const omni::Subject INSTANCE = [](const std::vector<omni::Json>& args) {
   vs::Jval config = to_station(args[0].get("config"), false);
   std::string profile = args[0].get("profile").strval;
   vs::ResolvedProfile resolved = vs::resolve_profile(config, profile);
+  if (args[0].has("ref")) {
+    vs::Jval opts = to_station(args[0].get("opts"), false);
+    return to_omni(
+        vs::instance_options(vs::block_of(resolved, args[0].get("ref").strval), opts));
+  }
   omni::Json out = omni::Json::map();
   out.set("name", omni::Json::str(resolved.name));
   out.set("api", to_omni(resolved.api));

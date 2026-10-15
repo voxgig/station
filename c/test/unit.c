@@ -1026,6 +1026,41 @@ static void fake_free(void* client) {
   free(c);
 }
 
+static void test_options_named(void) {
+  vxstn_open_opts opts;
+  vxstn_station* st;
+  vxstn_error* err = NULL;
+  vxstn_val* extra = vxstn_parse_json("{\"suffix\":\".json\"}", NULL);
+  vxstn_val* named;
+  vxstn_val* unnamed;
+
+  vxstn_reset();
+  memset(&opts, 0, sizeof(opts));
+  opts.proxy = "off";
+  opts.config_json = "{\"station\":1,\"profiles\":{\"default\":{\"sdk\":{\"notes\":"
+                     "{\"base\":\"http://127.0.0.1:9\",\"options\":{\"headers\":"
+                     "{\"x-api-version\":\"2022-06-28\"},\"prefix\":\"/v1\"}}}}}}";
+  st = vxstn_open(&opts, &err);
+  CHECK(NULL != st && NULL == err);
+
+  named = vxstn_options(st, "notes", extra);
+  CHECK_STR(vxstn_strval(vxstn_map_get(named, "base")), "http://127.0.0.1:9");
+  CHECK_STR(vxstn_strval(vxstn_map_get(vxstn_map_get(named, "headers"), "x-api-version")),
+            "2022-06-28");
+  CHECK_STR(vxstn_strval(vxstn_map_get(named, "prefix")), "/v1");
+  CHECK_STR(vxstn_strval(vxstn_map_get(named, "suffix")), ".json");
+
+  unnamed = vxstn_options(st, NULL, extra);
+  CHECK(NULL == vxstn_map_get(unnamed, "headers"));
+  CHECK_STR(vxstn_strval(vxstn_map_get(unnamed, "suffix")), ".json");
+
+  vxstn_val_free(unnamed);
+  vxstn_val_free(named);
+  vxstn_val_free(extra);
+  vxstn_station_free(st);
+  vxstn_reset();
+}
+
 static void test_factory_table(void) {
   vxstn_val* config = vxstn_parse_json(SOLAR_CONFIG, NULL);
   vxstn_val* same = vxstn_parse_json(SOLAR_CONFIG, NULL);
@@ -1415,6 +1450,7 @@ int main(void) {
   test_feature_merge();
   test_feature_order();
   test_compose_and_check();
+  test_options_named();
   test_factory_table();
   test_check_package();
   test_declarative();

@@ -934,6 +934,60 @@ class TestDeclarative(unittest.TestCase):
         self.assertIn('declares no option "retires"', str(caught.exception))
         st.close()
 
+    def test_options_hands_a_named_instance_its_declared_options(self):
+        notes = {'base': 'http://127.0.0.1:9',
+                 'options': {'headers': {'x-api-version': '2022-06-28'},
+                             'prefix': '/v1'}}
+        st = Station({'config': cfg(sdk={'notes': notes}), 'proxy': 'off'})
+        named = st.options('notes', {'suffix': '.json'})
+        named.pop('feature')
+        self.assertEqual({'base': 'http://127.0.0.1:9',
+                          'headers': {'x-api-version': '2022-06-28'},
+                          'prefix': '/v1', 'suffix': '.json'}, named)
+        unnamed = st.options({'suffix': '.json'})
+        unnamed.pop('feature')
+        self.assertEqual({'suffix': '.json'}, unnamed)
+        st.close()
+
+    def test_connect_and_adopt_hand_a_named_instance_its_options(self):
+        notes = {'base': 'http://127.0.0.1:9',
+                 'options': {'headers': {'x-api-version': '2022-06-28'},
+                             'prefix': '/v1'}}
+        st = Station({'config': cfg(sdk={'notes': notes}), 'proxy': 'off'})
+        seen = []
+
+        class NotesSDK:
+            def __init__(self, o):
+                seen.append({k: v for k, v in o.items()
+                             if k not in ('feature', 'extend')})
+
+        st.connect(NotesSDK, {'instance': 'notes'})
+        st.adopt(NotesSDK, {'instance': 'notes'})
+        st.connect(NotesSDK, {'feature': {'station': {'instance': 'notes'}}})
+        want = {'base': 'http://127.0.0.1:9',
+                'headers': {'x-api-version': '2022-06-28'}, 'prefix': '/v1'}
+        self.assertEqual([want, want, want], seen)
+
+        # The caller wins per top-level key, as in build().
+        st.connect(NotesSDK, {'as': 'notes$', 'headers': {'x-caller': 'yes'},
+                              'suffix': '.json'})
+        self.assertEqual({'base': 'http://127.0.0.1:9',
+                          'headers': {'x-caller': 'yes'}, 'prefix': '/v1',
+                          'suffix': '.json'}, seen[3])
+        st.close()
+
+    def test_an_unnamed_connect_warns_that_options_cannot_reach(self):
+        st = Station({'config': cfg(sdk={'pad': {
+            'options': {'headers': {'x-api-version': '1'}}}})})
+        client = st.connect(FakeSDK, {'prefix': '/mine'})
+        self.assertNotIn('headers', client.options)
+        warns = [e['meta']['warn'] for e in st.events()
+                 if 'pad' == e.get('plugin') and 'warn' in (e.get('meta') or {})]
+        self.assertEqual(1, len(warns))
+        self.assertIn('[headers]', warns[0])
+        self.assertIn('{ instance: "pad" }', warns[0])
+        st.close()
+
     def test_an_unknown_feature_fails_the_build(self):
         st = Station({'config': cfg(sdk={'pad': {'feature': {
             'nosuch': {'x': 1}}}})})

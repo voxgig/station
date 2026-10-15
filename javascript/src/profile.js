@@ -192,9 +192,26 @@ function checksecrets(sdk, profileName) {
   }
 }
 
+// The block that governs an instance: its own, else its api's.
+function blockOf(profile, ref) {
+  return profile.sdk[ref] ?? profile.api[refapi(ref)]
+}
+
+// §3.5 for a named instance: the block's `options`, then its `base`
+// (steps 3-6), under the caller's options (step 9), per top-level key.
+function instanceOptions(block, opts) {
+  return {
+    ...(block?.options || {}),
+    ...(null == block?.base ? {} : { base: block.base }),
+    ...(opts || {}),
+  }
+}
+
 module.exports = {
+  blockOf,
   configScope,
   findConfigFile,
+  instanceOptions,
   refapi,
   loadConfig,
   resolveProfile,

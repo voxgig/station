@@ -73,9 +73,14 @@ DRIVERS = {
     VoxgigStation.validate_config(VoxgigStation.normalize_config(denull(vin)))
   },
 
-  # The 3.3 merge, and the whole of this port's profile contract.
+  # The 3.3 merge, and the whole of this port's profile contract. A
+  # `ref` asks for the options that named instance is constructed with.
   'instance' => lambda { |vin|
-    VoxgigStation.resolve_profile(denull(vin['config']), vin['profile'])
+    profile = VoxgigStation.resolve_profile(denull(vin['config']), vin['profile'])
+    next profile if vin['ref'].nil?
+
+    VoxgigStation.instance_options(
+      VoxgigStation.block_of(profile, vin['ref']), denull(vin['opts']))
   },
 
   # design station.md 8's pure half (10.1): the three-level merge with

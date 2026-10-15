@@ -1923,7 +1923,10 @@ library exists.**
   is still live and still the defect worth guarding — and **a name and
   an untagged ref are the same key string**, so an `api` block and an
   `sdk` block may both exist for one name and are told apart by the map
-  they are in, never lexically.
+  they are in, never lexically. An entry with a `ref` asks for the
+  options that instance is constructed with — the block's `options` and
+  `base` under the entry's `opts` — which holds every construction path
+  to `station.md` §3.5's merge.
 
   The section previously also guarded *the api resolved before its
   defaults are looked up*. That case is **deleted rather than moved**:

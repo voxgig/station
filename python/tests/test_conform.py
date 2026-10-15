@@ -53,10 +53,12 @@ from voxgig_omni import NULLMARK, makeRunner  # noqa: E402
 from voxgig_sekreto import envkey  # noqa: E402
 
 from voxgig_station import (  # noqa: E402
+    block_of,
     canonical_serialize,
     check_pin,
     envtoken,
     feature_sources,
+    instance_options,
     instance_ref,
     is_known_code,
     merge_features,
@@ -115,6 +117,14 @@ def _feature(vin):
         vin.get('api'), vin.get('ref')))
 
 
+def _instance(vin):
+    profile = resolve_profile(denull(vin['config']), vin['profile'])
+    if vin.get('ref') is None:
+        return profile
+    return instance_options(block_of(profile, vin['ref']),
+                            denull(vin.get('opts')))
+
+
 # One driver per section this port RUNS, keyed by the corpus section
 # name - the tests below are REGISTERED from this table, so a section
 # listed here cannot silently not run, and the completeness guard closes
@@ -141,9 +151,9 @@ DRIVERS = {
     # to validate the wrong form.
     'config': lambda vin: validate_config(normalize_config(denull(vin))),
 
-    # The 3.3 merge, and the whole of this port's profile contract.
-    'instance': lambda vin: resolve_profile(denull(vin['config']),
-                                            vin['profile']),
+    # The 3.3 merge, and the whole of this port's profile contract. A
+    # `ref` asks for the options that named instance is constructed with.
+    'instance': _instance,
 
     'feature': _feature,
 

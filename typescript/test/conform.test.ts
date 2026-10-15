@@ -17,7 +17,7 @@ import {
   resolveorder,
 } from '../src/feature'
 import { placeholderFor, substitute } from '../src/secrets'
-import { resolveProfile } from '../src/profile'
+import { blockOf, instanceOptions, resolveProfile } from '../src/profile'
 import { normalizeConfig, validateConfig } from '../src/shape'
 import { instanceRef } from '../src/Station'
 import { omnihome, specfile } from '../src/omnihome'
@@ -86,10 +86,14 @@ describe('station-conform', () => {
       validateConfig(normalizeConfig(denull(vin))))
   })
 
-  // The §3.3 merge, and the whole of this port's profile contract.
+  // The §3.3 merge, and the whole of this port's profile contract. A
+  // `ref` asks for the options that named instance is constructed with.
   test('instance', async () => {
-    await R.runset(R.spec.instance, (vin: any) =>
-      resolveProfile(denull(vin.config), vin.profile))
+    await R.runset(R.spec.instance, (vin: any) => {
+      const profile = resolveProfile(denull(vin.config), vin.profile)
+      if (null == vin.ref) { return profile }
+      return instanceOptions(blockOf(profile, vin.ref), denull(vin.opts))
+    })
   })
 
   test('feature', async () => {

@@ -33,7 +33,9 @@ from .feature import (
 )
 from .loader import load_sync
 from .profile import (
+    block_of,
     config_scope,
+    instance_options,
     load_config,
     refapi,
     resolve_profile,
@@ -153,6 +155,20 @@ def instance_ref(api, fopts):
     # Someone who wants the untagged instance passes no `as` at all.
     return _checkref(api + '$' + as_tag if -1 == as_tag.find('$')
                      else _checkapi(api, as_tag))
+
+
+def named_ref(fopts):
+    """The ref a caller names before construction: an explicit instance,
+    or an `as` that is a full ref. A bare tag needs the SDK's api, so not."""
+    fopts = fopts or {}
+    explicit = _first_non_empty(fopts.get('instance'))
+    if explicit is not None:
+        return _checkref(explicit)
+
+    as_tag = _first_non_empty(fopts.get('as'))
+    if as_tag is not None and -1 != as_tag.find('$'):
+        return _checkref(as_tag)
+    return None
 
 
 class Station:
@@ -294,6 +310,15 @@ class Station:
             raise StationError('station_no_plugin', 'station is closed')
         opts = opts or {}
 
+        sopts = (opts.get('feature') or {}).get('station')
+        sopts = dict(sopts) if isinstance(sopts, dict) else {}
+        for key in ('as', 'instance'):
+            if opts.get(key) is not None:
+                sopts[key] = opts[key]
+        ref = named_ref(sopts)
+        if ref is not None:
+            opts = instance_options(self.block_for(ref), opts)
+
         # calleropts must survive the SDK's option pipeline (vs.clone
         # flattens arbitrary objects), so any extend instances are left
         # out of the carried copy - the binding only reads plain keys.
@@ -326,7 +351,31 @@ class Station:
         # (both delegate to feature_binding, so behavior is identical).
         options['extend'] = list(opts.get('extend') or []) + \
             [adapter_feature(self, calleropts)]
-        return SDK(options)
+        client = SDK(options)
+        if ref is None:
+            self._warn_unapplied(client, options)
+        return client
+
+    def _warn_unapplied(self, client, options):
+        # An unnamed connect learns its api from the SDK's config during
+        # construction: too late for the block's options to reach it.
+        entry = self._bound_entry(client)
+        declared = None if entry is None else \
+            (self.block_for(entry['name']) or {}).get('options')
+        if not isinstance(declared, dict):
+            return
+        missed = sorted(k for k in declared if k not in options)
+        if 0 == len(missed):
+            return
+        name = entry['name']
+        self._emit({
+            't': _now_ms(), 'kind': 'station', 'plugin': name,
+            'api': entry['api'],
+            'meta': {'warn': 'instance "' + name + '" declares options [' +
+                     ', '.join(missed) + '] that reach the SDK only when '
+                     'the instance is named before construction; pass '
+                     '{ instance: "' + name + '" }'},
+        })
 
     def options(self, a=None, b=None):
         """Inverted binding (design station.md 3.1): build the plain
@@ -341,6 +390,13 @@ class Station:
         named = isinstance(a, str)
         instance = a if named else None
         extra = (b if named else a) or {}
+        sopts = (extra.get('feature') or {}).get('station')
+        sopts = dict(sopts) if isinstance(sopts, dict) else {}
+        if instance is not None:
+            sopts['instance'] = instance
+        ref = named_ref(sopts)
+        if ref is not None:
+            extra = instance_options(self.block_for(ref), extra)
         calleropts = {k: v for k, v in extra.items() if 'extend' != k}
         fmap = dict(extra.get('feature') or {})
         entry = dict(fmap.get('station') or {})
@@ -394,10 +450,7 @@ class Station:
         ONE RULE, ONE PLACE: registration and the transport seam both ask
         here, because them disagreeing is how the credential and the
         allowlist came apart in the first place."""
-        block = self._profile['sdk'].get(self.declared_ref(name))
-        if block is None:
-            block = self._profile['api'].get(refapi(name))
-        return block
+        return block_of(self._profile, self.declared_ref(name))
 
     def declared_ref(self, name):
         """The DECLARED instance an assigned tag stands for, or the name
@@ -853,10 +906,7 @@ class Station:
             fname = rest.pop('name')
             fmap[fname] = rest
 
-        opts = dict(block.get('options') or {})
-        if block.get('base') is not None:
-            opts['base'] = block['base']
-        opts.update(overrides or {})
+        opts = instance_options(block, overrides)
         feature = dict(fmap)
         feature.update((overrides or {}).get('feature') or {})
         opts['feature'] = feature

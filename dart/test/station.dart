@@ -539,6 +539,110 @@ void stationCases(void Function(String, FutureOr<void> Function()) testcase) {
         'instance rides the entry');
   });
 
+  testcase('connect and adopt hand a named instance its declared options', () {
+    final st = Station({
+      'config': {
+        'station': 1,
+        'profiles': {
+          'default': {
+            'sdk': {
+              'notes': {
+                'base': 'http://127.0.0.1:9',
+                'options': {
+                  'headers': {'x-api-version': '2022-06-28'},
+                  'prefix': '/v1',
+                },
+              },
+            },
+          },
+        },
+      },
+      'proxy': 'off',
+    });
+    final seen = <String>[];
+    dynamic record(dynamic options) {
+      final plain = Map<String, dynamic>.from(options as Map)
+        ..remove('feature')
+        ..remove('extend');
+      seen.add(canonicalSerialize(plain));
+      return plain;
+    }
+
+    st.connect(record, {'instance': 'notes'});
+    st.adopt(record, {'instance': 'notes'});
+    st.connect(record, {
+      'feature': {
+        'station': {'instance': 'notes'}
+      }
+    });
+    final want = canonicalSerialize({
+      'base': 'http://127.0.0.1:9',
+      'headers': {'x-api-version': '2022-06-28'},
+      'prefix': '/v1',
+    });
+    eq(seen.length, 3, 'three constructions');
+    for (final one in seen) {
+      eq(one, want, 'the block options reach the SDK');
+    }
+
+    st.connect(record, {
+      'as': r'notes$',
+      'headers': {'x-caller': 'yes'},
+      'suffix': '.json',
+    });
+    eq(
+        seen[3],
+        canonicalSerialize({
+          'base': 'http://127.0.0.1:9',
+          'headers': {'x-caller': 'yes'},
+          'prefix': '/v1',
+          'suffix': '.json',
+        }),
+        'the caller wins per top-level key, as in build()');
+  });
+
+  testcase('an unnamed connect warns that declared options cannot reach', () {
+    final st = Station({
+      'config': {
+        'station': 1,
+        'profiles': {
+          'default': {
+            'sdk': {
+              'gnarly-pets': {
+                'options': {
+                  'headers': {'x-api-version': '1'}
+                },
+              },
+            },
+          },
+        },
+      },
+      'proxy': 'off',
+    });
+    // A generated SDK runs its extend features as it constructs, so the
+    // registry holds the client connect returns.
+    dynamic generated(dynamic options) {
+      final ctx = makeCtx(options: options as Map<String, dynamic>);
+      for (final f in options['extend'] as List) {
+        f.init(ctx, options['feature']['station']);
+      }
+      return ctx.client;
+    }
+
+    final client = st.connect(generated, {'prefix': '/mine'});
+    check(null != st.boundEntry(client), 'bound');
+    final warns = st
+        .events()
+        .where((ev) =>
+            'gnarly-pets' == ev['plugin'] && null != ev['meta']?['warn'])
+        .map((ev) => ev['meta']['warn'].toString())
+        .toList();
+    eq(warns.length, 1, 'one warning');
+    check(warns[0].contains('[headers]'), 'names the options: ' + warns[0]);
+    check(warns[0].contains('{ instance: "gnarly-pets" }'),
+        'names the fix: ' + warns[0]);
+  });
+
   testcase('copy-on-inject: the wire gets the value, ctx keeps the placeholder',
       () async {
     if (!hasEnv('GNARLY_PETS_APIKEY')) {

@@ -27,7 +27,7 @@ const {
   resolveorder,
 } = require('../src/feature')
 const { placeholderFor, substitute } = require('../src/secrets')
-const { resolveProfile } = require('../src/profile')
+const { blockOf, instanceOptions, resolveProfile } = require('../src/profile')
 const { normalizeConfig, validateConfig } = require('../src/shape')
 const { instanceRef } = require('../src/Station')
 const { omnihome, specfile } = require('../src/omnihome')
@@ -81,8 +81,13 @@ const DRIVERS = {
   // to validate the wrong form.
   config: (vin) => validateConfig(normalizeConfig(denull(vin))),
 
-  // The §3.3 merge, and the whole of this port's profile contract.
-  instance: (vin) => resolveProfile(denull(vin.config), vin.profile),
+  // The §3.3 merge, and the whole of this port's profile contract. A
+  // `ref` asks for the options that named instance is constructed with.
+  instance: (vin) => {
+    const profile = resolveProfile(denull(vin.config), vin.profile)
+    if (null == vin.ref) { return profile }
+    return instanceOptions(blockOf(profile, vin.ref), denull(vin.opts))
+  },
 
   // §8's pure half (design §10.1): the three-level merge with its depth
   // boundary, and the §8.4 order resolution. One driver, two entry

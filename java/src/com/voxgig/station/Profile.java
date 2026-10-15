@@ -281,4 +281,31 @@ public final class Profile {
       }
     }
   }
+
+  /** The block that governs an instance: its own, else its api's. */
+  public static Map<String, Object> blockOf(Map<String, Object> profile, String ref) {
+    Object own = Descriptor.getprop(profile.get("sdk"), ref);
+    if (own instanceof Map) {
+      return (Map<String, Object>) own;
+    }
+    return Descriptor.asmap(Descriptor.getprop(profile.get("api"), refapi(ref)));
+  }
+
+  /**
+   * Design 3.5 for a named instance: the block's `options`, then its
+   * `base` (steps 3-6), under the caller's options (step 9), per top-level
+   * key.
+   */
+  public static Map<String, Object> instanceOptions(Map<String, Object> block,
+      Map<String, Object> opts) {
+    Map<String, Object> out = new LinkedHashMap<>();
+    out.putAll(Descriptor.asmap(Descriptor.getprop(block, "options")));
+    if (null != Descriptor.getprop(block, "base")) {
+      out.put("base", Descriptor.getprop(block, "base"));
+    }
+    if (null != opts) {
+      out.putAll(opts);
+    }
+    return out;
+  }
 }

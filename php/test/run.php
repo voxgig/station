@@ -31,6 +31,7 @@ use Voxgig\Station\StationError;
 use Voxgig\Station\TransportWrap;
 
 use function Voxgig\Station\adapter_feature;
+use function Voxgig\Station\block_of;
 use function Voxgig\Station\camelify;
 use function Voxgig\Station\canonical_serialize;
 use function Voxgig\Station\check_features;
@@ -42,6 +43,7 @@ use function Voxgig\Station\envtoken;
 use function Voxgig\Station\factory_for;
 use function Voxgig\Station\factory_from_module;
 use function Voxgig\Station\feature_sources;
+use function Voxgig\Station\instance_options;
 use function Voxgig\Station\instance_ref;
 use function Voxgig\Station\known_code;
 use function Voxgig\Station\merge_features;
@@ -221,8 +223,16 @@ $DRIVERS = [
     // to validate the wrong form.
     'config' => fn($vin) => validate_config(normalize_config(denull($vin))),
 
-    // The 3.3 merge, and the whole of this port's profile contract.
-    'instance' => fn($vin) => resolve_profile(denull($vin['config']), $vin['profile']),
+    // The 3.3 merge, and the whole of this port's profile contract. A
+    // `ref` asks for the options that named instance is constructed with.
+    'instance' => function ($vin) {
+        $profile = resolve_profile(denull($vin['config']), $vin['profile']);
+        if (null === ($vin['ref'] ?? null)) {
+            return $profile;
+        }
+        return instance_options(block_of($profile, $vin['ref']),
+            denull($vin['opts'] ?? null));
+    },
 
     // Design 8's pure half (10.1): the three-level merge with its depth
     // boundary, and the 8.4 order resolution. ONE driver, TWO entry
@@ -1378,6 +1388,89 @@ testcase('connect_keeps_as_and_instance_out_of_the_sdk_options', function () {
     sort($keys);
     eq(['extend', 'feature'], $keys);
     eq('solar$spare', $sdk->options['feature']['station']['instance']);
+});
+
+// A generated SDK is its own client, so the registry holds what connect
+// returns.
+#[\AllowDynamicProperties]
+class SelfBoundSDK extends FakeClient
+{
+    public function __construct(array $options)
+    {
+        $this->options = $options;
+        $utility = new FakeUtility();
+        $utility->fetcher = fn($_c, $_u, $_d) => [okres(), null];
+        $ctx = new FakeCtx($this, $utility, $options, SDKCONFIG);
+        $fopts = is_array($options['feature']['station'] ?? null)
+            ? $options['feature']['station'] : [];
+        foreach (($options['extend'] ?? []) as $f) {
+            $this->features[] = $f;
+            $f->init($ctx, $fopts);
+        }
+    }
+}
+
+const NOTES = [
+    'base' => 'http://127.0.0.1:9',
+    'options' => ['headers' => ['x-api-version' => '2022-06-28'], 'prefix' => '/v1'],
+];
+
+function sdk_options(object $sdk): array
+{
+    $o = $sdk->options;
+    unset($o['feature'], $o['extend']);
+    return $o;
+}
+
+testcase('options_hands_a_named_instance_its_declared_options', function () {
+    $st = new Station(['config' => solarconfig(['notes' => NOTES])]);
+    $named = $st->options('notes', ['suffix' => '.json']);
+    unset($named['feature']);
+    ksort($named);
+    eq(['base' => 'http://127.0.0.1:9', 'headers' => ['x-api-version' => '2022-06-28'],
+        'prefix' => '/v1', 'suffix' => '.json'], $named);
+    $unnamed = $st->options(['suffix' => '.json']);
+    unset($unnamed['feature']);
+    eq(['suffix' => '.json'], $unnamed);
+});
+
+testcase('connect_and_adopt_hand_a_named_instance_its_options', function () {
+    $st = new Station(['config' => solarconfig(['notes' => NOTES])]);
+    $want = ['base' => 'http://127.0.0.1:9',
+        'headers' => ['x-api-version' => '2022-06-28'], 'prefix' => '/v1'];
+    foreach ([
+        $st->connect(ClosedSDK::class, ['instance' => 'notes']),
+        $st->adopt(ClosedSDK::class, ['instance' => 'notes']),
+        $st->connect(ClosedSDK::class, ['feature' => ['station' => ['instance' => 'notes']]]),
+    ] as $sdk) {
+        $got = sdk_options($sdk);
+        ksort($got);
+        eq($want, $got);
+    }
+
+    // The caller wins per top-level key, as in build().
+    $got = sdk_options($st->connect(ClosedSDK::class, [
+        'as' => 'notes$', 'headers' => ['x-caller' => 'yes'], 'suffix' => '.json']));
+    ksort($got);
+    eq(['base' => 'http://127.0.0.1:9', 'headers' => ['x-caller' => 'yes'],
+        'prefix' => '/v1', 'suffix' => '.json'], $got);
+});
+
+testcase('an_unnamed_connect_warns_that_options_cannot_reach', function () {
+    $st = new Station(['config' => solarconfig(['solar' => [
+        'options' => ['headers' => ['x-api-version' => '1']]]])]);
+    $client = $st->connect(SelfBoundSDK::class, ['prefix' => '/mine']);
+    ok(!array_key_exists('headers', $client->options));
+
+    $warns = [];
+    foreach ($st->events() as $e) {
+        if ('solar' === ($e['plugin'] ?? null) && isset($e['meta']['warn'])) {
+            $warns[] = $e['meta']['warn'];
+        }
+    }
+    eq(1, count($warns));
+    ok(str_contains($warns[0], '[headers]'), $warns[0]);
+    ok(str_contains($warns[0], '{ instance: "solar" }'), $warns[0]);
 });
 
 echo "\npass: $pass, fail: $fail\n";

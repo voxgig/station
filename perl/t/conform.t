@@ -81,7 +81,7 @@ use Voxgig::Station::Error qw(is_known_code);
 use Voxgig::Station::Feature qw(
   checkpin featuresources mergefeatures resolveorder
 );
-use Voxgig::Station::Profile qw(resolve_profile);
+use Voxgig::Station::Profile qw(block_of instance_options resolve_profile);
 use Voxgig::Station::Secrets qw(placeholder_for substitute);
 use Voxgig::Station::Shape qw(normalize_config validate_config);
 use Voxgig::Station::Struct qw(struct_parse);
@@ -197,11 +197,15 @@ my @DRIVERS = (
         }
     ],
 
-    # The 3.3 merge, and the whole of this port's profile contract.
+    # The 3.3 merge, and the whole of this port's profile contract. A
+    # `ref` asks for the options that named instance is constructed with.
     [
         instance => sub {
             my ($vin) = @_;
-            return resolve_profile( denull( $vin->{config} ), $vin->{profile} );
+            my $profile = resolve_profile( denull( $vin->{config} ), $vin->{profile} );
+            return $profile unless defined $vin->{ref};
+            return instance_options( block_of( $profile, $vin->{ref} ),
+                denull( $vin->{opts} ) );
         }
     ],
 

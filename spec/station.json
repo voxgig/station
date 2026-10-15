@@ -2802,6 +2802,179 @@
        },
        "profile": "default"
       }
+     },
+     {
+      "doc": true,
+      "id": "instance#declared-options-reach-a-named-instance",
+      "in": {
+       "config": {
+        "profiles": {
+         "default": {
+          "sdk": {
+           "notes": {
+            "base": "http://127.0.0.1:9",
+            "options": {
+             "headers": {
+              "x-api-version": "2022-06-28"
+             },
+             "prefix": "/v1"
+            }
+           }
+          }
+         }
+        },
+        "station": 1
+       },
+       "opts": {},
+       "profile": "default",
+       "ref": "notes"
+      },
+      "out": {
+       "base": "http://127.0.0.1:9",
+       "headers": {
+        "x-api-version": "2022-06-28"
+       },
+       "prefix": "/v1"
+      }
+     },
+     {
+      "doc": true,
+      "id": "instance#the-caller-wins-per-top-level-key",
+      "in": {
+       "config": {
+        "profiles": {
+         "default": {
+          "sdk": {
+           "notes": {
+            "base": "http://127.0.0.1:9",
+            "options": {
+             "headers": {
+              "x-api-version": "2022-06-28"
+             },
+             "prefix": "/v1"
+            }
+           }
+          }
+         }
+        },
+        "station": 1
+       },
+       "opts": {
+        "base": "http://caller:1",
+        "headers": {
+         "x-caller": "yes"
+        },
+        "suffix": ".json"
+       },
+       "profile": "default",
+       "ref": "notes"
+      },
+      "out": {
+       "base": "http://caller:1",
+       "headers": {
+        "x-caller": "yes"
+       },
+       "prefix": "/v1",
+       "suffix": ".json"
+      }
+     },
+     {
+      "id": "instance#block-base-beats-its-own-options-base",
+      "in": {
+       "config": {
+        "profiles": {
+         "default": {
+          "sdk": {
+           "notes": {
+            "base": "http://block:1",
+            "options": {
+             "base": "http://options:1"
+            }
+           }
+          }
+         }
+        },
+        "station": 1
+       },
+       "opts": {},
+       "profile": "default",
+       "ref": "notes"
+      },
+      "out": {
+       "base": "http://block:1"
+      }
+     },
+     {
+      "doc": true,
+      "id": "instance#api-options-reach-an-undeclared-instance",
+      "in": {
+       "config": {
+        "profiles": {
+         "default": {
+          "api": {
+           "notes": {
+            "options": {
+             "headers": {
+              "x-api-version": "2022-06-28"
+             }
+            }
+           }
+          }
+         }
+        },
+        "station": 1
+       },
+       "opts": {
+        "prefix": "/eu"
+       },
+       "profile": "default",
+       "ref": "notes$eu"
+      },
+      "out": {
+       "headers": {
+        "x-api-version": "2022-06-28"
+       },
+       "prefix": "/eu"
+      }
+     },
+     {
+      "id": "instance#overlay-options-replace-wholesale",
+      "in": {
+       "config": {
+        "profiles": {
+         "default": {
+          "sdk": {
+           "notes": {
+            "base": "http://127.0.0.1:9",
+            "options": {
+             "headers": {
+              "x-api-version": "2022-06-28"
+             },
+             "prefix": "/v1"
+            }
+           }
+          }
+         },
+         "prod": {
+          "sdk": {
+           "notes": {
+            "options": {
+             "suffix": ".json"
+            }
+           }
+          }
+         }
+        },
+        "station": 1
+       },
+       "opts": {},
+       "profile": "prod",
+       "ref": "notes"
+      },
+      "out": {
+       "base": "http://127.0.0.1:9",
+       "suffix": ".json"
+      }
      }
     ]
    },

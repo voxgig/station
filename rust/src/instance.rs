@@ -2,7 +2,7 @@
 use voxgig_sekreto::voxgig_plugin::value::Value as Json;
 
 use crate::error::StationError;
-use crate::jsonx::jstr;
+use crate::jsonx::{jget, jstr};
 use crate::profile::refapi;
 
 const REF_MAX: usize = 1024;
@@ -131,4 +131,15 @@ pub fn instance_ref(api: &str, fopts: &Json) -> Result<String, StationError> {
     }
     checkapi(api, &as_tag)?;
     check_ref(&as_tag)
+}
+
+/// The ref named before construction: an explicit instance, or a full-ref
+/// `as` (a bare tag needs the SDK's api). An invalid name is left for registration.
+pub(crate) fn named_ref(fopts: &Json) -> Option<String> {
+    let text = |key: &str| match jget(fopts, key) {
+        Some(Json::Str(found)) if !found.is_empty() => Some(found.clone()),
+        _ => None,
+    };
+    let name = text("instance").or_else(|| text("as").filter(|found| found.contains('$')))?;
+    check_ref(&name).ok()
 }

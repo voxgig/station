@@ -179,6 +179,23 @@ class SolarSDK
   end
 end
 
+# A generated SDK is its own client, so the registry holds what
+# connect returns.
+class SelfSolarSDK < FakeClient
+  def initialize(options)
+    super()
+    @options = options
+    utility = FakeUtility.new
+    utility.fetcher = ->(_c, _u, _d) { [{ 'status' => 200 }, nil] }
+    ctx = FakeCtx.new(self, utility, options, SOLAR_CONFIG)
+    fopts = (options['feature'] || {})['station'] || {}
+    (options['extend'] || []).each do |f|
+      @features << f
+      f.init(ctx, fopts)
+    end
+  end
+end
+
 # ONE pair, so `provide` twice is the documented no-op rather than a
 # conflict.
 SOLAR_CONSTRUCT = ->(o) { SolarSDK.new(o) }
@@ -1224,6 +1241,53 @@ class TestStation < Minitest::Test
     sdk = st.connect(RetroPackage::SDK, 'instance' => 'solar$spare')
     assert_equal %w[extend feature], sdk.options.keys.sort
     assert_equal 'solar$spare', sdk.options['feature']['station']['instance']
+  end
+
+  def test_options_hands_a_named_instance_its_declared_options
+    st = solar_station('sdk' => { 'notes' => {
+      'base' => 'http://127.0.0.1:9',
+      'options' => { 'headers' => { 'x-api-version' => '2022-06-28' }, 'prefix' => '/v1' },
+    } })
+    assert_equal({ 'base' => 'http://127.0.0.1:9',
+                   'headers' => { 'x-api-version' => '2022-06-28' }, 'prefix' => '/v1',
+                   'suffix' => '.json' },
+                 st.options('notes', 'suffix' => '.json').except('feature'))
+    assert_equal({ 'suffix' => '.json' }, st.options('suffix' => '.json').except('feature'))
+  end
+
+  def test_connect_and_adopt_hand_a_named_instance_its_options
+    st = solar_station('sdk' => { 'notes' => {
+      'base' => 'http://127.0.0.1:9',
+      'options' => { 'headers' => { 'x-api-version' => '2022-06-28' }, 'prefix' => '/v1' },
+    } })
+    want = { 'base' => 'http://127.0.0.1:9',
+             'headers' => { 'x-api-version' => '2022-06-28' }, 'prefix' => '/v1' }
+
+    [st.connect(RetroPackage::SDK, 'instance' => 'notes'),
+     st.adopt(RetroPackage::SDK, 'instance' => 'notes'),
+     st.connect(RetroPackage::SDK, 'feature' => { 'station' => { 'instance' => 'notes' } })]
+      .each { |sdk| assert_equal want, sdk.options.except('feature', 'extend') }
+
+    # The caller wins per top-level key, as in build().
+    sdk = st.connect(RetroPackage::SDK, 'as' => 'notes$',
+                     'headers' => { 'x-caller' => 'yes' }, 'suffix' => '.json')
+    assert_equal({ 'base' => 'http://127.0.0.1:9', 'headers' => { 'x-caller' => 'yes' },
+                   'prefix' => '/v1', 'suffix' => '.json' },
+                 sdk.options.except('feature', 'extend'))
+  end
+
+  def test_an_unnamed_connect_warns_that_options_cannot_reach
+    st = solar_station('sdk' => { 'solar' => {
+      'options' => { 'headers' => { 'x-api-version' => '1' } },
+    } })
+    client = st.connect(SelfSolarSDK, 'prefix' => '/mine')
+    refute client.options.key?('headers')
+
+    warns = st.events.select { |e| 'solar' == e['plugin'] && (e['meta'] || {})['warn'] }
+                     .map { |e| e['meta']['warn'] }
+    assert_equal 1, warns.length
+    assert_includes warns[0], '[headers]'
+    assert_includes warns[0], '{ instance: "solar" }'
   end
 
   def test_policy_allow_is_enforcement_and_reaches_the_sdk_options

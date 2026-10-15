@@ -150,9 +150,16 @@ public final class StationTest {
   static final Subject CONFIG = args ->
       Shape.validateConfig(Shape.normalizeConfig(denull(args[0])));
 
+  // A `ref` asks for the options that named instance is constructed with.
   static final Subject INSTANCE = args -> {
     Map<?, ?> vin = (Map<?, ?>) args[0];
-    return Profile.resolveProfile(vin.get("config"), String.valueOf(vin.get("profile")));
+    Map<String, Object> profile =
+        Profile.resolveProfile(vin.get("config"), String.valueOf(vin.get("profile")));
+    if (!(vin.get("ref") instanceof String)) {
+      return profile;
+    }
+    return Profile.instanceOptions(
+        Profile.blockOf(profile, (String) vin.get("ref")), denullmap(vin.get("opts")));
   };
 
   // Design 6.1's `as` rule: pure over (api, opts), so it is corpus-shaped
@@ -758,6 +765,22 @@ public final class StationTest {
       } finally {
         Factory.resetFactories();
       }
+    });
+
+    testcase("front door: options(name) hands a named instance its declared options", () -> {
+      Station st = memoryStation(map(), map("notes", map(
+          "base", "http://127.0.0.1:9",
+          "options", map("headers", map("x-api-version", "2022-06-28"), "prefix", "/v1"))));
+      Map<String, Object> named = new LinkedHashMap<>(st.options("notes", map("suffix", ".json")));
+      named.remove("feature");
+      checkeq(Descriptor.canonicalSerialize(named),
+          "{\"base\":\"http://127.0.0.1:9\",\"headers\":{\"x-api-version\":\"2022-06-28\"},"
+              + "\"prefix\":\"/v1\",\"suffix\":\".json\"}",
+          "the block options sit under the caller's");
+      Map<String, Object> unnamed = new LinkedHashMap<>(st.options(map("suffix", ".json")));
+      unnamed.remove("feature");
+      checkeq(Descriptor.canonicalSerialize(unnamed), "{\"suffix\":\".json\"}",
+          "an unnamed call is untouched");
     });
 
     testcase("front door: warm dedupes by secret name; an unknown name is a miss", () -> {

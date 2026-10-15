@@ -119,10 +119,19 @@ internal static class Program
     private static readonly Subject CANONICAL = args =>
         Descriptor.CanonicalSerialize(Denull(args[0]));
 
+    // A `ref` asks for the options that named instance is constructed with.
     private static readonly Subject INSTANCE = args =>
-        Profile.ResolveProfile(
+    {
+        Dictionary<string, object> profile = Profile.ResolveProfile(
             Descriptor.GetProp(args[0], "config"),
             Convert.ToString(Descriptor.GetProp(args[0], "profile")));
+        if (!(Descriptor.GetProp(args[0], "ref") is string ref_))
+        {
+            return profile;
+        }
+        return Profile.InstanceOptions(
+            Profile.BlockOf(profile, ref_), Denull(Descriptor.GetProp(args[0], "opts")));
+    };
 
     private static readonly Subject ERRORS = args => StationError.IsKnownCode(args[0]);
 
