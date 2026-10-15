@@ -18,10 +18,11 @@ carries, so a section added here cannot silently go untested.
 
 Two gaps follow from that, both real:
 
-- `csharp`, `dart`, `elixir`, `lua` and `swift` run EIGHT sections. They
-  crossed the `plugin` -> `sdk` rename and took `substitute`, but not the
-  later tranche, so `config`, `instanceref` and `feature` are not opted in
-  there yet.
+- `dart`, `elixir`, `lua` and `swift` run EIGHT sections, and `csharp`
+  NINE. They crossed the `plugin` -> `sdk` rename and took `substitute`,
+  but not the later tranche, so `config` and `feature` are not opted in
+  there yet, nor `instanceref` outside `csharp`, which took it with its
+  named instances.
 - `typescript` - the canonical port - has NO completeness guard. It
   hand-writes one test per section rather than deriving them from a
   table, so a section added here would silently not run in the very port

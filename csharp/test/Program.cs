@@ -133,6 +133,10 @@ internal static class Program
             Profile.BlockOf(profile, ref_), Denull(Descriptor.GetProp(args[0], "opts")));
     };
 
+    private static readonly Subject INSTANCEREF = args =>
+        Station.InstanceRef(Convert.ToString(Descriptor.GetProp(args[0], "api")),
+            Descriptor.GetProp(args[0], "opts"));
+
     private static readonly Subject ERRORS = args => StationError.IsKnownCode(args[0]);
 
     // --- harness ---
@@ -254,6 +258,7 @@ internal static class Program
         TestCase("canonical", () => R.RunSet(R.Set("canonical"), CANONICAL));
         // The 3.3 merge, and the whole of this port's profile contract.
         TestCase("instance", () => R.RunSet(R.Set("instance"), INSTANCE));
+        TestCase("instanceref", () => R.RunSet(R.Set("instanceref"), INSTANCEREF));
         TestCase("errors", () => R.RunSet(R.Set("errors"), ERRORS));
 
         // Focused unit cases: the mechanics the corpus cannot reach.
@@ -363,6 +368,77 @@ internal static class Program
             Check(true.Equals(entry["active"]), "active");
             Check(ReferenceEquals(st, entry["station"]), "handle rides the options");
             Check("http://x:1".Equals(options["base"]), "caller opts kept");
+        });
+
+        TestCase("options: a named instance is constructed with its block's options", () =>
+        {
+            Station st = MemoryStation(Map("TEST_PLUG_EU_APIKEY", "eu-key"), Map(
+                "test-plug", Map("options", Map("prefix", "/default")),
+                "test-plug$eu", Map("base", "http://eu.example:1",
+                    "options", Map("prefix", "/eu", "suffix", ".json"))));
+            var options = st.Options("test-plug$eu", Map("suffix", ".xml"));
+            Check("/eu".Equals(options.GetValueOrDefault("prefix")),
+                "the block's options reach the SDK");
+            Check(".xml".Equals(options.GetValueOrDefault("suffix")),
+                "the caller's options win, key by key");
+            Check("http://eu.example:1".Equals(options.GetValueOrDefault("base")),
+                "the block's base");
+
+            var binding = Bind(st, new object(), options);
+            Check("test-plug$eu".Equals(binding["plugin"]),
+                "registered under the named ref: " + binding["plugin"]);
+            Check("test_plug_eu.apikey".Equals(binding["secretname"]),
+                "the instance's own secret name: " + binding["secretname"]);
+            Check("[station:test-plug$eu]".Equals(options["apikey"]),
+                "the instance's placeholder");
+
+            var sent = new List<object>();
+            st.Transport("test-plug$eu", "http://eu.example:1/api/todo",
+                Map("headers", Map("authorization", "[station:test-plug$eu]")), true, null,
+                (url, def) =>
+                {
+                    sent.Add(Descriptor.GetProp(def["headers"], "authorization"));
+                    return Map("status", 200);
+                });
+            Check("eu-key".Equals(sent[0]), "the instance's credential on the wire");
+
+            var plain = Bind(st, new object(), st.Options(Map()));
+            Check("test-plug".Equals(plain["plugin"]), "the default instance keeps its slug");
+        });
+
+        TestCase("options: a top-level instance or full-ref as names the instance", () =>
+        {
+            Station st = MemoryStation(Map(), Map(
+                "test-plug$eu", Map("options", Map("prefix", "/eu"))));
+            foreach (string key in new[] { "instance", "as" })
+            {
+                var options = st.Options(Map(key, "test-plug$eu"));
+                Check("/eu".Equals(options.GetValueOrDefault("prefix")), "named by " + key);
+                Check(!options.ContainsKey("instance") && !options.ContainsKey("as"),
+                    key + " is not an SDK option");
+                var entry = Descriptor.AsMap(Descriptor.GetProp(options["feature"], "station"));
+                Check("test-plug$eu".Equals(entry.GetValueOrDefault(key)),
+                    key + " rides the station entry");
+            }
+
+            var lead = st.Options("test-plug$eu", Map("instance", "test-plug$us"));
+            Check("/eu".Equals(lead.GetValueOrDefault("prefix")),
+                "the leading name outranks a top-level instance");
+
+            var tagged = st.Options(Map("as", "eu"));
+            Check(!tagged.ContainsKey("prefix"), "a bare tag waits for the SDK's api");
+            Check("test-plug$eu".Equals(Bind(st, new object(), tagged)["plugin"]),
+                "and resolves against it at binding");
+
+            try
+            {
+                Bind(st, new object(), st.Options("other$eu", Map()));
+                Check(false, "a ref naming another api must fail");
+            }
+            catch (StationError err)
+            {
+                Check("station_instance_api" == err.Code, "instance api code");
+            }
         });
 
         TestCase("binding: registers, plants placeholder, hoists a resident key", () =>

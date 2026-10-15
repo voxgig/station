@@ -30,9 +30,13 @@ var solar = new SolardemoSDK(st.Options());
 The generated `station` feature (installed by
 `@voxgig/sdkgen-station`) reads the handle from its feature options and
 performs registration, hook bridging, and the transport wrap during
-construction. `st.Options(extra)` merges your own SDK options in;
-`st.Plugins()`, `st.Events()`, `st.Tap(fn)` and `st.Status()` are the
-observe surface; `st.Close()` ends it.
+construction. `st.Options(extra)` merges your own SDK options in.
+`st.Options("solardemo$eu", extra)` names the instance first: the SDK
+is constructed with that instance's block `options` and `base` under
+your own, one top-level key at a time, and the binding registers under
+`solardemo$eu`. A top-level `instance`, or an `as` that is a full ref,
+names it the same way. `st.Plugins()`, `st.Events()`, `st.Tap(fn)` and
+`st.Status()` are the observe surface; `st.Close()` ends it.
 
 There is no `Connect(SDK)`/`Adopt(SDK)` sugar here: a library-carried
 adapter cannot derive from a generated SDK's `BaseFeature` without

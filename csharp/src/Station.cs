@@ -19,6 +19,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Runtime.CompilerServices;
+using System.Text.RegularExpressions;
 using System.Threading;
 
 namespace Voxgig.Station
@@ -168,26 +169,181 @@ namespace Voxgig.Station
             }
         }
 
+        // --- instance refs (design 6.1) ---
+
+        private static readonly Regex RefNameRe =
+            new Regex(@"^[a-zA-Z@][a-zA-Z0-9.~_\-/]*\z", RegexOptions.CultureInvariant);
+        private static readonly Regex RefTagRe =
+            new Regex(@"^[a-zA-Z0-9.~_\-]+\z", RegexOptions.CultureInvariant);
+        private const int RefMax = 1024;
+
+        public static bool CheckInstanceName(object name)
+        {
+            return name is string text && 0 < text.Length && RefMax >= text.Length
+                && RefNameRe.IsMatch(text);
+        }
+
+        public static bool CheckInstanceTag(object tag)
+        {
+            if (!(tag is string text))
+            {
+                return false;
+            }
+            return 0 == text.Length || (RefMax >= text.Length && RefTagRe.IsMatch(text));
+        }
+
+        /// <summary>
+        /// Validate a ref against the joint grammar and return its canonical
+        /// spelling: a trailing `$` (empty tag) is never kept, so `stripe$`
+        /// and `stripe` are one registry key rather than two.
+        /// </summary>
+        public static string CheckRef(string ref_)
+        {
+            int cut = ref_.IndexOf('$');
+            string name = -1 == cut ? ref_ : ref_.Substring(0, cut);
+            string tag = -1 == cut ? "" : ref_.Substring(cut + 1);
+            if (!CheckInstanceName(name))
+            {
+                throw new StationError("station_instance_api",
+                    "invalid instance name \"" + name + "\" in ref \"" + ref_ + "\": a name "
+                    + "starts with a letter or `@` and uses `[a-zA-Z0-9.~_-/]`, max 1024 (6.1)");
+            }
+            if (!CheckInstanceTag(tag))
+            {
+                throw new StationError("station_instance_api",
+                    "invalid instance tag \"" + tag + "\" in ref \"" + ref_ + "\": a tag "
+                    + "uses `[a-zA-Z0-9.~_-]`, max 1024 (6.1)");
+            }
+            return 0 == tag.Length ? name : ref_;
+        }
+
+        private static string CheckApi(string api, string ref_)
+        {
+            if (Profile.RefApi(ref_) != api)
+            {
+                throw new StationError("station_instance_api",
+                    "instance \"" + ref_ + "\" names api \"" + Profile.RefApi(ref_)
+                    + "\", but the SDK passed is api \"" + api
+                    + "\"; `as` is a tag, not a free name (6.1)");
+            }
+            return ref_;
+        }
+
+        /// <summary>
+        /// The instance a binding registers as. `as` is a tag, not a free
+        /// name: the api comes from the SDK being built, so the ref is
+        /// `api$tag`, and a full ref must name that api. A `$`-less `as` is
+        /// always a tag. With no name at all the instance is the SLUG, a
+        /// name and never a ref.
+        /// </summary>
+        public static string InstanceRef(string api, object fopts)
+        {
+            string explicit_ = FirstNonEmpty(Text(Descriptor.GetProp(fopts, "instance")));
+            if (null != explicit_)
+            {
+                return CheckRef(CheckApi(api, explicit_));
+            }
+
+            string as_ = FirstNonEmpty(Text(Descriptor.GetProp(fopts, "as")));
+            if (null == as_)
+            {
+                if (!CheckInstanceName(api))
+                {
+                    throw new StationError("station_instance_api",
+                        "invalid instance name \"" + api + "\": a name starts with a letter "
+                        + "or `@` and uses `[a-zA-Z0-9.~_-/]`, max 1024 (6.1)");
+                }
+                return api;
+            }
+
+            return CheckRef(-1 == as_.IndexOf('$') ? api + "$" + as_ : CheckApi(api, as_));
+        }
+
+        /// <summary>
+        /// The ref a caller names before construction: an explicit instance,
+        /// or an `as` that is a full ref. A bare tag needs the SDK's api, and
+        /// an invalid name is left for registration to refuse.
+        /// </summary>
+        public static string NamedRef(object fopts)
+        {
+            string name = FirstNonEmpty(Text(Descriptor.GetProp(fopts, "instance")));
+            if (null == name && Descriptor.GetProp(fopts, "as") is string as_
+                && as_.Contains('$'))
+            {
+                name = as_;
+            }
+            if (null == name)
+            {
+                return null;
+            }
+            try
+            {
+                return CheckRef(name);
+            }
+            catch (StationError)
+            {
+                return null;
+            }
+        }
+
         // --- inverted binding (design 3.1) ---
 
         /// <summary>
         /// Build the plain options map a generated constructor already
         /// accepts: the caller's options plus the station activation entry
         /// carrying this handle. The generated station feature performs
-        /// registration and credential placement during construction; the
-        /// profile's per-plugin base is applied at binding time, when the
-        /// slug is known.
+        /// registration and credential placement during construction.
+        ///
+        /// The instance name is optional and leading (6.1): the named
+        /// instance - the leading name, else a top-level `instance` or
+        /// full-ref `as`, else the station entry's own - is constructed with
+        /// its block's `options` and `base` under the caller's options, one
+        /// top-level key at a time (3.5). Unnamed, the profile's base is
+        /// applied at binding time, when the slug is known.
         /// </summary>
         public Dictionary<string, object> Options()
         {
-            return Options(null);
+            return Options(null, null);
         }
 
         public Dictionary<string, object> Options(Dictionary<string, object> extra)
         {
-            Dictionary<string, object> calleropts =
+            return Options(null, extra);
+        }
+
+        public Dictionary<string, object> Options(string instance,
+            Dictionary<string, object> extra)
+        {
+            Dictionary<string, object> given =
                 null == extra ? new Dictionary<string, object>() : extra;
+
+            var names = new Dictionary<string, object>();
+            foreach (string key in new[] { "as", "instance" })
+            {
+                if (given.TryGetValue(key, out object val) && null != val)
+                {
+                    names[key] = val;
+                }
+            }
+            if (!string.IsNullOrEmpty(instance))
+            {
+                names["instance"] = instance;
+            }
+
+            var named = new Dictionary<string, object>(Descriptor.AsMap(Descriptor.GetProp(
+                given.GetValueOrDefault("feature"), "station")));
+            foreach (KeyValuePair<string, object> name in names)
+            {
+                named[name.Key] = name.Value;
+            }
+            string ref_ = NamedRef(named);
+            Dictionary<string, object> calleropts = null == ref_
+                ? given
+                : Profile.InstanceOptions(Profile.BlockOf(profile, ref_), given);
+
             var out_ = new Dictionary<string, object>(calleropts);
+            out_.Remove("as");
+            out_.Remove("instance");
 
             var fmap = new Dictionary<string, object>(
                 Descriptor.AsMap(out_.GetValueOrDefault("feature")));
@@ -196,6 +352,10 @@ namespace Voxgig.Station
             entry["active"] = true;
             entry["station"] = this;
             entry["calleropts"] = calleropts;
+            foreach (KeyValuePair<string, object> name in names)
+            {
+                entry[name.Key] = name.Value;
+            }
             fmap["station"] = entry;
             out_["feature"] = fmap;
 
@@ -263,28 +423,31 @@ namespace Voxgig.Station
                 Descriptor.Normalized normalized = Descriptor.NormalizeDescriptor(
                     config, null == options ? null : options.GetValueOrDefault("feature"));
                 Dictionary<string, object> descriptor = normalized.Descriptor;
-                string slug = (string)descriptor["slug"];
+
+                // Design 7.5: the instance named before construction rides
+                // the feature options; a bare binding is the descriptor slug.
+                string slug = InstanceRef((string)descriptor["slug"], fopts);
 
                 if (registry.ContainsKey(slug))
                 {
                     throw new StationError("station_bound_twice",
-                        "plugin \"" + slug + "\" is already registered; binding one "
+                        "instance \"" + slug + "\" is already registered; binding one "
                         + "client twice is an error (design 10.2)");
                 }
 
-                Dictionary<string, object> profilePlugin = Descriptor.AsMap(
-                    Descriptor.GetProp(profile["sdk"], slug));
+                Dictionary<string, object> profilePlugin = Profile.BlockOf(profile, slug);
 
                 // Secret name precedence: the feature option (in-code, design
                 // 9 config.options.secret) beats the profile, which beats the
-                // descriptor default.
+                // instance-derived default (an untagged instance's is the
+                // descriptor's own).
                 Dictionary<string, object> auth = Descriptor.AsMap(descriptor["auth"]);
                 string foptSecret = Text(Descriptor.GetProp(fopts, "secret"));
                 string secretname = FirstNonEmpty(foptSecret,
                     Text(profilePlugin.GetValueOrDefault("secret")));
                 if (null == secretname)
                 {
-                    secretname = (string)auth["secretname"];
+                    secretname = Descriptor.SecretnameDefault(slug);
                 }
                 if (!string.IsNullOrEmpty(foptSecret))
                 {
@@ -436,8 +599,7 @@ namespace Voxgig.Station
                 entry = registry.GetValueOrDefault(slug);
             }
             string placeholder = SecretBroker.PlaceholderFor(slug);
-            Dictionary<string, object> profilePlugin = Descriptor.AsMap(
-                Descriptor.GetProp(profile["sdk"], slug));
+            Dictionary<string, object> profilePlugin = Profile.BlockOf(profile, slug);
 
             // Egress policy (design 16), solo half: the hosts allowlist is
             // enforced at the seam every request crosses. When a policy is
@@ -492,8 +654,7 @@ namespace Voxgig.Station
                 }
                 if (null == secretname)
                 {
-                    secretname = (string)Descriptor.GetProp(
-                        entry.Descriptor["auth"], "secretname");
+                    secretname = Descriptor.SecretnameDefault(slug);
                 }
 
                 string value;
