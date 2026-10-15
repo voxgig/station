@@ -383,16 +383,26 @@ public class Station {
   }
 
   public Map<String, Object> options(String instance, Map<String, Object> extra) {
+    Map<String, Object> names = new LinkedHashMap<>();
+    for (String key : List.of("as", "instance")) {
+      Object val = Descriptor.getprop(extra, key);
+      if (null != val) {
+        names.put(key, val);
+      }
+    }
+    if (null != instance && !instance.isEmpty()) {
+      names.put("instance", instance);
+    }
     Map<String, Object> named = new LinkedHashMap<>(Descriptor.asmap(
         Descriptor.getprop(Descriptor.getprop(extra, "feature"), "station")));
-    if (null != instance && !instance.isEmpty()) {
-      named.put("instance", instance);
-    }
+    named.putAll(names);
     String ref = namedRef(named);
     Map<String, Object> given = null == extra ? new LinkedHashMap<>() : extra;
     Map<String, Object> calleropts =
         null == ref ? given : Profile.instanceOptions(blockFor(ref), given);
     Map<String, Object> out = new LinkedHashMap<>(calleropts);
+    out.remove("as");
+    out.remove("instance");
 
     Map<String, Object> fmap = new LinkedHashMap<>(
         Descriptor.asmap(out.get("feature")));
@@ -401,9 +411,7 @@ public class Station {
     entry.put("active", true);
     entry.put("station", this);
     entry.put("calleropts", calleropts);
-    if (null != instance && !instance.isEmpty()) {
-      entry.put("instance", instance);
-    }
+    entry.putAll(names);
     fmap.put("station", entry);
     out.put("feature", fmap);
 

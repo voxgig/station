@@ -108,6 +108,22 @@ describe('declared-options-and-feature-schema', () => {
     st.close()
   })
 
+  test('options() names the instance from a top-level instance or as, as connect does', () => {
+    const notes = bindingSDK('notes')
+    const blocks = { notes: NOTES, 'notes$eu': { options: { prefix: '/eu' } } }
+
+    for (const named of [{ instance: 'notes$eu' }, { as: 'notes$eu' }]) {
+      const st = station(blocks)
+      const built = st.options({ ...named, suffix: '.json' })
+      const { feature: _f, ...sdkopts } = built
+      deepStrictEqual(sdkopts, { prefix: '/eu', suffix: '.json' })
+
+      new notes.SDK(built)
+      deepStrictEqual(st.plugins().map((p) => p.name), ['notes$eu'])
+      st.close()
+    }
+  })
+
   test('an unnamed connect cannot apply them, and says so', () => {
     const notes = bindingSDK('notes')
     const st = station({ notes: NOTES })

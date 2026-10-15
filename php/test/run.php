@@ -1440,6 +1440,27 @@ testcase('options_hands_a_named_instance_its_declared_options', function () {
     eq(['suffix' => '.json'], $unnamed);
 });
 
+testcase('options_names_the_instance_from_a_top_level_instance_or_as', function () {
+    foreach ([['instance' => 'solar$eu'], ['as' => 'solar$eu']] as $named) {
+        $st = new Station(['config' => solarconfig([
+            'solar' => ['options' => ['headers' => ['x-api-version' => '1']]],
+            'solar$eu' => ['options' => ['prefix' => '/eu']],
+        ])]);
+        $built = $st->options(array_merge($named, ['suffix' => '.json']));
+        $sdkopts = $built;
+        unset($sdkopts['feature']);
+        ksort($sdkopts);
+        eq(['prefix' => '/eu', 'suffix' => '.json'], $sdkopts);
+
+        $client = new FakeClient();
+        $ctx = new FakeCtx($client, new FakeUtility(), $built, SDKCONFIG);
+        $feature = adapter_feature($st, []);
+        $client->features[] = $feature;
+        $feature->init($ctx, $built['feature']['station']);
+        eq(['solar$eu'], array_map(fn($p) => $p['name'], $st->plugins()));
+    }
+});
+
 testcase('connect_and_adopt_hand_a_named_instance_its_options', function () {
     $st = new Station(['config' => solarconfig(['notes' => NOTES])]);
     $want = ['base' => 'http://127.0.0.1:9',

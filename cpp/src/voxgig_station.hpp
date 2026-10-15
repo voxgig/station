@@ -4830,16 +4830,22 @@ class Station {
   // The ref a caller names before construction: an explicit instance, or
   // an `as` that is a full ref. A bare tag needs the SDK's api, and an
   // invalid name is left for registration to refuse.
-  static std::string _named_ref(const std::string& instance, const ::sdk::Value& entry) {
+  static std::string _named_ref(const std::string& instance, const ::sdk::Value& extra,
+                                const ::sdk::Value& entry) {
+    auto text = [](const ::sdk::Value& v) { return v.is_string() ? v.as_string() : std::string(); };
     std::string name = instance;
+    std::string as = text(::sdk::getp(extra, "as"));
+    if (as.empty()) {
+      as = text(::sdk::getp(entry, "as"));
+    }
     if (name.empty()) {
-      ::sdk::Value given = ::sdk::getp(entry, "instance");
-      ::sdk::Value as = ::sdk::getp(entry, "as");
-      if (given.is_string() && !given.as_string().empty()) {
-        name = given.as_string();
-      } else if (as.is_string() && std::string::npos != as.as_string().find('$')) {
-        name = as.as_string();
-      }
+      name = text(::sdk::getp(extra, "instance"));
+    }
+    if (name.empty()) {
+      name = text(::sdk::getp(entry, "instance"));
+    }
+    if (name.empty() && std::string::npos != as.find('$')) {
+      name = as;
     }
     if (name.empty()) {
       return "";
@@ -4896,7 +4902,10 @@ class Station {
   // (options_for) - this is its SDK-Value spelling.
   ::sdk::Value options(const std::string& instance, const ::sdk::Value& extra) const {
     ::sdk::Value out = extra.is_map() ? ::sdk::Struct::clone(extra) : ::sdk::vmap();
-    std::string ref = _named_ref(instance, ::sdk::getp(::sdk::getp(extra, "feature"), "station"));
+    std::string ref =
+        _named_ref(instance, extra, ::sdk::getp(::sdk::getp(extra, "feature"), "station"));
+    ::sdk::map_remove(out, "as");
+    ::sdk::map_remove(out, "instance");
     if (!ref.empty()) {
       for (const auto& kv : instance_options(block_for(ref), Jval::map()).mval) {
         if (!::sdk::map_contains(out, kv.first)) {
@@ -4917,6 +4926,11 @@ class Station {
     ::sdk::map_put(entry, "active", ::sdk::Value(true));
     ::sdk::map_put(entry, "calleropts",
                    extra.is_map() ? ::sdk::Struct::clone(extra) : ::sdk::vmap());
+    for (const char* key : {"as", "instance"}) {
+      if (::sdk::map_contains(extra, key)) {
+        ::sdk::map_put(entry, key, ::sdk::getp(extra, key));
+      }
+    }
     if (!instance.empty()) {
       ::sdk::map_put(entry, "instance", ::sdk::Value(instance));
     }

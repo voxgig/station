@@ -340,12 +340,21 @@ func (st *Station) Options(extra map[string]any) map[string]any {
 // so the name gets its own method and every existing Options({...}) call
 // is unchanged.
 func (st *Station) OptionsFor(instance string, extra map[string]any) map[string]any {
+	names := map[string]any{}
+	for _, k := range []string{"as", "instance"} {
+		if v, has := extra[k]; has && nil != v {
+			names[k] = v
+		}
+	}
+	if "" != instance {
+		names["instance"] = instance
+	}
 	named := map[string]any{}
 	for k, v := range asMap(asMap(extra["feature"])["station"]) {
 		named[k] = v
 	}
-	if "" != instance {
-		named["instance"] = instance
+	for k, v := range names {
+		named[k] = v
 	}
 	if ref := namedRef(named); "" != ref {
 		extra = InstanceOptions(st.BlockFor(ref), extra)
@@ -358,7 +367,9 @@ func (st *Station) OptionsFor(instance string, extra map[string]any) map[string]
 	out := map[string]any{}
 	for k, v := range extra {
 		calleropts[k] = v
-		out[k] = v
+		if "as" != k && "instance" != k {
+			out[k] = v
+		}
 	}
 
 	fmap := map[string]any{}
@@ -372,8 +383,8 @@ func (st *Station) OptionsFor(instance string, extra map[string]any) map[string]
 	sopts["active"] = true
 	sopts["station"] = st
 	sopts["calleropts"] = calleropts
-	if "" != instance {
-		sopts["instance"] = instance
+	for k, v := range names {
+		sopts[k] = v
 	}
 	fmap["station"] = sopts
 	out["feature"] = fmap

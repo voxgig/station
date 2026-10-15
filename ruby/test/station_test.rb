@@ -1280,6 +1280,23 @@ class TestStation < Minitest::Test
     assert_equal({ 'suffix' => '.json' }, st.options('suffix' => '.json').except('feature'))
   end
 
+  def test_options_names_the_instance_from_a_top_level_instance_or_as
+    [{ 'instance' => 'solar$eu' }, { 'as' => 'solar$eu' }].each do |named|
+      st = solar_station('sdk' => {
+        'solar' => { 'options' => { 'headers' => { 'x-api-version' => '1' } } },
+        'solar$eu' => { 'options' => { 'prefix' => '/eu' } },
+      })
+      built = st.options(named.merge('suffix' => '.json'))
+      assert_equal({ 'prefix' => '/eu', 'suffix' => '.json' }, built.except('feature'))
+
+      client = FakeClient.new
+      client.features << VoxgigStation.adapter_feature(st, {})
+      ctx = FakeCtx.new(client, FakeUtility.new, built.dup, SOLAR_CONFIG)
+      VoxgigStation.feature_binding(ctx, built['feature']['station'])
+      assert_equal ['solar$eu'], st.plugins.map { |p| p['name'] }
+    end
+  end
+
   def test_connect_and_adopt_hand_a_named_instance_its_options
     st = solar_station('sdk' => { 'notes' => {
       'base' => 'http://127.0.0.1:9',

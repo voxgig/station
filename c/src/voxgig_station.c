@@ -3403,14 +3403,20 @@ static void client_set(vxstn_station* st, const char* name, void* client) {
 /* The ref a caller names before construction: an explicit instance, or
    an `as` that is a full ref. A bare tag needs the SDK's api, and an
    invalid name is left for registration to refuse. Owned, or NULL. */
-static char* named_ref(const char* instance, const vxstn_val* entry) {
+static char* named_ref(const char* instance, const vxstn_val* extra, const vxstn_val* entry) {
+  const char* top = vxstn_strval(vxstn_getk(extra, "instance"));
   const char* given = vxstn_strval(vxstn_getk(entry, "instance"));
-  const char* as = vxstn_strval(vxstn_getk(entry, "as"));
+  const char* as = vxstn_strval(vxstn_getk(extra, "as"));
   const char* name = NULL;
   vxstn_error* err = NULL;
   char* ref;
+  if ('\0' == as[0]) {
+    as = vxstn_strval(vxstn_getk(entry, "as"));
+  }
   if (NULL != instance && '\0' != instance[0]) {
     name = instance;
+  } else if ('\0' != top[0]) {
+    name = top;
   } else if ('\0' != given[0]) {
     name = given;
   } else if (NULL != strchr(as, '$')) {
@@ -3427,13 +3433,23 @@ static char* named_ref(const char* instance, const vxstn_val* entry) {
 vxstn_val* vxstn_options(vxstn_station* st, const char* instance,
                          const vxstn_val* extra) {
   const vxstn_val* infeature = vxstn_getk(extra, "feature");
-  char* ref = NULL == st ? NULL : named_ref(instance, vxstn_getk(infeature, "station"));
-  vxstn_val* out = NULL != ref ? vxstn_instance_options(vxstn_block_for(st, ref), extra)
-                   : vxstn_is_map(extra) ? vxstn_clone(extra)
-                                         : vxstn_map();
+  char* ref = NULL == st ? NULL : named_ref(instance, extra, vxstn_getk(infeature, "station"));
+  vxstn_val* given = vxstn_map();
+  vxstn_val* out;
   vxstn_val* fmap = vxstn_is_map(infeature) ? vxstn_clone(infeature) : vxstn_map();
   const vxstn_val* prior = vxstn_getk(fmap, "station");
   vxstn_val* entry = vxstn_is_map(prior) ? vxstn_clone(prior) : vxstn_map();
+  size_t k;
+
+  for (k = 0; vxstn_is_map(extra) && k < extra->mlen; k++) {
+    if (0 == strcmp("as", extra->keys[k]) || 0 == strcmp("instance", extra->keys[k])) {
+      vxstn_map_set(entry, extra->keys[k], vxstn_clone(extra->vals[k]));
+    } else {
+      vxstn_map_set(given, extra->keys[k], vxstn_clone(extra->vals[k]));
+    }
+  }
+  out = NULL != ref ? vxstn_instance_options(vxstn_block_for(st, ref), given) : vxstn_clone(given);
+  vxstn_val_free(given);
   free(ref);
 
   vxstn_map_set(entry, "active", vxstn_bool(true));

@@ -1144,6 +1144,53 @@ static void test_options_named(void) {
   vxstn_reset();
 }
 
+static void test_options_top_level_names(void) {
+  static const char* const forms[] = {"{\"instance\":\"notes$eu\",\"suffix\":\".json\"}",
+                                      "{\"as\":\"notes$eu\",\"suffix\":\".json\"}"};
+  static const char* const notes =
+      "{\"main\":{\"name\":\"Notes\",\"slug\":\"notes\",\"version\":\"1.0.0\","
+      "\"target\":\"c\"},\"options\":{\"base\":\"http://127.0.0.1:9\"}}";
+  size_t i;
+  for (i = 0; i < sizeof(forms) / sizeof(forms[0]); i++) {
+    vxstn_open_opts opts;
+    vxstn_station* st;
+    vxstn_error* err = NULL;
+    vxstn_val* extra = vxstn_parse_json(forms[i], NULL);
+    vxstn_val* built;
+    vxstn_binding* binding;
+    char* fjson;
+    int client = 0;
+
+    vxstn_reset();
+    memset(&opts, 0, sizeof(opts));
+    opts.proxy = "off";
+    opts.config_json = "{\"station\":1,\"profiles\":{\"default\":{\"sdk\":{"
+                       "\"notes\":{\"options\":{\"headers\":{\"x-api-version\":\"1\"}}},"
+                       "\"notes$eu\":{\"options\":{\"prefix\":\"/eu\"}}}}}}";
+    st = vxstn_open(&opts, &err);
+    CHECK(NULL != st && NULL == err);
+
+    built = vxstn_options(st, NULL, extra);
+    CHECK(NULL == vxstn_map_get(built, "instance"));
+    CHECK(NULL == vxstn_map_get(built, "as"));
+    CHECK(NULL == vxstn_map_get(built, "headers"));
+    CHECK_STR(vxstn_strval(vxstn_map_get(built, "prefix")), "/eu");
+    CHECK_STR(vxstn_strval(vxstn_map_get(built, "suffix")), ".json");
+
+    fjson = vxstn_canonical(vxstn_map_get(built, "feature"));
+    binding = vxstn_register(st, &client, notes, fjson, NULL, &err);
+    CHECK(NULL != binding);
+    CHECK_STR(NULL == binding ? "" : binding->plugin, "notes$eu");
+    vxstn_error_free(err);
+    vxstn_binding_free(binding);
+    free(fjson);
+    vxstn_val_free(built);
+    vxstn_val_free(extra);
+    vxstn_station_free(st);
+    vxstn_reset();
+  }
+}
+
 static void test_factory_table(void) {
   vxstn_val* config = vxstn_parse_json(SOLAR_CONFIG, NULL);
   vxstn_val* same = vxstn_parse_json(SOLAR_CONFIG, NULL);
@@ -1535,6 +1582,7 @@ int main(void) {
   test_compose_and_check();
   test_optspec_and_strict();
   test_options_named();
+  test_options_top_level_names();
   test_factory_table();
   test_check_package();
   test_declarative();

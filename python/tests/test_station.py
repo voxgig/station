@@ -949,6 +949,22 @@ class TestDeclarative(unittest.TestCase):
         self.assertEqual({'suffix': '.json'}, unnamed)
         st.close()
 
+    def test_options_names_the_instance_from_a_top_level_instance_or_as(self):
+        blocks = {'gnarly-pets': {'options': {'headers': {'x-api-version': '1'}}},
+                  'gnarly-pets$eu': {'options': {'prefix': '/eu'}}}
+        for named in ({'instance': 'gnarly-pets$eu'}, {'as': 'gnarly-pets$eu'}):
+            st = Station({'config': cfg(sdk=blocks), 'proxy': 'off'})
+            built = st.options(dict(named, suffix='.json'))
+            sdkopts = {k: v for k, v in built.items() if 'feature' != k}
+            self.assertEqual({'prefix': '/eu', 'suffix': '.json'}, sdkopts)
+
+            client = FakeClient()
+            client.features.append(adapter_feature(st, None))
+            ctx = FakeCtx(client, FakeUtility(base_fetcher([])), dict(built))
+            feature_binding(ctx, built['feature']['station'])
+            self.assertEqual(['gnarly-pets$eu'], [p['name'] for p in st.plugins()])
+            st.close()
+
     def test_connect_and_adopt_hand_a_named_instance_its_options(self):
         notes = {'base': 'http://127.0.0.1:9',
                  'options': {'headers': {'x-api-version': '2022-06-28'},

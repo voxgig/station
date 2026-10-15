@@ -754,6 +754,50 @@ func TestOptionsForHandsANamedInstanceItsDeclaredOptions(t *testing.T) {
 	}
 }
 
+func TestOptionsNamesTheInstanceFromATopLevelInstanceOrAs(t *testing.T) {
+	for _, named := range []map[string]any{
+		{"instance": "notes$eu"},
+		{"as": "notes$eu"},
+	} {
+		st := declarative(t, map[string]any{
+			"default": map[string]any{
+				"sdk": map[string]any{
+					"notes": map[string]any{
+						"options": map[string]any{"headers": map[string]any{"x-api-version": "1"}},
+					},
+					"notes$eu": map[string]any{
+						"options": map[string]any{"prefix": "/eu"},
+					},
+				},
+			},
+		})
+
+		extra := map[string]any{"suffix": ".json"}
+		for k, v := range named {
+			extra[k] = v
+		}
+		built := st.Options(extra)
+		sdkopts := map[string]any{}
+		for k, v := range built {
+			if "feature" != k {
+				sdkopts[k] = v
+			}
+		}
+		if `{"prefix":"/eu","suffix":".json"}` != station.CanonicalSerialize(sdkopts) {
+			t.Fatalf("%v: sdk options: %v", named, sdkopts)
+		}
+
+		fakeFactory(fakeSDKConfig("notes", nil)).Construct(built)
+		names := []string{}
+		for _, p := range st.Plugins() {
+			names = append(names, p.Name)
+		}
+		if "notes$eu" != strings.Join(names, ",") {
+			t.Fatalf("%v: registered as %v", named, names)
+		}
+	}
+}
+
 func TestPolicyAllowlistReachesTheSDKOptions(t *testing.T) {
 	provideFake(t, "fakepad", nil)
 	st := declarative(t, map[string]any{

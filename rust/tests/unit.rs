@@ -1093,6 +1093,39 @@ fn options_for_hands_a_named_instance_its_declared_options() {
 }
 
 #[test]
+fn options_names_the_instance_from_a_top_level_instance_or_as() {
+    for named in [r#""instance": "taskpad$eu""#, r#""as": "taskpad$eu""#] {
+        Station::reset();
+        let station = open_station(station_config(
+            r#", "sdk": { "taskpad": { "options": { "headers": { "x-api-version": "1" } } },
+                 "taskpad$eu": { "options": { "prefix": "/eu" } } }"#,
+        ));
+        let built = station.options(&parse(&format!(r#"{{ {}, "suffix": ".json" }}"#, named)));
+        let mut sdkopts = match &built {
+            Json::Map(entries) => entries.clone(),
+            _ => panic!("options are a map"),
+        };
+        sdkopts.remove("feature");
+        assert_eq!(
+            canonical_serialize(&Json::Map(sdkopts)),
+            r#"{"prefix":"/eu","suffix":".json"}"#,
+            "{}",
+            named
+        );
+
+        let mut bound = spec(Rc::new(0u8), &["test", "station"]);
+        bound.feature_opts = jget(&built, "feature")
+            .and_then(|feature| jget(feature, "station"))
+            .cloned()
+            .expect("the station entry");
+        bind(bound).expect("bound");
+        let names: Vec<String> = station.plugins().iter().map(|p| p.name.clone()).collect();
+        assert_eq!(vec!["taskpad$eu".to_string()], names, "{}", named);
+    }
+    Station::reset();
+}
+
+#[test]
 fn build_runs_the_feature_check() {
     Station::reset();
     reset_factories();

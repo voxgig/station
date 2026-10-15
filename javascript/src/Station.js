@@ -343,20 +343,22 @@ class Station {
   // which instance they are building without a second method.
   options(a, b) {
     const named = 'string' === typeof a
-    const instance = named ? a : undefined
     const given = (named ? b : a) || {}
-    const ref = namedRef({
-      ...(given.feature?.station || {}),
-      ...(null == instance ? {} : { instance }),
-    })
-    const extra = null == ref ? given : instanceOptions(this.blockFor(ref), given)
-    const fmap = { ...(extra.feature || {}) }
+    const names = {
+      ...(null == given.as ? {} : { as: given.as }),
+      ...(null == given.instance ? {} : { instance: given.instance }),
+      ...(named ? { instance: a } : {}),
+    }
+    const ref = namedRef({ ...(given.feature?.station || {}), ...names })
+    const calleropts = null == ref ? given : instanceOptions(this.blockFor(ref), given)
+
+    const { as: _as, instance: _instance, ...sdkopts } = calleropts
+    const fmap = { ...(sdkopts.feature || {}) }
     fmap['station'] = {
       ...(fmap['station'] || {}),
-      active: true, station: this, calleropts: extra,
-      ...(null == instance ? {} : { instance }),
+      active: true, station: this, calleropts, ...names,
     }
-    return { ...extra, feature: fmap }
+    return { ...sdkopts, feature: fmap }
   }
 
   // --- registration (design §3 item 1, called by the adapter) ---

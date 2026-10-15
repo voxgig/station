@@ -388,12 +388,14 @@ class Station:
         and they need to say which instance they are building without a
         second method."""
         named = isinstance(a, str)
-        instance = a if named else None
         extra = (b if named else a) or {}
+        names = {k: extra[k] for k in ('as', 'instance')
+                 if extra.get(k) is not None}
+        if named:
+            names['instance'] = a
         sopts = (extra.get('feature') or {}).get('station')
         sopts = dict(sopts) if isinstance(sopts, dict) else {}
-        if instance is not None:
-            sopts['instance'] = instance
+        sopts.update(names)
         ref = named_ref(sopts)
         if ref is not None:
             extra = instance_options(self.block_for(ref), extra)
@@ -405,10 +407,9 @@ class Station:
             'station': self._handle(),
             'calleropts': calleropts,
         })
-        if instance is not None:
-            entry['instance'] = instance
+        entry.update(names)
         fmap['station'] = entry
-        out = dict(extra)
+        out = {k: v for k, v in extra.items() if k not in ('as', 'instance')}
         out['feature'] = fmap
         return out
 

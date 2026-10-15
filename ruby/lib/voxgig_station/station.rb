@@ -316,22 +316,22 @@ module VoxgigStation
     # say which instance they are building without a second method.
     def options(a = nil, b = nil)
       named = a.is_a?(String)
-      instance = named ? a : nil
       extra = named ? b : a
       extra = extra.is_a?(Hash) ? extra : {}
+      names = extra.slice('as', 'instance').compact
+      names['instance'] = a if named
       sopts = extra['feature'].is_a?(Hash) && extra['feature']['station'].is_a?(Hash) ?
         extra['feature']['station'].dup : {}
-      sopts['instance'] = instance unless instance.nil?
-      ref = VoxgigStation.named_ref(sopts)
+      ref = VoxgigStation.named_ref(sopts.merge(names))
       extra = VoxgigStation.instance_options(block_for(ref), extra) unless ref.nil?
 
       fmap = extra['feature'].is_a?(Hash) ? extra['feature'].dup : {}
       entry = (fmap['station'].is_a?(Hash) ? fmap['station'] : {})
         .merge('active' => true, 'station' => self, 'calleropts' => extra)
-      entry['instance'] = instance unless instance.nil?
+        .merge(names)
       fmap['station'] = entry
 
-      extra.merge('feature' => fmap)
+      extra.except('as', 'instance').merge('feature' => fmap)
     end
 
     # --- registration (design station.md 3 item 1, called by the adapter) ---

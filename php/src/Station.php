@@ -396,14 +396,19 @@ class Station
     public function options(mixed $a = null, mixed $b = null): array
     {
         $named = is_string($a);
-        $instance = $named ? $a : null;
         $extra = $named ? $b : $a;
         $extra = is_array($extra) ? $extra : [];
-        $sopts = is_array($extra['feature']['station'] ?? null) ? $extra['feature']['station'] : [];
-        if (null !== $instance) {
-            $sopts['instance'] = $instance;
+        $names = [];
+        foreach (['as', 'instance'] as $k) {
+            if (null !== ($extra[$k] ?? null)) {
+                $names[$k] = $extra[$k];
+            }
         }
-        $ref = named_ref($sopts);
+        if ($named) {
+            $names['instance'] = $a;
+        }
+        $sopts = is_array($extra['feature']['station'] ?? null) ? $extra['feature']['station'] : [];
+        $ref = named_ref(array_merge($sopts, $names));
         if (null !== $ref) {
             $extra = instance_options($this->block_for($ref), $extra);
         }
@@ -413,12 +418,11 @@ class Station
         $sf['active'] = true;
         $sf['station'] = $this;
         $sf['calleropts'] = $extra;
-        if (null !== $instance) {
-            $sf['instance'] = $instance;
-        }
-        $fmap['station'] = $sf;
-        $extra['feature'] = $fmap;
-        return $extra;
+        $fmap['station'] = array_merge($sf, $names);
+        $options = $extra;
+        unset($options['as'], $options['instance']);
+        $options['feature'] = $fmap;
+        return $options;
     }
 
     // --- registration (design station.md 3 item 1, called by the adapter) ---

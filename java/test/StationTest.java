@@ -857,6 +857,28 @@ public final class StationTest {
           "an unnamed call is untouched");
     });
 
+    testcase("front door: options() names the instance from a top-level instance or as", () -> {
+      for (Map<String, Object> named : List.of(map("instance", "pad$eu"), map("as", "pad$eu"))) {
+        Station st = memoryStation(map("PAD_APIKEY", "k"), map(
+            "pad", map("options", map("headers", map("x-api-version", "1"))),
+            "pad$eu", map("options", map("prefix", "/eu"))));
+        Map<String, Object> extra = new LinkedHashMap<>(named);
+        extra.put("suffix", ".json");
+        Map<String, Object> built = st.options(extra);
+        Map<String, Object> sdkopts = new LinkedHashMap<>(built);
+        sdkopts.remove("feature");
+        checkeq(Descriptor.canonicalSerialize(sdkopts), "{\"prefix\":\"/eu\",\"suffix\":\".json\"}",
+            named + ": merged, names stripped");
+
+        new PadSDK(built);
+        List<Object> names = new ArrayList<>();
+        for (Map<String, Object> plugin : st.plugins()) {
+          names.add(plugin.get("name"));
+        }
+        checkeq(names, List.of("pad$eu"), named + ": registered under the named ref");
+      }
+    });
+
     testcase("front door: warm dedupes by secret name; an unknown name is a miss", () -> {
       Station st = memoryStation(map("PAD_APIKEY", "k", "SHARED_APIKEY", "s"),
           map("pad", map(),

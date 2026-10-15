@@ -352,14 +352,24 @@ impl Station {
     /// way the canonical `options(instanceName?, extra?)` does, so the
     /// name gets its own method and every existing `options(&extra)` call
     pub fn options_for(&self, instance: &str, extra: &Json) -> Json {
+        let mut names: BTreeMap<String, Json> = BTreeMap::new();
+        for key in ["as", "instance"] {
+            match jget(extra, key) {
+                None | Some(Json::Null) => {}
+                Some(found) => {
+                    names.insert(key.to_string(), found.clone());
+                }
+            }
+        }
+        if !instance.is_empty() {
+            names.insert("instance".to_string(), jtext(instance));
+        }
         let mut named: BTreeMap<String, Json> =
             match jget(extra, "feature").and_then(|feature| jget(feature, "station")) {
                 Some(Json::Map(entries)) => entries.clone(),
                 _ => BTreeMap::new(),
             };
-        if !instance.is_empty() {
-            named.insert("instance".to_string(), jtext(instance));
-        }
+        named.extend(names.clone());
         let mut out: BTreeMap<String, Json> = match named_ref(&Json::Map(named)) {
             Some(reference) => instance_options(&self.block_for(&reference), Some(extra)),
             None => match extra {
@@ -367,6 +377,8 @@ impl Station {
                 _ => BTreeMap::new(),
             },
         };
+        out.remove("as");
+        out.remove("instance");
 
         let mut features: BTreeMap<String, Json> = match out.get("feature") {
             Some(Json::Map(entries)) => entries.clone(),
@@ -377,9 +389,7 @@ impl Station {
             _ => BTreeMap::new(),
         };
         sopts.insert("active".to_string(), Json::Bool(true));
-        if !instance.is_empty() {
-            sopts.insert("instance".to_string(), jtext(instance));
-        }
+        sopts.extend(names);
         features.insert("station".to_string(), Json::Map(sopts));
         out.insert("feature".to_string(), Json::Map(features));
 

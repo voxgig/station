@@ -819,6 +819,45 @@ subtest 'options() hands a named instance its declared options' => sub {
     is_deeply( \%unnamed, { suffix => '.json' }, 'an unnamed call is untouched' );
 };
 
+subtest 'options() names the instance from a top-level instance or as' => sub {
+    for my $named ( { instance => 'gnarly-pets$eu' }, { as => 'gnarly-pets$eu' } ) {
+        reset_env();
+        my $st = Voxgig::Station->new(
+            {
+                config => {
+                    station  => 1,
+                    profiles => {
+                        default => {
+                            sdk => {
+                                'gnarly-pets' =>
+                                  { options => { headers => { 'x-api-version' => '1' } } },
+                                'gnarly-pets$eu' => { options => { prefix => '/eu' } },
+                            }
+                        }
+                    }
+                }
+            }
+        );
+        my $built   = $st->options( { %$named, suffix => '.json' } );
+        my %sdkopts = %$built;
+        delete $sdkopts{feature};
+        is_deeply( \%sdkopts, { prefix => '/eu', suffix => '.json' }, 'merged, names stripped' );
+
+        my $client = { mode => 'live', features => [], options => undef };
+        my $ctx    = {
+            client  => $client,
+            utility => { fetcher => sub { return; } },
+            options => {%$built},
+            config  => {%$CONFIG},
+        };
+        my $feature = adapter_feature( $st, {} );
+        push @{ $client->{features} }, $feature;
+        $feature->init( $ctx, { %{ $built->{feature}{station} } } );
+        is_deeply( [ map { $_->{name} } @{ $st->plugins } ],
+            ['gnarly-pets$eu'], 'registered under the named ref' );
+    }
+};
+
 subtest 'connect and adopt hand a named instance its declared options' => sub {
     reset_env();
     my $st = Voxgig::Station->new(

@@ -513,20 +513,23 @@ sub _warn_unapplied {
 sub options {
     my ( $self, $a, $b ) = @_;
     my $named = defined $a && !ref $a;
-    my $instance = $named ? $a : undef;
     my $extra = $named ? $b : $a;
     $extra = {} unless ref($extra) eq 'HASH';
 
+    my %ident;
+    for my $key (qw(as instance)) {
+        $ident{$key} = $extra->{$key} if defined $extra->{$key};
+    }
+    $ident{instance} = $a if $named;
     my $feature = ref( $extra->{feature} ) eq 'HASH' ? $extra->{feature} : {};
-    my %named = %{ ref( $feature->{station} ) eq 'HASH' ? $feature->{station} : {} };
-    $named{instance} = $instance if defined $instance;
+    my %named = ( %{ ref( $feature->{station} ) eq 'HASH' ? $feature->{station} : {} }, %ident );
     my $ref = named_ref( \%named );
     $extra = instance_options( $self->block_for($ref), $extra ) if defined $ref;
 
-    my %ident;
-    $ident{instance} = $instance if defined $instance;
+    my %out = %$extra;
+    delete @out{qw(as instance)};
     return {
-        %$extra,
+        %out,
         feature => $self->_activation( $extra->{feature}, $extra, \%ident ),
     };
 }
