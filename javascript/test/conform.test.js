@@ -26,7 +26,7 @@ const {
   mergefeatures,
   resolveorder,
 } = require('../src/feature')
-const { placeholderFor } = require('../src/secrets')
+const { placeholderFor, substitute } = require('../src/secrets')
 const { resolveProfile } = require('../src/profile')
 const { normalizeConfig, validateConfig } = require('../src/shape')
 const { instanceRef } = require('../src/Station')
@@ -63,6 +63,9 @@ const DRIVERS = {
   },
 
   placeholder: (slug) => placeholderFor(slug),
+
+  substitute: (vin) =>
+    substitute(vin.url, vin.headers, vin.placeholder, vin.value),
 
   descriptor: (vin) =>
     normalizeDescriptor(vin.config, vin.feature).descriptor,

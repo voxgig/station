@@ -5,11 +5,11 @@ run by every station port through [voxgig/omni](https://github.com/voxgig/omni)
 - the discipline sekreto already uses (`spec/sekreto.json`).
 
 Sections here are the pure-contract half: `secretname`, `placeholder`,
-`descriptor`, `descriptorwarnings`, `canonical`, `config`, `feature`,
-`instance`, `instanceref`, `errors`.
+`substitute`, `descriptor`, `descriptorwarnings`, `canonical`, `config`,
+`feature`, `instance`, `instanceref`, `errors`.
 
 **Coverage is not uniform, and this is the honest count.** Eleven of the
-sixteen ports run all ten sections: `typescript` and the ten that took
+sixteen ports run all eleven sections: `typescript` and the ten that took
 Stage 5's later tranche (`javascript`, `python`, `go`, `java`, `ruby`,
 `php`, `perl`, `rust`, `c`, `cpp`). Ten of those eleven also carry a
 COMPLETENESS GUARD - a test asserting that the sections it runs, plus any
@@ -18,15 +18,24 @@ carries, so a section added here cannot silently go untested.
 
 Two gaps follow from that, both real:
 
-- `csharp`, `dart`, `elixir`, `lua` and `swift` run SEVEN sections. They
-  crossed the `plugin` -> `sdk` rename but have not taken the later
-  tranche, so `config`, `instanceref` and `feature` are not opted in
+- `csharp`, `dart`, `elixir`, `lua` and `swift` run EIGHT sections. They
+  crossed the `plugin` -> `sdk` rename and took `substitute`, but not the
+  later tranche, so `config`, `instanceref` and `feature` are not opted in
   there yet.
 - `typescript` - the canonical port - has NO completeness guard. It
   hand-writes one test per section rather than deriving them from a
   table, so a section added here would silently not run in the very port
   the others are ported from. Verified by mutation: a bogus section added
   to `station.json` passes the typescript suite and fails ten others.
+
+`substitute` is §5.3's placement, the pure half of `inject`: the
+placeholder becomes the value in header values and in the URL query,
+where an SDK percent-encodes it (either hex case) and the value is written
+strictly encoded (every byte outside RFC 3986 unreserved, as upper-case
+`%XX`). The path and the fragment are never touched, and a `?` inside
+the fragment starts no query. Copy-on-inject, and
+the scrub of a transport error that quotes the placed URL, stay in each
+port's integration suite.
 
 `feature` is §10.1's promised section: the
 three-level merge with its depth boundary (a map-valued option replaces

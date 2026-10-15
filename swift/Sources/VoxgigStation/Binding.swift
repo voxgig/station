@@ -102,22 +102,27 @@ public final class Binding {
   /// design 3.3); `ctxId` correlates with the op events (nil skips
   /// correlation).
   ///
-  /// `send` performs the actual request: it receives the full injected
-  /// header set (nil when nothing is to change) and the manual-redirect
-  /// flag, MUST deep-clone the fetchdef - headers map included - before
-  /// applying either (copy-on-inject, design 5.3: the generated request
-  /// machinery shares references, fetchdef.headers IS spec.headers and
-  /// ctrl.explain holds fetchdef by reference, so the real value only
-  /// ever enters the clone), and returns the SDK-shaped response
-  /// untouched. `inspect` reads (status, bytes) off that response for
-  /// the http event - wire truth, one event per attempt (design 6).
+  /// `send` performs the actual request: it receives `place`, which
+  /// rewrites a URL's query for the wire (the URL it sends to, and the
+  /// fetchdef's own url; identity when nothing is placed), the full
+  /// injected header set (nil when nothing is to change) and the
+  /// manual-redirect flag, MUST deep-clone the fetchdef - headers map
+  /// included - before applying any of them (copy-on-inject, design 5.3:
+  /// the generated request machinery shares references, fetchdef.headers
+  /// IS spec.headers and ctrl.explain holds fetchdef by reference, so the
+  /// real value only ever enters the clone), and returns the SDK-shaped
+  /// response untouched. `inspect` reads (status, bytes) off that
+  /// response for the http event - wire truth, one event per attempt
+  /// (design 6).
   public func transport<R>(
     _ ctxId: String?,
     _ live: Bool,
     _ fullurl: String,
     _ method: String,
     _ headers: [String: String],
-    _ send: (_ injected: [String: String]?, _ manualRedirect: Bool) throws -> R,
+    _ send: (
+      _ place: (String) -> String, _ injected: [String: String]?, _ manualRedirect: Bool
+    ) throws -> R,
     _ inspect: (R) -> (status: Int64, bytes: Int64)
   ) throws -> R {
     let corr = corrOf(ctxId)
@@ -160,6 +165,8 @@ public final class Binding {
     // Injection: at the last boundary, below every recording feature,
     // and never into mock transports (design 3.3).
     var injected: [String: String]? = nil
+    var placed = false
+    var place: (String) -> String = { $0 }
     if live && "R1" == entry.rung {
       var secretname = station.secretOverrideOf(slug)
       if nil == secretname || secretname!.isEmpty {
@@ -177,30 +184,45 @@ public final class Binding {
         throw error
       }
 
-      var out = headers
-      for (name, text) in out where text.contains(placeholder) {
-        out[name] = text.replacingOccurrences(of: placeholder, with: value)
+      let mark = placeholder
+      injected = SecretBroker.substitute(fullurl, headers, mark, value).headers
+      place = { url in
+        let sent = SecretBroker.substitute(url, nil, mark, value).url
+        placed = placed || sent != url
+        return sent
       }
-      injected = out
     }
 
     let started = Station.now()
 
     let res: R
     do {
-      res = try send(injected, policed)
+      res = try send(place, injected, policed)
     } catch {
       // The attempt is still wire truth (status 0), and the failure
       // enters the event stream scrubbed.
       emitHttp(corr, method, fullurl, started, 0, 0)
       station.emitErr(slug, corr, error)
-      throw error
+      throw scrubbed(error, placed)
     }
 
     let (status, bytes) = inspect(res)
     emitHttp(corr, method, fullurl, started, status, bytes)
 
     return res
+  }
+
+  // A transport error may quote its URL, which carries a query-placed value.
+  private func scrubbed(_ err: Error, _ placed: Bool) -> Error {
+    if !placed {
+      return err
+    }
+    let text = errMessage(err)
+    let clean = station.redact(text)
+    if clean == text {
+      return err
+    }
+    return ScrubbedError(clean)
   }
 
   private func emitHttp(

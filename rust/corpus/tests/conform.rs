@@ -106,6 +106,34 @@ fn drivers() -> Vec<(&'static str, Subject)> {
         Ok(OJson::Str(placeholder_for(args[0].asstr().unwrap_or(""))))
     });
 
+    // Headers cross the seam as strings; anything else rides past it
+    // untouched, as it does in the generated adapter.
+    let substitute: Subject = Rc::new(|args: &[OJson]| {
+        let mut strings = BTreeMap::new();
+        let mut headers = BTreeMap::new();
+        for (name, entry) in args[0].get("headers").asmap().into_iter().flatten() {
+            if let OJson::Str(text) = entry {
+                strings.insert(name.clone(), text.clone());
+            } else {
+                headers.insert(name.clone(), entry.clone());
+            }
+        }
+        let (url, sent) = voxgig_station::substitute(
+            args[0].get("url").asstr().unwrap_or(""),
+            &strings,
+            args[0].get("placeholder").asstr().unwrap_or(""),
+            args[0].get("value").asstr().unwrap_or(""),
+        );
+        headers.extend(
+            sent.into_iter()
+                .map(|(name, text)| (name, OJson::Str(text))),
+        );
+        Ok(OJson::map(vec![
+            ("url", OJson::Str(url)),
+            ("headers", OJson::Map(headers)),
+        ]))
+    });
+
     let descriptor: Subject = Rc::new(|args: &[OJson]| {
         let config = o2s(&args[0].get("config"));
         let feature = o2s(&args[0].get("feature"));
@@ -198,6 +226,7 @@ fn drivers() -> Vec<(&'static str, Subject)> {
     vec![
         ("secretname", secretname),
         ("placeholder", placeholder),
+        ("substitute", substitute),
         ("descriptor", descriptor),
         ("descriptorwarnings", descriptorwarnings),
         ("canonical", canonical),

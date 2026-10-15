@@ -34,7 +34,7 @@ pub use crate::profile::{
     block_defaults, config_scope, find_config_file, load_config, refapi, resolve_profile,
     select_profile, ResolvedProfile, MERGE_SENSITIVE,
 };
-pub use crate::secrets::{placeholder_for, SecretBroker};
+pub use crate::secrets::{encode_query_value, placeholder_for, substitute, SecretBroker};
 pub use crate::shape::{
     config_shape, config_shape_json, normalize_config, profile_defaults, validate_config,
 };

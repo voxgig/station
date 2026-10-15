@@ -63,6 +63,13 @@ dynamic SECRETNAME(List<dynamic> args) {
 
 dynamic PLACEHOLDER(List<dynamic> args) => placeholderFor(args[0]);
 
+dynamic SUBSTITUTE(List<dynamic> args) {
+  final vin = args[0];
+  final sent = substitute(vin['url'].toString(), vin['headers'],
+      vin['placeholder'].toString(), vin['value'].toString());
+  return <String, dynamic>{'url': sent.url, 'headers': sent.headers};
+}
+
 dynamic DESCRIPTOR(List<dynamic> args) {
   final vin = args[0];
   return normalizeDescriptor(vin['config'], vin['feature']).descriptor;
@@ -88,6 +95,7 @@ void conformCases(void Function(String, FutureOr<void> Function()) testcase) {
 
   testcase('conform: secretname', () => R.runset(R.set('secretname'), SECRETNAME));
   testcase('conform: placeholder', () => R.runset(R.set('placeholder'), PLACEHOLDER));
+  testcase('conform: substitute', () => R.runset(R.set('substitute'), SUBSTITUTE));
   testcase('conform: descriptor', () => R.runset(R.set('descriptor'), DESCRIPTOR));
   testcase('conform: descriptorwarnings',
       () => R.runset(R.set('descriptorwarnings'), DESCRIPTORWARNINGS));

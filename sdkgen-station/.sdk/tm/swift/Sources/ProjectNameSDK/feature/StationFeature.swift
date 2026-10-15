@@ -7,9 +7,10 @@
 // Binding.transport seams - never restate a binding rule here. The one
 // physical duty the type boundary leaves on this side is the
 // copy-on-inject clone (station design 5.3): the fetchdef is deep-cloned
-// BEFORE the injected header set is applied, so the object graph
-// reachable from ctx/spec/ctrl.explain keeps only the placeholder, ever
-// (fetchdef.headers IS spec.headers by reference - Make.swift).
+// BEFORE the injected header set and placed url are applied, so the
+// object graph reachable from ctx/spec/ctrl.explain keeps only the
+// placeholder, ever (fetchdef.headers IS spec.headers by reference -
+// Make.swift).
 //
 // The station handle rides the feature options as a native value
 // (stationOptions() below plants it); with no handle the adapter binds
@@ -182,7 +183,7 @@ private func stationTransport(
   do {
     return try binding.transport(
       ctx.id, live, fullurl, method, headers,
-      { injected, manualRedirect in
+      { place, injected, manualRedirect in
         var senddef = fetchdef
         if nil != injected || manualRedirect {
           let cloned = clone(.map(fetchdef)).asMap ?? VMap()
@@ -193,6 +194,9 @@ private func stationTransport(
             }
             cloned.entries["headers"] = .map(hm)
           }
+          if let defurl = cloned.entries["url"]?.asString {
+            cloned.entries["url"] = .string(place(defurl))
+          }
           if manualRedirect {
             // In-band annotation on the sent copy only: with a hosts
             // policy, redirects come back manual (station design 8.2).
@@ -200,7 +204,7 @@ private func stationTransport(
           }
           senddef = cloned
         }
-        return try inner(ctx, fullurl, senddef)
+        return try inner(ctx, place(fullurl), senddef)
       },
       { res in
         let (status, _) = fresStatus(res)

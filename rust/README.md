@@ -198,8 +198,9 @@ enforced here at the seam as before, and `policy.allow` is computed and
 handed back but not yet planted. Every binding rule —
 wrap position, placeholder placement, secret-name precedence, hosts
 policy, injection, events — lives in the library; the generated
-adapter only converts types and deep-clones its fetchdef before
-applying an injected header set (copy-on-inject, §5.3).
+adapter only converts types, deep-clones its fetchdef before
+applying an injected header set and placed URL (copy-on-inject, §5.3),
+and scrubs a transport error that quotes the placed URL.
 
 ## Concurrency
 

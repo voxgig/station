@@ -705,6 +705,8 @@ public class Station {
     }
 
     Map<String, Object> senddef = fetchdef;
+    String sendurl = fullurl;
+    boolean placed = false;
     if (hosts instanceof List && live) {
       senddef = new LinkedHashMap<>(senddef);
       senddef.put("redirect", "manual");
@@ -732,27 +734,30 @@ public class Station {
         throw err;
       }
 
+      SecretBroker.Substituted sent = SecretBroker.substitute(fullurl,
+          Descriptor.asmap(senddef.get("headers")), placeholder, value);
+      sendurl = sent.url;
       senddef = new LinkedHashMap<>(senddef);
-      Map<String, Object> headers = new LinkedHashMap<>(
-          Descriptor.asmap(senddef.get("headers")));
-      for (Map.Entry<String, Object> header : headers.entrySet()) {
-        Object v = header.getValue();
-        if (v instanceof String && ((String) v).contains(placeholder)) {
-          header.setValue(((String) v).replace(placeholder, value));
-        }
+      senddef.put("headers", sent.headers);
+      placed = !sendurl.equals(fullurl);
+      Object defurl = senddef.get("url");
+      if (defurl instanceof String) {
+        String sentdef =
+            SecretBroker.substitute((String) defurl, null, placeholder, value).url;
+        senddef.put("url", sentdef);
+        placed = placed || !sentdef.equals(defurl);
       }
-      senddef.put("headers", headers);
     }
 
     long started = System.currentTimeMillis();
 
     Object res;
     try {
-      res = inner.send(fullurl, senddef);
+      res = inner.send(sendurl, senddef);
     } catch (RuntimeException err) {
       emitHttp(name, corr, fullurl, senddef, 0, started, 0);
       emitErr(name, corr, err);
-      throw err;
+      throw scrubbed(err, placed);
     }
 
     int status = 0;
@@ -775,6 +780,22 @@ public class Station {
     emitHttp(name, corr, fullurl, senddef, status, started, bytes);
 
     return res;
+  }
+
+  // A transport error may quote its URL, which carries a query-placed value.
+  // A java message cannot be rewritten, so an equivalent error stands in.
+  private RuntimeException scrubbed(RuntimeException err, boolean placed) {
+    String message = err.getMessage();
+    if (!placed || null == message) {
+      return err;
+    }
+    String clean = redact(message);
+    if (clean.equals(message)) {
+      return err;
+    }
+    RuntimeException out = new RuntimeException(clean, err.getCause());
+    out.setStackTrace(err.getStackTrace());
+    return out;
   }
 
   /** Op events from the hook bridge (design 3 item 3). */

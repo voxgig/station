@@ -1002,6 +1002,123 @@ char* vxstn_placeholder(const char* slug) {
   return sb.buf;
 }
 
+static bool unreserved(unsigned char c) {
+  return ('A' <= c && c <= 'Z') || ('a' <= c && c <= 'z') || ('0' <= c && c <= '9') ||
+         '-' == c || '.' == c || '_' == c || '~' == c;
+}
+
+char* vxstn_encode_query_value(const char* value) {
+  static const char HEX[] = "0123456789ABCDEF";
+  vxstn_sb sb;
+  const unsigned char* p;
+  vxstn_sb_init(&sb);
+  for (p = (const unsigned char*)(NULL == value ? "" : value); *p; p++) {
+    if (unreserved(*p)) {
+      vxstn_sb_putc(&sb, (char)*p);
+    } else {
+      vxstn_sb_putc(&sb, '%');
+      vxstn_sb_putc(&sb, HEX[*p >> 4]);
+      vxstn_sb_putc(&sb, HEX[*p & 0x0F]);
+    }
+  }
+  return sb.buf;
+}
+
+static int hexdigit(char c) {
+  if ('0' <= c && c <= '9') {
+    return c - '0';
+  }
+  if ('a' <= c && c <= 'f') {
+    return c - 'a' + 10;
+  }
+  if ('A' <= c && c <= 'F') {
+    return c - 'A' + 10;
+  }
+  return -1;
+}
+
+/* The length of the placeholder's match at url[at], each character
+ * literal or a %XX escape of it, within url[..end); 0 for no match. */
+static size_t query_match(const char* url, size_t at, size_t end, const char* placeholder) {
+  size_t i = at;
+  const char* ch;
+  for (ch = placeholder; *ch; ch++) {
+    if (i < end && url[i] == *ch) {
+      i++;
+    } else if (i + 3 <= end && '%' == url[i] && 0 <= hexdigit(url[i + 1]) &&
+               0 <= hexdigit(url[i + 2]) &&
+               hexdigit(url[i + 1]) * 16 + hexdigit(url[i + 2]) == (unsigned char)*ch) {
+      i += 3;
+    } else {
+      return 0;
+    }
+  }
+  return i - at;
+}
+
+static char* substitute_query(const char* url, const char* placeholder, const char* value) {
+  const char* q = strchr(url, '?');
+  const char* hash = strchr(url, '#');
+  size_t end;
+  size_t i;
+  char* encoded;
+  vxstn_sb sb;
+
+  if (NULL == q || (NULL != hash && hash < q)) {
+    return vxstn_sdup(url);
+  }
+  end = NULL == hash ? strlen(url) : (size_t)(hash - url);
+  encoded = vxstn_encode_query_value(value);
+  vxstn_sb_init(&sb);
+  vxstn_sb_putn(&sb, url, (size_t)(q - url) + 1);
+  for (i = (size_t)(q - url) + 1; i < end;) {
+    size_t n = query_match(url, i, end, placeholder);
+    if (0 < n) {
+      vxstn_sb_put(&sb, encoded);
+      i += n;
+    } else {
+      vxstn_sb_putc(&sb, url[i]);
+      i++;
+    }
+  }
+  vxstn_sb_put(&sb, url + end);
+  free(encoded);
+  return sb.buf;
+}
+
+vxstn_val* vxstn_substitute(const char* url, const vxstn_val* headers,
+                            const char* placeholder, const char* value) {
+  vxstn_val* out = vxstn_map();
+  vxstn_val* copy = vxstn_map();
+  vxstn_val* sent = val_new(VXSTN_STR);
+  bool active = NULL != placeholder && '\0' != placeholder[0];
+  size_t i;
+
+  if (NULL == url) {
+    url = "";
+  }
+  if (NULL == value) {
+    value = "";
+  }
+  if (vxstn_is_map(headers)) {
+    for (i = 0; i < headers->mlen; i++) {
+      const vxstn_val* hv = headers->vals[i];
+      if (active && vxstn_is_str(hv) && NULL != strstr(hv->str, placeholder)) {
+        vxstn_val* swapped = val_new(VXSTN_STR);
+        swapped->str = replaceall(hv->str, placeholder, value);
+        vxstn_map_set(copy, headers->keys[i], swapped);
+      } else {
+        vxstn_map_set(copy, headers->keys[i], vxstn_clone(hv));
+      }
+    }
+  }
+
+  sent->str = active ? substitute_query(url, placeholder, value) : vxstn_sdup(url);
+  vxstn_map_set(out, "url", sent);
+  vxstn_map_set(out, "headers", copy);
+  return out;
+}
+
 /* =========================================================================
  * Descriptor
  * =========================================================================*/
@@ -1906,21 +2023,63 @@ static const char* broker_value(vxstn_broker* b, const char* slug,
   return kv_get(b->cache, b->ncache, name);
 }
 
+/* The furthest end of any form matching at text[at], or `at` for none. */
+static size_t scrub_reach(const char* text, size_t at, char** forms, size_t nforms) {
+  size_t end = at;
+  size_t k;
+  for (k = 0; k < nforms; k++) {
+    size_t len = strlen(forms[k]);
+    if (at + len > end && 0 == strncmp(text + at, forms[k], len)) {
+      end = at + len;
+    }
+  }
+  return end;
+}
+
 /* Exact-value scrub, deliberately WITHOUT sekreto's four-character
  * readability floor (design 7 as revised): on boundaries where the
  * promise is absolute, every held value is scrubbed whatever its
- * length. Owned result. */
+ * length, as is the form a query placement sends. Every form is matched
+ * against the original text and the union of the matches redacted, so no
+ * replacement can hide another form. Owned result. */
 static char* broker_scrub(vxstn_broker* b, const char* text) {
-  char* out = vxstn_sdup(text);
+  char** forms = (char**)malloc((2 * b->nheld + 1) * sizeof(char*));
+  size_t nforms = 0;
+  size_t size = strlen(text);
   size_t i;
+  vxstn_sb sb;
+
   for (i = 0; i < b->nheld; i++) {
     if ('\0' != b->held[i][0]) {
-      char* next = replaceall(out, b->held[i], "[redacted]");
-      free(out);
-      out = next;
+      forms[nforms++] = vxstn_sdup(b->held[i]);
+      forms[nforms++] = vxstn_encode_query_value(b->held[i]);
     }
   }
-  return out;
+
+  vxstn_sb_init(&sb);
+  for (i = 0; i < size;) {
+    size_t stop = scrub_reach(text, i, forms, nforms);
+    size_t j;
+    if (stop == i) {
+      vxstn_sb_putc(&sb, text[i]);
+      i++;
+      continue;
+    }
+    for (j = i + 1; j < stop; j++) {
+      size_t end = scrub_reach(text, j, forms, nforms);
+      if (end > stop) {
+        stop = end;
+      }
+    }
+    vxstn_sb_put(&sb, "[redacted]");
+    i = stop;
+  }
+
+  for (i = 0; i < nforms; i++) {
+    free(forms[i]);
+  }
+  free(forms);
+  return sb.buf;
 }
 
 static void broker_refresh(vxstn_broker* b) {

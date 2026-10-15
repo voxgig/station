@@ -68,6 +68,7 @@ from voxgig_station import (  # noqa: E402
     secretname_default,
     validate_config,
 )
+from voxgig_station.secrets import substitute  # noqa: E402
 # omnihome lives beside the tests, NOT in voxgig_station: `[tool.setuptools]
 # packages = ["voxgig_station"]` ships that whole directory, so a PyPI
 # consumer of voxgig-station was receiving a module whose only job is to
@@ -122,6 +123,9 @@ DRIVERS = {
     'secretname': _secretname,
 
     'placeholder': placeholder_for,
+
+    'substitute': lambda vin: substitute(
+        vin['url'], vin['headers'], vin['placeholder'], vin['value']),
 
     'descriptor': lambda vin: normalize_descriptor(
         vin['config'], vin['feature'])[0],
