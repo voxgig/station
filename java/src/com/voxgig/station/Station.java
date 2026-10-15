@@ -269,11 +269,6 @@ public class Station {
   }
 
   /**
-   * Validate a ref against the joint grammar and return its CANONICAL
-   * spelling: a trailing `$` (empty tag) is never kept, so `stripe$` and
-   * `stripe` are ONE registry key rather than two.
-   */
-  /**
    * The ref a caller names before construction: an explicit instance, or
    * an `as` that is a full ref. A bare tag needs the SDK's api, and an
    * invalid name is left for registration to refuse.
@@ -294,6 +289,11 @@ public class Station {
     }
   }
 
+  /**
+   * Validate a ref against the joint grammar and return its CANONICAL
+   * spelling: a trailing `$` (empty tag) is never kept, so `stripe$` and
+   * `stripe` are ONE registry key rather than two.
+   */
   public static String checkref(String ref) {
     int cut = ref.indexOf('$');
     String name = -1 == cut ? ref : ref.substring(0, cut);
