@@ -184,6 +184,17 @@ final class ConformTest: XCTestCase {
       })
   }
 
+  func testInstanceRef() throws {
+    let R = try pack()
+    try R.runset(
+      R.set("instanceref"),
+      { args in
+        let ref = try Station.instanceRef(
+          args[0].get("api").asstr ?? "", stationJson(denull(args[0].get("opts"))))
+        return .str(ref)
+      })
+  }
+
   func testErrors() throws {
     let R = try pack()
     try R.runset(

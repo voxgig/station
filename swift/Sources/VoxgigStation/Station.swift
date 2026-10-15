@@ -170,29 +170,219 @@ public final class Station {
     }
   }
 
+  // --- instance refs (design 6.1) ---
+
+  private static let refMax = 1024
+
+  private static func refScalar(_ scalar: Unicode.Scalar, _ marks: String) -> Bool {
+    let code = scalar.value
+    return (0x30...0x39).contains(code) || (0x41...0x5A).contains(code)
+      || (0x61...0x7A).contains(code) || marks.unicodeScalars.contains(scalar)
+  }
+
+  public static func checkInstanceName(_ name: String?) -> Bool {
+    guard let name = name, let first = name.unicodeScalars.first,
+      name.utf16.count <= refMax
+    else {
+      return false
+    }
+    let code = first.value
+    if !((0x41...0x5A).contains(code) || (0x61...0x7A).contains(code) || 0x40 == code) {
+      return false
+    }
+    return name.unicodeScalars.allSatisfy { refScalar($0, ".~_-/") }
+  }
+
+  public static func checkInstanceTag(_ tag: String?) -> Bool {
+    guard let tag = tag else {
+      return false
+    }
+    if tag.isEmpty {
+      return true
+    }
+    return tag.utf16.count <= refMax && tag.unicodeScalars.allSatisfy { refScalar($0, ".~_-") }
+  }
+
+  /// Validate a ref against the joint grammar and return its canonical
+  /// spelling: a trailing `$` (empty tag) is never kept, so `stripe$` and
+  /// `stripe` are one registry key rather than two.
+  public static func checkref(_ ref: String) throws -> String {
+    var name = ref
+    var tag = ""
+    if let cut = ref.firstIndex(of: "$") {
+      name = String(ref[..<cut])
+      tag = String(ref[ref.index(after: cut)...])
+    }
+    if !checkInstanceName(name) {
+      throw StationError(
+        "station_instance_api",
+        "invalid instance name \"" + name + "\" in ref \"" + ref + "\": a name "
+          + "starts with a letter or `@` and uses `[a-zA-Z0-9.~_-/]`, max 1024 (6.1)")
+    }
+    if !checkInstanceTag(tag) {
+      throw StationError(
+        "station_instance_api",
+        "invalid instance tag \"" + tag + "\" in ref \"" + ref + "\": a tag "
+          + "uses `[a-zA-Z0-9.~_-]`, max 1024 (6.1)")
+    }
+    return tag.isEmpty ? name : ref
+  }
+
+  private static func checkapi(_ api: String, _ ref: String) throws -> String {
+    if Profile.refapi(ref) != api {
+      throw StationError(
+        "station_instance_api",
+        "instance \"" + ref + "\" names api \"" + Profile.refapi(ref)
+          + "\", but the SDK passed is api \"" + api
+          + "\"; `as` is a tag, not a free name (6.1)")
+    }
+    return ref
+  }
+
+  /// The instance a binding registers as. `as` is a tag, not a free
+  /// name: the api comes from the SDK being built, so the ref is
+  /// `api$tag`, and a full ref must name that api. A `$`-less `as` is
+  /// always a tag. With no name at all the instance is the SLUG, a name
+  /// and never a ref.
+  public static func instanceRef(_ api: String, _ fopts: Json) throws -> String {
+    if let explicit = fopts.text("instance") {
+      return try checkref(checkapi(api, explicit))
+    }
+    guard let tag = fopts.text("as") else {
+      if !checkInstanceName(api) {
+        throw StationError(
+          "station_instance_api",
+          "invalid instance name \"" + api + "\": a name starts with a letter "
+            + "or `@` and uses `[a-zA-Z0-9.~_-/]`, max 1024 (6.1)")
+      }
+      return api
+    }
+    if tag.contains("$") {
+      return try checkref(checkapi(api, tag))
+    }
+    return try checkref(api + "$" + tag)
+  }
+
+  /// The ref a caller names before construction: an explicit instance,
+  /// or an `as` that is a full ref. A bare tag needs the SDK's api, and
+  /// an invalid name is left for registration to refuse.
+  public static func namedRef(_ fopts: Json) -> String? {
+    var name = fopts.text("instance")
+    if nil == name, let tag = fopts.text("as"), tag.contains("$") {
+      name = tag
+    }
+    guard let ref = name else {
+      return nil
+    }
+    return try? checkref(ref)
+  }
+
   // --- inverted binding (design 3.1) ---
 
   /// Build the plain options entries a generated constructor's options
   /// map carries: the caller's options plus the station activation entry
   /// carrying this handle. The generated station feature performs
-  /// registration and credential placement during construction; the
-  /// profile's per-plugin base is applied at binding time, when the slug
-  /// is known. The generated adapter ships a `stationOptions()` sugar
-  /// that builds the SDK's own Value-map form of exactly this shape (the
-  /// library cannot construct a generated SDK's value types).
+  /// registration and credential placement during construction. The
+  /// generated adapter ships a `stationOptions()` sugar that builds the
+  /// SDK's own Value-map form of exactly this shape (the library cannot
+  /// construct a generated SDK's value types).
+  ///
+  /// The instance name is optional and leading (6.1): the named instance
+  /// - the leading name, else a top-level `instance` or full-ref `as`,
+  /// else the station entry's own - is constructed with its block's
+  /// `options` and `base` under the caller's options, one top-level key
+  /// at a time (3.5). Unnamed, the profile's base is applied at binding
+  /// time, when the slug is known.
   public func options(_ extra: [String: Any?]? = nil) -> [String: Any?] {
-    let calleropts = extra ?? [:]
+    return built(nil, extra ?? [:])
+  }
+
+  public func options(_ instance: String, _ extra: [String: Any?]? = nil) -> [String: Any?] {
+    return built(instance, extra ?? [:])
+  }
+
+  /// The block defaults a named instance is constructed with - its
+  /// `options`, then its `base` (3.5) - for the caller's own options to
+  /// go over, key by key; nil when `named` names no instance before
+  /// construction. The generated adapter's stationOptions() reads it.
+  public func instanceDefaults(_ named: Json) -> Json? {
+    guard let ref = Station.namedRef(named) else {
+      return nil
+    }
+    return Profile.instanceOptions(Profile.blockOf(profile, ref), .map([:]))
+  }
+
+  private func built(_ instance: String?, _ given: [String: Any?]) -> [String: Any?] {
+    var names: [String: String] = [:]
+    for key in ["as", "instance"] {
+      if let text = given[key] as? String {
+        names[key] = text
+      }
+    }
+    if let instance = instance, !instance.isEmpty {
+      names["instance"] = instance
+    }
+
+    let fentry = ((given["feature"] as? [String: Any?])?["station"] as? [String: Any?]) ?? [:]
+    var named: [String: Json] = [:]
+    for key in ["as", "instance"] {
+      if let text = fentry[key] as? String {
+        named[key] = .str(text)
+      }
+    }
+    for (key, text) in names {
+      named[key] = .str(text)
+    }
+
+    var calleropts = given
+    if let defaults = instanceDefaults(.map(named))?.asMap {
+      calleropts = [:]
+      for (key, val) in defaults {
+        calleropts.updateValue(Station.native(val), forKey: key)
+      }
+      for (key, val) in given {
+        calleropts.updateValue(val, forKey: key)
+      }
+    }
+
     var out = calleropts
+    out.removeValue(forKey: "as")
+    out.removeValue(forKey: "instance")
 
     var fmap = (out["feature"] as? [String: Any?]) ?? [:]
     var entry = (fmap["station"] as? [String: Any?]) ?? [:]
     entry["active"] = true
     entry["station"] = self
     entry["calleropts"] = calleropts
+    for (key, text) in names {
+      entry[key] = text
+    }
     fmap["station"] = entry
     out["feature"] = fmap
 
     return out
+  }
+
+  /// A Json value in the native form options() hands back.
+  static func native(_ json: Json) -> Any? {
+    switch json {
+    case .null:
+      return nil
+    case .bool(let flag):
+      return flag
+    case .num(let num):
+      return num
+    case .str(let text):
+      return text
+    case .list(let items):
+      return items.map { native($0) }
+    case .map(let entries):
+      var out: [String: Any?] = [:]
+      for (key, entry) in entries {
+        out.updateValue(native(entry), forKey: key)
+      }
+      return out
+    }
   }
 
   // --- the binding seam (design 3, called by the generated adapter) ---
@@ -248,20 +438,24 @@ public final class Station {
     }
 
     let (descriptor, warnings) = Descriptor.normalizeDescriptor(config, activeFeatures)
-    let slug = descriptor.get("slug").asStr ?? ""
+
+    // Design 7.5: the instance named before construction rides the
+    // feature options; a bare binding is the descriptor slug.
+    let slug = try Station.instanceRef(descriptor.get("slug").asStr ?? "", featureOpts)
 
     if nil != registry[slug] {
       throw StationError(
         "station_bound_twice",
-        "plugin \"" + slug + "\" is already registered; binding one client "
+        "instance \"" + slug + "\" is already registered; binding one client "
           + "twice is an error (design 10.2)")
     }
 
-    let profilePlugin = profile.get("sdk").get(slug)
+    let profilePlugin = Profile.blockOf(profile, slug)
 
     // Secret name precedence: the feature option (in-code, design 9
     // config.options.secret) beats the profile, which beats the
-    // descriptor default.
+    // instance-derived default (an untagged instance's is the
+    // descriptor's own).
     if let foptSecret = featureOpts.text("secret") {
       secretOverride[slug] = foptSecret
     }
@@ -343,7 +537,7 @@ public final class Station {
   func profilePlugin(_ slug: String) -> Json {
     gate.lock()
     defer { gate.unlock() }
-    return profile.get("sdk").get(slug)
+    return Profile.blockOf(profile, slug)
   }
 
   func secretOverrideOf(_ slug: String) -> String? {

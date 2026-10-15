@@ -173,7 +173,7 @@ public final class Binding {
         secretname = profilePlugin.text("secret")
       }
       if nil == secretname || secretname!.isEmpty {
-        secretname = entry.descriptor.get("auth").get("secretname").asStr ?? ""
+        secretname = Descriptor.secretnameDefault(slug)
       }
 
       let value: String
