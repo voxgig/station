@@ -264,6 +264,24 @@ class TestBinding(unittest.TestCase):
                          log[0]['fetchdef']['headers']['authorization'])
         st.close()
 
+    def test_http_event_path_keeps_the_request_escapes(self):
+        cases = [
+            ('https://h/vault/projects%2Flaunch%20plan.md', 'h',
+             '/vault/projects%2Flaunch%20plan.md'),
+            ('https://h', 'h', '/'),
+            ('/vault/projects%2Flaunch%20plan.md?x=1', '',
+             '/vault/projects%2Flaunch%20plan.md?x=1'),
+            ('https://h/vault/a;b', 'h', '/vault/a;b'),
+        ]
+        st = Station({'config': None})
+        ctx, _log = bind(st, mode='test')
+        for url, _host, _path in cases:
+            ctx.utility.fetcher(ctx, url, {'method': 'GET', 'headers': {}})
+        http = [e['http'] for e in st.events() if 'http' == e['kind']]
+        self.assertEqual([(host, path) for _url, host, path in cases],
+                         [(h['host'], h['path']) for h in http])
+        st.close()
+
     def test_missing_secret_fails_on_the_op_path(self):
         del os.environ['GNARLY_PETS_APIKEY']
         st = Station({'config': None})

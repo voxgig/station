@@ -143,6 +143,34 @@ int main(int argc, char** argv) {
     check(1 == seen, "untap stops delivery");
   });
 
+  testcase("emit-http-path-keeps-the-request-escapes", [] {
+    const std::vector<std::vector<std::string>> cases = {
+        {"https://h/vault/projects%2Flaunch%20plan.md", "h",
+         "/vault/projects%2Flaunch%20plan.md"},
+        {"https://h", "h", "/"},
+        {"/vault/projects%2Flaunch%20plan.md?x=1", "",
+         "/vault/projects%2Flaunch%20plan.md?x=1"},
+    };
+    vs::StationOptions opts;
+    opts.has_config = true;
+    opts.proxy = "off";
+    vs::Station st(opts);
+    for (const auto& c : cases) {
+      st.emit_http("vault", "", c[0], "GET", 200, vs::now_ms(), 0);
+    }
+    std::vector<vs::Jval> http;
+    for (const auto& ev : st.events()) {
+      if ("http" == ev.get("kind").str_or("")) {
+        http.push_back(ev.get("http"));
+      }
+    }
+    check(cases.size() == http.size(), "one http event per request");
+    for (size_t i = 0; i < cases.size() && i < http.size(); i++) {
+      checkeq(http[i].get("host").str_or(""), cases[i][1], cases[i][0] + " host");
+      checkeq(http[i].get("path").str_or(""), cases[i][2], cases[i][0] + " path");
+    }
+  });
+
   testcase("broker-env-resolution-and-miss", [] {
     setenv("UNIT_BROKER_APIKEY", "sk-live-x1", 1);
     vs::Jval providers = vs::parse_json(R"([{ "kind": "env" }])");

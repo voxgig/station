@@ -458,9 +458,9 @@ class Station {
     var host = '';
     var path = '';
     final uri = Uri.tryParse(fullurl.toString());
-    if (null != uri && uri.hasAuthority) {
+    if (null != uri && uri.hasScheme && uri.host.isNotEmpty) {
       host = uri.hasPort ? uri.host + ':' + uri.port.toString() : uri.host;
-      path = uri.path;
+      path = uri.path.isEmpty ? '/' : uri.path;
     } else {
       path = fullurl.toString();
     }

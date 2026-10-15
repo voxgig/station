@@ -338,6 +338,28 @@ final class StationTest: XCTestCase {
     XCTAssertFalse(sawInjected, "placeholder rides through untouched in mock mode")
   }
 
+  func testTransportHttpEventPathKeepsTheRequestEscapes() throws {
+    let st = try memStation()
+    let binding = (try bind(st, NSObject()))!.binding
+
+    let cases = [
+      ("https://h/vault/projects%2Flaunch%20plan.md", "h", "/vault/projects%2Flaunch%20plan.md"),
+      ("https://h", "h", "/"),
+      ("/vault/projects%2Flaunch%20plan.md?x=1", "", "/vault/projects%2Flaunch%20plan.md?x=1"),
+    ]
+    for (url, _, _) in cases {
+      _ = try binding.transport(
+        nil, false, url, "GET", [:], { _, _ in true }, { _ in (200, 0) })
+    }
+
+    var got: [String] = []
+    for ev in st.events() where "http" == ev.get("kind").asStr {
+      let http = ev.get("http")
+      got.append((http.get("host").asStr ?? "") + " " + (http.get("path").asStr ?? ""))
+    }
+    XCTAssertEqual(cases.map { $0.1 + " " + $0.2 }, got, "host and path of each request")
+  }
+
   func testTransportMissingSecretFailsTheOpWithCode() throws {
     let st = try memStation()
     let binding = (try bind(st, NSObject()))!.binding

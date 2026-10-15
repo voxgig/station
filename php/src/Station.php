@@ -1553,7 +1553,7 @@ class Station
         $host = '';
         $path = '';
         $parts = parse_url($fullurl);
-        if (is_array($parts) && isset($parts['host'])) {
+        if (is_array($parts) && isset($parts['scheme'], $parts['host'])) {
             $host = $parts['host'];
             // Mirror the ts URL.host: the port rides along unless it is
             // the scheme default.
@@ -1563,7 +1563,7 @@ class Station
             if (null !== $port && $port !== $default) {
                 $host .= ':' . $port;
             }
-            $path = (string) ($parts['path'] ?? '');
+            $path = (string) ($parts['path'] ?? '/');
         } else {
             $path = $fullurl;
         }

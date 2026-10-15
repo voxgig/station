@@ -415,6 +415,25 @@ class TestStation < Minitest::Test
     assert_equal 1, st.events.count { |e| 'http' == e['kind'] }
   end
 
+  def test_http_event_path_keeps_the_request_escapes
+    cases = [
+      ['https://h/vault/projects%2Flaunch%20plan.md', 'h',
+       '/vault/projects%2Flaunch%20plan.md'],
+      ['https://h', 'h', '/'],
+      ['/vault/projects%2Flaunch%20plan.md?x=1', '',
+       '/vault/projects%2Flaunch%20plan.md?x=1'],
+    ]
+    st = VoxgigStation::Station.new('config' => nil)
+    b = bind(st, ->(_c, _u, _d) { [okres, nil] })
+    b[:client].mode = 'test'
+    cases.each do |url, _host, _path|
+      b[:utility].fetcher.call(b[:ctx], url, 'method' => 'GET', 'headers' => {})
+    end
+    http = st.events.select { |e| 'http' == e['kind'] }.map { |e| e['http'] }
+    assert_equal(cases.map { |_url, host, path| [host, path] },
+                 http.map { |h| [h['host'], h['path']] })
+  end
+
   def test_status_0_is_a_transport_failure
     ENV['GNARLY_PETS_APIKEY'] = 'status-zero-key'
     st = VoxgigStation::Station.new('config' => nil)

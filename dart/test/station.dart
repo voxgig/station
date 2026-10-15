@@ -572,6 +572,36 @@ void stationCases(void Function(String, FutureOr<void> Function()) testcase) {
     eq(ofKind(st, 'http').length, 1, 'the mock attempt is still observed');
   });
 
+  testcase('the http event path keeps the request escapes', () async {
+    const cases = [
+      [
+        'https://h/vault/projects%2Flaunch%20plan.md',
+        'h',
+        '/vault/projects%2Flaunch%20plan.md'
+      ],
+      ['https://h', 'h', '/'],
+      [
+        '/vault/projects%2Flaunch%20plan.md?x=1',
+        '',
+        '/vault/projects%2Flaunch%20plan.md?x=1'
+      ],
+    ];
+    final st = Station({'config': null, 'proxy': 'off'});
+    final ctx = makeCtx();
+    bindCtx(st, ctx);
+    ctx.client.mode = 'test';
+    for (final c in cases) {
+      await ctx.utility.fetcher(FakeCtx(client: ctx.client), c[0],
+          <String, dynamic>{'method': 'GET', 'headers': {}});
+    }
+    eq(
+        ofKind(st, 'http')
+            .map((e) => '${e['http']['host']} ${e['http']['path']}')
+            .join(' | '),
+        cases.map((c) => '${c[1]} ${c[2]}').join(' | '),
+        'host and path of each request');
+  });
+
   testcase('a missing secret is station_secret_no_value on the op path',
       () async {
     if (hasEnv('GNARLY_PETS_APIKEY')) {

@@ -13,7 +13,7 @@ import json
 import re
 import threading
 import time
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit
 
 from .descriptor import (
     canonical_serialize,
@@ -626,11 +626,14 @@ class Station:
 
     def _emit_http(self, name, corr, fullurl, fetchdef, status, started, nbytes):
         host = ''
-        path = ''
+        path = fullurl
         try:
-            u = urlparse(fullurl)
-            host = u.netloc
-            path = u.path
+            # urlsplit, not urlparse: urlparse cuts ;params off the path.
+            # A relative reference is reported whole, like an unparseable URL.
+            u = urlsplit(fullurl)
+            if u.scheme and u.netloc:
+                host = u.netloc
+                path = u.path or '/'
         except Exception:
             path = fullurl
         ev = {

@@ -444,6 +444,33 @@ subtest 'no injection into mock transports' => sub {
     is( scalar @{ events_of( $st, 'http' ) }, 1, 'mock attempt recorded' );
 };
 
+subtest 'http event path keeps the request escapes' => sub {
+    reset_env();
+    my @cases = (
+        [
+            'https://h/vault/projects%2Flaunch%20plan.md', 'h',
+            '/vault/projects%2Flaunch%20plan.md'
+        ],
+        [ 'https://h', 'h', '/' ],
+        [
+            '/vault/projects%2Flaunch%20plan.md?x=1', '',
+            '/vault/projects%2Flaunch%20plan.md?x=1'
+        ],
+    );
+    my $st = Voxgig::Station->new( { config => undef } );
+    my $b = bind_client( $st, sub { return ( okres(), undef ) } );
+    $b->{client}{mode} = 'test';
+    for my $case (@cases) {
+        $b->{utility}{fetcher}
+          ->( $b->{ctx}, $case->[0], { method => 'GET', headers => {} } );
+    }
+    is_deeply(
+        [ map { [ $_->{http}{host}, $_->{http}{path} ] } @{ events_of( $st, 'http' ) } ],
+        [ map { [ $_->[1], $_->[2] ] } @cases ],
+        'host and path of each request'
+    );
+};
+
 subtest 'status-0 is a transport failure' => sub {
     reset_env();
     local $ENV{GNARLY_PETS_APIKEY} = 'status-zero-key';

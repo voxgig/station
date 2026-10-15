@@ -651,12 +651,15 @@ func hostsPolicy(block map[string]any) ([]string, bool) {
 func (st *Station) emitHTTP(name string, corr string, fullurl string,
 	fetchdef map[string]any, status int, started int64, bytes int64) {
 
-	host, path := "", ""
-	if u, err := url.Parse(fullurl); nil == err {
+	// A relative reference parses here but not in the canonical port, so it
+	// is reported whole. EscapedPath keeps the escapes that Path decodes.
+	host, path := "", fullurl
+	if u, err := url.Parse(fullurl); nil == err && "" != u.Scheme && "" != u.Host {
 		host = u.Host
-		path = u.Path
-	} else {
-		path = fullurl
+		path = u.EscapedPath()
+		if "" == path {
+			path = "/"
+		}
 	}
 	method := asString(fetchdef["method"])
 	if "" == method {
