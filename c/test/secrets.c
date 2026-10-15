@@ -375,6 +375,40 @@ static void removetree(const char* dir) {
   rmdir(dir);
 }
 
+/* The plugins handed in are among open()'s options, as every option is
+   in the TypeScript port: the same plugins give back the ambient
+   station, and a different set is a conflict, not a silent reuse. */
+static void test_ambient_plugins(void) {
+  void* plugins[1];
+  vxstn_open_opts opts;
+  vxstn_error* err = NULL;
+  vxstn_station* st;
+  vxstn_station* again;
+
+  vxstn_reset();
+  plugins[0] = sek_plugin_minivault();
+  memset(&opts, 0, sizeof(opts));
+  opts.proxy = "off";
+  opts.plugins = plugins;
+  opts.plugincount = 1;
+  st = vxstn_open(&opts, &err);
+  CHECK(NULL != st && NULL == err);
+
+  plugins[0] = sek_plugin_minivault();
+  again = vxstn_open(&opts, &err);
+  CHECK(again == st && NULL == err);
+
+  opts.plugins = NULL;
+  opts.plugincount = 0;
+  again = vxstn_open(&opts, &err);
+  CHECK(NULL == again);
+  CHECK(NULL != err && 0 == strcmp(err->code, "station_open_conflict"));
+  vxstn_error_free(err);
+
+  vxstn_close(st);
+  vxstn_station_free(st);
+}
+
 int main(void) {
   if (NULL == mkdtemp(WORK)) {
     printf("station c secrets: cannot make a work directory\n");
@@ -392,6 +426,7 @@ int main(void) {
   }
   test_vault_not_handed_in();
   test_file_kinds();
+  test_ambient_plugins();
 
   removetree(WORK);
   free(VAULT);

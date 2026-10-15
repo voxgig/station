@@ -2033,6 +2033,16 @@ static char* opts_key(const vxstn_open_opts* opts) {
     if (opts->no_load) {
       vxstn_map_set(m, "no_load", vxstn_bool(true));
     }
+    if (0 < opts->plugincount && NULL != opts->plugins) {
+      vxstn_val* plugins = vxstn_list();
+      size_t i;
+      for (i = 0; i < opts->plugincount; i++) {
+        char addr[32];
+        snprintf(addr, sizeof(addr), "%p", opts->plugins[i]);
+        vxstn_list_push(plugins, vxstn_str(addr));
+      }
+      vxstn_map_set(m, "plugins", plugins);
+    }
   }
   out = vxstn_canonical(m);
   vxstn_val_free(m);
