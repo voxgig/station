@@ -31,8 +31,8 @@ two:
 
 | port | how it takes sekreto |
 | --- | --- |
-| `typescript` | npm `@voxgig/sekreto` `^0.1.0` |
-| `javascript` | npm `@voxgig/sekreto-js` `^0.1.0` |
+| `typescript` | npm `@voxgig/sekreto` `^0.3.0` |
+| `javascript` | npm `@voxgig/sekreto-js` `^0.2.0` |
 | `python` | PyPI `voxgig-sekreto>=0.1` |
 | `go` | `github.com/voxgig/sekreto/go` — in the LIBRARY `go.mod`, not just `testutil/` |
 | `rust` | path dep on `vendor/sekreto`, linked by `make vendor` |
