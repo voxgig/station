@@ -1648,9 +1648,12 @@ static void parse_url(const char* fullurl, char** host_out, char** hostname_out,
   while (*auth_end && '/' != *auth_end && '?' != *auth_end && '#' != *auth_end) {
     auth_end++;
   }
-  at = memchr(authority, '@', (size_t)(auth_end - authority));
-  if (NULL != at) {
-    authority = at + 1;
+  /* The host follows the LAST '@', so a raw '@' in a password stays out. */
+  for (at = auth_end; authority < at; at--) {
+    if ('@' == at[-1]) {
+      authority = at;
+      break;
+    }
   }
   alen = (size_t)(auth_end - authority);
 

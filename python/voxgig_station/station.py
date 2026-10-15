@@ -13,7 +13,7 @@ import json
 import re
 import threading
 import time
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit
 
 from .descriptor import (
     canonical_serialize,
@@ -52,6 +52,20 @@ def _first_non_empty(*vals):
         if v is not None and '' != v:
             return v
     return None
+
+
+_DEFAULT_PORTS = {'http': 80, 'https': 443}
+
+
+def _url_host(u):
+    # netloc would carry the userinfo and an explicit default port, both of
+    # which the canonical URL.host drops.
+    host = u.hostname or ''
+    if ':' in host:
+        host = '[' + host + ']'
+    if u.port is not None and u.port != _DEFAULT_PORTS.get(u.scheme):
+        host += ':' + str(u.port)
+    return host
 
 
 # The ref grammar is the JOINT identity model's (station-and-plugin.md 2,
@@ -626,11 +640,14 @@ class Station:
 
     def _emit_http(self, name, corr, fullurl, fetchdef, status, started, nbytes):
         host = ''
-        path = ''
+        path = fullurl
         try:
-            u = urlparse(fullurl)
-            host = u.netloc
-            path = u.path
+            # urlsplit, not urlparse: urlparse cuts ;params off the path.
+            # A relative reference is reported whole, like an unparseable URL.
+            u = urlsplit(fullurl)
+            if u.scheme and u.netloc:
+                host = _url_host(u)
+                path = u.path or '/'
         except Exception:
             path = fullurl
         ev = {

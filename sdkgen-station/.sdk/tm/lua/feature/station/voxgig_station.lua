@@ -1482,8 +1482,8 @@ end
 -- --- the transport middleware (design station.md 3.3, 5.3) ---
 
 -- ( host-with-port, hostname, path ) from a URL, stdlib patterns only.
--- Mirrors ts URL semantics: host keeps a non-default port, hostname
--- strips it, an empty path reads as '/'.
+-- Mirrors ts URL semantics: the host follows the LAST '@' and keeps a
+-- non-default port, hostname strips the port, an empty path reads as '/'.
 local function parse_url(fullurl)
   local url = type(fullurl) == 'string' and fullurl or ''
   local scheme, authority, path =
@@ -1492,7 +1492,7 @@ local function parse_url(fullurl)
     return '', '', url
   end
   scheme = string.lower(scheme)
-  authority = string.gsub(authority, '^[^@]*@', '')
+  authority = string.gsub(authority, '^.*@', '')
   local hostname, port = string.match(authority, '^(.*):(%d+)$')
   if hostname == nil then
     hostname = authority

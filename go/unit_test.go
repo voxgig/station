@@ -234,6 +234,68 @@ func TestMockModeNeverInjects(t *testing.T) {
 	}
 }
 
+func TestHTTPEventPathKeepsTheRequestEscapes(t *testing.T) {
+	st := newStation(t, map[string]string{})
+	h := bindOne(t, st, "fakepad", []string{"test", "station"}, okResponse(), "")
+	h.client.mode = "test"
+
+	cases := []struct{ url, host, path string }{
+		{"https://h/vault/projects%2Flaunch%20plan.md", "h",
+			"/vault/projects%2Flaunch%20plan.md"},
+		{"https://h", "h", "/"},
+		{"/vault/projects%2Flaunch%20plan.md?x=1", "",
+			"/vault/projects%2Flaunch%20plan.md?x=1"},
+	}
+	for _, c := range cases {
+		if _, err := h.client.fetcher(nil, c.url, map[string]any{"method": "GET"}); nil != err {
+			t.Fatal(err)
+		}
+	}
+
+	https := filterEvents(st.Events(), "http")
+	if len(cases) != len(https) {
+		t.Fatalf("expected %d http events, got %d", len(cases), len(https))
+	}
+	for i, c := range cases {
+		if c.host != https[i].HTTP.Host || c.path != https[i].HTTP.Path {
+			t.Errorf("%s: got host %q path %q, want host %q path %q",
+				c.url, https[i].HTTP.Host, https[i].HTTP.Path, c.host, c.path)
+		}
+	}
+}
+
+func TestHTTPEventHostReadsAsURLHost(t *testing.T) {
+	st := newStation(t, map[string]string{})
+	h := bindOne(t, st, "fakepad", []string{"test", "station"}, okResponse(), "")
+	h.client.mode = "test"
+
+	cases := []struct{ url, host, path string }{
+		{"https://h:443/x", "h", "/x"},
+		{"http://h:80/x", "h", "/x"},
+		{"https://h:8443/x", "h:8443", "/x"},
+		{"https://u:p@h/x", "h", "/x"},
+		{"https://u:p@ss@h/x", "h", "/x"},
+		{"http://[::1]:8080/x", "[::1]:8080", "/x"},
+		{"http://[::1]/x", "[::1]", "/x"},
+	}
+	for _, c := range cases {
+		if _, err := h.client.fetcher(nil, c.url, map[string]any{"method": "GET"}); nil != err {
+			t.Fatal(err)
+		}
+	}
+
+	https := filterEvents(st.Events(), "http")
+	if len(cases) != len(https) {
+		t.Fatalf("expected %d http events, got %d", len(cases), len(https))
+	}
+	for i, c := range cases {
+		if c.host != https[i].HTTP.Host || c.path != https[i].HTTP.Path {
+			t.Errorf("%s: got host %q path %q, want host %q path %q",
+				c.url, https[i].HTTP.Host, https[i].HTTP.Path, c.host, c.path)
+		}
+	}
+}
+
 func TestMissingSecretFailsOnTheOpPath(t *testing.T) {
 	st := newStation(t, map[string]string{})
 

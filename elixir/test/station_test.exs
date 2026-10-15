@@ -135,6 +135,50 @@ defmodule Voxgig.StationTest do
     assert 2 == Station.status(st)["events"]["buffered"]
   end
 
+  test "the http event path keeps the request escapes" do
+    cases = [
+      {"https://h/vault/projects%2Flaunch%20plan.md", "h", "/vault/projects%2Flaunch%20plan.md"},
+      {"https://h", "h", "/"},
+      {"/vault/projects%2Flaunch%20plan.md?x=1", "", "/vault/projects%2Flaunch%20plan.md?x=1"}
+    ]
+
+    st = Station.new(%{"config" => nil, "proxy" => "off"})
+
+    for {url, _host, _path} <- cases do
+      Station.emit_http(st, "vault", nil, url, "GET", 200, Station.now_ms(), 0)
+    end
+
+    got =
+      for %{"kind" => "http", "http" => http} <- Station.events(st),
+          do: {http["host"], http["path"]}
+
+    assert Enum.map(cases, fn {_url, host, path} -> {host, path} end) == got
+  end
+
+  test "the http event host reads as URL.host does" do
+    cases = [
+      {"https://h:443/x", "h", "/x"},
+      {"http://h:80/x", "h", "/x"},
+      {"https://h:8443/x", "h:8443", "/x"},
+      {"https://u:p@h/x", "h", "/x"},
+      {"https://u:p@ss@h/x", "h", "/x"},
+      {"http://[::1]:8080/x", "[::1]:8080", "/x"},
+      {"http://[::1]/x", "[::1]", "/x"}
+    ]
+
+    st = Station.new(%{"config" => nil, "proxy" => "off"})
+
+    for {url, _host, _path} <- cases do
+      Station.emit_http(st, "vault", nil, url, "GET", 200, Station.now_ms(), 0)
+    end
+
+    got =
+      for %{"kind" => "http", "http" => http} <- Station.events(st),
+          do: {http["host"], http["path"]}
+
+    assert Enum.map(cases, fn {_url, host, path} -> {host, path} end) == got
+  end
+
   test "status shape" do
     st = Station.new(%{"config" => nil, "proxy" => "off"})
     status = Station.status(st)

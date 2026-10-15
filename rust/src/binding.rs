@@ -326,16 +326,37 @@ pub fn hostname(url: &str) -> String {
 }
 
 fn host_and_path(url: &str) -> (String, String) {
-    let rest = match url.find("://") {
-        Some(at) => &url[at + 3..],
+    let (scheme, rest) = match url.find("://") {
+        Some(at) => (&url[..at], &url[at + 3..]),
         None => return (String::new(), url.to_string()),
     };
     let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
-    let host = rest[..end].to_string();
+    let host = url_host(scheme, &rest[..end]);
     let tail = &rest[end..];
     let path = match tail.chars().next() {
         Some('/') => tail.split(['?', '#']).next().unwrap_or("/").to_string(),
         _ => "/".to_string(),
     };
     (host, path)
+}
+
+// The host follows the last '@', so a raw '@' in a password stays out of it.
+fn url_host(scheme: &str, authority: &str) -> String {
+    let hostport = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
+    let (host, port) = match hostport.rfind(':') {
+        Some(colon) if !hostport[colon..].contains(']') => {
+            (&hostport[..colon], &hostport[colon + 1..])
+        }
+        _ => (hostport, ""),
+    };
+    let default = match scheme.to_ascii_lowercase().as_str() {
+        "http" => "80",
+        "https" => "443",
+        _ => "",
+    };
+    if port.is_empty() || default == port {
+        host.to_string()
+    } else {
+        format!("{}:{}", host, port)
+    }
 }

@@ -397,6 +397,64 @@ testcase('mock-no-inject', function()
     'Bearer [station:taskpad]')
 end)
 
+testcase('http-path', function()
+  local cases = {
+    { 'https://h/vault/projects%2Flaunch%20plan.md', 'h',
+      '/vault/projects%2Flaunch%20plan.md' },
+    { 'https://h', 'h', '/' },
+    { '/vault/projects%2Flaunch%20plan.md?x=1', '',
+      '/vault/projects%2Flaunch%20plan.md?x=1' },
+  }
+  local station = st.new({ config = st.NULL, proxy = 'off' })
+  local b = bind(station, { mode = 'test' })
+  for _, c in ipairs(cases) do
+    b.utility.fetcher({ client = b.client }, c[1], { method = 'GET', headers = {} })
+  end
+
+  local got = {}
+  for _, ev in ipairs(station:events()) do
+    if ev.kind == 'http' then
+      got[#got + 1] = ev.http.host .. ' ' .. ev.http.path
+    end
+  end
+  local want = {}
+  for _, c in ipairs(cases) do
+    want[#want + 1] = c[2] .. ' ' .. c[3]
+  end
+  checkeq(table.concat(got, ' | '), table.concat(want, ' | '),
+    'host and path of each request')
+end)
+
+testcase('http-host', function()
+  local cases = {
+    { 'https://h:443/x', 'h', '/x' },
+    { 'http://h:80/x', 'h', '/x' },
+    { 'https://h:8443/x', 'h:8443', '/x' },
+    { 'https://u:p@h/x', 'h', '/x' },
+    { 'https://u:p@ss@h/x', 'h', '/x' },
+    { 'http://[::1]:8080/x', '[::1]:8080', '/x' },
+    { 'http://[::1]/x', '[::1]', '/x' },
+  }
+  local station = st.new({ config = st.NULL, proxy = 'off' })
+  local b = bind(station, { mode = 'test' })
+  for _, c in ipairs(cases) do
+    b.utility.fetcher({ client = b.client }, c[1], { method = 'GET', headers = {} })
+  end
+
+  local got = {}
+  for _, ev in ipairs(station:events()) do
+    if ev.kind == 'http' then
+      got[#got + 1] = ev.http.host .. ' ' .. ev.http.path
+    end
+  end
+  local want = {}
+  for _, c in ipairs(cases) do
+    want[#want + 1] = c[2] .. ' ' .. c[3]
+  end
+  checkeq(table.concat(got, ' | '), table.concat(want, ' | '),
+    'host and path of each request')
+end)
+
 testcase('secret-miss', function()
   local station = st.new({ config = st.NULL, proxy = 'off' })
   -- No resident credential, nothing in the environment for this slug:

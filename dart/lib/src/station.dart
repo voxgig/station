@@ -458,9 +458,11 @@ class Station {
     var host = '';
     var path = '';
     final uri = Uri.tryParse(fullurl.toString());
-    if (null != uri && uri.hasAuthority) {
-      host = uri.hasPort ? uri.host + ':' + uri.port.toString() : uri.host;
-      path = uri.path;
+    if (null != uri && uri.hasScheme && uri.host.isNotEmpty) {
+      // Uri.host drops the brackets an IPv6 literal keeps in URL.host.
+      final name = uri.host.contains(':') ? '[' + uri.host + ']' : uri.host;
+      host = uri.hasPort ? name + ':' + uri.port.toString() : name;
+      path = uri.path.isEmpty ? '/' : uri.path;
     } else {
       path = fullurl.toString();
     }

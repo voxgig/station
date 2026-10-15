@@ -906,6 +906,27 @@ only knows `plugin` keeps working — it simply sees instance-grained
 events, which is what it wants at 20 SDKs anyway; the per-plugin views
 below are per-instance, with `api` available for grouping siblings.
 
+`http.path` is the request URL's path exactly as sent, as the
+canonical port's `URL.pathname` reads an SDK-built URL: every
+percent-escape is kept and nothing is decoded, so `/vault/a%2Fb` (one
+file) and `/vault/a/b` (a file in a folder) stay distinct. An empty
+path reads `/`, and a relative reference is reported whole as the path,
+with an empty `host`. The rule covers what a working transport sends:
+an `http` or `https` URL with a host, built from the block's base and
+the SDK's percent-encoded parameters. For such a URL, `http.host` is
+its host as `URL.host` reads it: no userinfo, an IPv6 address in
+brackets, and a port only when it is not the scheme's default, 80 for
+`http` and 443 for `https`. Other forms are outside it, and the ports
+may read them differently:
+- a hostless absolute URL;
+- a scheme with no authority;
+- a dot segment, which WHATWG normalizes and other HTTP stacks send as
+  written.
+None of these comes from an SDK given an `http` or `https` base with a
+host; a base that is not one fails every request anyway. A dot segment
+in a parameter is the SDK's to encode. No corpus section can see an
+event, so each port's own suite pins this.
+
 Producers: the transport middleware (`http` events — wire truth,
 including `direct()`/`graphql()`, one event per attempt); the hook
 bridge (`op` events, correlated via `corr`); and the existing features

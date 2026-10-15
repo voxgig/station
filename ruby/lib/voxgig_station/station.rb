@@ -1257,14 +1257,18 @@ module VoxgigStation
 
     def emit_http(name, corr, fullurl, fetchdef, status, started, bytes)
       host = ''
-      path = ''
+      path = fullurl.to_s
       begin
         u = URI.parse(fullurl)
-        host = u.host.to_s
-        # Mirror the ts URL.host: the port rides along unless it is the
-        # scheme default.
-        host = host + ':' + u.port.to_s if !u.port.nil? && u.port != u.default_port
-        path = u.path.to_s
+        # A relative reference is reported whole, like an unparseable URL.
+        if u.scheme && !u.host.to_s.empty?
+          host = u.host.to_s
+          # Mirror the ts URL.host: the port rides along unless it is the
+          # scheme default.
+          host = host + ':' + u.port.to_s if !u.port.nil? && u.port != u.default_port
+          path = u.path.to_s
+          path = '/' if path.empty?
+        end
       rescue StandardError
         path = fullurl.to_s
       end

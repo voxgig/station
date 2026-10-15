@@ -651,12 +651,15 @@ func hostsPolicy(block map[string]any) ([]string, bool) {
 func (st *Station) emitHTTP(name string, corr string, fullurl string,
 	fetchdef map[string]any, status int, started int64, bytes int64) {
 
-	host, path := "", ""
-	if u, err := url.Parse(fullurl); nil == err {
-		host = u.Host
-		path = u.Path
-	} else {
-		path = fullurl
+	// A relative reference parses here but not in the canonical port, so it
+	// is reported whole. EscapedPath keeps the escapes that Path decodes.
+	host, path := "", fullurl
+	if u, err := url.Parse(fullurl); nil == err && "" != u.Scheme && "" != u.Host {
+		host = urlHost(u)
+		path = u.EscapedPath()
+		if "" == path {
+			path = "/"
+		}
 	}
 	method := asString(fetchdef["method"])
 	if "" == method {
@@ -669,6 +672,20 @@ func (st *Station) emitHTTP(name string, corr string, fullurl string,
 			DurationMs: nowMs() - started, Bytes: bytes,
 		},
 	})
+}
+
+var defaultPorts = map[string]string{"http": "80", "https": "443"}
+
+// u.Host keeps an explicit default port, which the canonical URL.host drops.
+func urlHost(u *url.URL) string {
+	host := u.Hostname()
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	if port := u.Port(); "" != port && defaultPorts[u.Scheme] != port {
+		host += ":" + port
+	}
+	return host
 }
 
 func (st *Station) emitErr(name string, opctx any, err error) {

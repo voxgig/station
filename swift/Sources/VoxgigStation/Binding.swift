@@ -246,7 +246,7 @@ public final class Binding {
     }
     let rest = url[schemeEnd.upperBound...]
     let hostEnd = rest.firstIndex { "/" == $0 || "?" == $0 || "#" == $0 } ?? rest.endIndex
-    let host = String(rest[..<hostEnd])
+    let host = urlHost(url[..<schemeEnd.lowerBound], rest[..<hostEnd])
     let tail = rest[hostEnd...]
     if tail.first == "/" {
       let path = tail.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)[0]
@@ -254,5 +254,23 @@ public final class Binding {
       return (host, String(path))
     }
     return (host, "/")
+  }
+
+  /// The host follows the last '@', so a raw '@' in a password stays out
+  /// of it, and a port equal to the scheme's default is dropped.
+  static func urlHost(_ scheme: Substring, _ authority: Substring) -> String {
+    var hostport = authority
+    if let at = hostport.lastIndex(of: "@") {
+      hostport = hostport[hostport.index(after: at)...]
+    }
+    var host = String(hostport)
+    var port = ""
+    if let colon = hostport.lastIndex(of: ":"), nil == hostport[colon...].firstIndex(of: "]") {
+      host = String(hostport[..<colon])
+      port = String(hostport[hostport.index(after: colon)...])
+    }
+    let lower = scheme.lowercased()
+    let defaultPort = "http" == lower ? "80" : ("https" == lower ? "443" : "")
+    return port.isEmpty || defaultPort == port ? host : host + ":" + port
   }
 }
