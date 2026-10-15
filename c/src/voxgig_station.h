@@ -8,26 +8,29 @@
  *
  * A port of the canonical typescript/src sources. TIER C SCOPE
  * (design station.md 2.2, 10.1): solo only - no wire client, no proxy
- * attachment; SECRETS ARE ENV-ONLY, and this library says so: there is
- * no sekreto C port, so the broker reads the process environment
- * directly under the envkey of the secret name (voxgig_solardemo.apikey
- * -> VOXGIG_SOLARDEMO_APIKEY, the same mapping sekreto's envkey()
- * defines and the one the generated SDKs already document). It grows no
- * second provider: a profile whose chain names any other store gets a
- * warning event at open, not a silent partial implementation. And NO
- * station.json FILE LOOKUP: configuration arrives in code (pass the
- * config JSON to vxstn_open), which keeps the vendored surface small.
- * The permanent fix for secrets is a sekreto C port, contributed to
- * sekreto (design station.md 18).
+ * attachment - and NO station.json FILE LOOKUP: configuration arrives in
+ * code (pass the config JSON to vxstn_open), which keeps the vendored
+ * surface small. A caller that reads station.json itself passes its text.
  *
- * The library is standalone C (C99 + POSIX getenv/clock): it carries
- * its own tiny JSON value model (vxstn_val) because the canonical
- * serializer needs one anyway and the C SDKs' voxgig_value machinery
- * ships inside each generated SDK, not as a reusable library (design
- * station.md 10.1). ONE DEPENDENCY, and the design sanctions it (4, 9):
- * voxgig/struct validates the config grammar, at open() rather than
- * only under test, and rides the same vendoring path this library does
- * - a generated C SDK already carries it at utility/struct/. The generated station feature (sdkgen-station's
+ * SECRETS RESOLVE THROUGH SEKRETO'S C PORT, vendored at c/vendor/sekreto
+ * (design station.md 5, 10). The profile's chain reaches sekreto
+ * verbatim and `env` is its default. The four built-in kinds - env,
+ * memory, dotenv, file - need nothing more; a plugin kind such as
+ * minivault resolves only when the caller links its object and hands its
+ * definition in vxstn_open_opts.plugins, and a chain naming one that was
+ * not handed in fails open() with sekreto's refusal. Built with
+ * VXSTN_ENV_ONLY, as the sdkgen-station payload is, the broker reads the
+ * process environment under the envkey of the secret name instead, and
+ * says so in status() and with a warning event at open.
+ *
+ * The library is C99 + POSIX (getenv/clock): it carries its own tiny
+ * JSON value model (vxstn_val) because the canonical serializer needs one
+ * anyway and the C SDKs' voxgig_value machinery ships inside each
+ * generated SDK, not as a reusable library (design station.md 10.1). TWO
+ * DEPENDENCIES, both the design's (4, 9, 10): voxgig/struct validates the
+ * config grammar at open() - a generated C SDK already carries it at
+ * utility/struct/ - and voxgig/sekreto resolves secrets, its C core built
+ * on voxgig/plugin's C host. The generated station feature (sdkgen-station's
  * tm/c/feature/station.c) is the bridge: it serializes the SDK's
  * embedded config to JSON, registers here, and delegates transport
  * middleware decisions (require-proxy, host policy, secret value,
@@ -50,9 +53,10 @@
  * registry; design station.md 9.2 vendors tier-C libraries through the
  * tm overlay), and its SDK Makefile compiles every feature source by
  * wildcard, so the sources are: voxgig_station.{h,c}, voxgig_station_int.h,
- * voxgig_station_{shape,feature,factory}.c and the generated
+ * voxgig_station_{shape,feature,factory,secrets}.c and the generated
  * config_shape.h. Edit HERE first, then refresh the vendored copy - the
- * files must stay byte-identical.
+ * files must stay byte-identical, apart from the VXSTN_ENV_ONLY define
+ * the copy of voxgig_station_int.h carries.
  */
 
 #ifndef VOXGIG_STATION_H
@@ -181,14 +185,13 @@ char* vxstn_envtoken(const char* name); /* owned */
 char* vxstn_secretname_default(const char* slug); /* owned */
 
 /* Is this a well-formed secret name? sekreto's grammar: dot-separated
- * segments of [a-z0-9_]+ (restated here because there is no sekreto C
- * port to import it from; the grammar is sekreto's, pinned by its
- * spec). */
+ * segments of [a-z0-9_]+, restated so these identity functions build
+ * without sekreto; the `secretname` corpus section pins the two
+ * together. */
 bool vxstn_validname(const char* name);
 
 /* The environment-variable key for a name: api.token -> API_TOKEN
- * (sekreto's envkey mapping - the one store mapping an env-only library
- * legitimately carries, because it is the mapping it reads by). NULL +
+ * (sekreto's envkey mapping, which the env-only build reads by). NULL +
  * *err (station_secret_error) for a malformed name. */
 char* vxstn_envkey(const char* name, vxstn_error** err); /* owned */
 
@@ -243,8 +246,8 @@ vxstn_val* vxstn_resolve_profile(const vxstn_val* config,
  * CONTAINERS AT ALL, and unexpected-key detection is live at every
  * level.
  *
- * Validation is voxgig/struct's - the second runtime dependency, and
- * the only one besides the environment this tier reads secrets from.
+ * Validation is voxgig/struct's - one of the two runtime dependencies,
+ * sekreto the other.
  * =========================================================================*/
 
 /* Materialize every documented default into a COPY of `raw`; the input
@@ -449,6 +452,13 @@ typedef struct vxstn_open_opts {
    * there is nothing to switch off. Kept so a caller that writes
    * `load: false` for its js sibling is not refused here. */
   bool no_load;
+  /* The sekreto plugin kinds a chain may name beyond the four built in:
+   * each a `Definition*` such as sek_plugin_minivault() from
+   * vendor/sekreto/plugins/sekretoplugins.h, whose object the caller
+   * links. A list rather than a registry, as sekreto's own plugins
+   * option is, so a core that names none links no crypto. */
+  void* const* plugins;
+  size_t plugincount;
 } vxstn_open_opts;
 
 /* Ambient instance (design station.md 10.2): open() is the idempotent
@@ -552,12 +562,13 @@ bool vxstn_host_allowed(vxstn_station* st, const char* name,
 const char* vxstn_rung(vxstn_station* st, const char* name);
 
 /* Resolve the secret value for a registered plugin (override beats
- * cache beats environment). ENV-ONLY, keeping sekreto's miss-vs-error
- * distinction (design 5.2): an unset variable is
- * station_secret_no_value; a set-but-empty variable is a present
- * (empty) value; station_secret_error is reserved for malformed names,
- * because the environment cannot "fail to answer". Returns a BORROWED
- * value (held privately by the broker), or NULL + *err. */
+ * cache beats the provider chain), keeping sekreto's miss-vs-error
+ * distinction (design 5.2): a name no store holds is
+ * station_secret_no_value; a store that could not answer - a wrong vault
+ * passphrase, an unreadable file - is station_secret_error with
+ * sekreto's message, and the chain never falls through past it. The
+ * empty string is a value. Returns a BORROWED value (held privately by
+ * the broker), or NULL + *err. */
 const char* vxstn_secret_value(vxstn_station* st, const char* name,
                                vxstn_error** err);
 
@@ -621,8 +632,8 @@ int vxstn_tap(vxstn_station* st, vxstn_tap_fn fn, void* ud);
 void vxstn_untap(vxstn_station* st, int tap_id);
 
 /* { mode: "solo", profile, plugins: [{slug, rung}], events: {buffered,
- * dropped}, secrets: "env-only" } - env-only stated where an operator
- * will read it (design 2.2). Owned. */
+ * dropped} }, plus secrets: "env-only" in a VXSTN_ENV_ONLY build -
+ * stated where an operator will read it (design 2.2). Owned. */
 vxstn_val* vxstn_status(vxstn_station* st);
 
 /* Every LIVE INSTANCE, and EXHAUSTIVE - auto-tagged entries are not
@@ -645,8 +656,8 @@ char* vxstn_canonical_descriptor(vxstn_station* st, const char* name,
 /* Exact-value scrub of every value the broker ever held (owned). */
 char* vxstn_redact(vxstn_station* st, const char* text);
 
-/* Drop the secret cache so the next resolve asks the environment again
- * (rotation support, design 5.3). */
+/* Drop the secret caches, station's and sekreto's, so the next resolve
+ * asks the provider chain again (rotation support, design 5.3). */
 void vxstn_refresh_secrets(vxstn_station* st);
 
 /* The resolved profile's DECLARED entry for an instance name (borrowed;
