@@ -655,6 +655,10 @@ defmodule Voxgig.Station.Adapter do
       is_map(v) and not is_struct(v) ->
         S.jm(Enum.flat_map(v, fn {k, x} -> [to_string(k), to_node(x)] end))
 
+      # A keyword list is options, as Station.new reads one; [] stays a list.
+      is_list(v) and [] != v and Keyword.keyword?(v) ->
+        S.jm(Enum.flat_map(v, fn {k, x} -> [to_string(k), to_node(x)] end))
+
       is_list(v) ->
         S.jt(Enum.map(v, &to_node/1))
 
