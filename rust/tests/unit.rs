@@ -355,6 +355,17 @@ fn prepare_enforces_hosts_policy_and_pins_redirects() {
         .unwrap_err();
     assert_eq!("station_host_allow", err.code);
 
+    // The listed host as the userinfo's user name is not the host.
+    let err = bound
+        .binding
+        .prepare(None, true, "http://api.test:x@evil.example/api/todo", &headers)
+        .unwrap_err();
+    assert_eq!("station_host_allow", err.code);
+    assert!(bound
+        .binding
+        .prepare(None, true, "http://u:p@ss@api.test/api/todo", &headers)
+        .is_ok());
+
     // Mock traffic is not policed (live only, like the canonical port).
     assert!(bound
         .binding

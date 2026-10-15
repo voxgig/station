@@ -426,6 +426,15 @@ final class StationTest: XCTestCase {
       XCTAssertEqual("station_host_allow", err.code, "host code")
     }
 
+    do {
+      _ = try binding.transport(
+        nil, true, "http://api.good.example:x@evil.example/x", "GET", [:],
+        { _, _ in true }, { _ in (200, 0) })
+      XCTFail("the listed host as the user name must be denied")
+    } catch let err as StationError {
+      XCTAssertEqual("station_host_allow", err.code, "userinfo host code")
+    }
+
     // A mock-transport call is not egress; the policy does not fire.
     let ok: Bool = try binding.transport(
       nil, false, "http://evil.example/x", "GET", [:],
