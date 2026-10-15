@@ -15,6 +15,7 @@ STATION_SRC = src/voxgig_station.c src/voxgig_station_shape.c \
   src/voxgig_station_feature.c src/voxgig_station_factory.c \
   src/voxgig_station_secrets.c
 STATION_OBJ = $(addprefix $(BUILD)/station/,$(notdir $(STATION_SRC:.c=.o)))
+ENVONLY_OBJ = $(addprefix $(BUILD)/envonly/,$(notdir $(STATION_SRC:.c=.o)))
 STATION_HDR = src/voxgig_station.h src/voxgig_station_int.h src/config_shape.h
 
 OMNI_HOME ?= $(abspath ../../omni)
@@ -141,10 +142,11 @@ $(BUILD)/station/%.o: src/%.c $(STATION_HDR)
 	@mkdir -p $(@D)
 	$(CC) -c $< $(CFLAGS) $(SANITIZE) -I $(STRUCT_DIR)/c/src -o $@
 
-# The sdkgen-station payload's broker: the environment, and no sekreto.
-$(BUILD)/envonly/voxgig_station_secrets.o: src/voxgig_station_secrets.c $(STATION_HDR)
+# The sdkgen-station payload's build: VXSTN_ENV_ONLY in every station
+# source, and no sekreto.
+$(BUILD)/envonly/%.o: src/%.c $(STATION_HDR)
 	@mkdir -p $(@D)
-	$(CC) -c $< $(CFLAGS) $(SANITIZE) -DVXSTN_ENV_ONLY -o $@
+	$(CC) -c $< $(CFLAGS) $(SANITIZE) -DVXSTN_ENV_ONLY -I $(STRUCT_DIR)/c/src -o $@
 
 # `ar r` keeps a member whose source has gone, so every archive is
 # written cold.
@@ -171,11 +173,9 @@ $(MINIVAULT_LIB): $(MINIVAULT_OBJ)
 $(BUILD)/unit: test/unit.c $(STATION_HDR) $(CORE_LIBS)
 	$(CC) $(CFLAGS) $(SANITIZE) -o $@ $< $(CORE_LIBS) $(LDLIBS)
 
-$(BUILD)/unit-envonly: test/unit.c $(STATION_HDR) $(filter-out %/voxgig_station_secrets.o,$(STATION_OBJ)) \
-    $(BUILD)/envonly/voxgig_station_secrets.o $(BUILD)/libvoxgigstruct.a
-	$(CC) $(CFLAGS) $(SANITIZE) -DVXSTN_ENV_ONLY -o $@ $< \
-	  $(filter-out %/voxgig_station_secrets.o,$(STATION_OBJ)) \
-	  $(BUILD)/envonly/voxgig_station_secrets.o $(BUILD)/libvoxgigstruct.a $(LDLIBS)
+$(BUILD)/unit-envonly: test/unit.c $(STATION_HDR) $(ENVONLY_OBJ) $(BUILD)/libvoxgigstruct.a
+	$(CC) $(CFLAGS) $(SANITIZE) -DVXSTN_ENV_ONLY -o $@ $< $(ENVONLY_OBJ) \
+	  $(BUILD)/libvoxgigstruct.a $(LDLIBS)
 
 $(BUILD)/conform: test/conform.c $(STATION_HDR) $(OMNI_OBJ) $(CORE_LIBS)
 	$(CC) $(CFLAGS) $(SANITIZE) -I $(OMNI_HOME)/c/src -o $@ $< $(OMNI_OBJ) $(CORE_LIBS) $(LDLIBS)

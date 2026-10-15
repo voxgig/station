@@ -139,22 +139,23 @@ def identity(text, _path):
 
 
 # c: a generated C SDK compiles sekreto and the voxgig/plugin host only
-# while its own secrets feature is active, so the payload's broker is
-# built to read the environment directly. Drop this once the SDK carries
-# them unconditionally, as it carries struct.
-C_SECRETS = 'voxgig_station_secrets.c'
-C_ENVONLY_ANCHOR = '#include "voxgig_station.h"'
+# while its own secrets feature is active, so the payload is built to read
+# the environment directly. The define goes in the internal header, which
+# every station source includes. Drop this once the SDK carries sekreto
+# and the plugin host unconditionally, as it carries struct.
+C_ENVONLY = 'voxgig_station_int.h'
+C_ENVONLY_ANCHOR = '#define VOXGIG_STATION_INT_H\n'
 
 
 def c_envonly(text, path):
-    if C_SECRETS != os.path.basename(path):
+    if C_ENVONLY != os.path.basename(path):
         return text
     if C_ENVONLY_ANCHOR not in text:
         raise SystemExit(
-            'vendor: %s no longer includes voxgig_station.h - the env-only '
-            'define has nowhere to go, fix C_ENVONLY_ANCHOR.' % C_SECRETS)
+            'vendor: %s lost its include guard - the env-only define has '
+            'nowhere to go, fix C_ENVONLY_ANCHOR.' % C_ENVONLY)
     return text.replace(C_ENVONLY_ANCHOR,
-                        '#define VXSTN_ENV_ONLY 1\n\n' + C_ENVONLY_ANCHOR, 1)
+                        C_ENVONLY_ANCHOR + '\n#define VXSTN_ENV_ONLY 1\n', 1)
 
 
 # --- sekreto's C port, pinned ----------------------------------------

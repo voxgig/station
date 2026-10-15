@@ -7,7 +7,7 @@
  * The library is five translation units - the core (voxgig_station.c),
  * the config shape (voxgig_station_shape.c), feature management
  * (voxgig_station_feature.c), the factory table plus the ref grammar
- * (voxgig_station_factory.c) and the secret broker
+ * (voxgig_station_factory.c) and the secret store the broker asks
  * (voxgig_station_secrets.c). They share the small string/value helpers
  * below rather than each carrying a copy.
  *
@@ -17,6 +17,8 @@
 
 #ifndef VOXGIG_STATION_INT_H
 #define VOXGIG_STATION_INT_H
+
+#define VXSTN_ENV_ONLY 1
 
 #include "voxgig_station.h"
 
@@ -51,22 +53,20 @@ char* vxstn_val_to_string(const vxstn_val* v);
 /* Set *out (when non-NULL) to a fresh error. */
 void vxstn_seterr(vxstn_error** out, const char* code, const char* msg);
 
-/* The secret broker, defined in voxgig_station_secrets.c. */
-typedef struct vxstn_broker vxstn_broker;
+/* The store the secret broker asks, defined in voxgig_station_secrets.c:
+ * sekreto's chain, or the environment in a VXSTN_ENV_ONLY build. */
+typedef struct vxstn_store vxstn_store;
 
 /* NULL + *err (station_secret_error, sekreto's message intact) for a chain
- * sekreto will not build. *warn is an owned warning for open() to emit,
- * or NULL. */
-vxstn_broker* vxstn_broker_new(const vxstn_val* providers, void* const* plugins,
-                               size_t nplugins, char** warn, vxstn_error** err);
-void vxstn_broker_free(vxstn_broker* b);
-void vxstn_broker_hoist(vxstn_broker* b, const char* instance, const char* value);
+ * sekreto will not build. */
+vxstn_store* vxstn_store_new(const vxstn_val* providers, void* const* plugins,
+                             size_t nplugins, vxstn_error** err);
 
-/* Override, then cache, then the provider chain. Borrowed, or NULL + *err. */
-const char* vxstn_broker_value(vxstn_broker* b, const char* instance, const char* name,
-                               vxstn_error** err);
-char* vxstn_broker_scrub(vxstn_broker* b, const char* text);
-void vxstn_broker_refresh(vxstn_broker* b);
-bool vxstn_broker_envonly(void);
+/* true with *out the value, or NULL for a miss, borrowed until the next
+ * call; false + *err when a store could not answer. */
+bool vxstn_store_get(vxstn_store* s, const char* name, const char** out,
+                     vxstn_error** err);
+void vxstn_store_refresh(vxstn_store* s);
+void vxstn_store_free(vxstn_store* s);
 
 #endif /* VOXGIG_STATION_INT_H */

@@ -11,13 +11,13 @@ wildcard compiles it - the same vendoring precedent as
 | file | canonical source | copy discipline |
 |---|---|---|
 | `voxgig_station.h` | voxgig/station `c/src/voxgig_station.h` | byte-identical |
-| `voxgig_station_int.h` | voxgig/station `c/src/voxgig_station_int.h` | byte-identical |
+| `voxgig_station_int.h` | voxgig/station `c/src/voxgig_station_int.h` | byte-identical, apart from the `#define VXSTN_ENV_ONLY 1` written after its include guard |
 | `config_shape.h` | voxgig/station `c/src/config_shape.h` | byte-identical |
 | `voxgig_station.c` | voxgig/station `c/src/voxgig_station.c` | byte-identical |
 | `voxgig_station_factory.c` | voxgig/station `c/src/voxgig_station_factory.c` | byte-identical |
 | `voxgig_station_feature.c` | voxgig/station `c/src/voxgig_station_feature.c` | byte-identical |
 | `voxgig_station_shape.c` | voxgig/station `c/src/voxgig_station_shape.c` | byte-identical |
-| `voxgig_station_secrets.c` | voxgig/station `c/src/voxgig_station_secrets.c` | byte-identical, apart from the `#define VXSTN_ENV_ONLY 1` written before its first include |
+| `voxgig_station_secrets.c` | voxgig/station `c/src/voxgig_station_secrets.c` | byte-identical |
 
 The list is not maintained by hand. `tools/vendor.py` globs `c/src` and
 copies every `.c` and `.h` it finds, so a file added to the canonical

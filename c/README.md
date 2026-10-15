@@ -148,9 +148,9 @@ No other dependency is added, here or anywhere else in this port.
 | File | Contents |
 |---|---|
 | `src/voxgig_station.h` | the public API and the scope statement |
-| `src/voxgig_station_int.h` | internal helpers shared by the five sources (string builder, map reads, sorted keys) and the broker's interface - not public API |
-| `src/voxgig_station.c` | the core: value model + JSON, canonical serializer, identity (envtoken/secretname), descriptor normalizer, profile resolution, event ring/taps, the instance registry, and the declarative front door |
-| `src/voxgig_station_secrets.c` | design §5: the secret broker over sekreto's chain, or over the environment when built with `VXSTN_ENV_ONLY` |
+| `src/voxgig_station_int.h` | internal helpers shared by the five sources (string builder, map reads, sorted keys) and the secret store's interface - not public API |
+| `src/voxgig_station.c` | the core: value model + JSON, canonical serializer, identity (envtoken/secretname), descriptor normalizer, profile resolution, event ring/taps, the secret broker, the instance registry, and the declarative front door |
+| `src/voxgig_station_secrets.c` | design §5: the store the broker asks - sekreto's chain, or the environment when built with `VXSTN_ENV_ONLY` |
 | `src/voxgig_station_shape.c` | design §4: `vxstn_normalize_config` (the defaults materializer) and `vxstn_validate_config` (the shape run through voxgig/struct, plus the §4.4 and §5.2 scans) |
 | `src/voxgig_station_feature.c` | design §8: the three-level feature merge, the constraint-and-band order, the station pin, and the descriptor-derived option checker |
 | `src/voxgig_station_factory.c` | design §6.1/§6.2: the instance ref grammar and the process-global factory table |
@@ -252,7 +252,7 @@ rather than rotting.
   before it starts its threads.
 - **Copies**: the sdkgen-station package vendors the library's sources
   byte-identical at `.sdk/tm/c/feature/station/`, apart from the
-  `VXSTN_ENV_ONLY` define its copy of `voxgig_station_secrets.c` carries;
+  `VXSTN_ENV_ONLY` define its copy of `voxgig_station_int.h` carries;
   its SDK Makefile compiles `feature/*/*.c` by wildcard, so every source
   rides along, and `VENDORED.md` there lists them. Edit here
   first, then `make vendor-refresh` from the repo root; `make

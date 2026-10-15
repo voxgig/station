@@ -56,7 +56,7 @@
  * voxgig_station_{shape,feature,factory,secrets}.c and the generated
  * config_shape.h. Edit HERE first, then refresh the vendored copy - the
  * files must stay byte-identical, apart from the VXSTN_ENV_ONLY define
- * the copy of voxgig_station_secrets.c carries.
+ * the copy of voxgig_station_int.h carries.
  */
 
 #ifndef VOXGIG_STATION_H
