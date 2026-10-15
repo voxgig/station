@@ -217,7 +217,7 @@ class Station {
           'plugin "' +
               slug +
               '" is already registered; binding one client twice is an ' +
-              'error (station.md 10.2)');
+              'error (§10.2)');
     }
 
     final profilePlugin = _pluginProfile(slug);

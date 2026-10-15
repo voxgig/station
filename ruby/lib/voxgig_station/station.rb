@@ -72,12 +72,12 @@ module VoxgigStation
       raise StationError.new('station_instance_api',
         'invalid instance name "' + name.to_s + '" in ref "' + ref + '": a ' \
         'name starts with a letter or `@` and uses `[a-zA-Z0-9.~_-/]`, ' \
-        'max 1024 (6.1)')
+        'max 1024 (§6.1)')
     end
     unless check_instance_tag(tag)
       raise StationError.new('station_instance_api',
         'invalid instance tag "' + tag.to_s + '" in ref "' + ref + '": a ' \
-        'tag uses `[a-zA-Z0-9.~_-]`, max 1024 (6.1)')
+        'tag uses `[a-zA-Z0-9.~_-]`, max 1024 (§6.1)')
     end
 
     '' == tag ? name : ref
@@ -88,7 +88,7 @@ module VoxgigStation
 
     raise StationError.new('station_instance_api',
       'instance "' + ref + '" names api "' + refapi(ref) + '", but the SDK ' \
-      'passed is api "' + api.to_s + '"; `as` is a tag, not a free name (6.1)')
+      'passed is api "' + api.to_s + '"; `as` is a tag, not a free name (§6.1)')
   end
 
   # design station.md 6.1: `as` IS A TAG, NOT A FREE NAME.
@@ -119,7 +119,7 @@ module VoxgigStation
       unless check_instance_name(api)
         raise StationError.new('station_instance_api',
           'invalid instance name "' + api.to_s + '": a name starts with a ' \
-          'letter or `@` and uses `[a-zA-Z0-9.~_-/]`, max 1024 (6.1)')
+          'letter or `@` and uses `[a-zA-Z0-9.~_-/]`, max 1024 (§6.1)')
       end
       return api
     end
@@ -384,7 +384,7 @@ module VoxgigStation
         if @registry.key?(name)
           raise StationError.new('station_bound_twice',
             'instance "' + name + '" is already registered; binding one ' \
-            'client twice is an error (10.2)')
+            'client twice is an error (§10.2)')
         end
 
         profile_plugin = block_for(name)

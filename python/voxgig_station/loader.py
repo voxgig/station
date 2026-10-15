@@ -110,7 +110,7 @@ def factory_from_module(api, mod, export_name=None):
             'station_sdk_load',
             'api "' + api + '": the module exports a constructor but no '
             '`config` singleton, so its feature schema and transport roles '
-            'cannot be read before construction (6.2)')
+            'cannot be read before construction (§6.2)')
 
     return {'construct': lambda options: ctor(options), 'config': config}
 

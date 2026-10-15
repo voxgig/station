@@ -1752,7 +1752,7 @@ inline void userinfo(const Jval& val, const std::string& path,
   secrets.push_back(path +
                     " is a URL carrying userinfo, which puts a credential in the "
                     "config file; use the proxy feature's `fromEnv` option "
-                    "instead (design 8.6)");
+                    "instead (§8.6)");
 }
 
 inline bool credentialkey(const std::string& key) {
@@ -1815,7 +1815,7 @@ inline void scan(const Jval& node, const std::string& path,
     if (credentialkey(kv.first)) {
       secrets.push_back(kpath +
                         " is a credential-shaped key: station.json holds secret "
-                        "NAMES, never values (design 5.2)");
+                        "NAMES, never values (§5.2)");
       continue;
     }
 
@@ -1994,7 +1994,7 @@ inline std::string renamehint(const Jval& cfg) {
     return "";
   }
   return "; rename `plugin` to `sdk` in " + join_strings(hit, ", ") +
-         " - the keys are unchanged, an untagged ref IS an api slug (design 3.4)";
+         " - the keys are unchanged, an untagged ref IS an api slug (§3.4)";
 }
 
 }  // namespace detail
@@ -2316,7 +2316,7 @@ inline void check_pin(const std::vector<Ordered>& ordered) {
     throw StationError("station_feature_order",
                        "an ordering would move `station` away from immediately "
                        "outside the base transport; its position is pinned "
-                       "innermost and is not orderable (design 8.4)");
+                       "innermost and is not orderable (§8.4)");
   }
 }
 
@@ -2653,7 +2653,7 @@ inline void checksecrets(const Jval& sdk, const std::string& profile_name) {
           "profile \"" + profile_name + "\": instances \"" + found->second.first +
               "\" and \"" + entry.first + "\" both resolve to secret name \"" + name +
               "\", so they would share one credential; name it explicitly on "
-              "each, or at the api level to share it deliberately (5.1)");
+              "each, or at the api level to share it deliberately (§5.1)");
     }
     if (seen.end() == found) {
       seen[name] = std::make_pair(entry.first, derived);
@@ -2798,12 +2798,12 @@ inline std::string check_ref(const std::string& ref) {
     throw StationError("station_instance_api",
                        "invalid instance name \"" + name + "\" in ref \"" + ref +
                            "\": a name starts with a letter or `@` and uses "
-                           "`[a-zA-Z0-9.~_-/]`, max 1024 (design 6.1)");
+                           "`[a-zA-Z0-9.~_-/]`, max 1024 (§6.1)");
   }
   if (!check_instance_tag(tag)) {
     throw StationError("station_instance_api",
                        "invalid instance tag \"" + tag + "\" in ref \"" + ref +
-                           "\": a tag uses `[a-zA-Z0-9.~_-]`, max 1024 (design 6.1)");
+                           "\": a tag uses `[a-zA-Z0-9.~_-]`, max 1024 (§6.1)");
   }
   return tag.empty() ? name : ref;
 }
@@ -2818,7 +2818,7 @@ inline void check_api(const std::string& api, const std::string& ref) {
   throw StationError("station_instance_api",
                      "instance \"" + ref + "\" names api \"" + named +
                          "\", but the SDK passed is api \"" + api +
-                         "\"; `as` is a tag, not a free name (design 6.1)");
+                         "\"; `as` is a tag, not a free name (§6.1)");
 }
 
 // Design 6.1's rule. `instance` wins over `as`; a bare call returns the
@@ -2848,7 +2848,7 @@ inline std::string instance_ref(const std::string& api, const Jval& fopts) {
     throw StationError("station_instance_api",
                        "invalid instance name \"" + api +
                            "\": a name starts with a letter or `@` and uses "
-                           "`[a-zA-Z0-9.~_-/]`, max 1024 (design 6.1)");
+                           "`[a-zA-Z0-9.~_-/]`, max 1024 (§6.1)");
   }
 
   if (std::string::npos == as.sval.find('$')) {
@@ -3495,7 +3495,7 @@ class Station {
                          "kind(s) [" +
                          kinds +
                          "] are not available; secrets are read from the process "
-                         "environment only (design 2.2)"));
+                         "environment only (§2.2)"));
       ev.set("meta", meta);
       emit(ev);
     }
@@ -3601,7 +3601,7 @@ class Station {
         throw StationError("station_bound_twice",
                            "instance \"" + name +
                                "\" is already registered; binding one client twice is "
-                               "an error (10.2)");
+                               "an error (§10.2)");
       }
     }
 
@@ -3814,7 +3814,7 @@ class Station {
                            "honoured in the C++ port: C++ links its dependencies "
                            "and a header-only vendored library has no module-init "
                            "hook a linker must run, so there is no import-by-name "
-                           "at run time (design 6.3)");
+                           "at run time (§6.3)");
   }
 
   // Always empty here, and open() says why once per api (item 2).
@@ -3862,7 +3862,7 @@ class Station {
                 "module-init hook a linker must run, so there is no "
                 "import-by-name at run time. api \"" +
                     api +
-                    "\" must arrive through vstation::provide (design 6.3); "
+                    "\" must arrive through vstation::provide (§6.3); "
                     "everything else in this config still applies");
     }
   }

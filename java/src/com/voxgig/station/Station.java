@@ -281,12 +281,12 @@ public class Station {
       throw new StationError("station_instance_api",
           "invalid instance name \"" + name + "\" in ref \"" + ref + "\": a name "
               + "starts with a letter or `@` and uses `[a-zA-Z0-9.~_-/]`, "
-              + "max 1024 (6.1)");
+              + "max 1024 (§6.1)");
     }
     if (!checkInstanceTag(tag)) {
       throw new StationError("station_instance_api",
           "invalid instance tag \"" + tag + "\" in ref \"" + ref + "\": a tag "
-              + "uses `[a-zA-Z0-9.~_-]`, max 1024 (6.1)");
+              + "uses `[a-zA-Z0-9.~_-]`, max 1024 (§6.1)");
     }
     return tag.isEmpty() ? name : ref;
   }
@@ -296,7 +296,7 @@ public class Station {
       throw new StationError("station_instance_api",
           "instance \"" + ref + "\" names api \"" + Profile.refapi(ref)
               + "\", but the SDK passed is api \"" + api
-              + "\"; `as` is a tag, not a free name (6.1)");
+              + "\"; `as` is a tag, not a free name (§6.1)");
     }
     return ref;
   }
@@ -331,7 +331,7 @@ public class Station {
       if (!checkInstanceName(api)) {
         throw new StationError("station_instance_api",
             "invalid instance name \"" + api + "\": a name starts with a letter "
-                + "or `@` and uses `[a-zA-Z0-9.~_-/]`, max 1024 (6.1)");
+                + "or `@` and uses `[a-zA-Z0-9.~_-/]`, max 1024 (§6.1)");
       }
       return api;
     }
@@ -431,7 +431,7 @@ public class Station {
     if (registry.containsKey(name)) {
       throw new StationError("station_bound_twice",
           "instance \"" + name + "\" is already registered; binding one client "
-              + "twice is an error (design 10.2)");
+              + "twice is an error (§10.2)");
     }
 
     Map<String, Object> block = blockFor(name);
@@ -1033,7 +1033,7 @@ public class Station {
             + "or call Station.provide(\"" + api + "\", ...). `package` is not "
             + "honoured in the Java port: an `import` is a compile-time name "
             + "alias that loads nothing, so there is no import-by-name at run "
-            + "time (6.3)");
+            + "time (§6.3)");
   }
 
   /**
@@ -1083,7 +1083,7 @@ public class Station {
           + "import-by-name at run time. api \"" + api + "\" must arrive by "
           + "self-registration (a META-INF/services "
           + "com.voxgig.station.Factory$Registrar entry) or Station.provide "
-          + "(6.3); everything else in this config still applies");
+          + "(§6.3); everything else in this config still applies");
     }
   }
 

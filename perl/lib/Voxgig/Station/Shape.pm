@@ -35,6 +35,7 @@ package Voxgig::Station::Shape;
 
 use strict;
 use warnings;
+use utf8;
 
 use File::Basename ();
 use File::Spec ();
@@ -318,7 +319,7 @@ sub _renamehint {
     return '' unless @hit;
     return '; rename `plugin` to `sdk` in '
       . join( ', ', map { 'profiles.' . $_ } @hit )
-      . ' - the keys are unchanged, an untagged ref IS an api slug (3.4)';
+      . ' - the keys are unchanged, an untagged ref IS an api slug (§3.4)';
 }
 
 # The 5.2 scans, over the parts of the grammar that hold arbitrary data.
@@ -496,7 +497,7 @@ sub _scan {
             push @$secrets,
                 $kpath
               . ' is a credential-shaped key: station.json holds secret '
-              . 'NAMES, never values (5.2)';
+              . 'NAMES, never values (§5.2)';
             next;
         }
 
@@ -565,7 +566,7 @@ sub _userinfo {
     push @$secrets,
         $path
       . ' is a URL carrying userinfo, which puts a credential in the config '
-      . 'file; use the proxy feature\'s `fromEnv` option instead (8.6)';
+      . 'file; use the proxy feature\'s `fromEnv` option instead (§8.6)';
     return;
 }
 

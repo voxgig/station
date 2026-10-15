@@ -315,7 +315,7 @@ public final class Feature {
       throw new StationError("station_feature_order",
           "an ordering would move `station` away from immediately outside "
               + "the base transport; its position is pinned innermost and is "
-              + "not orderable (8.4)");
+              + "not orderable (§8.4)");
     }
   }
 

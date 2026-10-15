@@ -120,9 +120,9 @@ public final class SecretBroker {
         throw StationError(
           "station_secret_error",
           "provider kind \"" + (kind ?? "") + "\" is unavailable: no swift sekreto "
-            + "port exists, so solo mode is env-only (station design 2.2); the "
+            + "port exists, so solo mode is env-only (§2.2); the "
             + "chain stops here rather than falling through to a weaker store "
-            + "(station design 5.2)")
+            + "(§5.2)")
       }
       let prefix = provider.get("prefix").asStr ?? ""
       if let found = SecretBroker.envValue(SecretBroker.envkey(name, prefix)) {

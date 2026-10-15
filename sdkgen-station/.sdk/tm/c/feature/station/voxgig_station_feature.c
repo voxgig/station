@@ -420,7 +420,7 @@ vxstn_error* vxstn_check_pin(const vxstn_val* ordered) {
     vxstn_seterr(&err, "station_feature_order",
                  "an ordering would move `station` away from immediately "
                  "outside the base transport; its position is pinned "
-                 "innermost and is not orderable (design 8.4)");
+                 "innermost and is not orderable (§8.4)");
   }
   return err;
 }

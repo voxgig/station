@@ -227,7 +227,7 @@ module VoxgigStation
     raise StationError.new('station_feature_order',
       'an ordering would move `station` away from immediately outside ' \
       'the base transport; its position is pinned innermost and is not ' \
-      'orderable (8.4)')
+      'orderable (§8.4)')
   end
 
   # Compose the merged map into the ORDERED ARRAY FORM the constructor

@@ -240,7 +240,7 @@ defmodule Voxgig.Station.Profile do
               "\" both resolve to secret name \"" <>
               to_string(name) <>
               "\", so they would share one credential; name it explicitly on " <>
-              "each, or at the api level to share it deliberately (5.1)"
+              "each, or at the api level to share it deliberately (§5.1)"
           )
 
         nil ->

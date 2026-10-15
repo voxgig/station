@@ -97,12 +97,12 @@ def _checkref(ref):
             'station_instance_api',
             'invalid instance name "' + name + '" in ref "' + ref + '": a '
             'name starts with a letter or `@` and uses `[a-zA-Z0-9.~_-/]`, '
-            'max 1024 (6.1)')
+            'max 1024 (§6.1)')
     if not check_instance_tag(tag):
         raise StationError(
             'station_instance_api',
             'invalid instance tag "' + tag + '" in ref "' + ref + '": a tag '
-            'uses `[a-zA-Z0-9.~_-]`, max 1024 (6.1)')
+            'uses `[a-zA-Z0-9.~_-]`, max 1024 (§6.1)')
     return name if '' == tag else ref
 
 
@@ -112,7 +112,7 @@ def _checkapi(api, ref):
             'station_instance_api',
             'instance "' + ref + '" names api "' + refapi(ref) + '", but the '
             'SDK passed is api "' + api + '"; `as` is a tag, not a free name '
-            '(6.1)')
+            '(§6.1)')
     return ref
 
 
@@ -142,7 +142,7 @@ def instance_ref(api, fopts):
             raise StationError(
                 'station_instance_api',
                 'invalid instance name "' + str(api) + '": a name starts with '
-                'a letter or `@` and uses `[a-zA-Z0-9.~_-/]`, max 1024 (6.1)')
+                'a letter or `@` and uses `[a-zA-Z0-9.~_-/]`, max 1024 (§6.1)')
         return api
 
     # A full ref is validated against the api; a `$`-LESS STRING IS
@@ -425,7 +425,7 @@ class Station:
                 raise StationError(
                     'station_bound_twice',
                     'instance "' + name + '" is already registered; binding '
-                    'one client twice is an error (10.2)')
+                    'one client twice is an error (§10.2)')
 
             profile_plugin = self.block_for(name)
             # Secret name precedence: the feature option (in-code, design

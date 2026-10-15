@@ -118,9 +118,9 @@ class SecretBroker {
             'provider kind "' +
                 kind.toString() +
                 '" is unavailable: no dart sekreto port exists, so solo ' +
-                'mode is env-only (station.md 2.2); the chain stops here ' +
+                'mode is env-only (§2.2); the chain stops here ' +
                 'rather than falling through to a weaker store ' +
-                '(station.md 5.2)');
+                '(§5.2)');
       }
     }
 
