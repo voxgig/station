@@ -362,11 +362,15 @@ sub checkfeatures {
                 next;
             }
 
+            # sdkgen widens every declared option to admit null, and a null
+            # default constrains nothing.
+            next unless defined $entry->{$key};
+
             # The type outranks the default: sdkgen's option spec does too.
             my $want =
-              exists $typed->{$key}
-              ? _speckinds( $typed->{$key} )
-              : [ _kindof( $defaults->{$key} ) ];
+                exists $typed->{$key}      ? _speckinds( $typed->{$key} )
+              : defined $defaults->{$key} ? [ _kindof( $defaults->{$key} ) ]
+              :                             undef;
             my $got = _kindof( $entry->{$key} );
             if ( defined $want && !grep { $_ eq $got } @$want ) {
                 push @faults,

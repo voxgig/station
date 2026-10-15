@@ -288,9 +288,16 @@ def check_features(merged, descriptor):
                 })
                 continue
 
+            # sdkgen widens every declared option to admit null, and a
+            # null default constrains nothing.
+            if entry[key] is None:
+                continue
+
             # The type outranks the default: sdkgen's option spec does too.
-            want = _speckinds(typed[key]) if key in typed \
-                else [_kindof(defaults[key])]
+            if key in typed:
+                want = _speckinds(typed[key])
+            else:
+                want = None if defaults[key] is None else [_kindof(defaults[key])]
             got = _kindof(entry[key])
             if want is not None and got not in want:
                 faults.append({

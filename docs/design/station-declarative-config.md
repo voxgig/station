@@ -1739,7 +1739,12 @@ declaration*:
   `fromEnv: false` a boolean). **The type outranks the default**, as in
   sdkgen's own spec: a key in both is one the author gave a default and
   a type, and the type is the more specific statement (`netsim.latency`
-  defaults to `0` and admits a map). A token names one kind —
+  defaults to `0` and admits a map). **Null is never the wrong kind for
+  a declared option**: sdkgen's `optionalSpec` widens every declared
+  option, by default or by type, with `` `$NIL` ``, so `retries: null`
+  and `sleep: null` are taken; and a `null` default constrains nothing,
+  as sdkgen's `byExampleSpec(null)` is `` `$ANY` ``, though an `optspec`
+  type still outranks it. A token names one kind —
   `` `$MAP` ``, `` `$STRING` ``, `` `$NUMBER` `` (with `` `$INTEGER` ``
   and `` `$DECIMAL` ``), `` `$BOOLEAN` ``, `` `$FUNCTION` ``,
   `` `$ARRAY` `` or `` `$LIST` ``, `` `$NULL` ``. `` [`$ONE`, …] ``

@@ -739,9 +739,17 @@ vxstn_val* vxstn_check_features(const vxstn_val* merged, const vxstn_val* descri
         continue;
       }
 
+      /* sdkgen widens every declared option to admit null, and a null
+       * default constrains nothing. */
+      if (vxstn_is_nil(got)) {
+        continue;
+      }
+
       /* The type outranks the default: sdkgen's option spec does too. */
       if (NULL != wanttype) {
         spec_kinds(wanttype, &kinds);
+      } else if (vxstn_is_nil(want)) {
+        kinds.any = true;
       } else {
         kinds_add(&kinds, feature_kindof(want));
       }

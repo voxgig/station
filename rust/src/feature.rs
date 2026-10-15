@@ -364,9 +364,11 @@ pub fn check_features(merged: &Json, descriptor: &Json) -> Vec<Fault> {
                 continue;
             }
 
-            // The type outranks the default: sdkgen's option spec does too.
+            // The type outranks the default: sdkgen's option spec does too,
+            // and a null default constrains nothing.
             let want = match (typed.get(key), defaults.get(key)) {
                 (Some(spectype), _) => spec_kinds(spectype),
+                (None, Some(Json::Null)) => None,
                 (None, Some(default)) => Some(vec![featurekind(Some(default))]),
                 (None, None) => {
                     // A feature the SDK does not close is $OPEN in its own
@@ -389,6 +391,11 @@ pub fn check_features(merged: &Json, descriptor: &Json) -> Vec<Fault> {
                     continue;
                 }
             };
+
+            // sdkgen widens every declared option to admit null.
+            if let Json::Null = val {
+                continue;
+            }
 
             let gotkind = featurekind(Some(val));
             if let Some(want) = want {

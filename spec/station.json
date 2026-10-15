@@ -2557,6 +2557,122 @@
       "out": []
      },
      {
+      "doc": true,
+      "id": "feature#check-null-is-admitted-for-a-default",
+      "in": {
+       "check": {
+        "retry": {
+         "retries": null
+        }
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "retry",
+         "options": {
+          "active": false,
+          "retries": 2
+         },
+         "optspec": {
+          "jitter": "`$BOOLEAN`",
+          "sleep": "`$FUNCTION`"
+         },
+         "strict": false
+        }
+       ]
+      },
+      "out": []
+     },
+     {
+      "doc": true,
+      "id": "feature#check-null-is-admitted-for-a-type",
+      "in": {
+       "check": {
+        "retry": {
+         "sleep": null
+        }
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "retry",
+         "options": {
+          "active": false,
+          "retries": 2
+         },
+         "optspec": {
+          "jitter": "`$BOOLEAN`",
+          "sleep": "`$FUNCTION`"
+         },
+         "strict": false
+        }
+       ]
+      },
+      "out": []
+     },
+     {
+      "doc": true,
+      "id": "feature#check-null-default-admits-any-value",
+      "in": {
+       "check": {
+        "retry": {
+         "policy": {
+          "a": 1
+         },
+         "retries": 3
+        }
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "retry",
+         "options": {
+          "active": false,
+          "policy": null,
+          "retries": null
+         },
+         "optspec": {
+          "jitter": "`$BOOLEAN`",
+          "sleep": "`$FUNCTION`"
+         },
+         "strict": false
+        }
+       ]
+      },
+      "out": []
+     },
+     {
+      "id": "feature#check-type-outranks-a-null-default",
+      "in": {
+       "check": {
+        "netsim": {
+         "latency": "slow"
+        }
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "netsim",
+         "options": {
+          "active": false,
+          "latency": null
+         },
+         "optspec": {
+          "latency": "`$NUMBER`"
+         },
+         "strict": false
+        }
+       ]
+      },
+      "out": [
+       {
+        "code": "station_feature_option",
+        "feature": "netsim",
+        "key": "latency"
+       }
+      ]
+     },
+     {
       "id": "feature#check-function-type-refuses-data",
       "in": {
        "check": {

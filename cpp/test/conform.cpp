@@ -249,10 +249,10 @@ const omni::Subject INSTANCEREF = [](const std::vector<omni::Json>& args) {
 const omni::Subject FEATURE = [](const std::vector<omni::Json>& args) {
   if (args[0].has("check")) {
     vs::Jval descriptor = vs::Jval::map();
-    descriptor.set("features", to_station(args[0].get("features"), false));
+    descriptor.set("features", to_station(args[0].get("features"), true));
     omni::Json faults = omni::Json::list();
     for (const auto& fault :
-         vs::check_features(to_station(args[0].get("check"), false), descriptor)) {
+         vs::check_features(to_station(args[0].get("check"), true), descriptor)) {
       omni::Json one = omni::Json::map();
       one.set("code", omni::Json::str(fault.code));
       one.set("feature", omni::Json::str(fault.feature));

@@ -408,10 +408,19 @@ function check_features(mixed $merged, mixed $descriptor): array
                 continue;
             }
 
-            // The type outranks the default: sdkgen's option spec does too.
-            $want = array_key_exists($key, $typed)
-                ? spec_kinds($typed[$key]) : value_kinds($defaults[$key]);
+            // sdkgen widens every declared option to admit null, and a
+            // null default constrains nothing.
             $value = mval($entry, $key);
+            if (null === $value) {
+                continue;
+            }
+
+            // The type outranks the default: sdkgen's option spec does too.
+            if (array_key_exists($key, $typed)) {
+                $want = spec_kinds($typed[$key]);
+            } else {
+                $want = null === $defaults[$key] ? null : value_kinds($defaults[$key]);
+            }
             if (null !== $want && [] === array_intersect($want, value_kinds($value))) {
                 $faults[] = [
                     'code' => 'station_feature_option',

@@ -189,8 +189,13 @@ export function checkfeatures(
         continue
       }
 
+      // sdkgen widens every declared option to admit null, and a null
+      // default constrains nothing.
+      if (null == entry[key]) { continue }
+
       // The type outranks the default: sdkgen's option spec does too.
-      const want = owns(typed, key) ? speckinds(typed[key]) : [kindof(defaults[key])]
+      const want = owns(typed, key) ? speckinds(typed[key])
+        : null == defaults[key] ? null : [kindof(defaults[key])]
       const got = kindof(entry[key])
       if (null != want && -1 === want.indexOf(got)) {
         faults.push({

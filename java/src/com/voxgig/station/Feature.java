@@ -438,11 +438,18 @@ public final class Feature {
           continue;
         }
 
+        // sdkgen widens every declared option to admit null, and a null
+        // default constrains nothing.
+        Object value = ((Map<String, Object>) entry).get(key);
+        if (null == value) {
+          continue;
+        }
+
         // The type outranks the default: sdkgen's option spec does too.
+        Object fallback = defaults.get(key);
         List<String> want = typed.containsKey(key)
             ? speckinds(typed.get(key))
-            : List.of(kindof(defaults.get(key)));
-        Object value = ((Map<String, Object>) entry).get(key);
+            : null == fallback ? null : List.of(kindof(fallback));
         String got = kindof(value);
         if (null != want && !want.contains(got)) {
           faults.add(new Fault("station_feature_option", name, key,

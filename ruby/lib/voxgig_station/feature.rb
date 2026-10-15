@@ -312,8 +312,16 @@ module VoxgigStation
           next
         end
 
+        # sdkgen widens every declared option to admit null, and a null
+        # default constrains nothing.
+        next if entry[key].nil?
+
         # The type outranks the default: sdkgen's option spec does too.
-        want = typed.key?(key) ? spec_kinds(typed[key]) : [feature_kindof(defaults[key])]
+        want = if typed.key?(key)
+                 spec_kinds(typed[key])
+               elsif !defaults[key].nil?
+                 [feature_kindof(defaults[key])]
+               end
         got = feature_kindof(entry[key])
         next if want.nil? || want.include?(got)
 

@@ -2520,10 +2520,19 @@ inline std::vector<FeatureFault> check_features(const Jval& merged,
         continue;
       }
 
+      // sdkgen widens every declared option to admit null, and a null
+      // default constrains nothing.
+      const Jval value = entry.get(key);
+      if (value.isnull() || value.isabsent()) {
+        continue;
+      }
+
       // The type outranks the default: sdkgen's option spec does too.
       SpecKinds want;
       if (typed.has(key)) {
         spec_kinds(typed.get(key), want);
+      } else if (defaults.get(key).isnull()) {
+        want.any = true;
       } else {
         want.add(feature_kindof(defaults.get(key)));
       }

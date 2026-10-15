@@ -414,10 +414,18 @@ func CheckFeatures(merged map[string]any, descriptor map[string]any) []Fault {
 				continue
 			}
 
+			// sdkgen widens every declared option to admit null, and a
+			// null default constrains nothing.
+			if nil == entry[key] {
+				continue
+			}
+
 			// The type outranks the default: sdkgen's option spec does too.
-			want := []string{featurekind(def)}
+			var want []string
 			if hastype {
 				want = specKinds(spectype)
+			} else if nil != def {
+				want = []string{featurekind(def)}
 			}
 			got := featurekind(entry[key])
 			if nil != want && !containsString(want, got) {
