@@ -178,12 +178,13 @@ jobs:
       - name: javascript
         id: javascript
         continue-on-error: true
-        env:
-          STRUCT_HOME: ${{ github.workspace }}/struct
         run: |
           cd station/javascript
           mkdir -p node_modules/@voxgig
           ln -sfn ../../../../sekreto/javascript node_modules/@voxgig/sekreto-js
+          # @voxgig/struct-js is a published dependency, linked here to the
+          # checkout beside it, as sekreto is.
+          ln -sfn ../../../../struct/javascript node_modules/@voxgig/struct-js
           # sekreto's own install, the way the typescript lane above does
           # it: sekreto's core is built on voxgig/plugin now (sekreto
           # 43eb579) and declares @voxgig/plugin-js. Node resolves that

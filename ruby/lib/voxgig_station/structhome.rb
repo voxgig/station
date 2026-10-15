@@ -9,8 +9,7 @@
 # Unlike omni this is a RUNTIME dependency: validate_config runs at
 # open(), not only under test.
 #
-# A port of javascript/src/structhome.js; typescript/src/shape.ts is
-# canonical for what it is used for.
+# typescript/src/shape.ts is canonical for what it is used for.
 
 module VoxgigStation
   # The struct Ruby port's gemspec puts its require path at the checkout's
