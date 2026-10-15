@@ -11,11 +11,12 @@ than in `Makefile.PL`'s `PREREQ_PM`.
 |---|---|---|
 | `lib/Voxgig/Station.pm`, `lib/Voxgig/Station/*` | voxgig/station `perl/lib/Voxgig/` | byte-identical, apart from the swapped NOTE ON COPIES paragraph at the top of `Station.pm` |
 | `lib/Voxgig/Sekreto.pm`, `lib/Voxgig/Sekreto/*` | voxgig/sekreto `perl/lib/Voxgig/` | byte-identical |
+| `plugins/Voxgig/Sekreto/Plugins.pm`, `plugins/Voxgig/Sekreto/Plugins/*` | voxgig/sekreto `perl/plugins/Voxgig/` | byte-identical |
 | `spec/config-shape.json` | voxgig/station `spec/config-shape.json` | byte-identical |
 
 The station tree is `Station.pm` plus `Adapter`, `Descriptor`, `Error`,
 `Events`, `Factory`, `Feature`, `Loader`, `Profile`, `Secrets`, `Shape`
-and `Struct`; sekreto's is `Sekreto.pm` plus `Providers` and `Sigv4`.
+and `Struct`; sekreto's is `Sekreto.pm` plus `Addr` and `Providers`.
 `spec/config-shape.json` is not code but the port reads it like code:
 `Shape.pm` walks up from its own directory looking for
 `spec/config-shape.json` and dies if eight levels turn up nothing, so a
@@ -25,9 +26,18 @@ payload without it is a generated SDK that throws on the first `open()`.
 it - c compiles `config_shape.h` in, cpp embeds the bytes in a generated
 function, and lua does not validate against the shape at all.
 
+sekreto's plugins ride in `plugins/`, beside `lib/` rather than inside
+it, because that is sekreto's own layout: the plugins are a second `@INC`
+root, so the core cannot reach one by accident. All of them ride, because
+`SecretBroker` passes sekreto's full plugin set - a profile's chain may
+name any kind - and `Station.pm`'s bootstrap finds the root beside the
+`lib/` that `Voxgig::Sekreto` loaded from, or else beside its own. A
+payload without `plugins/` dies when it loads.
+
 That list is not maintained by hand - `tools/vendor.py` walks both
-canonical `lib/Voxgig` trees and copies every `.pm` it finds, so a
-module added canonically and not carried here is drift like any other.
+canonical `lib/Voxgig` trees and sekreto's `plugins/Voxgig` tree and
+copies every `.pm` it finds, so a module added canonically and not
+carried here is drift like any other.
 A module here whose canonical source was deleted or renamed is an
 orphan, reported by `vendor-check` and removed by `vendor-refresh`. And
 the tool refuses to run at all without a voxgig/sekreto checkout,

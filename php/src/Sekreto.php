@@ -38,3 +38,16 @@ function sekreto_load(): void
         'station: voxgig/sekreto (php) not found - set SEKRETO_HOME'
     );
 }
+
+/** @return array<int, array<string, mixed>> */
+function sekreto_plugins(): array
+{
+    sekreto_load();
+    if (!function_exists('Voxgig\\Sekreto\\Plugins\\allplugins')) {
+        // From the checkout the loaded core came from: each plugin file
+        // requires that checkout's src/ by relative path.
+        $core = (new \ReflectionClass(\Voxgig\Sekreto\Sekreto::class))->getFileName();
+        require_once dirname((string) $core, 2) . '/plugins/plugins.php';
+    }
+    return \Voxgig\Sekreto\Plugins\allplugins();
+}

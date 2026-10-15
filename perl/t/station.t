@@ -561,6 +561,38 @@ subtest 'missing secret is no_value on the op path' => sub {
     is( $errs->[0]{err}{code}, 'station_secret_no_value', 'event code' );
 };
 
+# sekreto keeps every kind but its built-ins behind a plugin definition, so
+# this pins that the broker passes the full set. minivault reads no file
+# until a lookup, so the vault need not exist.
+subtest 'a profile naming a plugin kind opens' => sub {
+    reset_env();
+    my $vault = File::Spec->catfile( File::Spec->tmpdir, 'station-absent.skmv' );
+    my $st    = eval {
+        Voxgig::Station->new(
+            {
+                config => {
+                    station  => 1,
+                    profiles => {
+                        default => {
+                            secrets => {
+                                providers => [
+                                    {
+                                        kind       => 'minivault',
+                                        passphrase => 'p',
+                                        file       => $vault,
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                }
+            }
+        );
+    };
+    is( $@, '', 'open accepts the kind' );
+    ok( $st && 'default' eq $st->status->{profile}, 'opened under that profile' );
+};
+
 subtest 'secret option overrides the default name' => sub {
     reset_env();
     local $ENV{CUSTOM_TOKEN} = 'custom-9';
