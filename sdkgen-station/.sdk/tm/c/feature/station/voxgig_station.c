@@ -1486,7 +1486,7 @@ static int checksecrets(const vxstn_val* sdk, const char* profile_name,
         vxstn_sb_put(&msg, names[i]);
         vxstn_sb_put(&msg,
                "\", so they would share one credential; name it explicitly "
-               "on each, or at the api level to share it deliberately (5.1)");
+               "on each, or at the api level to share it deliberately (§5.1)");
         vxstn_seterr(err, "station_secret_collision", msg.buf);
         free(msg.buf);
         free_keys(names, sdk->mlen);
@@ -2200,7 +2200,7 @@ vxstn_station* vxstn_station_new(const vxstn_open_opts* opts, vxstn_error** err)
       vxstn_sb_put(&warn, "c station is env-only (no sekreto c port): provider kind(s) [");
       vxstn_sb_put(&warn, missing.buf);
       vxstn_sb_put(&warn, "] are not available; secrets are read from the process "
-                    "environment only (design 2.2)");
+                    "environment only (§2.2)");
       vxstn_emit_warn(st, NULL, warn.buf);
       free(warn.buf);
     }
@@ -2262,7 +2262,7 @@ vxstn_station* vxstn_station_new(const vxstn_open_opts* opts, vxstn_error** err)
           vxstn_sb_put(&warn, slug);
           vxstn_sb_put(&warn, "\" must arrive through vxstn_provide() before the "
                               "first vxstn_sdk(); everything else in this config "
-                              "still applies (design 6.3)");
+                              "still applies (§6.3)");
           vxstn_map_set(ev, "t", vxstn_int(vxstn_now_ms()));
           vxstn_map_set(ev, "kind", vxstn_str("station"));
           vxstn_map_set(ev, "plugin", vxstn_str(slug));
@@ -2649,7 +2649,7 @@ vxstn_binding* vxstn_register(vxstn_station* st, void* client,
     vxstn_sb_put(&msg, "instance \"");
     vxstn_sb_put(&msg, name);
     vxstn_sb_put(&msg, "\" is already registered; binding one client twice is an "
-                       "error (10.2)");
+                       "error (§10.2)");
     vxstn_seterr(err, "station_bound_twice", msg.buf);
     free(msg.buf);
     free(name);
@@ -3615,7 +3615,7 @@ const vxstn_factory* vxstn_resolve_factory(vxstn_station* st, const char* api,
   vxstn_sb_put(&msg, "\", ...) before the first vxstn_sdk() - the c port has no "
                      "runtime module loading, so `api.");
   vxstn_sb_put(&msg, NULL == api ? "" : api);
-  vxstn_sb_put(&msg, ".package` is not honoured here (design 6.3)");
+  vxstn_sb_put(&msg, ".package` is not honoured here (§6.3)");
   vxstn_seterr(err, "station_no_factory", msg.buf);
   free(msg.buf);
   return NULL;

@@ -153,7 +153,7 @@ defmodule Voxgig.Station do
               "no elixir sekreto port: provider kind(s) " <>
                 Enum.join(kinds, ", ") <>
                 " are unavailable in solo mode - secrets are env-only " <>
-                "(station.md 2.2), and resolution reaching such a provider " <>
+                "(§2.2), and resolution reaching such a provider " <>
                 "fails rather than falling through"
           }
         })
@@ -236,7 +236,7 @@ defmodule Voxgig.Station do
         "station_bound_twice",
         "plugin \"" <>
           slug <>
-          "\" is already registered; binding one client twice is an error (10.2)"
+          "\" is already registered; binding one client twice is an error (§10.2)"
       )
     end
 

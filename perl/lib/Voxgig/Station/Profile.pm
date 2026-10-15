@@ -8,6 +8,7 @@ package Voxgig::Station::Profile;
 
 use strict;
 use warnings;
+use utf8;
 
 use Cwd ();
 use File::Basename ();
@@ -281,7 +282,7 @@ sub _checksecrets {
                 'profile "' . $profile_name . '": instances "' . $seen{$name}[0]
                   . '" and "' . $ref . '" both resolve to secret name "' . $name
                   . '", so they would share one credential; name it explicitly '
-                  . 'on each, or at the api level to share it deliberately (5.1)' );
+                  . 'on each, or at the api level to share it deliberately (§5.1)' );
         }
         $seen{$name} = [ $ref, $derived ] unless exists $seen{$name};
     }

@@ -489,7 +489,7 @@ static void userinfo(const vxstn_val* val, const char* path, vxstn_val* secrets)
   vxstn_sb_put(&sb, path);
   vxstn_sb_put(&sb, " is a URL carrying userinfo, which puts a credential in "
                     "the config file; use the proxy feature's `fromEnv` "
-                    "option instead (design 8.6)");
+                    "option instead (§8.6)");
   push_str(secrets, sb.buf);
 }
 
@@ -603,7 +603,7 @@ static void scan(const vxstn_val* node, const char* path, vxstn_val* secrets,
       vxstn_sb_init(&sb);
       vxstn_sb_put(&sb, kpath);
       vxstn_sb_put(&sb, " is a credential-shaped key: station.json holds "
-                        "secret NAMES, never values (design 5.2)");
+                        "secret NAMES, never values (§5.2)");
       push_str(secrets, sb.buf);
       free(kpath);
       continue;
@@ -921,7 +921,7 @@ static char* renamehint(const vxstn_val* cfg) {
     return vxstn_sdup("");
   }
   vxstn_sb_put(&sb, " - the keys are unchanged, an untagged ref IS an api slug "
-                    "(design 3.4)");
+                    "(§3.4)");
   return sb.buf;
 }
 

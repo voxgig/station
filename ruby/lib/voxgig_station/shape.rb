@@ -262,7 +262,7 @@ module VoxgigStation
 
     '; rename `plugin` to `sdk` in ' +
       hit.map { |p| 'profiles.' + p.to_s }.join(', ') +
-      ' - the keys are unchanged, an untagged ref IS an api slug (3.4)'
+      ' - the keys are unchanged, an untagged ref IS an api slug (§3.4)'
   end
 
   # The 5.2 scans, over the parts of the grammar that hold arbitrary
@@ -423,7 +423,7 @@ module VoxgigStation
 
       if credential_key?(key)
         secrets << (kpath + ' is a credential-shaped key: station.json ' \
-          'holds secret NAMES, never values (5.2)')
+          'holds secret NAMES, never values (§5.2)')
         next
       end
 
@@ -482,7 +482,7 @@ module VoxgigStation
 
     secrets << (path + ' is a URL carrying userinfo, which puts a credential ' \
       "in the config file; use the proxy feature's `fromEnv` option " \
-      'instead (8.6)')
+      'instead (§8.6)')
   end
 
   # The SHAPE kindof, which must agree with struct's own spellings. NOT

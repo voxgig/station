@@ -23,6 +23,7 @@ package Voxgig::Station::Feature;
 
 use strict;
 use warnings;
+use utf8;
 
 use JSON::PP ();
 use Scalar::Util qw(blessed);
@@ -263,7 +264,7 @@ sub checkpin {
         Voxgig::Station::Error::fail( 'station_feature_order',
             'an ordering would move `station` away from immediately outside '
               . 'the base transport; its position is pinned innermost and is '
-              . 'not orderable (8.4)' );
+              . 'not orderable (§8.4)' );
     }
     return;
 }

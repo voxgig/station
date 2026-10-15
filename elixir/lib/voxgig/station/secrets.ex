@@ -117,8 +117,8 @@ defmodule Voxgig.Station.Secrets do
          "provider kind " <>
            inspect(kind) <>
            " is unavailable: no elixir sekreto port exists, so solo mode is " <>
-           "env-only (station.md 2.2); the chain stops here rather than " <>
-           "falling through to a weaker store (station.md 5.2)"
+           "env-only (§2.2); the chain stops here rather than " <>
+           "falling through to a weaker store (§5.2)"
        )}
     end
   end

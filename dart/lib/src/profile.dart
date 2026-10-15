@@ -265,7 +265,7 @@ void _checksecrets(Map<String, dynamic> sdk, String profileName) {
               '" both resolve to secret name "' +
               name +
               '", so they would share one credential; name it explicitly ' +
-              'on each, or at the api level to share it deliberately (5.1)');
+              'on each, or at the api level to share it deliberately (§5.1)');
     }
     if (null == prior) {
       seen[name] = (ref, derived);

@@ -94,12 +94,12 @@ function checkref(string $ref): string
         throw new StationError('station_instance_api',
             'invalid instance name "' . $name . '" in ref "' . $ref . '": a ' .
             'name starts with a letter or `@` and uses ' .
-            '`[a-zA-Z0-9.~_-/]`, max 1024 (6.1)');
+            '`[a-zA-Z0-9.~_-/]`, max 1024 (§6.1)');
     }
     if (!check_instance_tag($tag)) {
         throw new StationError('station_instance_api',
             'invalid instance tag "' . $tag . '" in ref "' . $ref . '": a tag ' .
-            'uses `[a-zA-Z0-9.~_-]`, max 1024 (6.1)');
+            'uses `[a-zA-Z0-9.~_-]`, max 1024 (§6.1)');
     }
     return '' === $tag ? $name : $ref;
 }
@@ -110,7 +110,7 @@ function checkapi(string $api, string $ref): string
         throw new StationError('station_instance_api',
             'instance "' . $ref . '" names api "' . refapi($ref) . '", but ' .
             'the SDK passed is api "' . $api . '"; `as` is a tag, not a free ' .
-            'name (6.1)');
+            'name (§6.1)');
     }
     return $ref;
 }
@@ -151,7 +151,7 @@ function instance_ref(string $api, mixed $fopts): string
         if (!check_instance_name($api)) {
             throw new StationError('station_instance_api',
                 'invalid instance name "' . $api . '": a name starts with a ' .
-                'letter or `@` and uses `[a-zA-Z0-9.~_-/]`, max 1024 (6.1)');
+                'letter or `@` and uses `[a-zA-Z0-9.~_-/]`, max 1024 (§6.1)');
         }
         return $api;
     }
@@ -483,7 +483,7 @@ class Station
         if (isset($this->registry[$name])) {
             throw new StationError('station_bound_twice',
                 'instance "' . $name . '" is already registered; binding one ' .
-                'client twice is an error (10.2)');
+                'client twice is an error (§10.2)');
         }
 
         $profile_plugin = $this->block_for($name);
@@ -930,7 +930,7 @@ class Station
             throw new StationError('station_no_factory',
                 'the factory registered for api "' . $api . '" has no ' .
                 '`construct`; a factory is a constructor PLUS the SDK\'s ' .
-                'static config (6.2)');
+                'static config (§6.2)');
         }
         $client = ($entry['construct'])($this->options($as ?? $name, $with_adapter));
         if (!is_object($client)) {

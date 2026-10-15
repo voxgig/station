@@ -111,7 +111,7 @@ module VoxgigStation
       raise StationError.new('station_sdk_load',
         'api "' + api.to_s + '": the module exports a constructor but no ' \
         '`config` singleton, so its feature schema and transport roles ' \
-        'cannot be read before construction (6.2)')
+        'cannot be read before construction (§6.2)')
     end
 
     { construct: ->(options) { ctor.new(options) }, config: config }

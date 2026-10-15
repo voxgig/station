@@ -38,6 +38,7 @@ package Voxgig::Station::Loader;
 
 use strict;
 use warnings;
+use utf8;
 
 use Scalar::Util ();
 
@@ -141,7 +142,7 @@ sub factory_from_module {
             'api "' . ( defined $api ? $api : '' )
               . '": the module exports a constructor but no `config` '
               . 'singleton, so its feature schema and transport roles cannot '
-              . 'be read before construction (6.2)' );
+              . 'be read before construction (§6.2)' );
     }
 
     return {

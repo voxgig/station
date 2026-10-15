@@ -928,7 +928,7 @@ local function checksecrets(sdk, profile_name)
         'profile "' .. profile_name .. '": instances "' .. prior.ref .. '" and "' ..
         ref .. '" both resolve to secret name "' .. name ..
         '", so they would share one credential; name it explicitly on ' ..
-        'each, or at the api level to share it deliberately (5.1)')
+        'each, or at the api level to share it deliberately (§5.1)')
     end
     if prior == nil then
       seen[name] = { ref = ref, derived = derived }
@@ -1293,7 +1293,7 @@ function M.new(opts)
       meta = {
         warn = 'lua station is env-only (no sekreto lua port): provider kind(s) [' ..
           table.concat(missing, ', ') .. '] are not available; secrets are read ' ..
-          'from the process environment only (design 2.2)',
+          'from the process environment only (§2.2)',
       },
     })
   end
@@ -1417,7 +1417,7 @@ function Station:_register(client, config, options, _calleropts, fopts)
   if self.registry[slug] ~= nil then
     fail('station_bound_twice',
       'plugin "' .. slug .. '" is already registered; binding one client ' ..
-      'twice is an error (10.2)')
+      'twice is an error (§10.2)')
   end
 
   local profile_plugin = self.profile.sdk[slug]

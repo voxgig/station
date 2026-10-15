@@ -269,7 +269,7 @@ namespace Voxgig.Station
                 {
                     throw new StationError("station_bound_twice",
                         "plugin \"" + slug + "\" is already registered; binding one "
-                        + "client twice is an error (design 10.2)");
+                        + "client twice is an error (§10.2)");
                 }
 
                 Dictionary<string, object> profilePlugin = Descriptor.AsMap(

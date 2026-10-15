@@ -242,7 +242,7 @@ public enum Profile {
               + "\" and \"" + ref + "\" both resolve to secret name \""
               + name + "\", so they would share one credential; name it "
               + "explicitly on each, or at the api level to share it "
-              + "deliberately (5.1)")
+              + "deliberately (§5.1)")
         }
       } else {
         seen[name] = (ref: ref, derived: derived)

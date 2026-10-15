@@ -1112,8 +1112,44 @@
       }
      },
      {
+      "err": "station_config_secret: profiles.default.sdk.solar.options.access_key is a credential-shaped key: station.json holds secret NAMES, never values (\u00a75.2)",
+      "id": "config#credential-key-refusal-message-in-full",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "options": {
+            "access_key": "v"
+           }
+          }
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
       "err": "URL carrying userinfo",
       "id": "config#options-url-userinfo",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "options": {
+            "proxy": "http://user:pass@proxy.internal:8080"
+           }
+          }
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "err": "station_config_secret: profiles.default.sdk.solar.options.proxy is a URL carrying userinfo, which puts a credential in the config file; use the proxy feature's `fromEnv` option instead (\u00a78.6)",
+      "id": "config#url-userinfo-refusal-message-in-full",
       "in": {
        "profiles": {
         "default": {
@@ -1156,6 +1192,20 @@
       "doc": true,
       "err": "rename `plugin` to `sdk`",
       "id": "config#plugin-key-names-the-rename",
+      "in": {
+       "profiles": {
+        "default": {
+         "plugin": {
+          "solar": {}
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "err": "station_config_invalid: Unexpected keys at field profiles.default: plugin; rename `plugin` to `sdk` in profiles.default - the keys are unchanged, an untagged ref IS an api slug (\u00a73.4)",
+      "id": "config#plugin-rename-refusal-message-in-full",
       "in": {
        "profiles": {
         "default": {
@@ -2162,6 +2212,25 @@
       }
      },
      {
+      "err": "station_feature_order: an ordering would move `station` away from immediately outside the base transport; its position is pinned innermost and is not orderable (\u00a78.4)",
+      "id": "feature#order-pin-refusal-message-in-full",
+      "in": {
+       "merged": {
+        "station": {
+         "order": {
+          "band": 0
+         }
+        },
+        "test": {},
+        "wrap": {
+         "order": {
+          "band": 150
+         }
+        }
+       }
+      }
+     },
+     {
       "err": "pinned innermost",
       "id": "feature#order-pin-constraint-violation",
       "in": {
@@ -2567,6 +2636,24 @@
       }
      },
      {
+      "err": "station_secret_collision: profile \"default\": instances \"notes$a\" and \"notes-a\" both resolve to secret name \"notes_a.apikey\", so they would share one credential; name it explicitly on each, or at the api level to share it deliberately (\u00a75.1)",
+      "id": "instance#collision-refusal-message-in-full",
+      "in": {
+       "config": {
+        "profiles": {
+         "default": {
+          "sdk": {
+           "notes$a": {},
+           "notes-a": {}
+          }
+         }
+        },
+        "station": 1
+       },
+       "profile": "default"
+      }
+     },
+     {
       "doc": true,
       "id": "instance#explicitly-shared-secret-is-legal",
       "in": {
@@ -2850,6 +2937,16 @@
       }
      },
      {
+      "err": "station_instance_api: instance \"other$test\" names api \"other\", but the SDK passed is api \"stripe\"; `as` is a tag, not a free name (\u00a76.1)",
+      "id": "instanceref#wrong-api-refusal-message-in-full",
+      "in": {
+       "api": "stripe",
+       "opts": {
+        "as": "other$test"
+       }
+      }
+     },
+     {
       "id": "instanceref#declarative-instance-wins",
       "in": {
        "api": "stripe",
@@ -2902,9 +2999,27 @@
       }
      },
      {
+      "err": "station_instance_api: invalid instance name \"9stripe\": a name starts with a letter or `@` and uses `[a-zA-Z0-9.~_-/]`, max 1024 (\u00a76.1)",
+      "id": "instanceref#bad-name-refusal-message-in-full",
+      "in": {
+       "api": "9stripe",
+       "opts": {}
+      }
+     },
+     {
       "doc": true,
       "err": "invalid instance tag",
       "id": "instanceref#bad-tag-refused",
+      "in": {
+       "api": "stripe",
+       "opts": {
+        "as": "a/b"
+       }
+      }
+     },
+     {
+      "err": "station_instance_api: invalid instance tag \"a/b\" in ref \"stripe$a/b\": a tag uses `[a-zA-Z0-9.~_-]`, max 1024 (\u00a76.1)",
+      "id": "instanceref#bad-tag-refusal-message-in-full",
       "in": {
        "api": "stripe",
        "opts": {

@@ -164,8 +164,8 @@ public final class Station {
         nil,
         "no swift sekreto port: provider kind(s) "
           + kinds.map { "\"" + $0 + "\"" }.joined(separator: ", ")
-          + " are unavailable in solo mode - secrets are env-only (station "
-          + "design 2.2), and resolution reaching such a provider fails "
+          + " are unavailable in solo mode - secrets are env-only (§2.2), "
+          + "and resolution reaching such a provider fails "
           + "rather than falling through")
     }
   }
@@ -254,7 +254,7 @@ public final class Station {
       throw StationError(
         "station_bound_twice",
         "plugin \"" + slug + "\" is already registered; binding one client "
-          + "twice is an error (design 10.2)")
+          + "twice is an error (§10.2)")
     }
 
     let profilePlugin = profile.get("sdk").get(slug)

@@ -29,6 +29,7 @@ package Voxgig::Station;
 
 use strict;
 use warnings;
+use utf8;
 
 use File::Basename ();
 use File::Spec ();
@@ -188,12 +189,12 @@ sub _checkref {
         Voxgig::Station::Error::fail( 'station_instance_api',
             'invalid instance name "' . $name . '" in ref "' . $ref
               . '": a name starts with a letter or `@` and uses '
-              . '`[a-zA-Z0-9.~_-/]`, max 1024 (6.1)' );
+              . '`[a-zA-Z0-9.~_-/]`, max 1024 (§6.1)' );
     }
     if ( !check_instance_tag($tag) ) {
         Voxgig::Station::Error::fail( 'station_instance_api',
             'invalid instance tag "' . $tag . '" in ref "' . $ref
-              . '": a tag uses `[a-zA-Z0-9.~_-]`, max 1024 (6.1)' );
+              . '": a tag uses `[a-zA-Z0-9.~_-]`, max 1024 (§6.1)' );
     }
     return '' eq $tag ? $name : $ref;
 }
@@ -204,7 +205,7 @@ sub _checkapi {
         Voxgig::Station::Error::fail( 'station_instance_api',
             'instance "' . $ref . '" names api "' . refapi($ref)
               . '", but the SDK passed is api "' . $api
-              . '"; `as` is a tag, not a free name (6.1)' );
+              . '"; `as` is a tag, not a free name (§6.1)' );
     }
     return $ref;
 }
@@ -240,7 +241,7 @@ sub instance_ref {
         if ( !check_instance_name($api) ) {
             Voxgig::Station::Error::fail( 'station_instance_api',
                 'invalid instance name "' . $api . '": a name starts with a '
-                  . 'letter or `@` and uses `[a-zA-Z0-9.~_-/]`, max 1024 (6.1)' );
+                  . 'letter or `@` and uses `[a-zA-Z0-9.~_-/]`, max 1024 (§6.1)' );
         }
         return $api;
     }
@@ -606,7 +607,7 @@ sub _register {
     if ( exists $self->{registry}{$name} ) {
         Voxgig::Station::Error::fail( 'station_bound_twice',
             'instance "' . $name . '" is already registered; binding one '
-              . 'client twice is an error (10.2)' );
+              . 'client twice is an error (§10.2)' );
     }
 
     my $profile_plugin = $self->block_for($name);
