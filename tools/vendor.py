@@ -30,11 +30,19 @@ same symbols defined twice.
 spec/config-shape.json. Run `make -C c sync-shape` before this if the
 spec changed; this tool copies whatever is on disk and does not
 regenerate it.
+
+One payload is not station's own code: `c/vendor/sekreto`, sekreto's C
+core and its mini vault plugin, which the C port compiles. It is read out
+of git at SEKRETO_C_COMMIT, never from a working tree, and every file
+carries a three-line provenance stamp naming that commit. Moving to a
+newer sekreto is a new SEKRETO_C_COMMIT and a `--write`.
 """
 
 import argparse
+import collections
 import os
 import re
+import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -130,6 +138,79 @@ def identity(text, _path):
     return text
 
 
+# c: a generated C SDK compiles sekreto and the voxgig/plugin host only
+# while its own secrets feature is active, so the payload's broker is
+# built to read the environment directly. Drop this once the SDK carries
+# them unconditionally, as it carries struct.
+C_SECRETS = 'voxgig_station_secrets.c'
+C_ENVONLY_ANCHOR = '#include "voxgig_station.h"'
+
+
+def c_envonly(text, path):
+    if C_SECRETS != os.path.basename(path):
+        return text
+    if C_ENVONLY_ANCHOR not in text:
+        raise SystemExit(
+            'vendor: %s no longer includes voxgig_station.h - the env-only '
+            'define has nowhere to go, fix C_ENVONLY_ANCHOR.' % C_SECRETS)
+    return text.replace(C_ENVONLY_ANCHOR,
+                        '#define VXSTN_ENV_ONLY 1\n\n' + C_ENVONLY_ANCHOR, 1)
+
+
+# --- sekreto's C port, pinned ----------------------------------------
+
+SEKRETO_C_COMMIT = '32b83acba90a8e4199be96f56d0cdd5f636c5dfb'
+SEKRETO_REPO = 'https://github.com/voxgig/sekreto'
+CSEK = os.path.join(HERE, 'c', 'vendor', 'sekreto')
+
+# The core is all of sekreto's c/src. Of the plugins, the mini vault and
+# the one object it links (encode.c, for sek_unbase64): a chain may name
+# a plugin kind only when the caller links it, so no other kind is here.
+SEKRETO_C_PLUGINS = ('sekretoplugins.h', 'support.h', 'encode.c', 'minivault.c')
+
+Pinned = collections.namedtuple('Pinned', 'home path')
+
+
+def git(home, *args):
+    run = subprocess.run(['git', '-C', home] + list(args),
+                         capture_output=True, check=False)
+    if 0 != run.returncode:
+        raise SystemExit('vendor: git %s failed in %s: %s'
+                         % (' '.join(args), home,
+                            run.stderr.decode('utf-8', 'replace').strip()))
+    return run.stdout.decode('utf-8')
+
+
+def sekreto_stamp(path):
+    return ('// VENDORED: voxgig/sekreto (%s)\n'
+            '// Source: %s @ %s\n'
+            '// License: MIT (c) voxgig - see repository LICENSE. '
+            'Do not edit: run make vendor-refresh.\n'
+            % (path, SEKRETO_REPO, SEKRETO_C_COMMIT))
+
+
+def sekreto_c(home):
+    probe = subprocess.run(['git', '-C', home, 'cat-file', '-e',
+                            SEKRETO_C_COMMIT + '^{commit}'],
+                           capture_output=True, check=False)
+    if 0 != probe.returncode:
+        raise SystemExit(
+            'vendor: %s has no commit %s, which c/vendor/sekreto is pinned '
+            'to. Fetch it:\n  git -C %s fetch origin %s'
+            % (home, SEKRETO_C_COMMIT, home, SEKRETO_C_COMMIT))
+    core = [name for name in git(home, 'ls-tree', '--name-only',
+                                 SEKRETO_C_COMMIT, 'c/src/').split()
+            if name.endswith('.c') or name.endswith('.h')]
+    if not core:
+        raise SystemExit('vendor: sekreto %s has no C core under c/src'
+                         % SEKRETO_C_COMMIT)
+    out = []
+    for path in sorted(core) + ['c/plugins/' + n for n in SEKRETO_C_PLUGINS]:
+        dst = os.path.join(CSEK, *path.split('/')[1:])
+        out.append((Pinned(home, path), dst, identity))
+    return out
+
+
 # --- what is vendored where -----------------------------------------
 
 def sekreto_home():
@@ -194,7 +275,12 @@ def pairs():
     for name in sorted(os.listdir(csrc)):
         if name.endswith('.c') or name.endswith('.h'):
             out.append((os.path.join(csrc, name),
-                        os.path.join(cdst, name), identity))
+                        os.path.join(cdst, name), c_envonly))
+
+    # ... and the sekreto it resolves secrets through, from git.
+    home = sekreto_home()
+    if home:
+        out.extend(sekreto_c(home))
 
     # cpp: header-only.
     cppsrc = os.path.join(HERE, 'cpp', 'src')
@@ -243,8 +329,9 @@ def owned():
     the build - and a RENAME leaves the same symbols defined twice.
     """
     out = []
-    for lang in MANAGED_ROOTS:
-        root = os.path.join(TM, lang, 'feature', 'station')
+    roots = [os.path.join(TM, lang, 'feature', 'station')
+             for lang in MANAGED_ROOTS] + [CSEK]
+    for root in roots:
         if not os.path.isdir(root):
             continue
         for base, _dirs, files in os.walk(root):
@@ -256,8 +343,17 @@ def owned():
 
 
 def expected(src, transform):
+    if isinstance(src, Pinned):
+        return transform(sekreto_stamp(src.path) + git(
+            src.home, 'show', '%s:%s' % (SEKRETO_C_COMMIT, src.path)), src.path)
     with open(src, 'r', encoding='utf-8') as handle:
         return transform(handle.read(), src)
+
+
+def source_label(src):
+    if isinstance(src, Pinned):
+        return 'voxgig/sekreto@%s:%s' % (SEKRETO_C_COMMIT[:7], src.path)
+    return os.path.relpath(src, HERE)
 
 
 def main():
@@ -273,8 +369,9 @@ def main():
     if not sekreto_home():
         print('vendor: voxgig/sekreto not found - set SEKRETO_HOME.',
               file=sys.stderr)
-        print('vendor: the perl payload carries sekreto too, so a check '
-              'without it would pass by looking at less.', file=sys.stderr)
+        print('vendor: the perl payload and c/vendor/sekreto carry sekreto, '
+              'so a check without it would pass by looking at less.',
+              file=sys.stderr)
         return 1
 
     drift = []
@@ -296,7 +393,7 @@ def main():
         rel = os.path.relpath(dst, HERE)
         if args.check:
             drift.append((rel, 'missing' if have is None else 'differs',
-                          os.path.relpath(src, HERE)))
+                          source_label(src)))
         else:
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             with open(dst, 'w', encoding='utf-8') as handle:

@@ -1,17 +1,17 @@
 /* voxgig/station - one control surface for outbound integrations (C port).
  *
  * See voxgig_station.h for the scope statement (tier C: solo only,
- * env-only secrets, config in code) and the copy discipline (canonical
- * source: voxgig/station c/src/; vendored copy: sdkgen-station
+ * secrets through sekreto, config in code) and the copy discipline
+ * (canonical source: voxgig/station c/src/; vendored copy: sdkgen-station
  * .sdk/tm/c/feature/station/ - byte-identical, edit HERE first).
  *
  * THIS FILE is the core: the value model and JSON, the canonical
  * serializer, identity, the descriptor normalizer, profile resolution,
- * the event ring, the env-only broker, the instance registry, and the
- * declarative front door (design 6), which lives here because it reads
- * the station's own state. The config grammar (4), feature management
- * (8) and the factory table with the ref grammar (6.1/6.2) are the
- * other three sources beside it.
+ * the event ring, the instance registry, and the declarative front door
+ * (design 6), which lives here because it reads the station's own state.
+ * The config grammar (4), feature management (8), the factory table with
+ * the ref grammar (6.1/6.2) and the secret broker (5) are the other four
+ * sources beside it.
  *
  * Port of the canonical typescript/src sources. Behaviour must match,
  * case for case; the shared conformance corpus (spec/station.json, run
@@ -85,28 +85,6 @@ void vxstn_sb_putf(vxstn_sb* sb, const char* fmt, ...) {
   if (0 < n) {
     vxstn_sb_putn(sb, tmp, (size_t)n);
   }
-}
-
-/* Literal (non-pattern) replace-all; owned result. */
-static char* replaceall(const char* s, const char* find, const char* rep) {
-  vxstn_sb sb;
-  const char* p = s;
-  size_t flen = strlen(find);
-  if (0 == flen) {
-    return vxstn_sdup(s);
-  }
-  vxstn_sb_init(&sb);
-  for (;;) {
-    const char* hit = strstr(p, find);
-    if (NULL == hit) {
-      vxstn_sb_put(&sb, p);
-      break;
-    }
-    vxstn_sb_putn(&sb, p, (size_t)(hit - p));
-    vxstn_sb_put(&sb, rep);
-    p = hit + flen;
-  }
-  return sb.buf;
 }
 
 int64_t vxstn_now_ms(void) {
@@ -1785,170 +1763,6 @@ static void events_destroy(vxstn_events_buf* eb) {
 }
 
 /* =========================================================================
- * Secrets: the broker holds resolved values privately - they never
- * enter options, events, or captures; the SDK sees only the
- * placeholder. ENV-ONLY (design station.md 2.2): no sekreto C port
- * exists, so the one provider is the process environment, read directly
- * under envkey(name). No second provider is grown here; other
- * configured provider kinds are reported at open, not silently
- * half-implemented.
- * =========================================================================*/
-
-typedef struct {
-  char* slug;
-  char* value;
-} vxstn_kv;
-
-typedef struct {
-  vxstn_kv* overrides; /* hoisted by the adapter (design 3.1) */
-  size_t noverrides;
-  vxstn_kv* cache;
-  size_t ncache;
-  char** held; /* every value ever held, for the exact-value scrub */
-  size_t nheld;
-} vxstn_broker;
-
-static const char* kv_get(vxstn_kv* kvs, size_t n, const char* slug) {
-  size_t i;
-  for (i = 0; i < n; i++) {
-    if (0 == strcmp(kvs[i].slug, slug)) {
-      return kvs[i].value;
-    }
-  }
-  return NULL;
-}
-
-static void kv_set(vxstn_kv** kvs, size_t* n, const char* slug, const char* value) {
-  size_t i;
-  for (i = 0; i < *n; i++) {
-    if (0 == strcmp((*kvs)[i].slug, slug)) {
-      free((*kvs)[i].value);
-      (*kvs)[i].value = vxstn_sdup(value);
-      return;
-    }
-  }
-  *kvs = (vxstn_kv*)realloc(*kvs, (*n + 1) * sizeof(vxstn_kv));
-  (*kvs)[*n].slug = vxstn_sdup(slug);
-  (*kvs)[*n].value = vxstn_sdup(value);
-  (*n)++;
-}
-
-static void broker_hold(vxstn_broker* b, const char* value) {
-  b->held = (char**)realloc(b->held, (b->nheld + 1) * sizeof(char*));
-  b->held[b->nheld++] = vxstn_sdup(value);
-}
-
-static void broker_hoist(vxstn_broker* b, const char* slug, const char* value) {
-  kv_set(&b->overrides, &b->noverrides, slug, value);
-  broker_hold(b, value);
-}
-
-/* Resolve the value for a plugin's secret name. Env-only, and the miss
- * keeps sekreto's meaning (design 5.2): an unset variable is
- * station_secret_no_value; a set-but-empty variable is a present
- * (empty) value, exactly as sekreto's env provider reads it. There is
- * no store that can "fail to answer" here, so station_secret_error is
- * reserved for malformed names. */
-static const char* broker_value(vxstn_broker* b, const char* slug,
-                                const char* name, vxstn_error** err) {
-  const char* override_;
-  const char* cached;
-  char* key;
-  const char* env;
-  vxstn_error* kerr = NULL;
-
-  if (NULL != err) {
-    *err = NULL;
-  }
-
-  /* design 5.3's two keyings, and they are different on purpose. A
-     HOISTED override belongs to the one client it was resident in, so
-     it is keyed by INSTANCE. A RESOLVED VALUE belongs to the name it
-     was resolved for, so the cache is keyed by SECRET NAME: several
-     instances sharing one api-level `secret` then cost one lookup, and
-     at 26 instances over 20 apis keying the cache by instance would
-     turn one store round-trip into 26. */
-  override_ = kv_get(b->overrides, b->noverrides, slug);
-  if (NULL != override_) {
-    return override_;
-  }
-  cached = kv_get(b->cache, b->ncache, name);
-  if (NULL != cached) {
-    return cached;
-  }
-
-  key = vxstn_envkey(name, &kerr);
-  if (NULL == key) {
-    if (NULL != err) {
-      *err = kerr;
-    } else {
-      vxstn_error_free(kerr);
-    }
-    return NULL;
-  }
-  env = getenv(key);
-  free(key);
-  if (NULL == env) {
-    vxstn_sb msg;
-    vxstn_sb_init(&msg);
-    vxstn_sb_put(&msg, "no store had \"");
-    vxstn_sb_put(&msg, name);
-    vxstn_sb_put(&msg, "\" for plugin \"");
-    vxstn_sb_put(&msg, slug);
-    vxstn_sb_putc(&msg, '"');
-    vxstn_seterr(err, "station_secret_no_value", msg.buf);
-    free(msg.buf);
-    return NULL;
-  }
-
-  kv_set(&b->cache, &b->ncache, name, env);
-  broker_hold(b, env);
-  return kv_get(b->cache, b->ncache, name);
-}
-
-/* Exact-value scrub, deliberately WITHOUT sekreto's four-character
- * readability floor (design 7 as revised): on boundaries where the
- * promise is absolute, every held value is scrubbed whatever its
- * length. Owned result. */
-static char* broker_scrub(vxstn_broker* b, const char* text) {
-  char* out = vxstn_sdup(text);
-  size_t i;
-  for (i = 0; i < b->nheld; i++) {
-    if ('\0' != b->held[i][0]) {
-      char* next = replaceall(out, b->held[i], "[redacted]");
-      free(out);
-      out = next;
-    }
-  }
-  return out;
-}
-
-static void broker_refresh(vxstn_broker* b) {
-  size_t i;
-  for (i = 0; i < b->ncache; i++) {
-    free(b->cache[i].slug);
-    free(b->cache[i].value);
-  }
-  free(b->cache);
-  b->cache = NULL;
-  b->ncache = 0;
-}
-
-static void broker_destroy(vxstn_broker* b) {
-  size_t i;
-  broker_refresh(b);
-  for (i = 0; i < b->noverrides; i++) {
-    free(b->overrides[i].slug);
-    free(b->overrides[i].value);
-  }
-  free(b->overrides);
-  for (i = 0; i < b->nheld; i++) {
-    free(b->held[i]);
-  }
-  free(b->held);
-}
-
-/* =========================================================================
  * The Station
  * =========================================================================*/
 
@@ -2001,7 +1815,7 @@ struct vxstn_station {
      profile has already collapsed the levels provenance has to name.
      resolveProfile reads this, never the normalized form. */
   vxstn_val* raw;
-  vxstn_broker broker;
+  vxstn_broker* broker;
   vxstn_events_buf events;
   vxstn_plugin_entry* plugins;
   size_t nplugins;
@@ -2081,6 +1895,7 @@ vxstn_station* vxstn_station_new(const vxstn_open_opts* opts, vxstn_error** err)
   char* profile_name;
   const char* proxy;
   vxstn_error* perr = NULL;
+  char* secrets_warn = NULL;
 
   if (NULL != err) {
     *err = NULL;
@@ -2137,7 +1952,13 @@ vxstn_station* vxstn_station_new(const vxstn_open_opts* opts, vxstn_error** err)
   st->profile = vxstn_resolve_profile(config, profile_name, &perr);
   st->raw = config;
   free(profile_name);
-  if (NULL == st->profile) {
+  if (NULL != st->profile) {
+    st->broker = vxstn_broker_new(vxstn_map_get(st->profile, "providers"),
+                                  NULL == opts ? NULL : opts->plugins,
+                                  NULL == opts ? 0 : opts->plugincount, &secrets_warn, &perr);
+  }
+  if (NULL == st->profile || NULL == st->broker) {
+    vxstn_val_free(st->profile);
     vxstn_val_free(st->raw);
     free(st);
     if (NULL != err) {
@@ -2159,52 +1980,9 @@ vxstn_station* vxstn_station_new(const vxstn_open_opts* opts, vxstn_error** err)
     vxstn_emit_warn(st, NULL, "proxy absent (not found); running solo");
   }
 
-  /* Env-only honesty (design 2.2): a chain naming stores this port
-   * cannot reach gets said out loud, once, rather than silently
-   * resolving from a weaker store than the profile asked for. */
-  {
-    const vxstn_val* providers = vxstn_map_get(st->profile, "providers");
-    vxstn_sb missing;
-    const char* seen[32];
-    size_t nseen = 0;
-    bool any = false;
-    size_t i;
-    vxstn_sb_init(&missing);
-    if (vxstn_is_list(providers)) {
-      for (i = 0; i < providers->len; i++) {
-        const vxstn_val* kindv = vxstn_getk(providers->items[i], "kind");
-        const char* kind = vxstn_is_str(kindv) ? kindv->str : "?";
-        bool dup = false;
-        size_t j;
-        for (j = 0; j < nseen; j++) {
-          if (0 == strcmp(seen[j], kind)) {
-            dup = true;
-            break;
-          }
-        }
-        if (0 != strcmp("env", kind) && !dup) {
-          if (nseen < sizeof(seen) / sizeof(seen[0])) {
-            seen[nseen++] = kind;
-          }
-          if (any) {
-            vxstn_sb_put(&missing, ", ");
-          }
-          vxstn_sb_put(&missing, kind);
-          any = true;
-        }
-      }
-    }
-    if (any) {
-      vxstn_sb warn;
-      vxstn_sb_init(&warn);
-      vxstn_sb_put(&warn, "c station is env-only (no sekreto c port): provider kind(s) [");
-      vxstn_sb_put(&warn, missing.buf);
-      vxstn_sb_put(&warn, "] are not available; secrets are read from the process "
-                    "environment only (design 2.2)");
-      vxstn_emit_warn(st, NULL, warn.buf);
-      free(warn.buf);
-    }
-    free(missing.buf);
+  if (NULL != secrets_warn) {
+    vxstn_emit_warn(st, NULL, secrets_warn);
+    free(secrets_warn);
   }
 
   /* design 6.3: an in-code config is repo-scoped by construction - the
@@ -2333,7 +2111,7 @@ void vxstn_station_free(vxstn_station* st) {
   }
   vxstn_val_free(st->profile);
   vxstn_val_free(st->raw);
-  broker_destroy(&st->broker);
+  vxstn_broker_free(st->broker);
   events_destroy(&st->events);
   for (i = 0; i < st->nplugins; i++) {
     /* `descriptor` and `warnings` are BORROWED from the per-api cache
@@ -2818,7 +2596,7 @@ const char* vxstn_secret_value(vxstn_station* st, const char* name,
      FALLBACK: re-deriving it here is how a tagged instance with no
      explicit `secret` reads `stripe.apikey` where registration recorded
      `stripe_test.apikey`. */
-  return broker_value(&st->broker, name, entry->secretname, err);
+  return vxstn_broker_value(st->broker, name, entry->secretname, err);
 }
 
 void vxstn_hoist(vxstn_station* st, const char* name, const char* value) {
@@ -2826,12 +2604,12 @@ void vxstn_hoist(vxstn_station* st, const char* name, const char* value) {
   if (NULL == st || NULL == name || NULL == value) {
     return;
   }
-  broker_hoist(&st->broker, name, value);
+  vxstn_broker_hoist(st->broker, name, value);
   meta = vxstn_map();
   vxstn_map_set(meta, "warn",
                 vxstn_str("a resident credential was hoisted into the broker and "
                           "replaced by the placeholder; prefer configuring the "
-                          "secret name and letting the environment resolve it"));
+                          "secret name and letting sekreto resolve it"));
   station_event(st, "station", name, meta);
 }
 
@@ -2971,7 +2749,7 @@ void vxstn_emit_err(vxstn_station* st, const char* slug, const char* corr,
   }
   /* The scrub keeps an upstream echo of a credential out of the event
    * stream (design 7 as revised: exact-value, no length floor). */
-  scrubbed = broker_scrub(&st->broker, NULL == message ? "" : message);
+  scrubbed = vxstn_broker_scrub(st->broker, NULL == message ? "" : message);
   {
     vxstn_val* mv = val_new(VXSTN_STR);
     mv->str = scrubbed;
@@ -3076,8 +2854,10 @@ vxstn_val* vxstn_status(vxstn_station* st) {
   vxstn_map_set(events, "buffered", vxstn_int(NULL == st ? 0 : (int64_t)st->events.len));
   vxstn_map_set(events, "dropped", vxstn_int(NULL == st ? 0 : st->events.drops));
   vxstn_map_set(out, "events", events);
-  /* Env-only, stated where an operator will read it (design 2.2). */
-  vxstn_map_set(out, "secrets", vxstn_str("env-only"));
+  /* Stated where an operator will read it (design 2.2). */
+  if (vxstn_broker_envonly()) {
+    vxstn_map_set(out, "secrets", vxstn_str("env-only"));
+  }
   return out;
 }
 
@@ -3154,12 +2934,12 @@ char* vxstn_redact(vxstn_station* st, const char* text) {
   if (NULL == st) {
     return vxstn_sdup(text);
   }
-  return broker_scrub(&st->broker, NULL == text ? "" : text);
+  return vxstn_broker_scrub(st->broker, NULL == text ? "" : text);
 }
 
 void vxstn_refresh_secrets(vxstn_station* st) {
   if (NULL != st) {
-    broker_refresh(&st->broker);
+    vxstn_broker_refresh(st->broker);
   }
 }
 
@@ -4036,7 +3816,7 @@ vxstn_val* vxstn_warm(vxstn_station* st, const vxstn_val* names) {
     const vxstn_val* group = plan->vals[i];
     const char* first = vxstn_strval(group->items[0]);
     vxstn_error* err = NULL;
-    bool got = NULL != broker_value(&st->broker, first, plan->keys[i], &err);
+    bool got = NULL != vxstn_broker_value(st->broker, first, plan->keys[i], &err);
     vxstn_error_free(err);
     for (j = 0; j < group->len; j++) {
       vxstn_list_push(got ? warmed : missed, vxstn_clone(group->items[j]));

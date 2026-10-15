@@ -2,27 +2,30 @@
 
 C port of the canonical TypeScript implementation. **Tier C** (design
 station.md §2.2): solo mode only - no wire client, no proxy attachment;
-secrets are **env-only** (there is no sekreto C port - the broker reads
-the process environment directly under the `envkey` of the secret name,
-and says so in `status()` and with a warning event when a profile names
-any other store); **no `station.json` file lookup** - configuration
-arrives in code (`vxstn_open` takes the config JSON), which keeps the
-vendored surface small (design §10.1).
+secrets resolve through **sekreto's C port**, vendored at
+`vendor/sekreto` (see **Secrets** below); **no `station.json` file
+lookup** - configuration arrives in code (`vxstn_open` takes the config
+JSON), which keeps the vendored surface small (design §10.1). A consumer
+that reads `station.json` itself passes the text.
 
 ```sh
-make test
+make test          # check-core, then the unit, conformance and secret-store suites
+make asan          # the same suites, everything rebuilt with AddressSanitizer and UBSan
+make valgrind      # the same suites under Valgrind
 ```
 
 Builds with `-Wall -Wextra -Werror`. The conformance suite needs a
 sibling `voxgig/omni` checkout (or `OMNI_HOME`); the library itself
-needs a sibling `voxgig/struct` (or `STRUCT_HOME`) - see
-**Dependencies** below.
+needs sibling `voxgig/struct` and `voxgig/plugin` checkouts (or
+`STRUCT_HOME`, `PLUGIN_HOME`); the secret-store suite links libcrypto -
+see **Dependencies** below.
 
 ## Use
 
-The library is standalone C99 + POSIX (`getenv`, `clock_gettime`), one
-public header plus four sources, designed to be **vendored into a
-generated C SDK** by the `@voxgig/sdkgen-station` package (C has no
+The library is C99 + POSIX (`getenv`, `clock_gettime`), one public
+header plus five sources over the vendored sekreto, designed to be
+**vendored into a generated C SDK** by the `@voxgig/sdkgen-station`
+package (C has no
 package registry; design §9.2). The generated `feature/station.c`
 adapter is the SDK-side bridge; every decision it enforces - wrap order,
 host policy, secret resolution, event shapes - lives here.
@@ -39,7 +42,7 @@ vxstn_station* st = vxstn_open(NULL, &err);   /* profile/env defaulted; solo */
  * binds to the ambient instance during construction. */
 
 vxstn_val* events = vxstn_events(st);          /* ring buffer, copied out */
-vxstn_val* status = vxstn_status(st);          /* mode, plugins, drops, "env-only" */
+vxstn_val* status = vxstn_status(st);          /* mode, profile, plugins, drops */
 char* d = vxstn_canonical_descriptor(st, "taskpad", &err);
 vxstn_close(st);
 ```
@@ -74,39 +77,91 @@ config: the instance name is the LEADING and OPTIONAL argument (pass
 `NULL` for none), because C cannot overload and a second method name
 would be a second spelling of one rule.
 
+## Secrets
+
+The profile's `secrets.providers` chain goes to sekreto verbatim, as in
+every other sekreto port, and `[{ "kind": "env" }]` is its default, so a
+config that names no chain reads the environment under the envkey of the
+secret name exactly as before. The four built-in kinds - `env`,
+`memory`, `dotenv` and `file` - need nothing more. A plugin kind resolves
+only when the application links it and hands its definition over, which
+is sekreto's own rule; `minivault` is the one this port vendors:
+
+```c
+#include "voxgig_station.h"
+#include "sekretoplugins.h"   /* vendor/sekreto/plugins */
+
+void* plugins[] = { sek_plugin_minivault() };
+vxstn_open_opts opts = {0};
+opts.config_json = config;    /* built in memory: the passphrase rides the provider spec */
+opts.plugins = plugins;
+opts.plugincount = 1;
+vxstn_station* st = vxstn_open(&opts, &err);
+```
+
+with a chain such as
+`[{"kind":"minivault","file":"app.skmv","passphrase":"..."}]` and a link
+line that adds `minivault.c`, `encode.c` and `-lcrypto`. A chain naming a
+kind that was not handed in fails `vxstn_open()` with
+`station_secret_error` and sekreto's refusal, which names the kind and
+the `plugins` option. A store that cannot answer - a wrong passphrase, a
+missing vault file - fails the lookup with `station_secret_error` and
+never falls through to the store behind it. Whatever the chain says, the
+station core links no crypto; `make check-core` reads that off the built
+artifacts.
+
+`VXSTN_ENV_ONLY` builds the broker to read the process environment
+directly, with no sekreto at all. The sdkgen-station payload is built
+that way, because a generated C SDK compiles sekreto only while its own
+`secrets` feature is active. That build reports `secrets: "env-only"` in
+`status()`, and a chain naming any other store gets a warning event at
+open. `make test` runs the unit suite in both builds.
+
 ## Dependencies
 
-Two, and both are stated in the design: **voxgig/sekreto** - which has
-no C port, so this tier reads the environment directly and says so - and
-**voxgig/struct**, which validates the config grammar (design §4, §9).
+Two, and both are stated in the design (§4, §9, §10): **voxgig/sekreto**,
+which resolves secrets, and **voxgig/struct**, which validates the config
+grammar. Both are RUNTIME dependencies, not test ones, and C has no
+registry, so both are VENDORED:
 
-struct is a RUNTIME dependency, not a test one: `vxstn_validate_config`
-runs at `vxstn_open()`. C has no registry, so it is VENDORED - a
-generated C SDK already carries struct at `utility/struct/` beside this
-library's own `feature/station/` (the precedent sdkgen-station's
-`.sdk/tm/c/feature/station/VENDORED.md` names), and this checkout
-borrows the sibling: `$STRUCT_HOME`, then `../../struct`, then two fixed
-fallbacks, the same convention the Makefile already uses for omni. Each
-dependency is compiled on ITS OWN include path - struct ships
-`src/regex.h` and omni's `util.c` wants POSIX's `<regex.h>`, so one
-shared command line breaks the other's build.
+- sekreto's C core and its mini vault are carried in `vendor/sekreto`,
+  read out of git at one sekreto commit and stamped with it by
+  `tools/vendor.py` (`make vendor-refresh`; `make vendor-check` fails on
+  drift). sekreto's core is built on **voxgig/plugin**'s C host, which
+  this checkout finds as a sibling: `$PLUGIN_HOME`, then `../../plugin`,
+  then two fixed fallbacks. The mini vault needs the platform's
+  libcrypto, as sekreto's plugins do; the core needs none.
+- struct is the one a generated C SDK already carries, at
+  `utility/struct/` beside this library's own `feature/station/` (the
+  precedent sdkgen-station's `.sdk/tm/c/feature/station/VENDORED.md`
+  names), and this checkout borrows the sibling: `$STRUCT_HOME`, then
+  `../../struct`, then two fixed fallbacks.
 
-No third dependency is added, here or anywhere else in this port.
+Each dependency is compiled on ITS OWN include path and with its own
+flags - struct ships `src/regex.h` and omni's `util.c` wants POSIX's
+`<regex.h>`, so one shared command line breaks the other's build.
+
+No other dependency is added, here or anywhere else in this port.
 
 ## Layout
 
 | File | Contents |
 |---|---|
 | `src/voxgig_station.h` | the public API and the scope statement |
-| `src/voxgig_station_int.h` | internal helpers shared by the four sources (string builder, map reads, sorted keys) - not public API |
-| `src/voxgig_station.c` | the core: value model + JSON, canonical serializer, identity (envtoken/secretname), descriptor normalizer, profile resolution, event ring/taps, env-only broker, the instance registry, and the declarative front door |
+| `src/voxgig_station_int.h` | internal helpers shared by the five sources (string builder, map reads, sorted keys) and the broker's interface - not public API |
+| `src/voxgig_station.c` | the core: value model + JSON, canonical serializer, identity (envtoken/secretname), descriptor normalizer, profile resolution, event ring/taps, the instance registry, and the declarative front door |
+| `src/voxgig_station_secrets.c` | design §5: the secret broker over sekreto's chain, or over the environment when built with `VXSTN_ENV_ONLY` |
 | `src/voxgig_station_shape.c` | design §4: `vxstn_normalize_config` (the defaults materializer) and `vxstn_validate_config` (the shape run through voxgig/struct, plus the §4.4 and §5.2 scans) |
 | `src/voxgig_station_feature.c` | design §8: the three-level feature merge, the constraint-and-band order, the station pin, and the descriptor-derived option checker |
 | `src/voxgig_station_factory.c` | design §6.1/§6.2: the instance ref grammar and the process-global factory table |
 | `src/config_shape.h` | GENERATED - a verbatim mirror of `spec/config-shape.json` (`make sync-shape`) |
 | `tools/sync-shape.py` | regenerates that mirror |
+| `vendor/sekreto/` | VENDORED - sekreto's C core and the mini vault plugin, at the commit their stamps name (`VENDORED.md` there) |
 | `test/unit.c` | focused unit tests (ring, broker, ambient, register, wrap order, policy, and the whole Stage 5 surface) plus the shape drift guard |
 | `test/conform.c` | the shared corpus (`spec/station.json`) through the omni C runner |
+| `test/secrets.c` | the secret-store suite: a real mini vault written to a scratch directory and read with its passphrase in memory, plus the file-backed built-in kinds; links libcrypto |
+| `test/checkcore.sh` | the link discipline, read off the built artifacts (`make check-core`) |
+| `test/leaks.supp`, `test/valgrind.supp` | the one leak the sanitizer and Valgrind runs of the secret-store suite accept: struct's validator, at open |
 
 ## The shape mirror
 
@@ -158,6 +213,12 @@ rather than rotting.
   vendors `feature/station.c`. `vxstn_sdk` sets the activation entry
   that feature reads; design §3.1's retrofit case belongs to the ports
   with a loader.
+- **Plugin kinds are handed in, never all linked.** The dynamic ports give
+  sekreto its whole plugin set; in C that set would link every plugin's
+  TLS and crypto into every binary, so a chain may name a plugin kind
+  only when the application links it and passes its definition in
+  `vxstn_open_opts.plugins` - sekreto's own C rule. This port vendors the
+  mini vault, and another kind is the same shape.
 - **`vxstn_warm` resolves serially** over the DEDUPLICATED secret names.
   C has no async idiom; the deduplication is the half that matters here,
   since the broker's resolution cache is keyed by secret name and
@@ -190,8 +251,9 @@ rather than rotting.
   process-global by design, so a threaded host calls `vxstn_provide`
   before it starts its threads.
 - **Copies**: the sdkgen-station package vendors the library's sources
-  byte-identical at `.sdk/tm/c/feature/station/`; its SDK Makefile
-  compiles `feature/*/*.c` by wildcard, so the sources added in this
-  tranche ride along, and `VENDORED.md` there lists them. Edit here
+  byte-identical at `.sdk/tm/c/feature/station/`, apart from the
+  `VXSTN_ENV_ONLY` define its copy of `voxgig_station_secrets.c` carries;
+  its SDK Makefile compiles `feature/*/*.c` by wildcard, so every source
+  rides along, and `VENDORED.md` there lists them. Edit here
   first, then `make vendor-refresh` from the repo root; `make
   vendor-check` fails on drift and runs in CI.

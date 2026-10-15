@@ -4,14 +4,15 @@
  * because a library vendored into a generated SDK must not export bare
  * names like `sdup` into that SDK's link.
  *
- * The Stage 5 tranche split the library into four translation units -
- * the core (voxgig_station.c), the config shape (voxgig_station_shape.c),
- * feature management (voxgig_station_feature.c) and the factory table
- * plus the ref grammar (voxgig_station_factory.c). They share the small
- * string/value helpers below rather than each carrying a copy.
+ * The library is five translation units - the core (voxgig_station.c),
+ * the config shape (voxgig_station_shape.c), feature management
+ * (voxgig_station_feature.c), the factory table plus the ref grammar
+ * (voxgig_station_factory.c) and the secret broker
+ * (voxgig_station_secrets.c). They share the small string/value helpers
+ * below rather than each carrying a copy.
  *
- * Definitions live in voxgig_station.c, which is the file every other
- * one already links beside.
+ * The helpers are defined in voxgig_station.c, which is the file every
+ * other one already links beside.
  */
 
 #ifndef VOXGIG_STATION_INT_H
@@ -49,5 +50,23 @@ char* vxstn_val_to_string(const vxstn_val* v);
 
 /* Set *out (when non-NULL) to a fresh error. */
 void vxstn_seterr(vxstn_error** out, const char* code, const char* msg);
+
+/* The secret broker, defined in voxgig_station_secrets.c. */
+typedef struct vxstn_broker vxstn_broker;
+
+/* NULL + *err (station_secret_error, sekreto's message intact) for a chain
+ * sekreto will not build. *warn is an owned warning for open() to emit,
+ * or NULL. */
+vxstn_broker* vxstn_broker_new(const vxstn_val* providers, void* const* plugins,
+                               size_t nplugins, char** warn, vxstn_error** err);
+void vxstn_broker_free(vxstn_broker* b);
+void vxstn_broker_hoist(vxstn_broker* b, const char* instance, const char* value);
+
+/* Override, then cache, then the provider chain. Borrowed, or NULL + *err. */
+const char* vxstn_broker_value(vxstn_broker* b, const char* instance, const char* name,
+                               vxstn_error** err);
+char* vxstn_broker_scrub(vxstn_broker* b, const char* text);
+void vxstn_broker_refresh(vxstn_broker* b);
+bool vxstn_broker_envonly(void);
 
 #endif /* VOXGIG_STATION_INT_H */

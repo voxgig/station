@@ -2,7 +2,7 @@
  *
  * Focused unit tests for the station C library - the SDK-independent
  * behaviors the conformance corpus does not reach: the event ring,
- * the env-only broker (hoist, scrub, refresh, miss), the ambient
+ * the secret broker (hoist, scrub, refresh, miss, chain), the ambient
  * instance, registration and its guards, the wrap-order check with the
  * generated make_feature's base-feature strays, host policy, and the
  * secret-name precedence chain. Zero test framework, the house style:
@@ -178,7 +178,11 @@ static void test_events_ring(void) {
 
   status = vxstn_status(st);
   CHECK(vxstn_map_get(vxstn_map_get(status, "events"), "dropped")->i == 1);
+#ifdef VXSTN_ENV_ONLY
   CHECK_STR(vxstn_strval(vxstn_map_get(status, "secrets")), "env-only");
+#else
+  CHECK(NULL == vxstn_map_get(status, "secrets"));
+#endif
   CHECK_STR(vxstn_strval(vxstn_map_get(status, "mode")), "solo");
   vxstn_val_free(status);
 
@@ -363,6 +367,92 @@ static void test_secret_precedence(void) {
   CHECK_STR(binding->secretname, "opt.wins");
   vxstn_binding_free(binding);
   vxstn_station_free(st);
+}
+
+static bool warned(vxstn_station* st, const char* part) {
+  vxstn_val* events = vxstn_events(st);
+  bool found = false;
+  size_t i;
+  for (i = 0; i < events->len; i++) {
+    const char* warn =
+        vxstn_strval(vxstn_map_get(vxstn_map_get(events->items[i], "meta"), "warn"));
+    found = found || NULL != strstr(warn, part);
+  }
+  vxstn_val_free(events);
+  return found;
+}
+
+/* The profile's chain is sekreto's, verbatim: order decides which store
+   answers, and a kind is built in or handed in, never discovered. This
+   binary links no plugin, so a chain naming one is refused at open. */
+static void test_secret_chain(void) {
+  vxstn_open_opts opts;
+  vxstn_station* st;
+  vxstn_binding* binding;
+  vxstn_error* err = NULL;
+  int client = 0;
+
+  memset(&opts, 0, sizeof(opts));
+  opts.proxy = "off";
+  opts.config_json =
+      "{\"station\":1,\"profiles\":{\"default\":{\"secrets\":{\"providers\":["
+      "{\"kind\":\"memory\",\"values\":{\"TASKPAD_APIKEY\":\"from-memory\"}},"
+      "{\"kind\":\"env\"}]}}}}";
+  setenv("TASKPAD_APIKEY", "from-env", 1);
+  st = vxstn_station_new(&opts, &err);
+  CHECK(NULL != st && NULL == err);
+  binding = vxstn_register(st, &client, TASKPAD_CONFIG, NULL, NULL, NULL);
+  CHECK(NULL != binding);
+  vxstn_binding_free(binding);
+#ifdef VXSTN_ENV_ONLY
+  CHECK_STR(vxstn_secret_value(st, "taskpad", &err), "from-env");
+  CHECK(warned(st, "built env-only: provider kind(s) [memory]"));
+#else
+  CHECK_STR(vxstn_secret_value(st, "taskpad", &err), "from-memory");
+  CHECK(!warned(st, "env-only"));
+#endif
+  vxstn_station_free(st);
+  unsetenv("TASKPAD_APIKEY");
+
+  opts.config_json =
+      "{\"station\":1,\"profiles\":{\"default\":{\"secrets\":{\"providers\":["
+      "{\"kind\":\"minivault\",\"file\":\"absent.skmv\"}]}}}}";
+  st = vxstn_station_new(&opts, &err);
+#ifdef VXSTN_ENV_ONLY
+  CHECK(NULL != st && warned(st, "[minivault]"));
+  vxstn_station_free(st);
+#else
+  CHECK(NULL == st);
+  CHECK(NULL != err && 0 == strcmp(err->code, "station_secret_error"));
+  CHECK(NULL != err && NULL != strstr(err->message, "unknown provider kind: minivault"));
+  CHECK(NULL != err && NULL != strstr(err->message, "pass it in the plugins option"));
+  vxstn_error_free(err);
+  err = NULL;
+
+  opts.config_json =
+      "{\"station\":1,\"profiles\":{\"default\":{\"secrets\":{\"providers\":["
+      "{\"kind\":\"envv\"}]}}}}";
+  st = vxstn_station_new(&opts, &err);
+  CHECK(NULL == st);
+  CHECK(NULL != err && NULL != strstr(err->message, "unknown provider kind: envv"));
+  CHECK(NULL != err && NULL == strstr(err->message, "plugins option"));
+  vxstn_error_free(err);
+  err = NULL;
+
+  opts.config_json =
+      "{\"station\":1,\"profiles\":{\"default\":{\"secrets\":{\"providers\":[]}}}}";
+  setenv("TASKPAD_APIKEY", "from-env", 1);
+  st = vxstn_station_new(&opts, &err);
+  CHECK(NULL != st);
+  binding = vxstn_register(st, &client, TASKPAD_CONFIG, NULL, NULL, NULL);
+  vxstn_binding_free(binding);
+  CHECK(NULL == vxstn_secret_value(st, "taskpad", &err));
+  CHECK(NULL != err && 0 == strcmp(err->code, "station_secret_no_value"));
+  vxstn_error_free(err);
+  err = NULL;
+  vxstn_station_free(st);
+  unsetenv("TASKPAD_APIKEY");
+#endif
 }
 
 static void test_host_policy(void) {
@@ -1341,6 +1431,7 @@ int main(void) {
   test_register();
   test_secret_broker();
   test_secret_precedence();
+  test_secret_chain();
   test_host_policy();
   test_wrap_order();
   test_ambient();

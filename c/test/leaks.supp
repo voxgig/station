@@ -1,0 +1,3 @@
+# Config validation at open: struct's validator does not free the tree it
+# builds. The secret-store suite is leak-checked for everything else.
+leak:vxstn_validate_config
