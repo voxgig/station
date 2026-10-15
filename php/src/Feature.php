@@ -373,10 +373,14 @@ function check_features(mixed $merged, mixed $descriptor): array
         if (!is_map($entry)) {
             continue;
         }
-        $declopts = mval($byname[$name], 'options');
+        $spec = $byname[$name];
+        $declopts = mval($spec, 'options');
         $defaults = is_map($declopts) ? map_entries($declopts) : [];
-        $defaultkeys = array_map('strval', array_keys($defaults));
-        sort($defaultkeys, SORT_STRING);
+        $declspec = mval($spec, 'optspec');
+        $typed = is_map($declspec) ? map_entries($declspec) : [];
+        $declaredkeys = array_values(array_unique(array_map('strval',
+            array_merge(array_keys($defaults), array_keys($typed)))));
+        sort($declaredkeys, SORT_STRING);
 
         $keys = array_map('strval', array_keys(map_entries($entry)));
         sort($keys, SORT_STRING);
@@ -386,38 +390,93 @@ function check_features(mixed $merged, mixed $descriptor): array
                 continue;
             }
 
-            if (!array_key_exists($key, $defaults)) {
-                // THE CASE THAT ACTUALLY BITES: `retry.retires: 5` is
-                // accepted and silently ignored today, because the SDK's
-                // own feature spec is `$OPEN` per feature so the SDK
-                // cannot catch it and nothing else looks.
+            if (!array_key_exists($key, $defaults) && !array_key_exists($key, $typed)) {
+                // A feature the SDK does not close is $OPEN in its own
+                // option spec, so refusing the key would be stricter than
+                // the SDK.
+                if (true !== mval($spec, 'strict')) {
+                    continue;
+                }
                 $faults[] = [
                     'code' => 'station_feature_option',
                     'feature' => $name,
                     'key' => $key,
                     'message' => 'feature "' . $name . '" declares no option "' .
                         $key . '"; it declares [' .
-                        implode(', ', $defaultkeys) . ']',
+                        implode(', ', $declaredkeys) . ']',
                 ];
                 continue;
             }
 
-            $want = kindof_feature($defaults[$key]);
-            $got = kindof_feature(mval($entry, $key));
-            if ($want !== $got) {
+            // The type outranks the default: sdkgen's option spec does too.
+            $want = array_key_exists($key, $typed)
+                ? spec_kinds($typed[$key]) : value_kinds($defaults[$key]);
+            $value = mval($entry, $key);
+            if (null !== $want && [] === array_intersect($want, value_kinds($value))) {
                 $faults[] = [
                     'code' => 'station_feature_option',
                     'feature' => $name,
                     'key' => $key,
                     'message' => 'feature "' . $name . '" option "' . $key .
-                        '" expects ' . $want . ', but found ' . $got . ': ' .
-                        jsonify(mval($entry, $key)),
+                        '" expects ' . implode(' or ', $want) . ', but found ' .
+                        kindof_feature($value) . ': ' . jsonify($value),
                 ];
             }
         }
     }
 
     return $faults;
+}
+
+/**
+ * The kinds a value could be: an empty php array is both an empty map
+ * and an empty list (Kind.php), so it answers to either.
+ *
+ * @return array<int, string>
+ */
+function value_kinds(mixed $val): array
+{
+    return [] === $val ? ['list', 'map'] : [kindof_feature($val)];
+}
+
+const TOKEN_KIND = [
+    'MAP' => 'map', 'LIST' => 'list', 'ARRAY' => 'list', 'STRING' => 'string',
+    'NUMBER' => 'number', 'INTEGER' => 'number', 'DECIMAL' => 'number',
+    'BOOLEAN' => 'boolean', 'FUNCTION' => 'function', 'NULL' => 'null', 'NIL' => 'null',
+];
+
+/**
+ * The kinds an `optspec` type admits, or null when it admits any.
+ *
+ * @return array<int, string>|null
+ */
+function spec_kinds(mixed $spec): ?array
+{
+    if (is_string($spec)) {
+        if (1 !== preg_match('/^`\$([A-Z]+)`$/', $spec, $token)) {
+            return [kindof_feature($spec)];
+        }
+        return isset(TOKEN_KIND[$token[1]]) ? [TOKEN_KIND[$token[1]]] : null;
+    }
+
+    if (is_listv($spec) && 0 < count($spec) && '`$ONE`' === $spec[0]) {
+        $kinds = [];
+        foreach (array_slice($spec, 1) as $alt) {
+            $some = spec_kinds($alt);
+            if (null === $some) {
+                return null;
+            }
+            $kinds = array_values(array_unique(array_merge($kinds, $some)));
+        }
+        return $kinds;
+    }
+
+    if (is_listv($spec) && 0 < count($spec) && '`$EXACT`' === $spec[0]) {
+        return array_values(array_unique(array_map(
+            fn($v) => kindof_feature($v), array_slice($spec, 1))));
+    }
+
+    return value_kinds($spec);
 }
 
 /**

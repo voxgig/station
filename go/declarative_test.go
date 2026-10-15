@@ -282,12 +282,11 @@ func TestDeclarativePackageIsNotHonouredHere(t *testing.T) {
 
 func TestDeclarativeFeatureCheckAtBuild(t *testing.T) {
 	provideFake(t, "fakepad", map[string]any{
-		"retry": map[string]any{"options": map[string]any{"max": 1, "wait": 100}},
+		"retry": map[string]any{
+			"options": map[string]any{"max": 1, "wait": 100}, "strict": true},
 	})
 
-	// An unknown option is THE CASE THAT ACTUALLY BITES: `retry.retires`
-	// is accepted and silently ignored by the SDK, because its own
-	// feature spec is `$OPEN` per feature.
+	// An undeclared option on a strict feature is refused.
 	st := declarative(t, map[string]any{
 		"default": map[string]any{
 			"sdk": map[string]any{
@@ -354,6 +353,49 @@ func TestDeclarativeFeatureCheckAtBuild(t *testing.T) {
 	})
 	if _, err := st.SDK("fakepad"); nil != err {
 		t.Fatalf("a declared option must build: %v", err)
+	}
+}
+
+func TestDeclarativeOptspecKeysAndStrict(t *testing.T) {
+	provideFake(t, "joplin", map[string]any{
+		"test": map[string]any{
+			"options":   map[string]any{"active": false},
+			"optspec":   map[string]any{"entity": "`$MAP`", "net": "`$MAP`"},
+			"strict":    false,
+			"transport": "base",
+		},
+		"retry": map[string]any{"options": map[string]any{"max": 1}},
+	})
+	build := func(feature map[string]any) error {
+		st := declarative(t, map[string]any{
+			"default": map[string]any{
+				"sdk": map[string]any{"joplin": map[string]any{"feature": feature}},
+			},
+		})
+		_, err := st.SDK("joplin")
+		return err
+	}
+
+	for _, test := range []map[string]any{
+		{"active": true, "entity": map[string]any{"note": map[string]any{}}},
+		{"active": true, "net": map[string]any{"offline": true}},
+	} {
+		if err := build(map[string]any{"test": test}); nil != err {
+			t.Fatalf("an optspec key must build: %v", err)
+		}
+	}
+
+	err := build(map[string]any{"test": map[string]any{"entity": "note"}})
+	serr := expectCode(t, "station_feature_option", err)
+	if !strings.Contains(serr.Message, "expects map, but found string") {
+		t.Fatalf("message: %v", serr)
+	}
+
+	// No `strict` reads as sdkgen reads it: false, so the SDK's own
+	// option spec is open and station accepts what it accepts.
+	if err := build(map[string]any{
+		"retry": map[string]any{"retires": 5}}); nil != err {
+		t.Fatalf("a feature that is not strict must accept: %v", err)
 	}
 }
 

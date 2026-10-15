@@ -237,8 +237,24 @@ var (
 		return station.InstanceRef(api, entrymap(entry["opts"]))
 	})
 
+	// §8's pure half: the merge, the §8.4 order resolution, and the §8.5
+	// option checker. `check` selects the checker, `merged` the resolver,
+	// anything else the merge.
 	FEATURE = omni.Subject(func(args ...any) (any, error) {
 		entry := entrymap(args[0])
+		if raw, has := entry["check"]; has && nil != raw && omni.NULLMARK != raw {
+			faults := station.CheckFeatures(denullmap(raw),
+				map[string]any{"features": denull(entry["features"])})
+			out := []any{}
+			for _, f := range faults {
+				one := map[string]any{"code": f.Code, "feature": f.Feature}
+				if "" != f.Key {
+					one["key"] = f.Key
+				}
+				out = append(out, one)
+			}
+			return out, nil
+		}
 		if raw, has := entry["merged"]; has && nil != raw && omni.NULLMARK != raw {
 			merged := denullmap(raw)
 			declared, found := mergedOrder(entry)

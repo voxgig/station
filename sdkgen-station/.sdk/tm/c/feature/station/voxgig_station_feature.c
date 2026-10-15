@@ -491,6 +491,86 @@ static void sb_joinkeys(vxstn_sb* sb, const char** keys, size_t n) {
   }
 }
 
+/* The kinds an `optspec` type admits, in order of first mention; `any`
+ * when it admits every kind. */
+typedef struct {
+  const char* kind[8];
+  size_t n;
+  bool any;
+} speckinds;
+
+static void kinds_add(speckinds* kinds, const char* kind) {
+  size_t i;
+  for (i = 0; i < kinds->n; i++) {
+    if (0 == strcmp(kinds->kind[i], kind)) {
+      return;
+    }
+  }
+  if (kinds->n < sizeof(kinds->kind) / sizeof(kinds->kind[0])) {
+    kinds->kind[kinds->n++] = kind;
+  }
+}
+
+static bool kinds_has(const speckinds* kinds, const char* kind) {
+  size_t i;
+  for (i = 0; i < kinds->n; i++) {
+    if (0 == strcmp(kinds->kind[i], kind)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static const char* const TOKEN_KIND[][2] = {
+    {"`$MAP`", "map"},         {"`$LIST`", "list"},       {"`$ARRAY`", "list"},
+    {"`$STRING`", "string"},   {"`$NUMBER`", "number"},   {"`$INTEGER`", "number"},
+    {"`$DECIMAL`", "number"},  {"`$BOOLEAN`", "boolean"}, {"`$FUNCTION`", "function"},
+    {"`$NULL`", "null"},       {"`$NIL`", "null"},
+};
+
+static bool istoken(const char* text) {
+  size_t n = strlen(text), i;
+  if (n < 4 || '`' != text[0] || '$' != text[1] || '`' != text[n - 1]) {
+    return false;
+  }
+  for (i = 2; i < n - 1; i++) {
+    if (text[i] < 'A' || 'Z' < text[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+static void spec_kinds(const vxstn_val* spec, speckinds* kinds) {
+  size_t i;
+  if (NULL != spec && VXSTN_STR == spec->kind && istoken(spec->str)) {
+    for (i = 0; i < sizeof(TOKEN_KIND) / sizeof(TOKEN_KIND[0]); i++) {
+      if (0 == strcmp(TOKEN_KIND[i][0], spec->str)) {
+        kinds_add(kinds, TOKEN_KIND[i][1]);
+        return;
+      }
+    }
+    kinds->any = true;
+    return;
+  }
+  if (vxstn_is_list(spec) && 0 < spec->len && VXSTN_STR == spec->items[0]->kind) {
+    const char* head = spec->items[0]->str;
+    if (0 == strcmp("`$ONE`", head)) {
+      for (i = 1; i < spec->len; i++) {
+        spec_kinds(spec->items[i], kinds);
+      }
+      return;
+    }
+    if (0 == strcmp("`$EXACT`", head)) {
+      for (i = 1; i < spec->len; i++) {
+        kinds_add(kinds, feature_kindof(spec->items[i]));
+      }
+      return;
+    }
+  }
+  kinds_add(kinds, feature_kindof(spec));
+}
+
 /* Check a merged feature map against the SDK'S OWN DECLARATION.
  *
  * The schema arrives with the FACTORY rather than with a live client
@@ -546,6 +626,9 @@ vxstn_val* vxstn_check_features(const vxstn_val* merged, const vxstn_val* descri
     const vxstn_val* spec = NULL;
     const vxstn_val* entry;
     const vxstn_val* defaults;
+    const vxstn_val* typed;
+    const vxstn_val* strictv;
+    bool strict;
     const char** okeys;
     size_t nokeys, k;
 
@@ -580,38 +663,72 @@ vxstn_val* vxstn_check_features(const vxstn_val* merged, const vxstn_val* descri
     if (!vxstn_is_map(defaults)) {
       defaults = NULL;
     }
+    typed = vxstn_getk(spec, "optspec");
+    if (!vxstn_is_map(typed)) {
+      typed = NULL;
+    }
+    strictv = vxstn_getk(spec, "strict");
+    strict = NULL != strictv && VXSTN_BOOL == strictv->kind && strictv->b;
 
     okeys = vxstn_sortedkeys(entry, &nokeys);
     for (k = 0; k < nokeys; k++) {
       const char* key = okeys[k];
       const vxstn_val* want;
+      const vxstn_val* wanttype;
       const vxstn_val* got;
+      speckinds kinds = {{NULL}, 0, false};
       vxstn_val* fault;
       vxstn_sb sb;
+      size_t w;
 
       if (reservedkey(key)) {
         continue;
       }
       want = NULL == defaults ? NULL : vxstn_map_get(defaults, key);
+      wanttype = NULL == typed ? NULL : vxstn_map_get(typed, key);
       got = vxstn_map_get(entry, key);
 
-      if (NULL == want) {
+      if (NULL == want && NULL == wanttype) {
         const char** dkeys;
-        size_t ndkeys;
-        /* THE CASE THAT ACTUALLY BITES: `retry.retires: 5` is accepted
-         * and silently ignored today, because the SDK's own feature
-         * spec is `$OPEN` per feature so the SDK cannot catch it and
-         * nothing else looks. */
+        const char** tkeys;
+        const char** all;
+        size_t ndkeys, ntkeys, nall = 0, d;
+        /* A feature the SDK does not close is $OPEN in its own option
+         * spec, so refusing the key would be stricter than the SDK. */
+        if (!strict) {
+          continue;
+        }
         dkeys = vxstn_sortedkeys(defaults, &ndkeys);
+        tkeys = vxstn_sortedkeys(typed, &ntkeys);
+        all = (const char**)malloc((1 + ndkeys + ntkeys) * sizeof(char*));
+        for (d = 0; d < ndkeys + ntkeys; d++) {
+          const char* one = d < ndkeys ? dkeys[d] : tkeys[d - ndkeys];
+          size_t at = nall;
+          bool dup = false;
+          for (w = 0; w < nall; w++) {
+            dup = dup || 0 == strcmp(all[w], one);
+          }
+          if (dup) {
+            continue;
+          }
+          while (0 < at && 0 < strcmp(all[at - 1], one)) {
+            all[at] = all[at - 1];
+            at--;
+          }
+          all[at] = one;
+          nall++;
+        }
         vxstn_sb_init(&sb);
         vxstn_sb_put(&sb, "feature \"");
         vxstn_sb_put(&sb, name);
         vxstn_sb_put(&sb, "\" declares no option \"");
         vxstn_sb_put(&sb, key);
         vxstn_sb_put(&sb, "\"; it declares [");
-        sb_joinkeys(&sb, dkeys, ndkeys);
+        sb_joinkeys(&sb, all, nall);
         vxstn_sb_put(&sb, "]");
+        free((void*)all);
         free(dkeys);
+        free(tkeys);
         fault = vxstn_map();
         vxstn_map_set(fault, "code", vxstn_str("station_feature_option"));
         vxstn_map_set(fault, "feature", vxstn_str(name));
@@ -622,7 +739,14 @@ vxstn_val* vxstn_check_features(const vxstn_val* merged, const vxstn_val* descri
         continue;
       }
 
-      if (0 != strcmp(feature_kindof(want), feature_kindof(got))) {
+      /* The type outranks the default: sdkgen's option spec does too. */
+      if (NULL != wanttype) {
+        spec_kinds(wanttype, &kinds);
+      } else {
+        kinds_add(&kinds, feature_kindof(want));
+      }
+
+      if (!kinds.any && !kinds_has(&kinds, feature_kindof(got))) {
         char* shown = vxstn_canonical(got);
         vxstn_sb_init(&sb);
         vxstn_sb_put(&sb, "feature \"");
@@ -630,7 +754,12 @@ vxstn_val* vxstn_check_features(const vxstn_val* merged, const vxstn_val* descri
         vxstn_sb_put(&sb, "\" option \"");
         vxstn_sb_put(&sb, key);
         vxstn_sb_put(&sb, "\" expects ");
-        vxstn_sb_put(&sb, feature_kindof(want));
+        for (w = 0; w < kinds.n; w++) {
+          if (0 < w) {
+            vxstn_sb_put(&sb, " or ");
+          }
+          vxstn_sb_put(&sb, kinds.kind[w]);
+        }
         vxstn_sb_put(&sb, ", but found ");
         vxstn_sb_put(&sb, feature_kindof(got));
         vxstn_sb_put(&sb, ": ");

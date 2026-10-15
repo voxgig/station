@@ -1335,25 +1335,24 @@ vxstn_val* vxstn_normalize_descriptor(const vxstn_val* config,
     const vxstn_val* activev = vxstn_getk(fopts, "active");
     const vxstn_val* fdef = vxstn_getk(fdefs, keys[i]);
     const vxstn_val* declared = vxstn_getk(fdef, "options");
+    const vxstn_val* optspec = vxstn_getk(fdef, "optspec");
+    const vxstn_val* strict = vxstn_getk(fdef, "strict");
     const vxstn_val* transport = vxstn_getk(fdef, "transport");
     bool active = NULL != activev && VXSTN_BOOL == activev->kind && activev->b;
     vxstn_map_set(entry, "name", vxstn_str(keys[i]));
     vxstn_map_set(entry, "active", vxstn_bool(active));
 
-    /* Stage 5 (design 7.4): the feature row stops discarding two fields
-       the SDK already embeds. `options` is the feature's own declared
-       key set WITH TYPED DEFAULTS - the schema design 8.5 validates
-       against - and `transport` is the role 8.4 orders by. Both are
-       ADDITIVE, so descriptor v1 consumers are unaffected and the
-       `descriptor` corpus section passes unchanged (its fixtures carry
-       neither).
-
-       `transport` is CARRIED rather than inferred: the obvious signal,
-       an empty `hook: {}`, is wrong for station, which both wraps AND
-       dispatches hooks. Until sdkgen emits it, the role checks degrade
-       to nothing rather than guessing. */
+    /* design 7.4: the row carries the feature's declared schema
+       (`options`, `optspec`, `strict`) and its `transport` role, which
+       is carried rather than inferred. */
     if (vxstn_is_map(declared)) {
       vxstn_map_set(entry, "options", vxstn_clone(declared));
+    }
+    if (vxstn_is_map(optspec)) {
+      vxstn_map_set(entry, "optspec", vxstn_clone(optspec));
+    }
+    if (NULL != strict && VXSTN_BOOL == strict->kind) {
+      vxstn_map_set(entry, "strict", vxstn_bool(strict->b));
     }
     if (NULL != transport) {
       char* role = vxstn_val_to_string(transport);

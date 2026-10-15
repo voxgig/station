@@ -2,10 +2,11 @@
 // typescript/test/declarative.test.ts, which is canonical.
 
 const { describe, test } = require('node:test')
-const { deepStrictEqual, equal, ok } = require('node:assert')
+const { deepStrictEqual, equal, ok, throws } = require('node:assert')
 
 const { Station } = require('../src/Station')
 const { featureBinding } = require('../src/adapter')
+const { provide, resetFactories } = require('../src/factory')
 
 const NOTES = {
   base: 'http://127.0.0.1:9',
@@ -121,5 +122,34 @@ describe('declared-options-and-feature-schema', () => {
     ok(warns[0].includes('[headers]'), warns[0])
     ok(warns[0].includes('{ instance: "notes" }'), warns[0])
     st.close()
+  })
+
+  test('sdk() takes the test feature options its optspec declares', () => {
+    resetFactories()
+    try {
+      const joplin = bindingSDK('joplin', {
+        test: {
+          options: { active: false },
+          optspec: { entity: '`$MAP`', net: '`$MAP`' },
+          strict: false,
+          transport: 'base',
+        },
+      })
+      provide('joplin', { construct: (o) => new joplin.SDK(o), config: joplin.config })
+
+      for (const test of [
+        { active: true, entity: { note: {} } },
+        { active: true, net: { offline: true } },
+      ]) {
+        const st = station({ joplin: { feature: { test } } })
+        st.sdk('joplin')
+        st.close()
+      }
+
+      const st = station({ joplin: { feature: { test: { entity: 'note' } } } })
+      throws(() => st.sdk('joplin'), /expects map, but found string/)
+      st.close()
+    }
+    finally { resetFactories() }
   })
 })

@@ -240,7 +240,8 @@ describe('declarative-front-door', () => {
   })
 
   test('check() catches a feature typo without constructing anything', () => {
-    const stripe = fakeSDK('stripe', { retry: { options: { retries: 2 } } })
+    const stripe = fakeSDK('stripe',
+      { retry: { options: { retries: 2 }, strict: true } })
     provide('stripe', { construct: (o) => new stripe.SDK(o), config: stripe.config })
 
     const st = station({
@@ -537,7 +538,8 @@ describe('auto-tagged clients keep the declared instance s identity', () => {
     // called `check()` — and `check()` had its own gap when the factory
     // came from the loader. Validating where the factory RESOLVES
     // closes both, because every path to a constructor goes through it.
-    const stripe = fakeSDK('stripe', { retry: { options: { retries: 1 } } })
+    const stripe = fakeSDK('stripe',
+      { retry: { options: { retries: 1 }, strict: true } })
     provide('stripe', { construct: (o) => new stripe.SDK(o), config: stripe.config })
 
     const st = station({ 'stripe$a': { feature: { retry: { retires: 5 } } } })
@@ -659,6 +661,32 @@ describe('declared-options-and-feature-schema', () => {
     equal(1, warns.length)
     equal(true, -1 !== warns[0].indexOf('[headers]'))
     equal(true, -1 !== warns[0].indexOf('{ instance: "notes" }'))
+    st.close()
+  })
+
+  test('sdk() takes the test feature options its optspec declares', () => {
+    const joplin = fakeSDK('joplin', {
+      test: {
+        options: { active: false },
+        optspec: { entity: '`$MAP`', net: '`$MAP`' },
+        strict: false,
+        transport: 'base',
+      },
+    })
+    provide('joplin', { construct: (o) => new joplin.SDK(o), config: joplin.config })
+
+    for (const test of [
+      { active: true, entity: { note: {} } },
+      { active: true, net: { offline: true } },
+    ]) {
+      const st = station({ joplin: { feature: { test } } })
+      st.sdk('joplin')
+      st.close()
+    }
+    equal(2, joplin.builtCount())
+
+    const st = station({ joplin: { feature: { test: { entity: 'note' } } } })
+    throws(() => st.sdk('joplin'), /expects map, but found string/)
     st.close()
   })
 })

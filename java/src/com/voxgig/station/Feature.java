@@ -416,37 +416,99 @@ public final class Feature {
       }
       Map<String, Object> defaults =
           Descriptor.asmap(Descriptor.getprop(spec, "options"));
+      Map<String, Object> typed =
+          Descriptor.asmap(Descriptor.getprop(spec, "optspec"));
+      Set<String> declaredkeys = new TreeSet<>(defaults.keySet());
+      declaredkeys.addAll(typed.keySet());
 
       for (String key : new TreeSet<>(((Map<String, Object>) entry).keySet())) {
         if (RESERVED_KEYS.contains(key)) {
           continue;
         }
 
-        if (!defaults.containsKey(key)) {
-          // THE CASE THAT ACTUALLY BITES: `retry.retires: 5` is accepted and
-          // silently ignored today, because the SDK's own feature spec is
-          // `$OPEN` per feature so the SDK cannot catch it and nothing else
-          // looks.
+        if (!defaults.containsKey(key) && !typed.containsKey(key)) {
+          // A feature the SDK does not close is $OPEN in its own option
+          // spec, so refusing the key would be stricter than the SDK.
+          if (!Boolean.TRUE.equals(Descriptor.getprop(spec, "strict"))) {
+            continue;
+          }
           faults.add(new Fault("station_feature_option", name, key,
               "feature \"" + name + "\" declares no option \"" + key
-                  + "\"; it declares ["
-                  + String.join(", ", new TreeSet<>(defaults.keySet())) + "]"));
+                  + "\"; it declares [" + String.join(", ", declaredkeys) + "]"));
           continue;
         }
 
-        String want = kindof(defaults.get(key));
-        String got = kindof(((Map<String, Object>) entry).get(key));
-        if (!want.equals(got)) {
+        // The type outranks the default: sdkgen's option spec does too.
+        List<String> want = typed.containsKey(key)
+            ? speckinds(typed.get(key))
+            : List.of(kindof(defaults.get(key)));
+        Object value = ((Map<String, Object>) entry).get(key);
+        String got = kindof(value);
+        if (null != want && !want.contains(got)) {
           faults.add(new Fault("station_feature_option", name, key,
-              "feature \"" + name + "\" option \"" + key + "\" expects " + want
-                  + ", but found " + got + ": "
-                  + Descriptor.canonicalSerialize(
-                      ((Map<String, Object>) entry).get(key))));
+              "feature \"" + name + "\" option \"" + key + "\" expects "
+                  + String.join(" or ", want) + ", but found " + got + ": "
+                  + Descriptor.canonicalSerialize(value)));
         }
       }
     }
 
     return faults;
+  }
+
+  private static final Map<String, String> TOKEN_KIND = Map.ofEntries(
+      Map.entry("MAP", "map"), Map.entry("LIST", "list"),
+      Map.entry("ARRAY", "list"), Map.entry("STRING", "string"),
+      Map.entry("NUMBER", "number"), Map.entry("INTEGER", "number"),
+      Map.entry("DECIMAL", "number"), Map.entry("BOOLEAN", "boolean"),
+      Map.entry("FUNCTION", "function"), Map.entry("NULL", "null"),
+      Map.entry("NIL", "null"));
+
+  private static final java.util.regex.Pattern TOKEN_RE =
+      java.util.regex.Pattern.compile("^`\\$([A-Z]+)`$");
+
+  /** The kinds an `optspec` type admits, or null when it admits any. */
+  static List<String> speckinds(Object spec) {
+    if (spec instanceof String) {
+      java.util.regex.Matcher token = TOKEN_RE.matcher((String) spec);
+      if (!token.matches()) {
+        return List.of(kindof(spec));
+      }
+      String kind = TOKEN_KIND.get(token.group(1));
+      return null == kind ? null : List.of(kind);
+    }
+
+    if (spec instanceof List && !((List<Object>) spec).isEmpty()) {
+      List<Object> items = (List<Object>) spec;
+      Object head = items.get(0);
+      if ("`$ONE`".equals(head)) {
+        List<String> kinds = new ArrayList<>();
+        for (Object alt : items.subList(1, items.size())) {
+          List<String> some = speckinds(alt);
+          if (null == some) {
+            return null;
+          }
+          for (String k : some) {
+            if (!kinds.contains(k)) {
+              kinds.add(k);
+            }
+          }
+        }
+        return kinds;
+      }
+      if ("`$EXACT`".equals(head)) {
+        List<String> kinds = new ArrayList<>();
+        for (Object v : items.subList(1, items.size())) {
+          String k = kindof(v);
+          if (!kinds.contains(k)) {
+            kinds.add(k);
+          }
+        }
+        return kinds;
+      }
+    }
+
+    return List.of(kindof(spec));
   }
 
   /** The joined messages of a fault list - what the raised error carries. */

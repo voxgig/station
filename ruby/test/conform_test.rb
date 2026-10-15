@@ -84,11 +84,18 @@ DRIVERS = {
   },
 
   # design station.md 8's pure half (10.1): the three-level merge with
-  # its depth boundary, and the 8.4 order resolution. ONE DRIVER, TWO
-  # ENTRY SHAPES - `merged` selects the resolver, anything else the
-  # merge - because a port that guessed from looser cues would run the
-  # wrong subject on a mistyped entry.
+  # its depth boundary, the 8.4 order resolution, and the 8.5 option
+  # checker. ONE DRIVER, THREE ENTRY SHAPES - `check` selects the
+  # checker, `merged` the resolver, anything else the merge - because a
+  # port that guessed from looser cues would run the wrong subject on a
+  # mistyped entry.
   'feature' => lambda { |vin|
+    unless vin['check'].nil?
+      next VoxgigStation.check_features(denull(vin['check']),
+                                        { 'features' => denull(vin['features']) })
+                        .map { |f| f.slice('code', 'feature', 'key') }
+    end
+
     if vin['merged'].nil?
       VoxgigStation.merge_features(VoxgigStation.feature_sources(
         denull(vin['base']), denull(vin['overlay']), vin['api'], vin['ref']))

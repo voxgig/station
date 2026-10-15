@@ -581,7 +581,7 @@ class TestBinding(unittest.TestCase):
 PAD_CONFIG = {
     'main': {'name': 'Pad', 'slug': 'pad', 'version': '2.0.0', 'target': 'py'},
     'feature': {
-        'retry': {'options': {'retries': 1, 'wait': 100}},
+        'retry': {'options': {'retries': 1, 'wait': 100}, 'strict': True},
         'ratelimit': {'options': {'rate': 1, 'burst': 1}},
         'test': {},
     },
@@ -988,6 +988,32 @@ class TestDeclarative(unittest.TestCase):
         self.assertIn('{ instance: "pad" }', warns[0])
         st.close()
 
+    def test_sdk_takes_the_test_feature_options_its_optspec_declares(self):
+        config = dict(PAD_CONFIG)
+        config['main'] = dict(PAD_CONFIG['main'], slug='joplin', name='Joplin')
+        config['feature'] = {'test': {
+            'options': {'active': False},
+            'optspec': {'entity': '`$MAP`', 'net': '`$MAP`'},
+            'strict': False, 'transport': 'base'}}
+
+        class JoplinSDK(FakeSDK):
+            pass
+        JoplinSDK.config = config
+        provide('joplin', {'construct': JoplinSDK, 'config': config})
+
+        for test in ({'active': True, 'entity': {'note': {}}},
+                     {'active': True, 'net': {'offline': True}}):
+            st = Station({'config': cfg(sdk={'joplin': {'feature': {'test': test}}})})
+            st.sdk('joplin')
+            st.close()
+
+        st = Station({'config': cfg(sdk={'joplin': {'feature': {
+            'test': {'entity': 'note'}}}})})
+        with self.assertRaises(StationError) as caught:
+            st.sdk('joplin')
+        self.assertIn('expects map, but found string', str(caught.exception))
+        st.close()
+
     def test_an_unknown_feature_fails_the_build(self):
         st = Station({'config': cfg(sdk={'pad': {'feature': {
             'nosuch': {'x': 1}}}})})
@@ -1174,6 +1200,25 @@ class TestFeatureChecker(unittest.TestCase):
         faults = check_features({'zzz': {}, 'aaa': {}}, self.descriptor())
         # Sorted, so the report reads the same in every port.
         self.assertEqual(['aaa', 'zzz'], [f['feature'] for f in faults])
+
+    def test_an_undeclared_key_is_refused_only_when_strict(self):
+        faults = check_features({'retry': {'retires': 5}}, self.descriptor())
+        self.assertEqual(['retires'], [f['key'] for f in faults])
+        self.assertIn('declares [retries, wait]', faults[0]['message'])
+        # ratelimit carries no `strict`, which sdkgen reads as false.
+        self.assertEqual([], check_features({'ratelimit': {'rat': 5}},
+                                            self.descriptor()))
+
+    def test_an_optspec_key_is_declared_and_type_checked(self):
+        descriptor = {'features': [{
+            'name': 'test', 'active': False, 'options': {'active': False},
+            'optspec': {'entity': '`$MAP`', 'net': '`$MAP`'}, 'strict': False,
+        }]}
+        self.assertEqual([], check_features(
+            {'test': {'active': True, 'entity': {'note': {}},
+                      'net': {'offline': True}}}, descriptor))
+        faults = check_features({'test': {'net': 'offline'}}, descriptor)
+        self.assertIn('expects map, but found string', faults[0]['message'])
 
 
 class TestConfigShape(unittest.TestCase):

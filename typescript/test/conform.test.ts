@@ -11,6 +11,7 @@ import {
 } from '../src/descriptor'
 import { isKnownCode } from '../src/error'
 import {
+  checkfeatures,
   checkpin,
   featuresources,
   mergefeatures,
@@ -98,6 +99,12 @@ describe('station-conform', () => {
 
   test('feature', async () => {
     await R.runset(R.spec.feature, (vin: any) => {
+      if (null != vin.check) {
+        return checkfeatures(denull(vin.check), { features: denull(vin.features) })
+          .map((f) => null == f.key
+            ? { code: f.code, feature: f.feature }
+            : { code: f.code, feature: f.feature, key: f.key })
+      }
       if (null != vin.merged) {
         const ordered = resolveorder(denull(vin.merged))
         checkpin(ordered)

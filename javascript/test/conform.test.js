@@ -21,6 +21,7 @@ const {
 } = require('../src/descriptor')
 const { isKnownCode } = require('../src/error')
 const {
+  checkfeatures,
   checkpin,
   featuresources,
   mergefeatures,
@@ -90,11 +91,18 @@ const DRIVERS = {
   },
 
   // §8's pure half (design §10.1): the three-level merge with its depth
-  // boundary, and the §8.4 order resolution. One driver, two entry
-  // shapes - `merged` selects the resolver, anything else the merge -
-  // because a port that guessed from looser cues would run the wrong
-  // subject on a mistyped entry.
+  // boundary, the §8.4 order resolution, and the §8.5 option checker.
+  // One driver, three entry shapes - `check` selects the checker,
+  // `merged` the resolver, anything else the merge - because a port
+  // that guessed from looser cues would run the wrong subject on a
+  // mistyped entry.
   feature: (vin) => {
+    if (null != vin.check) {
+      return checkfeatures(denull(vin.check), { features: denull(vin.features) })
+        .map((f) => null == f.key
+          ? { code: f.code, feature: f.feature }
+          : { code: f.code, feature: f.feature, key: f.key })
+    }
     if (null != vin.merged) {
       const ordered = resolveorder(denull(vin.merged))
       checkpin(ordered)

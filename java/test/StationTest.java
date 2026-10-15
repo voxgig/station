@@ -171,12 +171,26 @@ public final class StationTest {
   };
 
   // Design 8's pure half: the three-level merge with its depth boundary,
-  // and the design 8.4 order resolution. ONE driver, TWO entry shapes -
-  // `merged` selects the resolver, anything else the merge - because a
-  // port that guessed from looser cues would run the wrong subject on a
-  // mistyped entry.
+  // the design 8.4 order resolution, and the design 8.5 option checker.
+  // ONE driver, THREE entry shapes - `check` selects the checker, `merged`
+  // the resolver, anything else the merge - because a port that guessed
+  // from looser cues would run the wrong subject on a mistyped entry.
   static final Subject FEATURE = args -> {
     Map<String, Object> vin = (Map<String, Object>) args[0];
+    if (vin.containsKey("check") && !Runner.NULLMARK.equals(vin.get("check"))) {
+      List<Object> out = new ArrayList<>();
+      for (Feature.Fault fault : Feature.checkfeatures(denullmap(vin.get("check")),
+          map("features", denull(vin.get("features"))))) {
+        Map<String, Object> one = new LinkedHashMap<>();
+        one.put("code", fault.code);
+        one.put("feature", fault.feature);
+        if (null != fault.key) {
+          one.put("key", fault.key);
+        }
+        out.add(one);
+      }
+      return out;
+    }
     if (vin.containsKey("merged") && !Runner.NULLMARK.equals(vin.get("merged"))) {
       List<Feature.Ordered> ordered =
           Feature.resolveorder(denullmap(vin.get("merged")));
@@ -333,7 +347,7 @@ public final class StationTest {
         "main", map("name", "Pad", "slug", "pad", "version", "0.0.1",
             "target", "java"),
         "feature", map(
-            "retry", map("options", map("retries", 3L, "wait", 100L)),
+            "retry", map("options", map("retries", 3L, "wait", 100L), "strict", true),
             "ratelimit", map("options", map("rate", 1L, "burst", 1L)),
             "debug", map("options", map("level", 1L)),
             "test", map()),
@@ -761,6 +775,66 @@ public final class StationTest {
           check(false, "sdk() must refuse an unknown feature option");
         } catch (StationError err) {
           checkeq(err.code, "station_feature_option", "same code on the hot path");
+        }
+      } finally {
+        Factory.resetFactories();
+      }
+    });
+
+    testcase("feature options: optspec keys, kinds, and strict", () -> {
+      Map<String, Object> test = map("features", List.of(map(
+          "name", "test", "active", false, "options", map("active", false),
+          "optspec", map("entity", "`$MAP`", "net", "`$MAP`"), "strict", false)));
+      checkeq(Feature.checkfeatures(map("test", map("active", true,
+          "entity", map("note", map()), "net", map("offline", true))), test).size(), 0,
+          "an optspec key is declared");
+      List<Feature.Fault> faults =
+          Feature.checkfeatures(map("test", map("net", "offline")), test);
+      check(1 == faults.size()
+          && faults.get(0).message.contains("expects map, but found string"),
+          "and checked against its type");
+      checkeq(Feature.checkfeatures(map("test", map("seed", 1L)), test).size(), 0,
+          "a feature that is not strict accepts what its SDK accepts");
+
+      Map<String, Object> descriptor =
+          Descriptor.normalizeDescriptor(PADCONFIG, null).descriptor;
+      checkeq(Feature.checkfeatures(map("retry", map("retires", 5L)), descriptor).size(),
+          1, "a strict feature refuses an undeclared key");
+      checkeq(Feature.checkfeatures(map("ratelimit", map("rat", 5L)), descriptor).size(),
+          0, "no strict reads as false");
+    });
+
+    testcase("front door: sdk() takes the test feature options its optspec declares", () -> {
+      Factory.resetFactories();
+      try {
+        Map<String, Object> config = padconfig();
+        ((Map<String, Object>) config.get("main")).put("slug", "joplin");
+        config.put("feature", map("test", map(
+            "options", map("active", false),
+            "optspec", map("entity", "`$MAP`", "net", "`$MAP`"),
+            "strict", false, "transport", "base")));
+        Station.provide("joplin", new Factory(options -> {
+          Map<String, Object> fopts = Descriptor.asmap(
+              Descriptor.getprop(options.get("feature"), "station"));
+          Station.from(fopts).featureBinding(new Object(), List.of("station"), null,
+              config, options, fopts);
+          return options;
+        }, config));
+
+        for (Map<String, Object> test : List.of(
+            map("active", true, "entity", map("note", map())),
+            map("active", true, "net", map("offline", true)))) {
+          memoryStation(map(), map("joplin", map("feature", map("test", test))))
+              .sdk("joplin");
+        }
+
+        try {
+          memoryStation(map(), map("joplin", map("feature",
+              map("test", map("entity", "note"))))).sdk("joplin");
+          check(false, "a wrong kind must be refused");
+        } catch (StationError err) {
+          check(err.getMessage().contains("expects map, but found string"),
+              err.getMessage());
         }
       } finally {
         Factory.resetFactories();

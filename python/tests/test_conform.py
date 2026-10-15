@@ -55,6 +55,7 @@ from voxgig_sekreto import envkey  # noqa: E402
 from voxgig_station import (  # noqa: E402
     block_of,
     canonical_serialize,
+    check_features,
     check_pin,
     envtoken,
     feature_sources,
@@ -104,10 +105,15 @@ def _secretname(vin):
 
 def _feature(vin):
     """design 8's pure half (10.1): the three-level merge with its depth
-    boundary, and the 8.4 order resolution. ONE DRIVER, TWO ENTRY SHAPES
-    - `merged` selects the resolver, anything else the merge - because a
-    port that guessed from looser cues would run the wrong subject on a
-    mistyped entry."""
+    boundary, the 8.4 order resolution, and the 8.5 option checker. ONE
+    DRIVER, THREE ENTRY SHAPES - `check` selects the checker, `merged`
+    the resolver, anything else the merge - because a port that guessed
+    from looser cues would run the wrong subject on a mistyped entry."""
+    if vin.get('check') is not None:
+        faults = check_features(denull(vin['check']),
+                                {'features': denull(vin['features'])})
+        return [{k: f[k] for k in ('code', 'feature', 'key') if k in f}
+                for f in faults]
     if vin.get('merged') is not None:
         ordered = resolve_order(denull(vin['merged']))
         check_pin(ordered)

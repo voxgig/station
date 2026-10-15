@@ -2,6 +2,7 @@ package station
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -387,6 +388,7 @@ func CheckFeatures(merged map[string]any, descriptor map[string]any) []Fault {
 			continue
 		}
 		defaults := asMap(spec["options"])
+		typed := asMap(spec["optspec"])
 
 		for _, key := range sortedKeys(entry) {
 			if reservedkey(key) {
@@ -394,34 +396,113 @@ func CheckFeatures(merged map[string]any, descriptor map[string]any) []Fault {
 			}
 
 			def, hasdef := defaults[key]
-			if !hasdef {
-				// THE CASE THAT ACTUALLY BITES: `retry.retires: 5` is
-				// accepted and silently ignored today, because the SDK's
-				// own feature spec is `$OPEN` per feature so the SDK
-				// cannot catch it and nothing else looks.
+			spectype, hastype := typed[key]
+			if !hasdef && !hastype {
+				// A feature the SDK does not close is $OPEN in its own
+				// option spec, so refusing the key would be stricter than
+				// the SDK.
+				if true != spec["strict"] {
+					continue
+				}
 				faults = append(faults, Fault{
 					Code: "station_feature_option", Feature: name, Key: key,
 					Message: "feature \"" + name + "\" declares no option \"" +
 						key + "\"; it declares [" +
-						strings.Join(sortedKeys(defaults), ", ") + "]",
+						strings.Join(declaredKeys(defaults, typed), ", ") + "]",
 				})
 				continue
 			}
 
-			want := featurekind(def)
+			// The type outranks the default: sdkgen's option spec does too.
+			want := []string{featurekind(def)}
+			if hastype {
+				want = specKinds(spectype)
+			}
 			got := featurekind(entry[key])
-			if want != got {
+			if nil != want && !containsString(want, got) {
 				faults = append(faults, Fault{
 					Code: "station_feature_option", Feature: name, Key: key,
 					Message: "feature \"" + name + "\" option \"" + key +
-						"\" expects " + want + ", but found " + got + ": " +
-						CanonicalSerialize(entry[key]),
+						"\" expects " + strings.Join(want, " or ") + ", but found " +
+						got + ": " + CanonicalSerialize(entry[key]),
 				})
 			}
 		}
 	}
 
 	return faults
+}
+
+func declaredKeys(defaults, typed map[string]any) []string {
+	keys := map[string]any{}
+	for k := range defaults {
+		keys[k] = true
+	}
+	for k := range typed {
+		keys[k] = true
+	}
+	return sortedKeys(keys)
+}
+
+var tokenKind = map[string]string{
+	"MAP": "map", "LIST": "list", "ARRAY": "list", "STRING": "string",
+	"NUMBER": "number", "INTEGER": "number", "DECIMAL": "number",
+	"BOOLEAN": "boolean", "FUNCTION": "function", "NULL": "null", "NIL": "null",
+}
+
+var tokenRE = regexp.MustCompile("^`\\$([A-Z]+)`$")
+
+// specKinds is the kinds an `optspec` type admits, or nil when it
+// admits any.
+func specKinds(spec any) []string {
+	if text, is := spec.(string); is {
+		token := tokenRE.FindStringSubmatch(text)
+		if nil == token {
+			return []string{featurekind(spec)}
+		}
+		if kind, known := tokenKind[token[1]]; known {
+			return []string{kind}
+		}
+		return nil
+	}
+
+	if items, is := spec.([]any); is && 0 < len(items) {
+		switch items[0] {
+		case "`$ONE`":
+			kinds := []string{}
+			for _, alt := range items[1:] {
+				some := specKinds(alt)
+				if nil == some {
+					return nil
+				}
+				for _, k := range some {
+					if !containsString(kinds, k) {
+						kinds = append(kinds, k)
+					}
+				}
+			}
+			return kinds
+		case "`$EXACT`":
+			kinds := []string{}
+			for _, v := range items[1:] {
+				if k := featurekind(v); !containsString(kinds, k) {
+					kinds = append(kinds, k)
+				}
+			}
+			return kinds
+		}
+	}
+
+	return []string{featurekind(spec)}
+}
+
+func containsString(items []string, want string) bool {
+	for _, one := range items {
+		if want == one {
+			return true
+		}
+	}
+	return false
 }
 
 // FaultMessages joins the faults' messages, which is the one error a

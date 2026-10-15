@@ -235,11 +235,17 @@ $DRIVERS = [
     },
 
     // Design 8's pure half (10.1): the three-level merge with its depth
-    // boundary, and the 8.4 order resolution. ONE driver, TWO entry
-    // shapes - `merged` selects the resolver, anything else the merge -
-    // because a port that guessed from looser cues would run the wrong
-    // subject on a mistyped entry.
+    // boundary, the 8.4 order resolution, and the 8.5 option checker. ONE
+    // driver, THREE entry shapes - `check` selects the checker, `merged`
+    // the resolver, anything else the merge - because a port that guessed
+    // from looser cues would run the wrong subject on a mistyped entry.
     'feature' => function ($vin) {
+        if (null !== ($vin['check'] ?? null)) {
+            return array_map(
+                fn($f) => array_intersect_key($f, ['code' => 1, 'feature' => 1, 'key' => 1]),
+                check_features(denull($vin['check']),
+                    ['features' => denull($vin['features'])]));
+        }
         if (null !== ($vin['merged'] ?? null)) {
             $ordered = resolve_order(denull($vin['merged']));
             check_pin($ordered);
@@ -947,7 +953,7 @@ const SDKCONFIG = [
     'main' => ['name' => 'Solar', 'slug' => 'solar',
         'version' => '1.0.0', 'target' => 'php'],
     'feature' => [
-        'retry' => ['options' => ['retries' => 3, 'wait' => 100]],
+        'retry' => ['options' => ['retries' => 3, 'wait' => 100], 'strict' => true],
         'test' => [],
     ],
     'options' => ['base' => 'http://solar:1', 'auth' => ['prefix' => 'Bearer']],
@@ -1471,6 +1477,50 @@ testcase('an_unnamed_connect_warns_that_options_cannot_reach', function () {
     eq(1, count($warns));
     ok(str_contains($warns[0], '[headers]'), $warns[0]);
     ok(str_contains($warns[0], '{ instance: "solar" }'), $warns[0]);
+});
+
+testcase('an_undeclared_key_is_refused_only_when_strict', function () {
+    $faults = check_features(['retry' => ['retires' => 5]],
+        normalize_descriptor(SDKCONFIG, null)['descriptor']);
+    eq(['retires'], array_map(fn($f) => $f['key'], $faults));
+
+    $loose = ['features' => [['name' => 'retry', 'active' => false,
+        'options' => ['retries' => 3], 'strict' => false]]];
+    eq([], check_features(['retry' => ['retires' => 5]], $loose));
+});
+
+testcase('an_optspec_key_is_declared_and_type_checked', function () {
+    $d = ['features' => [['name' => 'test', 'active' => false,
+        'options' => ['active' => false],
+        'optspec' => ['entity' => '`$MAP`', 'net' => '`$MAP`'], 'strict' => false]]];
+    eq([], check_features(['test' => ['active' => true,
+        'entity' => ['note' => []], 'net' => ['offline' => true]]], $d));
+    // An empty php array is an empty map as well as an empty list.
+    eq([], check_features(['test' => ['entity' => []]], $d));
+    $faults = check_features(['test' => ['net' => 'offline']], $d);
+    ok(str_contains($faults[0]['message'], 'expects map, but found string'),
+        $faults[0]['message']);
+});
+
+testcase('sdk_takes_the_test_feature_options_its_optspec_declares', function () {
+    $config = SDKCONFIG;
+    $config['main']['slug'] = 'joplin';
+    $config['feature'] = ['test' => [
+        'options' => ['active' => false],
+        'optspec' => ['entity' => '`$MAP`', 'net' => '`$MAP`'],
+        'strict' => false, 'transport' => 'base']];
+    provide('joplin', ['construct' => fn(array $o) => new ClosedSDK($o), 'config' => $config]);
+
+    foreach ([['active' => true, 'entity' => ['note' => ['id' => 'n1']]],
+              ['active' => true, 'net' => ['offline' => true]]] as $test) {
+        (new Station(['config' => solarconfig(['joplin' => ['feature' => ['test' => $test]]])]))
+            ->sdk('joplin');
+    }
+
+    $st = new Station(['config' => solarconfig(['joplin' => [
+        'feature' => ['test' => ['entity' => 'note']]]])]);
+    $e = raises(fn() => $st->sdk('joplin'), 'station_feature_option');
+    ok(str_contains($e->getMessage(), 'expects map, but found string'), $e->getMessage());
 });
 
 echo "\npass: $pass, fail: $fail\n";

@@ -150,7 +150,7 @@ SOLAR_CONFIG = {
   'feature' => {
     'debug' => { 'options' => { 'level' => 0 } },
     'ratelimit' => { 'options' => { 'rate' => 1, 'burst' => 1 } },
-    'retry' => { 'options' => { 'max' => 1, 'wait' => 100 } },
+    'retry' => { 'options' => { 'max' => 1, 'wait' => 100 }, 'strict' => true },
     'test' => { 'transport' => 'base' },
   },
   'options' => {
@@ -794,6 +794,31 @@ class TestStation < Minitest::Test
     testrow = d['features'].find { |f| 'test' == f['name'] }
     assert_equal 'base', testrow['transport']
     refute testrow.key?('options')
+
+    assert_equal true, retryrow['strict']
+    refute testrow.key?('strict')
+  end
+
+  def test_an_undeclared_key_is_refused_only_when_strict
+    d = VoxgigStation.normalize_descriptor(SOLAR_CONFIG, nil)[:descriptor]
+    faults = VoxgigStation.check_features({ 'retry' => { 'retires' => 5 } }, d)
+    assert_equal ['retires'], faults.map { |f| f['key'] }
+
+    # ratelimit carries no `strict`, which sdkgen reads as false.
+    assert_equal [], VoxgigStation.check_features({ 'ratelimit' => { 'rat' => 5 } }, d)
+  end
+
+  def test_an_optspec_key_is_declared_and_type_checked
+    d = { 'features' => [{
+      'name' => 'test', 'active' => false, 'options' => { 'active' => false },
+      'optspec' => { 'entity' => '`$MAP`', 'net' => '`$MAP`' }, 'strict' => false,
+    }] }
+    assert_equal [], VoxgigStation.check_features(
+      { 'test' => { 'active' => true, 'entity' => { 'note' => {} },
+                    'net' => { 'offline' => true } } }, d)
+
+    faults = VoxgigStation.check_features({ 'test' => { 'net' => 'offline' } }, d)
+    assert_includes faults[0]['message'], 'expects map, but found string'
   end
 
   # --- the ref grammar (design station.md 6.1) ---
@@ -1288,6 +1313,27 @@ class TestStation < Minitest::Test
     assert_equal 1, warns.length
     assert_includes warns[0], '[headers]'
     assert_includes warns[0], '{ instance: "solar" }'
+  end
+
+  def test_sdk_takes_the_test_feature_options_its_optspec_declares
+    config = SOLAR_CONFIG.merge(
+      'main' => SOLAR_CONFIG['main'].merge('slug' => 'joplin', 'name' => 'Joplin'),
+      'feature' => { 'test' => {
+        'options' => { 'active' => false },
+        'optspec' => { 'entity' => '`$MAP`', 'net' => '`$MAP`' },
+        'strict' => false, 'transport' => 'base',
+      } })
+    VoxgigStation::Station.provide('joplin',
+      'construct' => ->(o) { RetroPackage::SDK.new(o) }, 'config' => config)
+
+    [{ 'active' => true, 'entity' => { 'note' => {} } },
+     { 'active' => true, 'net' => { 'offline' => true } }].each do |test|
+      solar_station('sdk' => { 'joplin' => { 'feature' => { 'test' => test } } }).sdk('joplin')
+    end
+
+    st = solar_station('sdk' => { 'joplin' => { 'feature' => { 'test' => { 'entity' => 'note' } } } })
+    err = assert_raises(VoxgigStation::StationError) { st.sdk('joplin') }
+    assert_includes err.message, 'expects map, but found string'
   end
 
   def test_policy_allow_is_enforcement_and_reaches_the_sdk_options

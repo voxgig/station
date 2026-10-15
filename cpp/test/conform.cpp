@@ -242,11 +242,27 @@ const omni::Subject INSTANCEREF = [](const std::vector<omni::Json>& args) {
 };
 
 // Design 8's pure half (design 10.1): the three-level merge with its
-// depth boundary, and the 8.4 order resolution. ONE DRIVER, TWO ENTRY
-// SHAPES - `merged` selects the resolver, anything else the merge -
-// because a port that guessed from looser cues would run the wrong
-// subject on a mistyped entry.
+// depth boundary, the 8.4 order resolution, and the 8.5 option checker.
+// ONE DRIVER, THREE ENTRY SHAPES - `check` selects the checker, `merged`
+// the resolver, anything else the merge - because a port that guessed
+// from looser cues would run the wrong subject on a mistyped entry.
 const omni::Subject FEATURE = [](const std::vector<omni::Json>& args) {
+  if (args[0].has("check")) {
+    vs::Jval descriptor = vs::Jval::map();
+    descriptor.set("features", to_station(args[0].get("features"), false));
+    omni::Json faults = omni::Json::list();
+    for (const auto& fault :
+         vs::check_features(to_station(args[0].get("check"), false), descriptor)) {
+      omni::Json one = omni::Json::map();
+      one.set("code", omni::Json::str(fault.code));
+      one.set("feature", omni::Json::str(fault.feature));
+      if (!fault.key.empty()) {
+        one.set("key", omni::Json::str(fault.key));
+      }
+      faults.push(one);
+    }
+    return faults;
+  }
   if (args[0].has("merged")) {
     vs::Jval merged = to_station(args[0].get("merged"), false);
     std::vector<vs::Ordered> ordered = vs::resolve_order(merged);

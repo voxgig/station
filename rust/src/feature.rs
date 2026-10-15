@@ -349,18 +349,32 @@ pub fn check_features(merged: &Json, descriptor: &Json) -> Vec<Fault> {
             _ => continue,
         };
         let defaults = jmap(spec, "options").cloned().unwrap_or_default();
-        let defaultkeys: Vec<String> = defaults.keys().cloned().collect();
+        let typed = jmap(spec, "optspec").cloned().unwrap_or_default();
+        let strict = matches!(jget(spec, "strict"), Some(Json::Bool(true)));
+        let declaredkeys: Vec<String> = defaults
+            .keys()
+            .chain(typed.keys())
+            .cloned()
+            .collect::<BTreeSet<String>>()
+            .into_iter()
+            .collect();
 
         for (key, val) in fields.iter() {
             if RESERVED_KEYS.contains(&key.as_str()) {
                 continue;
             }
 
-            let want = match defaults.get(key) {
-                Some(found) => found,
-                None => {
-                    // accepted and silently ignored today, because the
-                    // the SDK cannot catch it and nothing else looks.
+            // The type outranks the default: sdkgen's option spec does too.
+            let want = match (typed.get(key), defaults.get(key)) {
+                (Some(spectype), _) => spec_kinds(spectype),
+                (None, Some(default)) => Some(vec![featurekind(Some(default))]),
+                (None, None) => {
+                    // A feature the SDK does not close is $OPEN in its own
+                    // option spec, so refusing the key would be stricter
+                    // than the SDK.
+                    if !strict {
+                        continue;
+                    }
                     faults.push(Fault {
                         code: "station_feature_option".to_string(),
                         feature: name.clone(),
@@ -369,34 +383,96 @@ pub fn check_features(merged: &Json, descriptor: &Json) -> Vec<Fault> {
                             "feature \"{}\" declares no option \"{}\"; it declares [{}]",
                             name,
                             key,
-                            defaultkeys.join(", ")
+                            declaredkeys.join(", ")
                         ),
                     });
                     continue;
                 }
             };
 
-            let wantkind = featurekind(Some(want));
             let gotkind = featurekind(Some(val));
-            if wantkind != gotkind {
-                faults.push(Fault {
-                    code: "station_feature_option".to_string(),
-                    feature: name.clone(),
-                    key: Some(key.clone()),
-                    message: format!(
-                        "feature \"{}\" option \"{}\" expects {}, but found {}: {}",
-                        name,
-                        key,
-                        wantkind,
-                        gotkind,
-                        canonical_serialize(val)
-                    ),
-                });
+            if let Some(want) = want {
+                if !want.contains(&gotkind) {
+                    faults.push(Fault {
+                        code: "station_feature_option".to_string(),
+                        feature: name.clone(),
+                        key: Some(key.clone()),
+                        message: format!(
+                            "feature \"{}\" option \"{}\" expects {}, but found {}: {}",
+                            name,
+                            key,
+                            want.join(" or "),
+                            gotkind,
+                            canonical_serialize(val)
+                        ),
+                    });
+                }
             }
         }
     }
 
     faults
+}
+
+/// The kinds an `optspec` type admits, or None when it admits any.
+fn spec_kinds(spec: &Json) -> Option<Vec<&'static str>> {
+    let head = match spec {
+        Json::List(items) => match items.first() {
+            Some(Json::Str(head)) => head.as_str(),
+            _ => "",
+        },
+        _ => "",
+    };
+    match spec {
+        Json::Str(text) => match token_name(text) {
+            None => Some(vec![featurekind(Some(spec))]),
+            Some(name) => token_kind(name).map(|kind| vec![kind]),
+        },
+        Json::List(items) if "`$ONE`" == head => {
+            let mut kinds: Vec<&'static str> = Vec::new();
+            for alt in &items[1..] {
+                for kind in spec_kinds(alt)? {
+                    if !kinds.contains(&kind) {
+                        kinds.push(kind);
+                    }
+                }
+            }
+            Some(kinds)
+        }
+        Json::List(items) if "`$EXACT`" == head => {
+            let mut kinds: Vec<&'static str> = Vec::new();
+            for one in &items[1..] {
+                let kind = featurekind(Some(one));
+                if !kinds.contains(&kind) {
+                    kinds.push(kind);
+                }
+            }
+            Some(kinds)
+        }
+        _ => Some(vec![featurekind(Some(spec))]),
+    }
+}
+
+fn token_name(text: &str) -> Option<&str> {
+    let inner = text.strip_prefix("`$")?.strip_suffix('`')?;
+    if !inner.is_empty() && inner.bytes().all(|b| b.is_ascii_uppercase()) {
+        Some(inner)
+    } else {
+        None
+    }
+}
+
+fn token_kind(name: &str) -> Option<&'static str> {
+    match name {
+        "MAP" => Some("map"),
+        "LIST" | "ARRAY" => Some("list"),
+        "STRING" => Some("string"),
+        "NUMBER" | "INTEGER" | "DECIMAL" => Some("number"),
+        "BOOLEAN" => Some("boolean"),
+        "FUNCTION" => Some("function"),
+        "NULL" | "NIL" => Some("null"),
+        _ => None,
+    }
 }
 
 pub fn fault_messages(faults: &[Fault]) -> String {

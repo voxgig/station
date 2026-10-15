@@ -97,8 +97,9 @@ def normalize_descriptor(config, active_features=None):
     # The features list gains `options` and `transport` (design
     # station.md 7.4), because it was throwing away what the SDK already
     # embeds - `config.feature[name].options` is the feature's own
-    # declared key set WITH TYPED DEFAULTS, which is the schema 8.5
-    # validates against, and `transport` is the role 8.4 orders by.
+    # declared key set WITH TYPED DEFAULTS, which with `optspec` (typed
+    # keys with no default) and `strict` is the schema 8.5 validates
+    # against, and `transport` is the role 8.4 orders by.
     #
     # Both are already inside the SDK; the descriptor stops discarding
     # them. ADDITIVE, so descriptor v1 consumers are unaffected.
@@ -120,6 +121,10 @@ def normalize_descriptor(config, active_features=None):
         if isinstance(fdef, dict):
             if isinstance(fdef.get('options'), dict):
                 row['options'] = fdef['options']
+            if isinstance(fdef.get('optspec'), dict):
+                row['optspec'] = fdef['optspec']
+            if isinstance(fdef.get('strict'), bool):
+                row['strict'] = fdef['strict']
             transport = fdef.get('transport')
             if transport is not None and '' != transport:
                 row['transport'] = str(transport)

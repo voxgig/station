@@ -82,10 +82,7 @@ export function normalizeDescriptor(config: any, activeFeatures?: Record<string,
     entities[ename] = { fields, ops }
   }
 
-  const features: {
-    name: string, active: boolean,
-    options?: Record<string, any>, transport?: string,
-  }[] = []
+  const features: Descriptor['features'] = []
   const fdefs = config?.feature || {}
   const factive = activeFeatures || {}
   for (const fname of Object.keys(fdefs).sort()) {
@@ -93,6 +90,13 @@ export function normalizeDescriptor(config: any, activeFeatures?: Record<string,
     const row: any = { name: fname, active: true === factive[fname]?.active }
     if (null != fdef.options && 'object' === typeof fdef.options) {
       row.options = fdef.options
+    }
+    if (null != fdef.optspec && 'object' === typeof fdef.optspec &&
+      !Array.isArray(fdef.optspec)) {
+      row.optspec = fdef.optspec
+    }
+    if ('boolean' === typeof fdef.strict) {
+      row.strict = fdef.strict
     }
     if (null != fdef.transport && '' !== fdef.transport) {
       row.transport = String(fdef.transport)

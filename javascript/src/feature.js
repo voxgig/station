@@ -246,40 +246,90 @@ function checkfeatures(merged, descriptor) {
     const entry = merged[name]
     if (!ismap(entry)) { continue }
     const defaults = ismap(spec.options) ? spec.options : {}
+    const typed = ismap(spec.optspec) ? spec.optspec : {}
 
     for (const key of Object.keys(entry).sort()) {
       if (-1 !== RESERVED_KEYS.indexOf(key)) { continue }
 
-      if (!(key in defaults)) {
-        // THE CASE THAT ACTUALLY BITES: `retry.retires: 5` is accepted
-        // and silently ignored today, because makeOptions' feature spec
-        // is `$OPEN` per feature so the SDK cannot catch it and nothing
-        // else looks.
+      if (!owns(defaults, key) && !owns(typed, key)) {
+        // A feature the SDK does not close is $OPEN in its own option
+        // spec, so refusing the key would be stricter than the SDK.
+        if (true !== spec.strict) { continue }
         faults.push({
           code: 'station_feature_option',
           feature: name,
           key,
           message: 'feature "' + name + '" declares no option "' + key +
-            '"; it declares [' + Object.keys(defaults).sort().join(', ') + ']',
+            '"; it declares [' + declaredkeys(defaults, typed).join(', ') + ']',
         })
         continue
       }
 
-      const want = kindof(defaults[key])
+      // The type outranks the default: sdkgen's option spec does too.
+      const want = owns(typed, key) ? speckinds(typed[key]) : [kindof(defaults[key])]
       const got = kindof(entry[key])
-      if (want !== got) {
+      if (null != want && -1 === want.indexOf(got)) {
         faults.push({
           code: 'station_feature_option',
           feature: name,
           key,
           message: 'feature "' + name + '" option "' + key + '" expects ' +
-            want + ', but found ' + got + ': ' + JSON.stringify(entry[key]),
+            want.join(' or ') + ', but found ' + got + ': ' +
+            JSON.stringify(entry[key]),
         })
       }
     }
   }
 
   return faults
+}
+
+function owns(map, key) {
+  return Object.prototype.hasOwnProperty.call(map, key)
+}
+
+function declaredkeys(defaults, typed) {
+  return Array.from(new Set([...Object.keys(defaults), ...Object.keys(typed)]))
+    .sort()
+}
+
+const TOKEN_KIND = {
+  MAP: 'map', LIST: 'list', ARRAY: 'list', STRING: 'string',
+  NUMBER: 'number', INTEGER: 'number', DECIMAL: 'number',
+  BOOLEAN: 'boolean', FUNCTION: 'function', NULL: 'null', NIL: 'null',
+}
+
+const TOKEN_RE = /^`\$([A-Z]+)`$/
+
+// The kinds an `optspec` type admits, or null when it admits any.
+function speckinds(spec) {
+  if ('string' === typeof spec) {
+    const token = TOKEN_RE.exec(spec)
+    if (null == token) { return [kindof(spec)] }
+    const kind = TOKEN_KIND[token[1]]
+    return null == kind ? null : [kind]
+  }
+
+  if (Array.isArray(spec) && '`$ONE`' === spec[0]) {
+    const kinds = []
+    for (const alt of spec.slice(1)) {
+      const some = speckinds(alt)
+      if (null == some) { return null }
+      for (const k of some) { if (-1 === kinds.indexOf(k)) { kinds.push(k) } }
+    }
+    return kinds
+  }
+
+  if (Array.isArray(spec) && '`$EXACT`' === spec[0]) {
+    const kinds = []
+    for (const v of spec.slice(1)) {
+      const k = kindof(v)
+      if (-1 === kinds.indexOf(k)) { kinds.push(k) }
+    }
+    return kinds
+  }
+
+  return [kindof(spec)]
 }
 
 // Compose the merged map into the ORDERED ARRAY FORM the constructor

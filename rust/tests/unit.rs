@@ -996,7 +996,8 @@ fn features_of_composes_the_policy_budget_into_ratelimit() {
 fn check_features_catches_unknown_features_and_options() {
     let sdkconfig = parse(
         r#"{ "main": { "name": "Pad", "slug": "pad" },
-             "feature": { "retry": { "options": { "max": 1, "spread": true } } } }"#,
+             "feature": { "retry": { "options": { "max": 1, "spread": true },
+                                     "strict": true } } }"#,
     );
     let (descriptor, _warnings) = normalize_descriptor(&sdkconfig, &Json::Null);
 
@@ -1035,6 +1036,36 @@ fn check_features_catches_unknown_features_and_options() {
     );
     // `active` and `order` are reserved: never options, never faults.
     assert!(faults.iter().all(|f| f.key.as_deref() != Some("active")));
+}
+
+#[test]
+fn check_features_reads_optspec_and_strict() {
+    let sdkconfig = parse(
+        r#"{ "main": { "name": "Joplin", "slug": "joplin" },
+             "feature": {
+               "test": { "options": { "active": false },
+                         "optspec": { "entity": "`$MAP`", "net": "`$MAP`" },
+                         "strict": false, "transport": "base" },
+               "retry": { "options": { "retries": 2 } } } }"#,
+    );
+    let (descriptor, _warnings) = normalize_descriptor(&sdkconfig, &Json::Null);
+
+    let accepted = parse(
+        r#"{ "test": { "active": true, "entity": { "note": {} }, "net": { "offline": true } },
+             "retry": { "retires": 5 } }"#,
+    );
+    assert!(
+        check_features(&accepted, &descriptor).is_empty(),
+        "optspec keys are declared, and a feature with no strict is open"
+    );
+
+    let faults = check_features(&parse(r#"{ "test": { "net": "offline" } }"#), &descriptor);
+    assert_eq!(1, faults.len());
+    assert!(
+        faults[0].message.contains("expects map, but found string"),
+        "{}",
+        faults[0].message
+    );
 }
 
 #[test]

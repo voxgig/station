@@ -132,6 +132,8 @@ module VoxgigStation
         'active' => fopts.is_a?(Hash) && true == fopts['active'],
       }
       row['options'] = fdef['options'] if fdef['options'].is_a?(Hash)
+      row['optspec'] = fdef['optspec'] if fdef['optspec'].is_a?(Hash)
+      row['strict'] = fdef['strict'] if true == fdef['strict'] || false == fdef['strict']
       if !fdef['transport'].nil? && '' != fdef['transport']
         row['transport'] = fdef['transport'].to_s
       end

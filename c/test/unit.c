@@ -912,7 +912,7 @@ static void test_compose_and_check(void) {
   vxstn_val* config = vxstn_parse_json(
       "{\"main\":{\"name\":\"Solar\",\"slug\":\"solar\",\"version\":\"1\","
       "\"target\":\"c\"},\"feature\":{\"retry\":{\"options\":{\"max\":3},"
-      "\"transport\":\"base\"}}}",
+      "\"strict\":true,\"transport\":\"base\"}}}",
       NULL);
   vxstn_val* descriptor = vxstn_normalize_descriptor(config, NULL, NULL);
   vxstn_val* faults;
@@ -924,13 +924,13 @@ static void test_compose_and_check(void) {
   CHECK_STR(json, "[{\"active\":true,\"max\":2,\"name\":\"retry\"}]");
   free(json);
 
-  /* design 7.4: the descriptor now carries the feature's declared
-     options and its transport role. ADDITIVE - the `descriptor` corpus
-     fixtures carry neither and are unaffected. */
+  /* design 7.4: the descriptor carries the feature's declared schema
+     and its transport role. */
   {
     const vxstn_val* row = vxstn_list_get(vxstn_map_get(descriptor, "features"), 0);
     CHECK_STR(vxstn_strval(vxstn_map_get(row, "transport")), "base");
     CHECK(3 == vxstn_map_get(vxstn_map_get(row, "options"), "max")->i);
+    CHECK(vxstn_map_get(row, "strict")->b);
   }
 
   /* Known option, right kind: no fault. */
@@ -938,7 +938,7 @@ static void test_compose_and_check(void) {
   CHECK(0 == faults->len);
   vxstn_val_free(faults);
 
-  /* THE CASE THAT ACTUALLY BITES: a typo'd option name. */
+  /* A typo'd option name, on a strict feature. */
   {
     vxstn_val* typo = vxstn_parse_json("{\"retry\":{\"retires\":5}}", NULL);
     faults = vxstn_check_features(typo, descriptor);
@@ -985,7 +985,8 @@ static void test_compose_and_check(void) {
 static const char* SOLAR_CONFIG =
     "{\"main\":{\"name\":\"Solar\",\"slug\":\"solar\",\"version\":\"1.0.0\","
     "\"target\":\"c\"},"
-    "\"feature\":{\"retry\":{\"options\":{\"max\":3}},\"log\":{\"options\":{}},"
+    "\"feature\":{\"retry\":{\"options\":{\"max\":3},\"strict\":true},"
+    "\"log\":{\"options\":{}},"
     "\"ratelimit\":{\"options\":{\"rate\":1,\"burst\":1}}},"
     "\"options\":{\"base\":\"https://solar.example.com\","
     "\"auth\":{\"prefix\":\"Bearer \"}}}";
@@ -1024,6 +1025,88 @@ static void fake_free(void* client) {
   free(c->instance);
   vxstn_val_free(c->options);
   free(c);
+}
+
+static const char* JOPLIN_CONFIG =
+    "{\"main\":{\"name\":\"Joplin\",\"slug\":\"joplin\",\"version\":\"1.0.0\","
+    "\"target\":\"c\"},"
+    "\"feature\":{\"test\":{\"options\":{\"active\":false},"
+    "\"optspec\":{\"entity\":\"`$MAP`\",\"net\":\"`$MAP`\"},"
+    "\"strict\":false,\"transport\":\"base\"},"
+    "\"retry\":{\"options\":{\"retries\":2}}},"
+    "\"options\":{\"base\":\"http://localhost:41184\"}}";
+
+static void* joplin_construct(const vxstn_val* options, void* ud) {
+  fake_client* c = (fake_client*)calloc(1, sizeof(fake_client));
+  char* fjson = vxstn_canonical(vxstn_map_get(options, "feature"));
+  vxstn_binding* binding =
+      vxstn_register(vxstn_current(), c, JOPLIN_CONFIG, fjson, NULL, NULL);
+  (void)ud;
+  c->options = vxstn_clone(options);
+  c->instance = vxstn_sdup(NULL == binding ? "" : binding->plugin);
+  vxstn_binding_free(binding);
+  free(fjson);
+  return c;
+}
+
+static void test_optspec_and_strict(void) {
+  vxstn_val* config = vxstn_parse_json(JOPLIN_CONFIG, NULL);
+  vxstn_val* descriptor = vxstn_normalize_descriptor(config, NULL, NULL);
+  vxstn_val* accepted = vxstn_parse_json(
+      "{\"test\":{\"active\":true,\"entity\":{\"note\":{}},\"net\":{\"offline\":true}},"
+      "\"retry\":{\"retires\":5}}",
+      NULL);
+  vxstn_val* refused = vxstn_parse_json("{\"test\":{\"net\":\"offline\"}}", NULL);
+  vxstn_val* faults;
+
+  /* optspec keys are declared, and a feature with no `strict` is open. */
+  faults = vxstn_check_features(accepted, descriptor);
+  CHECK(0 == faults->len);
+  vxstn_val_free(faults);
+
+  faults = vxstn_check_features(refused, descriptor);
+  CHECK(1 == faults->len);
+  CHECK(1 == faults->len &&
+        NULL != strstr(vxstn_strval(vxstn_map_get(faults->items[0], "message")),
+                       "expects map, but found string"));
+  vxstn_val_free(faults);
+
+  vxstn_val_free(refused);
+  vxstn_val_free(accepted);
+  vxstn_val_free(descriptor);
+  vxstn_val_free(config);
+}
+
+static void test_declarative_optspec(void) {
+  vxstn_open_opts opts;
+  vxstn_station* st;
+  vxstn_error* err = NULL;
+  vxstn_val* config;
+  void* client;
+
+  vxstn_reset_factories();
+  vxstn_reset();
+
+  memset(&opts, 0, sizeof(opts));
+  opts.proxy = "off";
+  opts.config_json = "{\"station\":1,\"profiles\":{\"default\":{\"sdk\":{\"joplin\":"
+                     "{\"feature\":{\"test\":{\"active\":true,"
+                     "\"entity\":{\"note\":{}}}}}}}}}";
+  st = vxstn_open(&opts, &err);
+  CHECK(NULL != st && NULL == err);
+
+  config = vxstn_parse_json(JOPLIN_CONFIG, NULL);
+  vxstn_provide("joplin", joplin_construct, NULL, config, NULL);
+
+  client = vxstn_sdk(st, "joplin", &err);
+  CHECK(NULL != client && NULL == err);
+  vxstn_error_free(err);
+
+  vxstn_val_free(config);
+  vxstn_reset_factories();
+  vxstn_station_free(st);
+  fake_free(client);
+  vxstn_reset();
 }
 
 static void test_options_named(void) {
@@ -1450,11 +1533,13 @@ int main(void) {
   test_feature_merge();
   test_feature_order();
   test_compose_and_check();
+  test_optspec_and_strict();
   test_options_named();
   test_factory_table();
   test_check_package();
   test_declarative();
   test_declarative_feature_faults();
+  test_declarative_optspec();
   test_open_validates();
 
   if (0 == FAILS) {

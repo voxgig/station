@@ -171,6 +171,13 @@ function normalize_descriptor(mixed $config, mixed $active_features = null): arr
         if (is_array($declopts) && 0 < count($declopts) && !array_is_list($declopts)) {
             $row['options'] = $declopts;
         }
+        $optspec = $fdef['optspec'] ?? null;
+        if (is_array($optspec) && 0 < count($optspec) && !array_is_list($optspec)) {
+            $row['optspec'] = $optspec;
+        }
+        if (is_bool($fdef['strict'] ?? null)) {
+            $row['strict'] = $fdef['strict'];
+        }
         $transport = $fdef['transport'] ?? null;
         if (null !== $transport && '' !== $transport) {
             $row['transport'] = (string) $transport;

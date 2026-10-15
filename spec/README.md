@@ -42,9 +42,10 @@ three-level merge with its depth boundary (a map-valued option replaces
 wholesale) and the defaults-after-merge guard one level down, plus the
 §8.4 order resolution - constraints, bands, vacuous absence, the cycle
 rejection, and the pinned `station` wrap - the set station holds itself
-to under C4. One driver, two entry shapes: `merged` selects the
-resolver, anything else the merge. Feature *option* checking is
-descriptor-dependent and stays in the integration suites.
+to under C4, and the §8.5 option checker. One driver, three entry
+shapes: `check` selects the checker, run against the descriptor feature
+rows in `features` and answered as the faults' `code`, `feature` and
+`key`; `merged` selects the resolver; anything else the merge.
 
 `instance` is the §3.3 merge. An entry with a `ref` asks instead for the
 options that instance is constructed with: its block's `options` and

@@ -141,8 +141,11 @@ sub reset_env {
             target  => 'perl',
         },
         feature => {
-            retry => { options => { retries => 1, wait => 100 } },
-            test  => {},
+            retry => {
+                options => { retries => 1, wait => 100 },
+                strict  => JSON::PP::true
+            },
+            test => {},
         },
         options => {
             base   => 'http://localhost:8903',
@@ -909,6 +912,84 @@ subtest 'an unnamed connect warns that declared options cannot reach' => sub {
     is( scalar @warns, 1, 'one warning' );
     ok( 0 <= index( $warns[0], '[headers]' ),                    'names the options' );
     ok( 0 <= index( $warns[0], '{ instance: "gnarly-pets" }' ), 'names the fix' );
+};
+
+subtest 'feature options: optspec keys, kinds, and strict' => sub {
+    reset_env();
+    my $test = {
+        features => [
+            {
+                name    => 'test',
+                active  => JSON::PP::false,
+                options => { active => JSON::PP::false },
+                optspec => { entity => '`$MAP`', net => '`$MAP`' },
+                strict  => JSON::PP::false,
+            }
+        ]
+    };
+    is_deeply(
+        checkfeatures(
+            { test => { entity => { note => {} }, net => { offline => JSON::PP::true } } },
+            $test
+        ),
+        [],
+        'an optspec key is declared'
+    );
+    my $faults = checkfeatures( { test => { net => 'offline' } }, $test );
+    ok( 0 <= index( $faults->[0]{message}, 'expects map, but found string' ),
+        'and checked against its type' );
+
+    is_deeply( checkfeatures( { test => { seed => 1 } }, $test ),
+        [], 'a feature that is not strict accepts what its SDK accepts' );
+
+    my ($descriptor) =
+      Voxgig::Station::Descriptor::normalize_descriptor( $StubSDK::CONFIG, undef );
+    $faults = checkfeatures( { retry => { retires => 5 } }, $descriptor );
+    is( scalar @$faults, 1, 'a strict feature refuses an undeclared key' );
+};
+
+subtest 'sdk() takes the test feature options its optspec declares' => sub {
+    reset_env();
+    my $config = {
+        %$StubSDK::CONFIG,
+        main    => { %{ $StubSDK::CONFIG->{main} }, slug => 'joplin' },
+        feature => {
+            test => {
+                options   => { active => JSON::PP::false },
+                optspec   => { entity => '`$MAP`', net => '`$MAP`' },
+                strict    => JSON::PP::false,
+                transport => 'base',
+            }
+        },
+    };
+    provide( 'joplin',
+        { construct => sub { return ClosedSDK->new( $_[0] ) }, config => $config } );
+
+    my $station = sub {
+        return Voxgig::Station->new(
+            {
+                config => {
+                    station  => 1,
+                    profiles => {
+                        default => { sdk => { joplin => { feature => { test => $_[0] } } } }
+                    }
+                }
+            }
+        );
+    };
+    ok( $station->( { active => JSON::PP::true, entity => { note => {} } } )->sdk('joplin'),
+        'entity' );
+    ok( $station->( { active => JSON::PP::true, net => { offline => JSON::PP::true } } )
+          ->sdk('joplin'),
+        'net' );
+
+    my $err = do {
+        local $@;
+        eval { $station->( { entity => 'note' } )->sdk('joplin') };
+        $@;
+    };
+    ok( ref $err && 0 <= index( $err->message, 'expects map, but found string' ),
+        'a wrong kind is refused' );
 };
 
 # --- events (design station.md 6) ---

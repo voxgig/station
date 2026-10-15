@@ -853,22 +853,9 @@ inline Normalized normalize_descriptor(const Jval& config, const Jval& active_fe
     }
   }
 
-  // features: present features + active state (from the caller's
-  // options.feature map, when given), plus the two fields the
-  // descriptor used to throw away (design 7.4):
-  //
-  //  - `options` is the feature's own declared key set WITH TYPED
-  //    DEFAULTS, which is the schema design 8.5 validates against;
-  //  - `transport` is the role design 8.4 orders by.
-  //
-  // Both are already inside the SDK; the descriptor stops discarding
-  // them. ADDITIVE, so descriptor v1 consumers are unaffected and the
-  // existing `descriptor` corpus section passes unchanged.
-  //
-  // `transport` is CARRIED rather than inferred: the obvious signal, an
-  // empty `hook: {}`, is wrong for station, which both wraps AND
-  // dispatches hooks. Until sdkgen emits it the role checks degrade to
-  // nothing rather than guessing.
+  // design 7.4: each row carries the feature's declared schema
+  // (`options`, `optspec`, `strict`) and its `transport` role, which is
+  // carried rather than inferred.
   Jval features = Jval::list();
   Jval fdefs = config.get("feature");
   if (fdefs.ismap()) {
@@ -884,6 +871,14 @@ inline Normalized normalize_descriptor(const Jval& config, const Jval& active_fe
       Jval fopts = fdef.get("options");
       if (fopts.ismap()) {
         f.set("options", fopts);
+      }
+      Jval foptspec = fdef.get("optspec");
+      if (foptspec.ismap()) {
+        f.set("optspec", foptspec);
+      }
+      Jval fstrict = fdef.get("strict");
+      if (fstrict.isbool()) {
+        f.set("strict", fstrict);
       }
       Jval ftransport = fdef.get("transport");
       if (!ftransport.isnone()) {
@@ -2365,6 +2360,69 @@ inline std::string feature_kindof(const Jval& v) {
   return "null";
 }
 
+// The kinds an `optspec` type admits, in order of first mention; `any`
+// when it admits every kind.
+struct SpecKinds {
+  std::vector<std::string> kinds;
+  bool any = false;
+
+  void add(const std::string& kind) {
+    if (!has(kind)) {
+      kinds.push_back(kind);
+    }
+  }
+
+  bool has(const std::string& kind) const {
+    return std::find(kinds.begin(), kinds.end(), kind) != kinds.end();
+  }
+};
+
+inline bool is_spec_token(const std::string& text) {
+  if (text.size() < 4 || '`' != text[0] || '$' != text[1] || '`' != text.back()) {
+    return false;
+  }
+  for (size_t i = 2; i + 1 < text.size(); i++) {
+    if (text[i] < 'A' || 'Z' < text[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+inline void spec_kinds(const Jval& spec, SpecKinds& out) {
+  static const std::map<std::string, std::string> token_kind = {
+      {"`$MAP`", "map"},          {"`$LIST`", "list"},       {"`$ARRAY`", "list"},
+      {"`$STRING`", "string"},    {"`$NUMBER`", "number"},   {"`$INTEGER`", "number"},
+      {"`$DECIMAL`", "number"},   {"`$BOOLEAN`", "boolean"}, {"`$FUNCTION`", "function"},
+      {"`$NULL`", "null"},        {"`$NIL`", "null"},
+  };
+  if (spec.isstr() && is_spec_token(spec.sval)) {
+    auto found = token_kind.find(spec.sval);
+    if (token_kind.end() == found) {
+      out.any = true;
+    } else {
+      out.add(found->second);
+    }
+    return;
+  }
+  if (spec.islist() && !spec.lval.empty() && spec.lval[0].isstr()) {
+    const std::string& head = spec.lval[0].sval;
+    if ("`$ONE`" == head) {
+      for (size_t i = 1; i < spec.lval.size(); i++) {
+        spec_kinds(spec.lval[i], out);
+      }
+      return;
+    }
+    if ("`$EXACT`" == head) {
+      for (size_t i = 1; i < spec.lval.size(); i++) {
+        out.add(feature_kindof(spec.lval[i]));
+      }
+      return;
+    }
+  }
+  out.add(feature_kindof(spec));
+}
+
 // One design 8.5 fault. COLLECTED, never thrown - the callers own the
 // throw.
 struct FeatureFault {
@@ -2426,7 +2484,19 @@ inline std::vector<FeatureFault> check_features(const Jval& merged,
     if (!defaults.ismap()) {
       defaults = Jval::map();
     }
-    const std::vector<std::string> defaultkeys = sorted_keys_of(defaults);
+    Jval typed = found->second.get("optspec");
+    if (!typed.ismap()) {
+      typed = Jval::map();
+    }
+    Jval strictv = found->second.get("strict");
+    const bool strict = strictv.isbool() && strictv.bval;
+    std::vector<std::string> declaredkeys = sorted_keys_of(defaults);
+    for (const auto& key : sorted_keys_of(typed)) {
+      if (std::find(declaredkeys.begin(), declaredkeys.end(), key) == declaredkeys.end()) {
+        declaredkeys.push_back(key);
+      }
+    }
+    std::sort(declaredkeys.begin(), declaredkeys.end());
 
     for (const auto& key : sorted_keys_of(entry)) {
       const auto& reserved = reserved_keys();
@@ -2434,30 +2504,37 @@ inline std::vector<FeatureFault> check_features(const Jval& merged,
         continue;
       }
 
-      if (!defaults.has(key)) {
-        // THE CASE THAT ACTUALLY BITES: `retry.retires: 5` is accepted
-        // and silently ignored today, because the SDK's own feature
-        // spec is `$OPEN` per feature so the SDK cannot catch it and
-        // nothing else looks.
+      if (!defaults.has(key) && !typed.has(key)) {
+        // A feature the SDK does not close is $OPEN in its own option
+        // spec, so refusing the key would be stricter than the SDK.
+        if (!strict) {
+          continue;
+        }
         FeatureFault fault;
         fault.code = "station_feature_option";
         fault.feature = name;
         fault.key = key;
         fault.message = "feature \"" + name + "\" declares no option \"" + key +
-                        "\"; it declares [" + join_strings(defaultkeys, ", ") + "]";
+                        "\"; it declares [" + join_strings(declaredkeys, ", ") + "]";
         faults.push_back(fault);
         continue;
       }
 
-      std::string want = feature_kindof(defaults.get(key));
+      // The type outranks the default: sdkgen's option spec does too.
+      SpecKinds want;
+      if (typed.has(key)) {
+        spec_kinds(typed.get(key), want);
+      } else {
+        want.add(feature_kindof(defaults.get(key)));
+      }
       std::string got = feature_kindof(entry.get(key));
-      if (want != got) {
+      if (!want.any && !want.has(got)) {
         FeatureFault fault;
         fault.code = "station_feature_option";
         fault.feature = name;
         fault.key = key;
         fault.message = "feature \"" + name + "\" option \"" + key + "\" expects " +
-                        want + ", but found " + got + ": " +
+                        join_strings(want.kinds, " or ") + ", but found " + got + ": " +
                         canonical_serialize(entry.get(key));
         faults.push_back(fault);
       }

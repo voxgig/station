@@ -700,12 +700,28 @@ function M.normalize_descriptor(config, active_features)
   local features = M.list({})
   local fdefs = getk(config, 'feature') or {}
   local factive = type(active_features) == 'table' and active_features or {}
+  -- design 7.4: each row carries the feature's declared schema and its
+  -- transport role.
   for _, fname in ipairs(sortedkeys(fdefs)) do
     local fopts = getk(factive, fname)
-    features[#features + 1] = M.map({
+    local fdef = getk(fdefs, fname)
+    local row = M.map({
       name = fname,
       active = type(fopts) == 'table' and getk(fopts, 'active') == true,
     })
+    for _, key in ipairs({ 'options', 'optspec' }) do
+      if M.ismap(getk(fdef, key)) then
+        row[key] = getk(fdef, key)
+      end
+    end
+    if type(getk(fdef, 'strict')) == 'boolean' then
+      row.strict = getk(fdef, 'strict')
+    end
+    local transport = getk(fdef, 'transport')
+    if transport ~= nil and tostring(transport) ~= '' then
+      row.transport = tostring(transport)
+    end
+    features[#features + 1] = row
   end
 
   local descriptor = M.map({
