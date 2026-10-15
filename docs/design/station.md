@@ -910,8 +910,18 @@ below are per-instance, with `api` available for grouping siblings.
 canonical port's `URL.pathname` reads an SDK-built URL: every
 percent-escape is kept and nothing is decoded, so `/vault/a%2Fb` (one
 file) and `/vault/a/b` (a file in a folder) stay distinct. An empty
-path reads `/`, and a URL that does not parse as absolute is reported
-whole as the path, with an empty `host`. No corpus section can see an
+path reads `/`, and a relative reference is reported whole as the path,
+with an empty `host`. The rule covers what a working transport sends:
+an `http` or `https` URL with a host, built from the block's base and
+the SDK's percent-encoded parameters. Other forms are outside it, and
+the ports may read them differently:
+- a hostless absolute URL;
+- a scheme with no authority;
+- a dot segment, which WHATWG normalizes and other HTTP stacks send as
+  written.
+None of these comes from an SDK given an `http` or `https` base with a
+host; a base that is not one fails every request anyway. A dot segment
+in a parameter is the SDK's to encode. No corpus section can see an
 event, so each port's own suite pins this.
 
 Producers: the transport middleware (`http` events — wire truth,
