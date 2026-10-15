@@ -1,0 +1,10 @@
+github.com/voxgig/omni/go v0.1.0 h1:WT+WAzBE6wjUldsYbj4+9t8vUV4aOjHq9khgY+D4K7E=
+github.com/voxgig/omni/go v0.1.0/go.mod h1:DHNBwo/Up+RHQQYES3MZhVfqCrFxrhMxfiQj3ms1b9o=
+github.com/voxgig/plugin/go v0.0.0-20260901203214-91f294b7a228 h1:1Ymh0cwv1nKIULf9+EBhsi1G70J9msxA8HqIRQf8T1w=
+github.com/voxgig/plugin/go v0.0.0-20260901203214-91f294b7a228/go.mod h1:JWU6S3ozw+ubz54qiRwWHcq7WoL79d1Ka4xdVDXAoa8=
+github.com/voxgig/sekreto/go v0.0.0-20260916220330-32b83acba90a h1:3qNNhyU86OPx7IstxcBEq5tgFPj/XRkSKLUjlIzKdkI=
+github.com/voxgig/sekreto/go v0.0.0-20260916220330-32b83acba90a/go.mod h1:4exRKJE5U+4sY9gsmczzucjB6HlZ0qy6qZ7fELcbMpI=
+github.com/voxgig/struct/go v0.1.6 h1:upl3R+jl2cFt8B1EFJ7SFYkZOT0nnRKxo/+s9pn7P3k=
+github.com/voxgig/struct/go v0.1.6/go.mod h1:qBM2VlhILx79MCFDdjNID59eQY2J76DqFqkwYKgxghA=
+github.com/voxgig/struct/go/testutil v0.0.0-20261009084424-3ab807cc2ae7 h1:/bk5G9ujF/WqBWywrCZTMtchuoslSIG9ztxOtnTBAq0=
+github.com/voxgig/struct/go/testutil v0.0.0-20261009084424-3ab807cc2ae7/go.mod h1:OAQkloBRUPUtDQcudh1z2bgNc8YNvZGgn9q1sckAyR4=
