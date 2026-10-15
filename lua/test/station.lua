@@ -310,6 +310,22 @@ testcase('broker', function()
     'hoisted overrides survive refresh')
 end)
 
+testcase('broker-scrub-forms', function()
+  -- Every form of every held value is matched against the original text.
+  for _, held in ipairs({ { '%', 'secret!' }, { 'secret!', '%' } }) do
+    local broker = st.SecretBroker.new({})
+    broker:hoist('a', held[1])
+    broker:hoist('b', held[2])
+    checkeq(broker:scrub('token=secret%21'), 'token=[redacted]', held[1] .. ' ' .. held[2])
+  end
+
+  local broker = st.SecretBroker.new({})
+  broker:hoist('a', 'ab!')
+  broker:hoist('b', '!c')
+  checkeq(broker:scrub('x=ab%21c&y=!c'), 'x=[redacted]&y=[redacted]',
+    'forms that overlap in the text are one span')
+end)
+
 testcase('ambient', function()
   local a = st.open({ config = st.NULL })
   checkeq(st.current(), a)
@@ -457,6 +473,39 @@ testcase('query-error-scrubbed', function()
   check(string.find(raised, sent, 1, true) == nil, raised)
   check(string.find(raised, '[redacted]', 1, true) ~= nil, raised)
   check(not holds(station2:events(), sent), 'no encoded value in events')
+end)
+
+testcase('defurl-error-scrubbed', function()
+  -- The request URL carries no placeholder; only the fetchdef's own url does.
+  local url = 'http://localhost:8901/api/task/x'
+  local defurl = url .. '?token=%5Bstation%3Ataskpad%5D'
+  local sent = 'tok%21en%201'
+
+  local station = st.new({ config = st.NULL, proxy = 'off' })
+  local b = bind(station, {
+    options = { apikey = 'tok!en 1', base = 'http://localhost:8901' },
+    inner = function(_fctx, _fullurl, fetchdef)
+      return nil, { msg = 'failed: GET ' .. fetchdef.url }
+    end,
+  })
+  local _, err = b.utility.fetcher({ client = b.client }, url,
+    { url = defurl, headers = {} })
+  check(type(err) == 'table' and type(err.msg) == 'string', 'an error value')
+  check(string.find(err.msg, sent, 1, true) == nil, err.msg)
+  check(string.find(err.msg, '[redacted]', 1, true) ~= nil, err.msg)
+
+  local station2 = st.new({ config = st.NULL, proxy = 'off' })
+  local b2 = bind(station2, {
+    options = { apikey = 'tok!en 1', base = 'http://localhost:8901' },
+    inner = function(_fctx, _fullurl, fetchdef)
+      error('failed: GET ' .. fetchdef.url, 0)
+    end,
+  })
+  local ok, raised = pcall(b2.utility.fetcher, { client = b2.client }, url,
+    { url = defurl, headers = {} })
+  check(not ok, 'the raise propagates')
+  check(string.find(raised, sent, 1, true) == nil, raised)
+  check(string.find(raised, '[redacted]', 1, true) ~= nil, raised)
 end)
 
 testcase('connect-keeps-station-keys', function()

@@ -198,7 +198,7 @@ fn station_transport(
         Err(err) => {
             binding.done_err(corr, &method, fullurl, started, &err.code, &err.msg);
             // A transport error may quote its URL, which carries a query-placed value.
-            if sendurl != fullurl {
+            if plan.placed() {
                 err.msg = binding.redact(&err.msg);
             }
         }

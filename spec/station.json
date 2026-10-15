@@ -3244,6 +3244,33 @@
       }
      },
      {
+      "doc": true,
+      "id": "substitute#question-mark-in-fragment-untouched",
+      "in": {
+       "headers": {},
+       "placeholder": "[station:k]",
+       "url": "https://h/x#view?token=%5Bstation%3Ak%5D",
+       "value": "s3cret"
+      },
+      "out": {
+       "headers": {},
+       "url": "https://h/x#view?token=%5Bstation%3Ak%5D"
+      }
+     },
+     {
+      "id": "substitute#question-mark-in-fragment-after-query",
+      "in": {
+       "headers": {},
+       "placeholder": "[station:k]",
+       "url": "https://h/x?a=%5Bstation%3Ak%5D#view?b=%5Bstation%3Ak%5D",
+       "value": "s3cret"
+      },
+      "out": {
+       "headers": {},
+       "url": "https://h/x?a=s3cret#view?b=%5Bstation%3Ak%5D"
+      }
+     },
+     {
       "id": "substitute#truncated-escape-untouched",
       "in": {
        "headers": {},

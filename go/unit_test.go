@@ -3,6 +3,7 @@ package station_test
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/url"
 	"strings"
 	"testing"
@@ -607,6 +608,60 @@ func TestTransportErrorQuotingThePlacedURLIsScrubbed(t *testing.T) {
 	dump, _ := json.Marshal(st.Events())
 	if strings.Contains(string(dump), querySent) {
 		t.Fatalf("credential leaked into events: %s", dump)
+	}
+}
+
+func TestTransportErrorQuotingOnlyTheFetchdefURLIsScrubbed(t *testing.T) {
+	st := newStation(t, map[string]string{"FAKEPAD_APIKEY": queryValue})
+	base := func(opctx any, fullurl string, fetchdef map[string]any) (any, error) {
+		return nil, errors.New("failed: GET " + fetchdef["url"].(string))
+	}
+	h := bindOne(t, st, "fakepad", []string{"station"}, base, "")
+
+	_, err := h.client.fetcher(nil, "http://localhost:8920/api/todo",
+		map[string]any{"url": queryPlaced(), "headers": map[string]any{}})
+	if nil == err || strings.Contains(err.Error(), querySent) ||
+		!strings.Contains(err.Error(), "[redacted]") {
+		t.Fatalf("transport error not scrubbed: %v", err)
+	}
+}
+
+// heldStation resolves each value into one station's broker, in order.
+func heldStation(t *testing.T, values ...string) *station.Station {
+	t.Helper()
+	env := map[string]string{}
+	for i, value := range values {
+		env[fmt.Sprintf("PAD%d_APIKEY", i)] = value
+	}
+	st := newStation(t, env)
+	for i := range values {
+		h := bindOne(t, st, fmt.Sprintf("pad%d", i), []string{"station"}, okResponse(), "")
+		if _, err := h.client.fetcher(nil, "http://localhost:8920/api/todo",
+			map[string]any{"headers": map[string]any{}}); nil != err {
+			t.Fatal(err)
+		}
+	}
+	return st
+}
+
+func TestScrubFindsAHeldValueInsideAnotherValuesEncodedForm(t *testing.T) {
+	for _, held := range [][]string{{"%", "secret!"}, {"secret!", "%"}} {
+		if got := heldStation(t, held...).Redact("token=secret%21"); "token=[redacted]" != got {
+			t.Fatalf("held %q: %q", held, got)
+		}
+	}
+}
+
+func TestScrubRedactsOverlappingFormsAsOneSpan(t *testing.T) {
+	got := heldStation(t, "ab!", "!c").Redact("x=ab%21c&y=!c")
+	if "x=[redacted]&y=[redacted]" != got {
+		t.Fatalf("overlap: %q", got)
+	}
+}
+
+func TestSekretoRedactCannotHideAnEncodedForm(t *testing.T) {
+	if got := heldStation(t, "abcd", "abcd!x").Redact("k=abcd%21x"); "k=[redacted]" != got {
+		t.Fatalf("sekreto first: %q", got)
 	}
 }
 

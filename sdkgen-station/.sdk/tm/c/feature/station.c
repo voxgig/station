@@ -108,9 +108,10 @@ static voxgig_value* shallow_copy_map(voxgig_value* m) {
 
 // The placeholder swapped in through vxstn_substitute: header values and
 // the query of the request URL and of the fetchdef's url. `senddef` is
-// already a copy; returns the URL to send, malloc'd.
+// already a copy; returns the URL to send, malloc'd, and sets *placed when
+// either URL now carries the value.
 static char* station_inject(voxgig_value* senddef, const char* url, const char* slug,
-                            const char* value) {
+                            const char* value, bool* placed) {
   char* placeholder = vxstn_placeholder(slug);
   voxgig_value* headers = shallow_copy_map(getp(senddef, "headers"));
   voxgig_value* defurl = getp(senddef, "url");
@@ -136,10 +137,13 @@ static char* station_inject(voxgig_value* senddef, const char* url, const char* 
   }
   setp(senddef, "headers", headers);
   sendurl = strdup(vxstn_strval(vxstn_map_get(sent, "url")));
+  *placed = 0 != strcmp(sendurl, url);
 
   if (voxgig_is_string(defurl)) {
     vxstn_val* sentdef = vxstn_substitute(voxgig_as_string(defurl), NULL, placeholder, value);
-    setp(senddef, "url", v_str(vxstn_strval(vxstn_map_get(sentdef, "url"))));
+    const char* placeddef = vxstn_strval(vxstn_map_get(sentdef, "url"));
+    *placed = *placed || 0 != strcmp(placeddef, voxgig_as_string(defurl));
+    setp(senddef, "url", v_str(placeddef));
     vxstn_val_free(sentdef);
   }
 
@@ -191,6 +195,7 @@ static voxgig_value* station_fetch(Fetcher* self, Context* ctx, const char* url,
   int64_t started;
   voxgig_value* senddef = fetchdef;
   char* sendurl = NULL;
+  bool placed = false;
   bool live;
   bool has_policy = false;
   PNError* e = NULL;
@@ -260,7 +265,7 @@ static voxgig_value* station_fetch(Fetcher* self, Context* ctx, const char* url,
     if (senddef == fetchdef) {
       senddef = shallow_copy_map(senddef);
     }
-    sendurl = station_inject(senddef, url, sf->slug, value);
+    sendurl = station_inject(senddef, url, sf->slug, value, &placed);
   }
 
   started = vxstn_now_ms();
@@ -271,7 +276,7 @@ static voxgig_value* station_fetch(Fetcher* self, Context* ctx, const char* url,
     vxstn_emit_http(st, sf->slug, corr, get_str(senddef, "method"), url, 0, started, 0);
     vxstn_emit_err(st, sf->slug, corr, e->code, e->msg);
     // A transport error may quote its URL, which carries a query-placed value.
-    if (sendurl && 0 != strcmp(sendurl, url)) {
+    if (placed) {
       char* msg = vxstn_redact(st, e->msg);
       free(e->msg);
       e->msg = msg;

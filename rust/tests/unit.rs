@@ -165,6 +165,41 @@ fn broker_scrub_finds_the_query_encoded_form() {
     );
 }
 
+#[test]
+fn broker_scrub_finds_a_held_value_inside_another_values_encoded_form() {
+    for held in [["%", "secret!"], ["secret!", "%"]] {
+        let broker = SecretBroker::new(&[parse(r#"{ "kind": "memory", "values": {} }"#)]).unwrap();
+        for (i, value) in held.iter().enumerate() {
+            broker.hoist(&format!("k{}", i), value);
+        }
+        assert_eq!(
+            "token=[redacted]",
+            broker.scrub("token=secret%21"),
+            "{:?}",
+            held
+        );
+    }
+}
+
+#[test]
+fn broker_scrub_redacts_overlapping_forms_as_one_span() {
+    let broker = SecretBroker::new(&[parse(r#"{ "kind": "memory", "values": {} }"#)]).unwrap();
+    broker.hoist("a", "ab!");
+    broker.hoist("b", "!c");
+    assert_eq!("x=[redacted]&y=[redacted]", broker.scrub("x=ab%21c&y=!c"));
+}
+
+#[test]
+fn broker_scrub_is_not_hidden_by_sekretos_own_redact() {
+    let broker = SecretBroker::new(&[parse(
+        r#"{ "kind": "memory", "values": { "SCRUB_APIKEY": "abcd" } }"#,
+    )])
+    .unwrap();
+    assert_eq!("abcd", broker.value("scrub", "scrub.apikey").unwrap());
+    broker.hoist("other", "abcd!x");
+    assert_eq!("k=[redacted]", broker.scrub("k=abcd%21x"));
+}
+
 // --- profile lookup ---------------------------------------------------------
 
 #[test]
@@ -350,6 +385,33 @@ fn prepare_places_a_query_credential_and_the_scrub_finds_it() {
 
     let events = format!("{:?}", station.events());
     assert!(!events.contains("tok%21en%201") && !events.contains("tok!en 1"));
+    station.close();
+    Station::reset();
+}
+
+#[test]
+fn prepare_reports_a_placement_in_either_url() {
+    let station = open_station(parse(
+        r#"{ "station": 1, "profiles": { "default": {
+             "secrets": { "providers": [ { "kind": "memory",
+               "values": { "TASKPAD_APIKEY": "tok!en 1" } } ] } } } }"#,
+    ));
+    let client: Rc<dyn Any> = Rc::new(());
+    let bound = bind(spec(client, &["test", "station"])).expect("bound");
+
+    let fullurl = "http://api.test/api/todo";
+    let plan = bound
+        .binding
+        .prepare(None, true, fullurl, &BTreeMap::new())
+        .expect("plan");
+    assert_eq!(fullurl, plan.place(fullurl));
+    assert!(!plan.placed(), "an unchanged url places nothing");
+    plan.place("http://api.test/api/todo?token=%5Bstation%3Ataskpad%5D");
+    assert!(
+        plan.placed(),
+        "the fetchdef's own url carries the credential"
+    );
+
     station.close();
     Station::reset();
 }

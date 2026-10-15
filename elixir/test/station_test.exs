@@ -237,6 +237,16 @@ defmodule Voxgig.StationTest do
     assert "GET /notes?token=[redacted] failed for [redacted]" == out
   end
 
+  test "scrub matches every form of every held value against the original text" do
+    for held <- [["%", "secret!"], ["secret!", "%"]] do
+      broker = Enum.reduce(held, Secrets.broker(), &Secrets.hoist(&2, &1, &1))
+      assert "token=[redacted]" == Secrets.scrub(broker, "token=secret%21"), inspect(held)
+    end
+
+    broker = Secrets.hoist(Secrets.hoist(Secrets.broker(), "a", "ab!"), "b", "!c")
+    assert "x=[redacted]&y=[redacted]" == Secrets.scrub(broker, "x=ab%21c&y=!c")
+  end
+
   test "redact runs the broker scrub through the station" do
     st = Station.new(%{"config" => nil, "proxy" => "off"})
     Station.hoist(st, "solardemo", "sekrit")

@@ -121,10 +121,10 @@ Substituted substitute(
   }
 
   final q = url.indexOf('?');
-  if (-1 == q) {
+  final hash = url.indexOf('#');
+  if (-1 == q || (-1 != hash && hash < q)) {
     return Substituted(url, out);
   }
-  final hash = url.indexOf('#', q);
   final end = -1 == hash ? url.length : hash;
   final encoded = encodeQueryValue(value);
   final query = StringBuffer();
@@ -252,19 +252,47 @@ class SecretBroker {
   // where the promise is absolute, every held value is scrubbed whatever
   // its length. There is no sekreto instance underneath this env-only
   // broker, so the held list is the complete set of values ever resolved
-  // or hoisted - nothing more to delegate to.
+  // or hoisted - nothing more to delegate to. Every form is matched
+  // against the original text and the union of the matches redacted, so no
+  // replacement can hide another form.
   String scrub(dynamic text) {
-    var out = (text ?? '').toString();
+    final source = (text ?? '').toString();
+    final forms = <String>[];
     for (final value in _held) {
       if ('' != value) {
-        out = out.split(value).join('[redacted]');
-        final encoded = encodeQueryValue(value);
-        if (encoded != value) {
-          out = out.split(encoded).join('[redacted]');
-        }
+        forms.add(value);
+        forms.add(encodeQueryValue(value));
       }
     }
-    return out;
+    int reach(int at) {
+      var end = at;
+      for (final form in forms) {
+        if (at + form.length > end && source.startsWith(form, at)) {
+          end = at + form.length;
+        }
+      }
+      return end;
+    }
+
+    final out = StringBuffer();
+    var i = 0;
+    while (i < source.length) {
+      var stop = reach(i);
+      if (stop == i) {
+        out.write(source[i]);
+        i++;
+        continue;
+      }
+      for (var j = i + 1; j < stop; j++) {
+        final end = reach(j);
+        if (end > stop) {
+          stop = end;
+        }
+      }
+      out.write('[redacted]');
+      i = stop;
+    }
+    return out.toString();
   }
 
   // Drop the cache so the next resolve asks the stores again (rotation

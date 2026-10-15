@@ -4,6 +4,7 @@ import { deepStrictEqual, equal, ok, rejects } from 'node:assert'
 
 import { Station } from '../src/Station'
 import { featureBinding } from '../src/adapter'
+import { SecretBroker } from '../src/secrets'
 
 const VALUE = 'tok!en 1'
 const SENT = 'tok%21en%201'
@@ -74,6 +75,34 @@ describe('inject', () => {
     st.close()
   })
 
+  // The request URL carries no placeholder; only the fetchdef's own url does.
+  async function failOnDefUrl(fail: (err: Error) => any): Promise<Error> {
+    const { client, ctx } = liveClient('joplin',
+      async (_f: any, _url: string, def: any) => fail(new Error('failed: GET ' + def.url)))
+    const st = new Station({ config: null })
+    featureBinding(ctx, { station: st })
+    try {
+      const fetchdef = { url: placedUrl(ctx), method: 'GET', headers: {} }
+      return await ctx.utility.fetcher({ client }, 'http://127.0.0.1:41184/notes', fetchdef)
+        .catch((err: Error) => err)
+    }
+    finally { st.close() }
+  }
+
+  test('a thrown error quoting only the fetchdef url is scrubbed', async () => {
+    const err = await failOnDefUrl((err) => { throw err })
+    ok(err instanceof Error)
+    ok(!err.message.includes(SENT), err.message)
+    ok(err.message.includes('[redacted]'), err.message)
+  })
+
+  test('a returned error quoting only the fetchdef url is scrubbed', async () => {
+    const err = await failOnDefUrl((err) => err)
+    ok(err instanceof Error)
+    ok(!err.message.includes(SENT), err.message)
+    ok(err.message.includes('[redacted]'), err.message)
+  })
+
   test('connect keeps as and instance out of the SDK\'s own options', () => {
     let built: any = null
     class ClosedSDK {
@@ -88,5 +117,33 @@ describe('inject', () => {
     deepStrictEqual(Object.keys(built).sort(), ['extend', 'feature'])
     equal(built.feature.station.instance, 'joplin$spare')
     st.close()
+  })
+})
+
+describe('scrub', () => {
+  test('a held value inside another held value\'s encoded form', () => {
+    for (const held of [['%', 'secret!'], ['secret!', '%']]) {
+      const broker = new SecretBroker([])
+      held.forEach((value, i) => broker.hoist('k' + i, value))
+      equal(broker.scrub('token=secret%21'), 'token=[redacted]', held.join(' '))
+    }
+  })
+
+  test('forms that overlap in the text are redacted as one span', () => {
+    const broker = new SecretBroker([])
+    broker.hoist('a', 'ab!')
+    broker.hoist('b', '!c')
+    equal(broker.scrub('x=ab%21c&y=!c'), 'x=[redacted]&y=[redacted]')
+  })
+
+  test('sekreto\'s own redact cannot hide an encoded form', async () => {
+    process.env.SCRUB_APIKEY = 'abcd'
+    try {
+      const broker = new SecretBroker([{ kind: 'env' }])
+      equal(await broker.value('scrub', 'scrub.apikey'), 'abcd')
+      broker.hoist('other', 'abcd!x')
+      equal(broker.scrub('k=abcd%21x'), 'k=[redacted]')
+    }
+    finally { delete process.env.SCRUB_APIKEY }
   })
 })

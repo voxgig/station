@@ -57,8 +57,8 @@ export function substitute(url: string, headers: Record<string, any> | null | un
   }
 
   const q = url.indexOf('?')
-  if (-1 === q) { return { url, headers: out } }
-  const hash = url.indexOf('#', q)
+  const hash = url.indexOf('#')
+  if (-1 === q || (-1 !== hash && hash < q)) { return { url, headers: out } }
   const end = -1 === hash ? url.length : hash
   const encoded = encodeQueryValue(value)
   let query = ''
@@ -74,6 +74,40 @@ export function substitute(url: string, headers: Record<string, any> | null | un
     }
   }
   return { url: url.substring(0, q + 1) + query + url.substring(end), headers: out }
+}
+
+// Every form of every value is matched against the original text and the
+// union of the matches redacted, so no replacement can hide another form.
+function redactValues(text: string, values: string[]): string {
+  const forms = new Set<string>()
+  for (const value of values) {
+    if ('' !== value) {
+      forms.add(value)
+      forms.add(encodeQueryValue(value))
+    }
+  }
+  const reach = (at: number): number => {
+    let end = at
+    for (const form of forms) {
+      if (at + form.length > end && text.startsWith(form, at)) { end = at + form.length }
+    }
+    return end
+  }
+
+  let out = ''
+  for (let i = 0; i < text.length;) {
+    let stop = reach(i)
+    if (stop === i) {
+      out += text[i++]
+      continue
+    }
+    for (let j = i + 1; j < stop; j++) {
+      stop = Math.max(stop, reach(j))
+    }
+    out += '[redacted]'
+    i = stop
+  }
+  return out
 }
 
 export class SecretBroker {
@@ -117,18 +151,10 @@ export class SecretBroker {
     return value
   }
 
+  // sekreto's redact runs second; run first, it could split an encoded form.
   scrub(text: string): string {
-    let out = this.sekreto.redact(text)
-    for (const value of this.held) {
-      if ('' !== value) {
-        out = out.split(value).join('[redacted]')
-        const encoded = encodeQueryValue(value)
-        if (encoded !== value) {
-          out = out.split(encoded).join('[redacted]')
-        }
-      }
-    }
-    return out
+    const raw = 'string' === typeof text ? text : ''
+    return this.sekreto.redact(redactValues(raw, this.held))
   }
 
   // Drop caches so the next resolve asks the stores again (rotation

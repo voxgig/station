@@ -872,9 +872,17 @@ the placeholder) in every language.
 **A placed query reaches error text.** A header never appears in an
 error message, but a URL does: an HTTP client that fails quotes the URL
 it was given (Go's `*url.Error`, Python's requests, Ruby's net/http).
-So once a value is placed in the query, a transport failure is passed
-back up with its text scrubbed by the same exact-value scrub events
-use, which also removes the value's percent-encoded form. A port whose
+So once a value is placed in a query — of the URL the request goes to,
+or of the fetchdef's own `url`, which an inner transport may quote
+instead — a transport failure is passed back up with its text scrubbed
+by the same exact-value scrub events use, which also removes the
+value's percent-encoded form. That scrub matches every form of every
+held value against the original text and redacts the union of the
+matches: replacing one form at a time lets an earlier replacement break
+a later form apart (a held `%` turns `secret%21` into
+`secret[redacted]21`, and `secret!` is no longer found), and no order
+of replacements avoids that for two forms that overlap. sekreto's own
+raw-value redact runs after it, for the same reason. A port whose
 errors are immutable returns an equivalent error carrying the scrubbed
 text, and only when scrubbing changed it.
 

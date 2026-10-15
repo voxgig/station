@@ -62,13 +62,17 @@ defmodule Voxgig.Station.Secrets do
         url
 
       [head, tail] ->
-        {query, fragment} =
-          case String.split(tail, "#", parts: 2) do
-            [query] -> {query, ""}
-            [query, fragment] -> {query, "#" <> fragment}
-          end
+        if String.contains?(head, "#") do
+          url
+        else
+          {query, fragment} =
+            case String.split(tail, "#", parts: 2) do
+              [query] -> {query, ""}
+              [query, fragment] -> {query, "#" <> fragment}
+            end
 
-        head <> "?" <> swap(query, placeholder, encoded, "") <> fragment
+          head <> "?" <> swap(query, placeholder, encoded, "") <> fragment
+        end
     end
   end
 
@@ -199,17 +203,50 @@ defmodule Voxgig.Station.Secrets do
   # where the promise is absolute, every held value is scrubbed whatever
   # its length. There is no sekreto instance underneath this env-only
   # broker, so the held list is the complete set of values ever resolved
-  # or hoisted - nothing more to delegate to.
+  # or hoisted - nothing more to delegate to. Every form is matched against
+  # the original text and the union of the matches redacted, so no
+  # replacement can hide another form.
   def scrub(broker, text) do
     text = if is_binary(text), do: text, else: to_string(text)
 
-    Enum.reduce(broker.held, text, fn value, out ->
-      if is_binary(value) and value != "" do
-        out = String.replace(out, value, "[redacted]")
-        encoded = encode_query_value(value)
-        if encoded != value, do: String.replace(out, encoded, "[redacted]"), else: out
+    forms =
+      Enum.flat_map(broker.held, fn value ->
+        if is_binary(value) and value != "", do: [value, encode_query_value(value)], else: []
+      end)
+
+    redact_from(text, forms, 0, 0, [])
+  end
+
+  # `copied` is where the run not yet emitted starts; `at` is the scan position.
+  defp redact_from(text, _forms, copied, at, acc) when at >= byte_size(text) do
+    IO.iodata_to_binary(Enum.reverse([binary_part(text, copied, byte_size(text) - copied) | acc]))
+  end
+
+  defp redact_from(text, forms, copied, at, acc) do
+    case reach(text, forms, at) do
+      ^at ->
+        redact_from(text, forms, copied, at + 1, acc)
+
+      stop ->
+        stop = extend(text, forms, at + 1, stop)
+        acc = ["[redacted]", binary_part(text, copied, at - copied) | acc]
+        redact_from(text, forms, stop, stop, acc)
+    end
+  end
+
+  defp extend(text, forms, j, stop) when j < stop,
+    do: extend(text, forms, j + 1, max(stop, reach(text, forms, j)))
+
+  defp extend(_text, _forms, _j, stop), do: stop
+
+  defp reach(text, forms, at) do
+    Enum.reduce(forms, at, fn form, stop ->
+      len = byte_size(form)
+
+      if at + len > stop and at + len <= byte_size(text) and binary_part(text, at, len) == form do
+        at + len
       else
-        out
+        stop
       end
     end)
   end

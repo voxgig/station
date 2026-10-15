@@ -3227,10 +3227,10 @@ inline Substituted substitute(const std::string& url, const Jval& headers,
   }
 
   size_t q = url.find('?');
-  if (placeholder.empty() || std::string::npos == q) {
+  size_t hash = url.find('#');
+  if (placeholder.empty() || std::string::npos == q || (std::string::npos != hash && hash < q)) {
     return out;
   }
-  size_t hash = url.find('#', q);
   size_t end = std::string::npos == hash ? url.size() : hash;
   std::string encoded = encode_query_value(value);
   std::string query;
@@ -3320,19 +3320,43 @@ class SecretBroker {
   // Exact-value scrub, deliberately WITHOUT sekreto's four-character
   // readability floor (design station.md 7 as revised): on boundaries
   // where the promise is absolute, every held value is scrubbed
-  // whatever its length, as is the form a query placement sends.
+  // whatever its length, as is the form a query placement sends. Every
+  // form is matched against the original text and the union of the
+  // matches redacted, so no replacement can hide another form.
   std::string scrub(const std::string& text) const {
-    std::string out = text;
-    std::lock_guard<std::mutex> lock(mutex_);
-    for (const auto& value : held_) {
-      if (value.empty()) {
+    std::vector<std::string> forms;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      for (const auto& value : held_) {
+        if (!value.empty()) {
+          forms.push_back(value);
+          forms.push_back(encode_query_value(value));
+        }
+      }
+    }
+    auto reach = [&](size_t at) {
+      size_t end = at;
+      for (const auto& form : forms) {
+        if (at + form.size() > end && 0 == text.compare(at, form.size(), form)) {
+          end = at + form.size();
+        }
+      }
+      return end;
+    };
+
+    std::string out;
+    for (size_t i = 0; i < text.size();) {
+      size_t stop = reach(i);
+      if (stop == i) {
+        out += text[i];
+        i++;
         continue;
       }
-      out = detail::replace_all(out, value, "[redacted]");
-      std::string encoded = encode_query_value(value);
-      if (encoded != value) {
-        out = detail::replace_all(out, encoded, "[redacted]");
+      for (size_t j = i + 1; j < stop; j++) {
+        stop = std::max(stop, reach(j));
       }
+      out += "[redacted]";
+      i = stop;
     }
     return out;
   }
@@ -4840,6 +4864,7 @@ class Station {
 
     ::sdk::Value senddef = fetchdef;
     std::string sendurl = fullurl;
+    bool placed = false;
     bool copied = false;
     auto ensure_copy = [&]() {
       if (copied) {
@@ -4890,6 +4915,7 @@ class Station {
       }
       Substituted sent = substitute(fullurl, strings, placeholder, value);
       sendurl = sent.url;
+      placed = sendurl != fullurl;
       ::sdk::Value headers = ::sdk::vmap();
       if (oldheaders.is_map()) {
         for (const auto& kv : *oldheaders.as_map()) {
@@ -4901,15 +4927,14 @@ class Station {
       ::sdk::map_put(senddef, "headers", headers);
       ::sdk::Value defurl = ::sdk::getp(senddef, "url");
       if (defurl.is_string()) {
-        ::sdk::map_put(senddef, "url",
-                       ::sdk::Value(substitute(defurl.as_string(), Jval::map(), placeholder,
-                                               value).url));
+        std::string sentdef = substitute(defurl.as_string(), Jval::map(), placeholder, value).url;
+        placed = placed || sentdef != defurl.as_string();
+        ::sdk::map_put(senddef, "url", ::sdk::Value(sentdef));
       }
     }
 
     std::string method = ::sdk::as_str(::sdk::getp(senddef, "method"), "GET");
     long long started = now_ms();
-    bool placed = sendurl != fullurl;
 
     ::sdk::Value res;
     try {

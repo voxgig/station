@@ -365,6 +365,23 @@ void stationCases(void Function(String, FutureOr<void> Function()) testcase) {
     check(!out.contains(' k '), 'one-char value scrubbed');
   });
 
+  testcase('scrub matches every form against the original text', () {
+    for (final held in [
+      ['%', 'secret!'],
+      ['secret!', '%'],
+    ]) {
+      final broker = SecretBroker(null);
+      broker.hoist('a', held[0]);
+      broker.hoist('b', held[1]);
+      eq(broker.scrub('token=secret%21'), 'token=[redacted]', held.join(' '));
+    }
+    final broker = SecretBroker(null);
+    broker.hoist('a', 'ab!');
+    broker.hoist('b', '!c');
+    eq(broker.scrub('x=ab%21c&y=!c'), 'x=[redacted]&y=[redacted]',
+        'forms that overlap in the text are one span');
+  });
+
   testcase('redact runs the broker scrub through the station', () {
     final st = Station({'config': null, 'proxy': 'off'});
     st.hoist('solardemo', 'sekrit');
@@ -631,6 +648,37 @@ void stationCases(void Function(String, FutureOr<void> Function()) testcase) {
       check(text.contains('[redacted]'), 'scrub marker: ' + text);
       check(!st.events().toString().contains('tok%21en%201'),
           'events carry no value');
+    }
+  });
+
+  testcase('a transport error quoting only the fetchdef url is scrubbed',
+      () async {
+    const url = 'http://localhost:8903/api/pet/p1';
+    const defurl = url + '?token=%5Bstation%3Agnarly-pets%5D';
+
+    for (final raise in [true, false]) {
+      final st = Station({'config': null, 'proxy': 'off'});
+      final ctx =
+          makeCtx(inner: (dynamic fctx, dynamic wireurl, dynamic def) async {
+        final failure = Exception('failed: GET ' + def['url'].toString());
+        if (raise) {
+          throw failure;
+        }
+        return failure;
+      });
+      ctx.options['apikey'] = 'tok!en 1';
+      bindCtx(st, ctx);
+
+      dynamic err;
+      try {
+        err = await ctx.utility.fetcher(FakeCtx(client: ctx.client), url,
+            <String, dynamic>{'url': defurl, 'method': 'GET', 'headers': {}});
+      } catch (e) {
+        err = e;
+      }
+      final text = err.toString();
+      check(!text.contains('tok%21en%201'), 'scrubbed: ' + text);
+      check(text.contains('[redacted]'), 'scrub marker: ' + text);
     }
   });
 

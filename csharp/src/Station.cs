@@ -471,6 +471,7 @@ namespace Voxgig.Station
 
             Dictionary<string, object> senddef = fetchdef;
             string sendurl = fullurl;
+            bool placed = false;
             if (hosts is IList<object> && live)
             {
                 senddef = new Dictionary<string, object>(senddef);
@@ -511,9 +512,12 @@ namespace Voxgig.Station
                     Descriptor.AsMap(senddef.GetValueOrDefault("headers")), placeholder, value);
                 sendurl = sent.Url;
                 senddef["headers"] = sent.Headers;
+                placed = sendurl != fullurl;
                 if (senddef.GetValueOrDefault("url") is string defurl)
                 {
-                    senddef["url"] = SecretBroker.Substitute(defurl, null, placeholder, value).Url;
+                    string sentdef = SecretBroker.Substitute(defurl, null, placeholder, value).Url;
+                    senddef["url"] = sentdef;
+                    placed = placed || sentdef != defurl;
                 }
             }
 
@@ -528,7 +532,7 @@ namespace Voxgig.Station
             {
                 EmitHttp(slug, corr, fullurl, senddef, 0, started, 0);
                 EmitErr(slug, corr, err);
-                Exception clean = Scrubbed(err, sendurl != fullurl);
+                Exception clean = Scrubbed(err, placed);
                 if (ReferenceEquals(clean, err))
                 {
                     throw;

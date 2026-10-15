@@ -78,10 +78,10 @@ function substitute(string $url, ?array $headers, string $placeholder, string $v
     }
 
     $q = strpos($url, '?');
-    if (false === $q) {
+    $hash = strpos($url, '#');
+    if (false === $q || (false !== $hash && $hash < $q)) {
         return ['url' => $url, 'headers' => $out];
     }
-    $hash = strpos($url, '#', $q);
     $end = false === $hash ? strlen($url) : $hash;
     $encoded = encode_query_value($value);
     $query = '';
@@ -96,6 +96,50 @@ function substitute(string $url, ?array $headers, string $placeholder, string $v
         }
     }
     return ['url' => substr($url, 0, $q + 1) . $query . substr($url, $end), 'headers' => $out];
+}
+
+/**
+ * Every form of every value is matched against the original text and the
+ * union of the matches redacted, so no replacement can hide another form.
+ *
+ * @param array<int, string> $values
+ */
+function redact_values(string $text, array $values): string
+{
+    $forms = [];
+    foreach ($values as $value) {
+        if ('' !== $value) {
+            $forms[] = $value;
+            $forms[] = encode_query_value($value);
+        }
+    }
+    $reach = function (int $at) use ($text, $forms): int {
+        $end = $at;
+        foreach ($forms as $form) {
+            $len = strlen($form);
+            if ($at + $len > $end && substr($text, $at, $len) === $form) {
+                $end = $at + $len;
+            }
+        }
+        return $end;
+    };
+
+    $out = '';
+    $size = strlen($text);
+    for ($i = 0; $i < $size;) {
+        $stop = $reach($i);
+        if ($stop === $i) {
+            $out .= $text[$i];
+            $i++;
+            continue;
+        }
+        for ($j = $i + 1; $j < $stop; $j++) {
+            $stop = max($stop, $reach($j));
+        }
+        $out .= '[redacted]';
+        $i = $stop;
+    }
+    return $out;
 }
 
 class SecretBroker
@@ -176,22 +220,13 @@ class SecretBroker
      * Exact-value scrub, deliberately WITHOUT sekreto's four-character
      * readability floor (design station.md 7 as revised): on boundaries
      * where the promise is absolute, every held value is scrubbed
-     * whatever its length. sekreto's own redact() runs too, covering
-     * values resolved by the underlying instance that station never held.
+     * whatever its length. sekreto's own redact() runs after, covering
+     * values resolved by the underlying instance that station never held;
+     * run first, its raw-value replacement could split an encoded form.
      */
     public function scrub(string $text): string
     {
-        $out = $this->sekreto->redact($text);
-        foreach ($this->held as $value) {
-            if ('' !== $value) {
-                $out = str_replace($value, '[redacted]', $out);
-                $encoded = encode_query_value($value);
-                if ($encoded !== $value) {
-                    $out = str_replace($encoded, '[redacted]', $out);
-                }
-            }
-        }
-        return $out;
+        return $this->sekreto->redact(redact_values($text, $this->held));
     }
 
     /**

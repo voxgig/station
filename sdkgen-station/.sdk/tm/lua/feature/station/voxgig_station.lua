@@ -1144,10 +1144,11 @@ function M.substitute(url, headers, placeholder, value)
   end
 
   local q = type(url) == 'string' and string.find(url, '?', 1, true) or nil
-  if q == nil then
+  local hash = type(url) == 'string' and string.find(url, '#', 1, true) or nil
+  if q == nil or (hash ~= nil and hash < q) then
     return url, out
   end
-  local stop = string.find(url, '#', q + 1, true) or #url + 1
+  local stop = hash or #url + 1
   local query = string.sub(url, q + 1, stop - 1)
   local encoded = M.encode_query_value(value)
   local parts, i = {}, 1
@@ -1232,19 +1233,45 @@ end
 -- Exact-value scrub, deliberately WITHOUT sekreto's four-character
 -- readability floor (design station.md 7 as revised): on boundaries
 -- where the promise is absolute, every held value is scrubbed whatever
--- its length.
+-- its length. Every form is matched against the original text and the
+-- union of the matches redacted, so no replacement can hide another form.
 function SecretBroker:scrub(text)
-  local out = tostring(text == nil and '' or text)
-  for _, value in ipairs(self.held) do
+  local s = tostring(text == nil and '' or text)
+  local forms = {}
+  for _, held in ipairs(self.held) do
+    local value = tostring(held)
     if value ~= '' then
-      out = replaceall(out, value, '[redacted]')
-      local encoded = M.encode_query_value(value)
-      if encoded ~= value then
-        out = replaceall(out, encoded, '[redacted]')
-      end
+      forms[#forms + 1] = value
+      forms[#forms + 1] = M.encode_query_value(value)
     end
   end
-  return out
+  local function reach(at)
+    local stop = at
+    for _, form in ipairs(forms) do
+      if at + #form > stop and string.sub(s, at, at + #form - 1) == form then
+        stop = at + #form
+      end
+    end
+    return stop
+  end
+
+  local parts, i = {}, 1
+  while i <= #s do
+    local stop = reach(i)
+    if stop == i then
+      parts[#parts + 1] = string.sub(s, i, i)
+      i = i + 1
+    else
+      local j = i + 1
+      while j < stop do
+        stop = math.max(stop, reach(j))
+        j = j + 1
+      end
+      parts[#parts + 1] = '[redacted]'
+      i = stop
+    end
+  end
+  return table.concat(parts)
 end
 
 -- Drop caches so the next resolve asks the environment again (rotation
@@ -1657,6 +1684,7 @@ function Station:_transport(slug, inner, fctx, fullurl, fetchdef)
 
   local senddef = fetchdef
   local sendurl = fullurl
+  local placed = false
   if hosts ~= nil and live then
     senddef = shallowcopy(senddef)
     senddef.redirect = 'manual'
@@ -1690,8 +1718,11 @@ function Station:_transport(slug, inner, fctx, fullurl, fetchdef)
     local headers
     sendurl, headers = M.substitute(fullurl, senddef.headers, placeholder, value)
     senddef.headers = headers
-    if type(senddef.url) == 'string' then
-      senddef.url = M.substitute(senddef.url, nil, placeholder, value)
+    placed = sendurl ~= fullurl
+    local defurl = senddef.url
+    if type(defurl) == 'string' then
+      senddef.url = M.substitute(defurl, nil, placeholder, value)
+      placed = placed or senddef.url ~= defurl
     end
   end
 
@@ -1699,7 +1730,6 @@ function Station:_transport(slug, inner, fctx, fullurl, fetchdef)
     fctx['station$'] or nil
   local corr = st ~= nil and st.corr or nil
   local started = now_ms()
-  local placed = sendurl ~= fullurl
 
   local ok, res, err = pcall(inner, fctx, sendurl, senddef)
   if not ok then

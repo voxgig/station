@@ -560,6 +560,7 @@ func (st *Station) transport(entry *PluginEntry, mode func() string,
 
 	senddef := fetchdef
 	sendurl := fullurl
+	placed := false
 	if hasHosts && live {
 		senddef = cloneFetchdef(senddef)
 		senddef["redirect"] = "manual"
@@ -581,8 +582,11 @@ func (st *Station) transport(entry *PluginEntry, mode func() string,
 		sendurl, headers = Substitute(fullurl, asMap(senddef["headers"]), placeholder, value)
 		senddef = cloneFetchdef(senddef)
 		senddef["headers"] = headers
+		placed = sendurl != fullurl
 		if defurl, is := senddef["url"].(string); is {
-			senddef["url"], _ = Substitute(defurl, nil, placeholder, value)
+			sentdef, _ := Substitute(defurl, nil, placeholder, value)
+			senddef["url"] = sentdef
+			placed = placed || sentdef != defurl
 		}
 	}
 
@@ -593,7 +597,7 @@ func (st *Station) transport(entry *PluginEntry, mode func() string,
 	if nil != err {
 		st.emitHTTP(name, corr, fullurl, senddef, 0, started, 0)
 		st.emitErr(name, opctx, err)
-		return res, st.scrubbed(err, sendurl != fullurl)
+		return res, st.scrubbed(err, placed)
 	}
 
 	status := 0

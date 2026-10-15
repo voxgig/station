@@ -165,6 +165,7 @@ public final class Binding {
     // Injection: at the last boundary, below every recording feature,
     // and never into mock transports (design 3.3).
     var injected: [String: String]? = nil
+    var placed = false
     var place: (String) -> String = { $0 }
     if live && "R1" == entry.rung {
       var secretname = station.secretOverrideOf(slug)
@@ -185,10 +186,13 @@ public final class Binding {
 
       let mark = placeholder
       injected = SecretBroker.substitute(fullurl, headers, mark, value).headers
-      place = { SecretBroker.substitute($0, nil, mark, value).url }
+      place = { url in
+        let sent = SecretBroker.substitute(url, nil, mark, value).url
+        placed = placed || sent != url
+        return sent
+      }
     }
 
-    let sendurl = place(fullurl)
     let started = Station.now()
 
     let res: R
@@ -199,7 +203,7 @@ public final class Binding {
       // enters the event stream scrubbed.
       emitHttp(corr, method, fullurl, started, 0, 0)
       station.emitErr(slug, corr, error)
-      throw scrubbed(error, sendurl != fullurl)
+      throw scrubbed(error, placed)
     }
 
     let (status, bytes) = inspect(res)

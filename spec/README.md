@@ -32,7 +32,8 @@ Two gaps follow from that, both real:
 placeholder becomes the value in header values and in the URL query,
 where an SDK percent-encodes it (either hex case) and the value is written
 strictly encoded (every byte outside RFC 3986 unreserved, as upper-case
-`%XX`). The path and the fragment are never touched. Copy-on-inject, and
+`%XX`). The path and the fragment are never touched, and a `?` inside
+the fragment starts no query. Copy-on-inject, and
 the scrub of a transport error that quotes the placed URL, stay in each
 port's integration suite.
 

@@ -74,9 +74,10 @@ sub substitute {
         $out->{$h} = join( $value, split( /\Q$placeholder\E/, $v, -1 ) );
     }
 
-    my $q = index( $url, '?' );
-    return { url => $url, headers => $out } if -1 == $q;
-    my $hash    = index( $url, '#', $q );
+    my $q    = index( $url, '?' );
+    my $hash = index( $url, '#' );
+    return { url => $url, headers => $out }
+      if -1 == $q || ( -1 != $hash && $hash < $q );
     my $end     = -1 == $hash ? length($url) : $hash;
     my $encoded = encode_query_value($value);
     my $query   = '';
@@ -95,6 +96,42 @@ sub substitute {
         url     => substr( $url, 0, $q + 1 ) . $query . substr( $url, $end ),
         headers => $out,
     };
+}
+
+# Every form of every value is matched against the original text and the
+# union of the matches redacted, so no replacement can hide another form.
+sub _redact_values {
+    my ( $text, $values ) = @_;
+    my @forms = map { ( $_, encode_query_value($_) ) }
+      grep { defined $_ && '' ne $_ } @$values;
+    my $reach = sub {
+        my ($at) = @_;
+        my $end = $at;
+        for my $form (@forms) {
+            my $len = length $form;
+            $end = $at + $len
+              if $at + $len > $end && substr( $text, $at, $len ) eq $form;
+        }
+        return $end;
+    };
+
+    my $out = '';
+    my $i   = 0;
+    while ( $i < length $text ) {
+        my $stop = $reach->($i);
+        if ( $stop == $i ) {
+            $out .= substr( $text, $i, 1 );
+            $i++;
+            next;
+        }
+        for ( my $j = $i + 1 ; $j < $stop ; $j++ ) {
+            my $end = $reach->($j);
+            $stop = $end if $end > $stop;
+        }
+        $out .= '[redacted]';
+        $i = $stop;
+    }
+    return $out;
 }
 
 package Voxgig::Station::SecretBroker;
@@ -165,19 +202,16 @@ sub value {
 # Exact-value scrub, deliberately WITHOUT sekreto's four-character
 # readability floor (design station.md 7 as revised): on boundaries where
 # the promise is absolute, every held value is scrubbed whatever its
-# length. sekreto's own redactall runs too, covering values resolved by
-# the underlying instance that station never held.
+# length. sekreto's own redactall runs after, covering values resolved by
+# the underlying instance that station never held; run first, its
+# raw-value replacement could split an encoded form.
 sub scrub {
     my ( $self, $text ) = @_;
-    my $out = $self->{sekreto}->redactall( defined $text ? "$text" : '' );
-    for my $value ( @{ $self->{held} } ) {
-        next if !defined $value || '' eq $value;
-        $out = join( '[redacted]', split( /\Q$value\E/, $out, -1 ) );
-        my $encoded = Voxgig::Station::Secrets::encode_query_value($value);
-        $out = join( '[redacted]', split( /\Q$encoded\E/, $out, -1 ) )
-          if $encoded ne $value;
-    }
-    return $out;
+    my $out = Voxgig::Station::Secrets::_redact_values(
+        defined $text ? "$text" : '',
+        $self->{held}
+    );
+    return $self->{sekreto}->redactall($out);
 }
 
 # Drop caches so the next resolve asks the stores again (rotation support

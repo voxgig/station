@@ -191,6 +191,32 @@ class TestSecretBroker(unittest.TestCase):
         self.assertEqual('resident-key', broker.value('pets', 'missing.apikey'))
         self.assertEqual('[redacted]', broker.scrub('resident-key'))
 
+    def test_a_held_value_inside_another_held_values_encoded_form(self):
+        for held in (['%', 'secret!'], ['secret!', '%']):
+            with self.subTest(held=held):
+                broker = SecretBroker([])
+                for i, value in enumerate(held):
+                    broker.hoist('k%d' % i, value)
+                self.assertEqual('token=[redacted]',
+                                 broker.scrub('token=secret%21'))
+
+    def test_forms_that_overlap_in_the_text_are_redacted_as_one_span(self):
+        broker = SecretBroker([])
+        broker.hoist('a', 'ab!')
+        broker.hoist('b', '!c')
+        self.assertEqual('x=[redacted]&y=[redacted]',
+                         broker.scrub('x=ab%21c&y=!c'))
+
+    def test_sekretos_own_redact_cannot_hide_an_encoded_form(self):
+        os.environ['SCRUB_APIKEY'] = 'abcd'
+        try:
+            broker = SecretBroker([{'kind': 'env'}])
+            self.assertEqual('abcd', broker.value('scrub', 'scrub.apikey'))
+            broker.hoist('other', 'abcd!x')
+            self.assertEqual('k=[redacted]', broker.scrub('k=abcd%21x'))
+        finally:
+            del os.environ['SCRUB_APIKEY']
+
 
 class TestEventBuffer(unittest.TestCase):
 
@@ -311,6 +337,31 @@ class TestBinding(unittest.TestCase):
                 self.assertNotIn('tok%21en%201', str(err))
                 self.assertIn('[redacted]', str(err))
                 self.assertNotIn('tok%21en%201', json.dumps(st.events()))
+                st.close()
+
+    def test_an_error_quoting_only_the_fetchdef_url_is_scrubbed(self):
+        os.environ['GNARLY_PETS_APIKEY'] = 'tok!en 1'
+        url = 'http://localhost:8903/api/pet'
+        defurl = url + '?apikey=%5Bstation%3Agnarly-pets%5D'
+
+        def returns_text(fctx, fullurl, fetchdef):
+            return None, 'failed: GET ' + fetchdef['url']
+
+        def raises(fctx, fullurl, fetchdef):
+            raise RuntimeError('failed: GET ' + fetchdef['url'])
+
+        for fetcher in (returns_text, raises):
+            with self.subTest(fetcher.__name__):
+                st = Station({'config': None})
+                ctx, _log = bind(st, fetcher=fetcher)
+                try:
+                    _res, err = ctx.utility.fetcher(
+                        ctx, url,
+                        {'url': defurl, 'method': 'GET', 'headers': {}})
+                except RuntimeError as e:
+                    err = e
+                self.assertNotIn('tok%21en%201', str(err))
+                self.assertIn('[redacted]', str(err))
                 st.close()
 
     def test_no_injection_into_mock_transports(self):

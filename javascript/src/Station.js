@@ -534,6 +534,7 @@ class Station {
 
     let senddef = fetchdef
     let sendurl = fullurl
+    let placed = false
     if (null != hosts && live) {
       senddef = { ...senddef, redirect: 'manual' }
     }
@@ -572,9 +573,11 @@ class Station {
       const sent = substitute(fullurl, senddef.headers, placeholder, value)
       sendurl = sent.url
       senddef = { ...senddef, headers: sent.headers }
-      if ('string' === typeof senddef.url) {
-        senddef.url = substitute(senddef.url, null, placeholder, value).url
+      const defurl = senddef.url
+      if ('string' === typeof defurl) {
+        senddef.url = substitute(defurl, null, placeholder, value).url
       }
+      placed = sendurl !== fullurl || senddef.url !== defurl
     }
 
     const corr = fctx.station$?.corr
@@ -587,13 +590,13 @@ class Station {
     catch (e) {
       this.emitHttp(name, corr, fullurl, senddef, 0, started, 0)
       this.emitErr(name, fctx, e)
-      throw this.scrubbed(e, sendurl !== fullurl)
+      throw this.scrubbed(e, placed)
     }
 
     if (res instanceof Error) {
       this.emitHttp(name, corr, fullurl, senddef, 0, started, 0)
       this.emitErr(name, fctx, res)
-      return this.scrubbed(res, sendurl !== fullurl)
+      return this.scrubbed(res, placed)
     }
 
     let bytes = 0

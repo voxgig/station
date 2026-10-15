@@ -525,6 +525,7 @@ module VoxgigStation
 
       senddef = fetchdef
       sendurl = fullurl
+      placed = false
 
       # Injection: at the last boundary, below every recording feature,
       # and never into mock transports (3.3) - in test/mock modes the
@@ -556,15 +557,16 @@ module VoxgigStation
         sent = VoxgigStation.substitute(fullurl, senddef['headers'], placeholder, value)
         sendurl = sent['url']
         senddef = senddef.merge('headers' => sent['headers'])
-        if senddef['url'].is_a?(String)
-          senddef['url'] = VoxgigStation.substitute(senddef['url'], nil, placeholder, value)['url']
+        defurl = senddef['url']
+        if defurl.is_a?(String)
+          senddef['url'] = VoxgigStation.substitute(defurl, nil, placeholder, value)['url']
         end
+        placed = sendurl != fullurl || senddef['url'] != defurl
       end
 
       st = fctx.instance_variable_get(:@_station)
       corr = st.is_a?(Hash) ? st['corr'] : nil
       started = now_ms
-      placed = sendurl != fullurl
 
       begin
         res, err = inner.call(fctx, sendurl, senddef)

@@ -292,6 +292,33 @@ internal static class Program
             }
         });
 
+        TestCase("broker: every form is matched against the original text", () =>
+        {
+            foreach (string[] held in new[] { new[] { "%", "secret!" }, new[] { "secret!", "%" } })
+            {
+                var broker = new SecretBroker(Vals());
+                broker.Hoist("a", held[0]);
+                broker.Hoist("b", held[1]);
+                string got = broker.Scrub("token=secret%21");
+                Check("token=[redacted]" == got, string.Join(" ", held) + ": " + got);
+            }
+            var overlap = new SecretBroker(Vals());
+            overlap.Hoist("a", "ab!");
+            overlap.Hoist("b", "!c");
+            string spans = overlap.Scrub("x=ab%21c&y=!c");
+            Check("x=[redacted]&y=[redacted]" == spans, "one span: " + spans);
+        });
+
+        TestCase("broker: sekreto's own redact cannot hide an encoded form", () =>
+        {
+            var broker = new SecretBroker(Vals(
+                Map("kind", "memory", "values", Map("SCRUB_APIKEY", "abcd"))));
+            Check("abcd" == broker.Value("scrub", "scrub.apikey"), "resolves");
+            broker.Hoist("other", "abcd!x");
+            string got = broker.Scrub("k=abcd%21x");
+            Check("k=[redacted]" == got, "sekreto runs second: " + got);
+        });
+
         TestCase("open: idempotent ambient, conflicting reopen fails", () =>
         {
             Station.Reset();
@@ -474,6 +501,28 @@ internal static class Program
             Check(!caught.Message.Contains("tok%21en%201"), "scrubbed: " + caught.Message);
             Check(caught.Message.Contains("[redacted]"), "scrub marker: " + caught.Message);
             Check(!EventText(st).Contains("tok%21en%201"), "events carry no value");
+        });
+
+        TestCase("transport: an error quoting only the fetchdef url is scrubbed", () =>
+        {
+            Station st = MemoryStation(Map("TEST_PLUG_APIKEY", "tok!en 1"), null);
+            Bind(st, new object(), st.Options(Map()));
+
+            string defurl = "http://localhost:8000/api/todo?token=%5Bstation%3Atest-plug%5D";
+            Exception caught = null;
+            try
+            {
+                st.Transport("test-plug", "http://localhost:8000/api/todo",
+                    Map("url", defurl, "headers", Map()), true, null,
+                    (wireurl, def) => throw new InvalidOperationException("failed: GET " + def["url"]));
+            }
+            catch (Exception err)
+            {
+                caught = err;
+            }
+            Check(null != caught, "the transport error surfaces");
+            Check(!caught.Message.Contains("tok%21en%201"), "scrubbed: " + caught.Message);
+            Check(caught.Message.Contains("[redacted]"), "scrub marker: " + caught.Message);
         });
 
         TestCase("transport: no injection into mock transports", () =>

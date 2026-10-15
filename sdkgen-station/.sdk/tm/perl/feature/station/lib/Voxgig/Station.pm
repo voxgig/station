@@ -766,6 +766,7 @@ sub _transport {
 
     my $senddef = $fetchdef;
     my $sendurl = $fullurl;
+    my $placed  = 0;
     if ( defined $hosts && $live ) {
         $senddef = { %{ ref($senddef) eq 'HASH' ? $senddef : {} }, redirect => 'manual' };
     }
@@ -809,15 +810,17 @@ sub _transport {
             %{ ref($senddef) eq 'HASH' ? $senddef : {} },
             headers => $sent->{headers},
         };
-        $senddef->{url} =
-          substitute( $senddef->{url}, undef, $placeholder, $value )->{url}
-          if defined $senddef->{url} && !ref $senddef->{url};
+        $placed = $sendurl ne $fullurl;
+        my $defurl = $senddef->{url};
+        if ( defined $defurl && !ref $defurl ) {
+            $senddef->{url} = substitute( $defurl, undef, $placeholder, $value )->{url};
+            $placed ||= $senddef->{url} ne $defurl;
+        }
     }
 
     my $st = ref( $fctx->{'station$'} ) eq 'HASH' ? $fctx->{'station$'} : undef;
     my $corr    = defined $st ? $st->{corr} : undef;
     my $started = _now_ms();
-    my $placed  = $sendurl ne $fullurl;
 
     my ( $res, $err ) = eval { $inner->( $fctx, $sendurl, $senddef ) };
     if ( my $died = $@ ) {

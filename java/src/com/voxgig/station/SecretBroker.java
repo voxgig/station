@@ -123,10 +123,10 @@ public class SecretBroker {
     }
 
     int q = url.indexOf('?');
-    if (-1 == q) {
+    int hash = url.indexOf('#');
+    if (-1 == q || (-1 != hash && hash < q)) {
       return new Substituted(url, out);
     }
-    int hash = url.indexOf('#', q);
     int end = -1 == hash ? url.length() : hash;
     String encoded = encodeQueryValue(value);
     StringBuilder query = new StringBuilder();
@@ -142,6 +142,45 @@ public class SecretBroker {
     }
     return new Substituted(
         url.substring(0, q + 1) + query + url.substring(end), out);
+  }
+
+  /**
+   * Every form of every value is matched against the original text and the
+   * union of the matches redacted, so no replacement can hide another form.
+   */
+  private static String redactValues(String text, List<String> values) {
+    List<String> forms = new ArrayList<>();
+    for (String value : values) {
+      if (!value.isEmpty()) {
+        forms.add(value);
+        forms.add(encodeQueryValue(value));
+      }
+    }
+    StringBuilder out = new StringBuilder();
+    for (int i = 0; i < text.length();) {
+      int stop = reach(text, i, forms);
+      if (stop == i) {
+        out.append(text.charAt(i));
+        i++;
+        continue;
+      }
+      for (int j = i + 1; j < stop; j++) {
+        stop = Math.max(stop, reach(text, j, forms));
+      }
+      out.append("[redacted]");
+      i = stop;
+    }
+    return out.toString();
+  }
+
+  private static int reach(String text, int at, List<String> forms) {
+    int end = at;
+    for (String form : forms) {
+      if (at + form.length() > end && text.startsWith(form, at)) {
+        end = at + form.length();
+      }
+    }
+    return end;
   }
 
   /**
@@ -225,21 +264,12 @@ public class SecretBroker {
    * Exact-value scrub, deliberately WITHOUT sekreto's four-character
    * readability floor (design 7 as revised): on boundaries where the
    * promise is absolute, every held value is scrubbed whatever its
-   * length. sekreto's own redact() runs too, covering values resolved by
-   * the underlying instance that station never held.
+   * length. sekreto's own redact() runs after, covering values resolved by
+   * the underlying instance that station never held; run first, its
+   * raw-value replacement could split an encoded form.
    */
   public synchronized String scrub(String text) {
-    String out = sekreto.redact(null == text ? "" : text);
-    for (String value : held) {
-      if (!value.isEmpty()) {
-        out = out.replace(value, "[redacted]");
-        String encoded = encodeQueryValue(value);
-        if (!encoded.equals(value)) {
-          out = out.replace(encoded, "[redacted]");
-        }
-      }
-    }
-    return out;
+    return sekreto.redact(redactValues(null == text ? "" : text, held));
   }
 
   /**

@@ -62,8 +62,8 @@ function substitute(url, headers, placeholder, value) {
   }
 
   const q = url.indexOf('?')
-  if (-1 === q) { return { url, headers: out } }
-  const hash = url.indexOf('#', q)
+  const hash = url.indexOf('#')
+  if (-1 === q || (-1 !== hash && hash < q)) { return { url, headers: out } }
   const end = -1 === hash ? url.length : hash
   const encoded = encodeQueryValue(value)
   let query = ''
@@ -79,6 +79,40 @@ function substitute(url, headers, placeholder, value) {
     }
   }
   return { url: url.substring(0, q + 1) + query + url.substring(end), headers: out }
+}
+
+// Every form of every value is matched against the original text and the
+// union of the matches redacted, so no replacement can hide another form.
+function redactValues(text, values) {
+  const forms = new Set()
+  for (const value of values) {
+    if ('' !== value) {
+      forms.add(value)
+      forms.add(encodeQueryValue(value))
+    }
+  }
+  const reach = (at) => {
+    let end = at
+    for (const form of forms) {
+      if (at + form.length > end && text.startsWith(form, at)) { end = at + form.length }
+    }
+    return end
+  }
+
+  let out = ''
+  for (let i = 0; i < text.length;) {
+    let stop = reach(i)
+    if (stop === i) {
+      out += text[i++]
+      continue
+    }
+    for (let j = i + 1; j < stop; j++) {
+      stop = Math.max(stop, reach(j))
+    }
+    out += '[redacted]'
+    i = stop
+  }
+  return out
 }
 
 class SecretBroker {
@@ -146,20 +180,12 @@ class SecretBroker {
   // Exact-value scrub, deliberately WITHOUT sekreto's four-character
   // readability floor (design §7 as revised): on boundaries where the
   // promise is absolute, every held value is scrubbed whatever its
-  // length. sekreto's own redact() runs too, covering values resolved
-  // by the underlying instance that station never held.
+  // length. sekreto's own redact() runs after, covering values resolved
+  // by the underlying instance that station never held; run first, its
+  // raw-value replacement could split an encoded form.
   scrub(text) {
-    let out = this.sekreto.redact(text)
-    for (const value of this.held) {
-      if ('' !== value) {
-        out = out.split(value).join('[redacted]')
-        const encoded = encodeQueryValue(value)
-        if (encoded !== value) {
-          out = out.split(encoded).join('[redacted]')
-        }
-      }
-    }
-    return out
+    const raw = 'string' === typeof text ? text : ''
+    return this.sekreto.redact(redactValues(raw, this.held))
   }
 
   // Drop caches so the next resolve asks the stores again (rotation

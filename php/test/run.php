@@ -25,6 +25,7 @@ namespace Voxgig\Station\Test;
 
 use Voxgig\Omni\Runner;
 use Voxgig\Station\EventBuffer;
+use Voxgig\Station\SecretBroker;
 use Voxgig\Station\Station;
 use Voxgig\Station\StationError;
 use Voxgig\Station\TransportWrap;
@@ -768,6 +769,32 @@ testcase('a_thrown_transport_error_quoting_the_url_is_scrubbed', function () {
     ok(str_contains($thrown->getMessage(), '[redacted]'), $thrown->getMessage());
 });
 
+testcase('an_error_quoting_only_the_fetchdef_url_is_scrubbed', function () {
+    putenv('GNARLY_PETS_APIKEY=tok!en 1');
+    $url = 'http://localhost:8903/api/pet';
+    $fetchdef = ['url' => QUERY_URL, 'method' => 'GET', 'headers' => []];
+
+    $st = new Station(['config' => null]);
+    $b = bind($st, fn($_c, $_u, $d) => [null, 'failed: GET ' . $d['url']]);
+    [$_res, $err] = ($b['utility']->fetcher)($b['ctx'], $url, $fetchdef);
+    ok(!str_contains($err, 'tok%21en%201'), $err);
+    ok(str_contains($err, '[redacted]'), $err);
+
+    $st = new Station(['config' => null]);
+    $b = bind($st, function ($_c, $_u, $d) {
+        throw new \RuntimeException('failed: GET ' . $d['url']);
+    });
+    $thrown = null;
+    try {
+        ($b['utility']->fetcher)($b['ctx'], $url, $fetchdef);
+    } catch (\RuntimeException $e) {
+        $thrown = $e;
+    }
+    ok(null !== $thrown, 'the transport error surfaces');
+    ok(!str_contains($thrown->getMessage(), 'tok%21en%201'), $thrown->getMessage());
+    ok(str_contains($thrown->getMessage(), '[redacted]'), $thrown->getMessage());
+});
+
 testcase('a_status_0_response_after_a_placement_is_scrubbed', function () {
     putenv('GNARLY_PETS_APIKEY=tok!en 1');
     $st = new Station(['config' => null]);
@@ -795,6 +822,35 @@ testcase('a_status_0_response_after_a_placement_is_scrubbed', function () {
     [$res, $err] = ($b['utility']->fetcher)($b['ctx'], 'http://localhost:8903/x',
         ['method' => 'GET', 'headers' => []]);
     ok($sent === $res, 'an unplaced response is returned as it came');
+});
+
+testcase('a_held_value_inside_another_held_values_encoded_form', function () {
+    foreach ([['%', 'secret!'], ['secret!', '%']] as $held) {
+        $broker = new SecretBroker([]);
+        foreach ($held as $i => $value) {
+            $broker->hoist('k' . $i, $value);
+        }
+        eq('token=[redacted]', $broker->scrub('token=secret%21'), implode(' ', $held));
+    }
+});
+
+testcase('forms_that_overlap_in_the_text_are_redacted_as_one_span', function () {
+    $broker = new SecretBroker([]);
+    $broker->hoist('a', 'ab!');
+    $broker->hoist('b', '!c');
+    eq('x=[redacted]&y=[redacted]', $broker->scrub('x=ab%21c&y=!c'));
+});
+
+testcase('sekretos_own_redact_cannot_hide_an_encoded_form', function () {
+    putenv('SCRUB_APIKEY=abcd');
+    try {
+        $broker = new SecretBroker([['kind' => 'env']]);
+        eq('abcd', $broker->value('scrub', 'scrub.apikey'));
+        $broker->hoist('other', 'abcd!x');
+        eq('k=[redacted]', $broker->scrub('k=abcd%21x'));
+    } finally {
+        putenv('SCRUB_APIKEY');
+    }
 });
 
 // --- events (station.md 6) ---

@@ -706,6 +706,7 @@ public class Station {
 
     Map<String, Object> senddef = fetchdef;
     String sendurl = fullurl;
+    boolean placed = false;
     if (hosts instanceof List && live) {
       senddef = new LinkedHashMap<>(senddef);
       senddef.put("redirect", "manual");
@@ -738,10 +739,13 @@ public class Station {
       sendurl = sent.url;
       senddef = new LinkedHashMap<>(senddef);
       senddef.put("headers", sent.headers);
+      placed = !sendurl.equals(fullurl);
       Object defurl = senddef.get("url");
       if (defurl instanceof String) {
-        senddef.put("url",
-            SecretBroker.substitute((String) defurl, null, placeholder, value).url);
+        String sentdef =
+            SecretBroker.substitute((String) defurl, null, placeholder, value).url;
+        senddef.put("url", sentdef);
+        placed = placed || !sentdef.equals(defurl);
       }
     }
 
@@ -753,7 +757,7 @@ public class Station {
     } catch (RuntimeException err) {
       emitHttp(name, corr, fullurl, senddef, 0, started, 0);
       emitErr(name, corr, err);
-      throw scrubbed(err, !sendurl.equals(fullurl));
+      throw scrubbed(err, placed);
     }
 
     int status = 0;

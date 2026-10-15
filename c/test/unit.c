@@ -119,6 +119,36 @@ static void test_substitute(void) {
   vxstn_val_free(sent);
 }
 
+/* Every form of every held value is matched against the original text. */
+static void test_scrub_forms(void) {
+  static const char* ORDERS[2][2] = {{"%", "secret!"}, {"secret!", "%"}};
+  vxstn_open_opts opts;
+  vxstn_station* st;
+  char* red;
+  int k;
+
+  memset(&opts, 0, sizeof(opts));
+  opts.proxy = "off";
+
+  for (k = 0; k < 2; k++) {
+    st = vxstn_station_new(&opts, NULL);
+    vxstn_hoist(st, "a", ORDERS[k][0]);
+    vxstn_hoist(st, "b", ORDERS[k][1]);
+    red = vxstn_redact(st, "token=secret%21");
+    CHECK_STR(red, "token=[redacted]");
+    free(red);
+    vxstn_station_free(st);
+  }
+
+  st = vxstn_station_new(&opts, NULL);
+  vxstn_hoist(st, "a", "ab!");
+  vxstn_hoist(st, "b", "!c");
+  red = vxstn_redact(st, "x=ab%21c&y=!c");
+  CHECK_STR(red, "x=[redacted]&y=[redacted]");
+  free(red);
+  vxstn_station_free(st);
+}
+
 static void test_canonical(void) {
   vxstn_val* m = vxstn_map();
   vxstn_val* inner = vxstn_map();
@@ -1365,6 +1395,7 @@ static void test_open_validates(void) {
 int main(void) {
   test_identity();
   test_substitute();
+  test_scrub_forms();
   test_canonical();
   test_parse_json();
   test_events_ring();

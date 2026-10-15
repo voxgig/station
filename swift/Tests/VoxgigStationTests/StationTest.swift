@@ -158,6 +158,22 @@ final class StationTest: XCTestCase {
     }
   }
 
+  func testBrokerScrubMatchesEveryFormAgainstTheOriginalText() {
+    for held in [["%", "secret!"], ["secret!", "%"]] {
+      let broker = SecretBroker(.null)
+      broker.hoist("a", held[0])
+      broker.hoist("b", held[1])
+      XCTAssertEqual(
+        "token=[redacted]", broker.scrub("token=secret%21"), held.joined(separator: " "))
+    }
+    let broker = SecretBroker(.null)
+    broker.hoist("a", "ab!")
+    broker.hoist("b", "!c")
+    XCTAssertEqual(
+      "x=[redacted]&y=[redacted]", broker.scrub("x=ab%21c&y=!c"),
+      "forms that overlap in the text are one span")
+  }
+
   func testBrokerRefusesNonEnvProviderKinds() {
     // Env-only honesty (design 2.2/5.2): a store this port cannot answer
     // from is an ERROR, never a fall-through to a weaker store.
@@ -373,6 +389,29 @@ final class StationTest: XCTestCase {
       XCTAssertTrue(text.contains("[redacted]"), text)
     }
     XCTAssertFalse(eventText(st).contains("tok%21en%201"), "no encoded value in events")
+  }
+
+  func testTransportErrorQuotingOnlyTheFetchdefUrlIsScrubbed() throws {
+    setenv("TEST_PLUG_APIKEY", "tok!en 1", 1)
+    let st = try memStation()
+    let binding = (try bind(st, NSObject()))!.binding
+
+    let url = "http://localhost:8000/api/todo"
+    let defurl = url + "?token=%5Bstation%3Atest-plug%5D"
+    do {
+      let _: Bool = try binding.transport(
+        nil, true, url, "GET", [:],
+        { place, _, _ in
+          _ = place(url)
+          throw WireError(description: "failed: GET " + place(defurl))
+        },
+        { _ in (200, 0) })
+      XCTFail("the transport error must surface")
+    } catch {
+      let text = "\(error)"
+      XCTAssertFalse(text.contains("tok%21en%201"), text)
+      XCTAssertTrue(text.contains("[redacted]"), text)
+    }
   }
 
   func testTransportNoInjectionIntoMocks() throws {

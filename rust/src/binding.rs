@@ -56,15 +56,28 @@ pub struct TransportPlan {
     pub headers: Option<BTreeMap<String, String>>,
     pub manual_redirect: bool,
     placement: Option<(String, String)>,
+    placed: Cell<bool>,
 }
 
 impl TransportPlan {
     /// The URL with the credential placed in its query, when injecting.
     pub fn place(&self, url: &str) -> String {
         match &self.placement {
-            Some((placeholder, value)) => substitute(url, &BTreeMap::new(), placeholder, value).0,
+            Some((placeholder, value)) => {
+                let sent = substitute(url, &BTreeMap::new(), placeholder, value).0;
+                if sent != url {
+                    self.placed.set(true);
+                }
+                sent
+            }
             None => url.to_string(),
         }
+    }
+
+    /// Whether place() put the credential into any URL, so a transport
+    /// error quoting one needs the scrub.
+    pub fn placed(&self) -> bool {
+        self.placed.get()
     }
 }
 
@@ -257,6 +270,7 @@ impl Binding {
             headers: injected,
             manual_redirect: policed,
             placement,
+            placed: Cell::new(false),
         })
     }
 

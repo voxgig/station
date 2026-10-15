@@ -519,6 +519,29 @@ class TestStation < Minitest::Test
     refute_includes JSON.generate(st.events), 'tok%21en%201'
   end
 
+  def test_an_error_quoting_only_the_fetchdef_url_is_scrubbed
+    ENV['GNARLY_PETS_APIKEY'] = 'tok!en 1'
+    url = 'http://localhost:8903/api/pet'
+    defurl = url + '?apikey=%5Bstation%3Agnarly-pets%5D'
+    inners = {
+      'string' => ->(_c, _u, d) { [nil, 'SocketError: GET ' + d['url']] },
+      'raised' => ->(_c, _u, d) { raise IOError, 'failed: GET ' + d['url'] },
+    }
+    inners.each do |shape, inner|
+      st = VoxgigStation::Station.new('config' => nil)
+      b = bind(st, inner)
+      err = begin
+        b[:utility].fetcher.call(b[:ctx], url,
+          'url' => defurl, 'method' => 'GET', 'headers' => {})[1]
+      rescue IOError => e
+        e
+      end
+      message = err.is_a?(String) ? err : err.message
+      refute_includes message, 'tok%21en%201', shape
+      assert_includes message, '[redacted]', shape
+    end
+  end
+
   def test_hosts_policy_denies_off_list_egress
     ENV['GNARLY_PETS_APIKEY'] = 'k'
     st = VoxgigStation::Station.new('config' => {
@@ -1148,6 +1171,31 @@ class TestStation < Minitest::Test
 
     ENV.delete('SHARED_APIKEY')
     assert_equal 'v-1', broker.value('solar$eu', 'shared.apikey')
+  end
+
+  def test_a_held_value_inside_another_held_values_encoded_form
+    [['%', 'secret!'], ['secret!', '%']].each do |held|
+      broker = VoxgigStation::SecretBroker.new([])
+      held.each_with_index { |value, i| broker.hoist("k#{i}", value) }
+      assert_equal 'token=[redacted]', broker.scrub('token=secret%21'), held.join(' ')
+    end
+  end
+
+  def test_forms_that_overlap_in_the_text_are_redacted_as_one_span
+    broker = VoxgigStation::SecretBroker.new([])
+    broker.hoist('a', 'ab!')
+    broker.hoist('b', '!c')
+    assert_equal 'x=[redacted]&y=[redacted]', broker.scrub('x=ab%21c&y=!c')
+  end
+
+  def test_sekretos_own_redact_cannot_hide_an_encoded_form
+    ENV['SCRUB_APIKEY'] = 'abcd'
+    broker = VoxgigStation::SecretBroker.new([{ 'kind' => 'env' }])
+    assert_equal 'abcd', broker.value('scrub', 'scrub.apikey')
+    broker.hoist('other', 'abcd!x')
+    assert_equal 'k=[redacted]', broker.scrub('k=abcd%21x')
+  ensure
+    ENV.delete('SCRUB_APIKEY')
   end
 
   # --- block_for, policy, options ---

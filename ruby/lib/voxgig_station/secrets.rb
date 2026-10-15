@@ -56,9 +56,9 @@ module VoxgigStation
     end
 
     q = url.index('?')
-    return { 'url' => url, 'headers' => out } if q.nil?
+    hash_at = url.index('#')
+    return { 'url' => url, 'headers' => out } if q.nil? || (!hash_at.nil? && hash_at < q)
 
-    hash_at = url.index('#', q)
     stop = hash_at.nil? ? url.length : hash_at
     encoded = encode_query_value(value)
     query = +''
@@ -74,6 +74,39 @@ module VoxgigStation
       end
     end
     { 'url' => url[0..q] + query + url[stop..], 'headers' => out }
+  end
+
+  # Every form of every value is matched against the original text and the
+  # union of the matches redacted, so no replacement can hide another form.
+  # Bytes, not characters: indexing a multibyte string by character is linear.
+  def redact_values(text, values)
+    forms = values.map(&:to_s).reject(&:empty?).flat_map { |v| [v.b, encode_query_value(v).b] }.uniq
+    bytes = text.b
+    reach = lambda do |at|
+      forms.reduce(at) do |stop, form|
+        size = form.bytesize
+        at + size > stop && bytes.byteslice(at, size) == form ? at + size : stop
+      end
+    end
+
+    out = String.new(encoding: Encoding::BINARY)
+    copied = 0
+    at = 0
+    while at < bytes.bytesize
+      stop = reach.call(at)
+      if stop == at
+        at += 1
+        next
+      end
+      j = at + 1
+      while j < stop
+        stop = [stop, reach.call(j)].max
+        j += 1
+      end
+      out << bytes.byteslice(copied, at - copied) << '[redacted]'
+      copied = at = stop
+    end
+    (out << bytes.byteslice(copied, bytes.bytesize - copied)).force_encoding(text.encoding)
   end
 
   class SecretBroker
@@ -139,19 +172,12 @@ module VoxgigStation
     # Exact-value scrub, deliberately WITHOUT sekreto's four-character
     # readability floor (design station.md 7 as revised): on boundaries
     # where the promise is absolute, every held value is scrubbed
-    # whatever its length. sekreto's own redact() runs too, covering
-    # values resolved by the underlying instance that station never held.
+    # whatever its length. sekreto's own redact() runs after, covering
+    # values resolved by the underlying instance that station never held;
+    # run first, its raw-value replacement could split an encoded form.
     def scrub(text)
-      out = @sekreto.redact(text.to_s)
       held = @mutex.synchronize { @held.dup }
-      held.each do |value|
-        next if '' == value.to_s
-
-        out = out.split(value, -1).join('[redacted]')
-        encoded = VoxgigStation.encode_query_value(value)
-        out = out.split(encoded, -1).join('[redacted]') unless encoded == value
-      end
-      out
+      @sekreto.redact(VoxgigStation.redact_values(text.to_s, held))
     end
 
     # Drop caches so the next resolve asks the stores again (rotation

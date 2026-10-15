@@ -94,11 +94,11 @@ namespace Voxgig.Station
             }
 
             int q = url.IndexOf('?');
-            if (0 > q)
+            int hash = url.IndexOf('#');
+            if (0 > q || (0 <= hash && hash < q))
             {
                 return new Substituted(url, out_);
             }
-            int hash = url.IndexOf('#', q);
             int end = 0 > hash ? url.Length : hash;
             string encoded = EncodeQueryValue(value);
             var query = new StringBuilder();
@@ -118,6 +118,58 @@ namespace Voxgig.Station
             }
             return new Substituted(
                 url.Substring(0, q + 1) + query.ToString() + url.Substring(end), out_);
+        }
+
+        // Every form of every value is matched against the original text and
+        // the union of the matches redacted, so no replacement can hide
+        // another form.
+        private static string RedactValues(string text, List<string> values)
+        {
+            var forms = new List<string>();
+            foreach (string value in values)
+            {
+                if (0 != value.Length)
+                {
+                    forms.Add(value);
+                    forms.Add(EncodeQueryValue(value));
+                }
+            }
+            var out_ = new StringBuilder();
+            for (int i = 0; i < text.Length;)
+            {
+                int stop = Reach(text, i, forms);
+                if (stop == i)
+                {
+                    out_.Append(text[i]);
+                    i++;
+                    continue;
+                }
+                for (int j = i + 1; j < stop; j++)
+                {
+                    int end = Reach(text, j, forms);
+                    if (end > stop)
+                    {
+                        stop = end;
+                    }
+                }
+                out_.Append("[redacted]");
+                i = stop;
+            }
+            return out_.ToString();
+        }
+
+        private static int Reach(string text, int at, List<string> forms)
+        {
+            int end = at;
+            foreach (string form in forms)
+            {
+                if (at + form.Length > end && at + form.Length <= text.Length
+                    && 0 == string.CompareOrdinal(text, at, form, 0, form.Length))
+                {
+                    end = at + form.Length;
+                }
+            }
+            return end;
         }
 
         private static int MatchAt(string text, int at, int end, string placeholder)
@@ -268,27 +320,15 @@ namespace Voxgig.Station
         /// Exact-value scrub, deliberately WITHOUT sekreto's four-character
         /// readability floor (design 7 as revised): on boundaries where the
         /// promise is absolute, every held value is scrubbed whatever its
-        /// length. sekreto's own Redact() runs too, covering values resolved
-        /// by the underlying instance that station never held.
+        /// length. sekreto's own Redact() runs after, covering values resolved
+        /// by the underlying instance that station never held; run first, its
+        /// raw-value replacement could split an encoded form.
         /// </summary>
         public string Scrub(string text)
         {
             lock (gate)
             {
-                string out_ = sekreto.Redact(text ?? "");
-                foreach (string value in held)
-                {
-                    if (0 != value.Length)
-                    {
-                        out_ = out_.Replace(value, "[redacted]");
-                        string encoded = EncodeQueryValue(value);
-                        if (encoded != value)
-                        {
-                            out_ = out_.Replace(encoded, "[redacted]");
-                        }
-                    }
-                }
-                return out_;
+                return sekreto.Redact(RedactValues(text ?? "", held));
             }
         }
 

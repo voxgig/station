@@ -346,7 +346,7 @@ defmodule Voxgig.Station.Adapter do
       # fetchdef by reference, so the fetchdef (headers included) is
       # cloned before the swap - the object graph reachable from
       # ctx/spec/ctrl keeps the placeholder, ever (station.md 5.3).
-      {senddef, sendurl} =
+      {senddef, sendurl, placed} =
         if live and nil != entry and "R1" == entry.rung do
           value =
             case Station.secret_value(station, slug) do
@@ -368,19 +368,22 @@ defmodule Voxgig.Station.Adapter do
 
           defurl = S.getprop(d, "url")
 
-          if is_binary(defurl) do
-            {url, _} = Secrets.substitute(defurl, nil, placeholder, value)
-            S.setprop(d, "url", url)
-          end
+          defplaced =
+            if is_binary(defurl) do
+              {url, _} = Secrets.substitute(defurl, nil, placeholder, value)
+              S.setprop(d, "url", url)
+              url != defurl
+            else
+              false
+            end
 
-          {d, sendurl}
+          {d, sendurl, sendurl != fullurl or defplaced}
         else
-          {senddef, fullurl}
+          {senddef, fullurl, false}
         end
 
       method = S.getprop(senddef, "method")
       started = Station.now_ms()
-      placed = sendurl != fullurl
 
       {res, err} =
         try do

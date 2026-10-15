@@ -893,6 +893,31 @@ public final class StationTest {
           "the override is keyed by instance");
     });
 
+    testcase("broker: a held value inside another held value's encoded form", () -> {
+      for (List<String> held : List.of(List.of("%", "secret!"), List.of("secret!", "%"))) {
+        SecretBroker broker = new SecretBroker(List.of());
+        for (int i = 0; i < held.size(); i++) {
+          broker.hoist("k" + i, held.get(i));
+        }
+        checkeq(broker.scrub("token=secret%21"), "token=[redacted]", String.join(" ", held));
+      }
+    });
+
+    testcase("broker: forms that overlap in the text are redacted as one span", () -> {
+      SecretBroker broker = new SecretBroker(List.of());
+      broker.hoist("a", "ab!");
+      broker.hoist("b", "!c");
+      checkeq(broker.scrub("x=ab%21c&y=!c"), "x=[redacted]&y=[redacted]", "one span");
+    });
+
+    testcase("broker: sekreto's own redact cannot hide an encoded form", () -> {
+      SecretBroker broker = new SecretBroker(List.of(
+          map("kind", "memory", "values", map("SCRUB_APIKEY", "abcd"))));
+      checkeq(broker.value("scrub", "scrub.apikey"), "abcd", "resolves");
+      broker.hoist("other", "abcd!x");
+      checkeq(broker.scrub("k=abcd%21x"), "k=[redacted]", "sekreto runs second");
+    });
+
     testcase("open: idempotent ambient, conflicting reopen fails", () -> {
       Station.reset();
       try {
@@ -1059,6 +1084,24 @@ public final class StationTest {
       check(caught.getMessage().contains("[redacted]"), caught.getMessage());
       check(!Json.stringify(st.events()).contains("tok%21en%201"),
           "no encoded value in events");
+    });
+
+    testcase("transport: an error quoting only the fetchdef url is scrubbed", () -> {
+      Station st = memoryStation(map("TEST_PLUG_APIKEY", "tok!en 1"), null);
+      bind(st, new Object(), st.options(map()));
+
+      RuntimeException caught = null;
+      try {
+        st.transport("test-plug", "http://localhost:8000/api/todo",
+            map("url", queryurl, "headers", map()), true, null, (url, def) -> {
+              throw new IllegalStateException("failed: GET " + def.get("url"));
+            });
+      } catch (RuntimeException err) {
+        caught = err;
+      }
+      check(null != caught, "the transport error surfaces");
+      check(!caught.getMessage().contains("tok%21en%201"), caught.getMessage());
+      check(caught.getMessage().contains("[redacted]"), caught.getMessage());
     });
 
     testcase("transport: no injection into mock transports", () -> {

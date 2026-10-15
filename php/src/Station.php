@@ -632,6 +632,7 @@ class Station
 
         $senddef = $fetchdef;
         $sendurl = $fullurl;
+        $placed = false;
         if (is_array($hosts) && $live) {
             $senddef['redirect'] = 'manual';
         }
@@ -667,8 +668,11 @@ class Station
                 $placeholder, $value);
             $sendurl = $sent['url'];
             $senddef['headers'] = $sent['headers'];
-            if (is_string($senddef['url'] ?? null)) {
-                $senddef['url'] = substitute($senddef['url'], null, $placeholder, $value)['url'];
+            $placed = $sendurl !== $fullurl;
+            $defurl = $senddef['url'] ?? null;
+            if (is_string($defurl)) {
+                $senddef['url'] = substitute($defurl, null, $placeholder, $value)['url'];
+                $placed = $placed || $senddef['url'] !== $defurl;
             }
         }
 
@@ -681,13 +685,13 @@ class Station
         } catch (\Throwable $e) {
             $this->emit_http($name, $corr, $fullurl, $senddef, 0, $started, 0);
             $this->emit_err($name, $fctx, $e);
-            throw $this->scrubbed($e, $sendurl !== $fullurl);
+            throw $this->scrubbed($e, $placed);
         }
 
         if (null !== $err) {
             $this->emit_http($name, $corr, $fullurl, $senddef, 0, $started, 0);
             $this->emit_err($name, $fctx, $err);
-            return [$res, $this->scrubbed($err, $sendurl !== $fullurl)];
+            return [$res, $this->scrubbed($err, $placed)];
         }
 
         $status = is_array($res) && is_numeric($res['status'] ?? null)
@@ -706,7 +710,7 @@ class Station
                     'plugin' => $name, 'api' => refapi($name), 'corr' => $corr,
                     'err' => ['message' => $this->redact($message)]]);
             }
-            return [$this->scrubbed_response($res, $sendurl !== $fullurl), $err];
+            return [$this->scrubbed_response($res, $placed), $err];
         }
 
         $bytes = 0;

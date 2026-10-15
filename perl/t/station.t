@@ -682,6 +682,40 @@ subtest 'a transport error quoting the URL is scrubbed' => sub {
     ok( 0 <= index( $died, '[redacted]' ), 'and marked' );
 };
 
+subtest 'an error quoting only the fetchdef url is scrubbed' => sub {
+    reset_env();
+    local $ENV{GNARLY_PETS_APIKEY} = 'tok!en 1';
+    my $fetch = sub {
+        my ($b) = @_;
+        return $b->{utility}{fetcher}->(
+            $b->{ctx},
+            'http://localhost:8903/api/pet',
+            { url => $QUERY_URL, method => 'GET', headers => {} }
+        );
+    };
+
+    my ( undef, $err ) = $fetch->(
+        bind_client(
+            Voxgig::Station->new( { config => undef } ),
+            sub { return ( undef, 'failed: GET ' . $_[2]{url} ) }
+        )
+    );
+    ok( 0 > index( $err, 'tok%21en%201' ), 'a returned string is scrubbed' );
+    ok( 0 <= index( $err, '[redacted]' ), 'and marked' );
+
+    eval {
+        $fetch->(
+            bind_client(
+                Voxgig::Station->new( { config => undef } ),
+                sub { die 'failed: GET ' . $_[2]{url} . "\n" }
+            )
+        );
+    };
+    my $died = $@;
+    ok( 0 > index( $died, 'tok%21en%201' ), 'a thrown error is scrubbed' );
+    ok( 0 <= index( $died, '[redacted]' ), 'and marked' );
+};
+
 subtest 'a status-0 response after a placement is scrubbed' => sub {
     reset_env();
     local $ENV{GNARLY_PETS_APIKEY} = 'tok!en 1';
@@ -1335,6 +1369,29 @@ subtest 'the broker caches by secret name, not by instance' => sub {
     # store round-trip turned into 26.
     is( $st->{broker}->value( 'b', 'shared.apikey' ), 'once',
         'a second instance of one name is a cache hit' );
+};
+
+subtest 'a held value inside another held value encoded form' => sub {
+    for my $held ( [ '%', 'secret!' ], [ 'secret!', '%' ] ) {
+        my $broker = Voxgig::Station::SecretBroker->new( [] );
+        $broker->hoist( "k$_", $held->[$_] ) for 0 .. $#$held;
+        is( $broker->scrub('token=secret%21'), 'token=[redacted]', "@$held" );
+    }
+};
+
+subtest 'forms that overlap in the text are redacted as one span' => sub {
+    my $broker = Voxgig::Station::SecretBroker->new( [] );
+    $broker->hoist( 'a', 'ab!' );
+    $broker->hoist( 'b', '!c' );
+    is( $broker->scrub('x=ab%21c&y=!c'), 'x=[redacted]&y=[redacted]', 'one span' );
+};
+
+subtest 'sekreto own redact cannot hide an encoded form' => sub {
+    local $ENV{SCRUB_APIKEY} = 'abcd';
+    my $broker = Voxgig::Station::SecretBroker->new( [ { kind => 'env' } ] );
+    is( $broker->value( 'scrub', 'scrub.apikey' ), 'abcd', 'resolves' );
+    $broker->hoist( 'other', 'abcd!x' );
+    is( $broker->scrub('k=abcd%21x'), 'k=[redacted]', 'sekreto runs second' );
 };
 
 subtest 'policy allowlists reach the SDK own options' => sub {

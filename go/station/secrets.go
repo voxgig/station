@@ -75,12 +75,13 @@ func Substitute(fullurl string, headers map[string]any, placeholder string,
 	}
 
 	q := strings.IndexByte(fullurl, '?')
-	if "" == placeholder || -1 == q {
+	hash := strings.IndexByte(fullurl, '#')
+	if "" == placeholder || -1 == q || (-1 != hash && hash < q) {
 		return fullurl, out
 	}
 	end := len(fullurl)
-	if hash := strings.IndexByte(fullurl[q:], '#'); -1 != hash {
-		end = q + hash
+	if -1 != hash {
+		end = hash
 	}
 	encoded := EncodeQueryValue(value)
 	var query strings.Builder
@@ -94,6 +95,45 @@ func Substitute(fullurl string, headers map[string]any, placeholder string,
 		}
 	}
 	return fullurl[:q+1] + query.String() + fullurl[end:], out
+}
+
+// redactValues matches every form of every value against the original
+// text and redacts the union of the matches, so no replacement can hide
+// another form.
+func redactValues(text string, values []string) string {
+	forms := []string{}
+	for _, value := range values {
+		if "" != value {
+			forms = append(forms, value, EncodeQueryValue(value))
+		}
+	}
+	reach := func(at int) int {
+		end := at
+		for _, form := range forms {
+			if at+len(form) > end && strings.HasPrefix(text[at:], form) {
+				end = at + len(form)
+			}
+		}
+		return end
+	}
+
+	var out strings.Builder
+	for i := 0; i < len(text); {
+		stop := reach(i)
+		if stop == i {
+			out.WriteByte(text[i])
+			i++
+			continue
+		}
+		for j := i + 1; j < stop; j++ {
+			if end := reach(j); end > stop {
+				stop = end
+			}
+		}
+		out.WriteString("[redacted]")
+		i = stop
+	}
+	return out.String()
 }
 
 type secretBroker struct {
@@ -167,16 +207,8 @@ func (broker *secretBroker) scrub(text string) string {
 	broker.mu.Lock()
 	defer broker.mu.Unlock()
 
-	out := broker.sek.Redact(text)
-	for _, value := range broker.held {
-		if "" != value {
-			out = strings.Join(strings.Split(out, value), "[redacted]")
-			if encoded := EncodeQueryValue(value); encoded != value {
-				out = strings.Join(strings.Split(out, encoded), "[redacted]")
-			}
-		}
-	}
-	return out
+	// sekreto's Redact runs second; run first, it could split an encoded form.
+	return broker.sek.Redact(redactValues(text, broker.held))
 }
 
 // refresh drops caches so the next resolve asks the stores again

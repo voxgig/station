@@ -356,6 +356,7 @@ class Station {
 
     dynamic senddef = fetchdef;
     dynamic sendurl = fullurl;
+    var placed = false;
     if (null != hosts && live) {
       senddef = _copyFetchdef(senddef);
       senddef['redirect'] = 'manual';
@@ -387,9 +388,11 @@ class Station {
           substitute(fullurl.toString(), senddef['headers'], placeholder, value);
       sendurl = sent.url;
       senddef['headers'] = sent.headers;
+      placed = sendurl != fullurl;
       final defurl = senddef['url'];
       if (defurl is String) {
         senddef['url'] = substitute(defurl, null, placeholder, value).url;
+        placed = placed || senddef['url'] != defurl;
       }
     }
 
@@ -402,7 +405,7 @@ class Station {
     } catch (e, stack) {
       _emitHttp(slug, corr, fullurl, senddef, 0, started, 0);
       _emitErr(slug, fctx, e);
-      final clean = _scrubbed(e, sendurl != fullurl);
+      final clean = _scrubbed(e, placed);
       if (identical(clean, e)) {
         rethrow;
       }
@@ -412,7 +415,7 @@ class Station {
     if (res is Error || res is Exception) {
       _emitHttp(slug, corr, fullurl, senddef, 0, started, 0);
       _emitErr(slug, fctx, res);
-      return _scrubbed(res, sendurl != fullurl);
+      return _scrubbed(res, placed);
     }
 
     var bytes = 0;

@@ -179,6 +179,22 @@ int main(int argc, char** argv) {
     unsetenv("UNIT_SCRUB_APIKEY");
   });
 
+  testcase("broker-scrub-matches-every-form-against-the-original-text", [] {
+    vs::Jval none = vs::parse_json("[]");
+    const std::vector<std::vector<std::string>> orders = {{"%", "secret!"}, {"secret!", "%"}};
+    for (const auto& held : orders) {
+      vs::SecretBroker broker(none);
+      broker.hoist("a", held[0]);
+      broker.hoist("b", held[1]);
+      checkeq(broker.scrub("token=secret%21"), "token=[redacted]", held[0] + " " + held[1]);
+    }
+    vs::SecretBroker broker(none);
+    broker.hoist("a", "ab!");
+    broker.hoist("b", "!c");
+    checkeq(broker.scrub("x=ab%21c&y=!c"), "x=[redacted]&y=[redacted]",
+            "forms that overlap in the text are one span");
+  });
+
   testcase("substitute-copies-headers-and-passes-non-strings", [] {
     vs::Jval headers = vs::parse_json(R"({ "x-api-key": "[station:k]", "content-length": 12 })");
     vs::Substituted sent =

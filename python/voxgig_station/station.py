@@ -559,6 +559,7 @@ class Station:
 
         senddef = fetchdef
         sendurl = fullurl
+        placed = False
         if hosts is not None and live:
             senddef = dict(senddef or {})
             senddef['redirect'] = 'manual'
@@ -591,14 +592,15 @@ class Station:
                               placeholder, value)
             sendurl = sent['url']
             senddef['headers'] = sent['headers']
-            if isinstance(senddef.get('url'), str):
+            defurl = senddef.get('url')
+            if isinstance(defurl, str):
                 senddef['url'] = substitute(
-                    senddef['url'], None, placeholder, value)['url']
+                    defurl, None, placeholder, value)['url']
+            placed = sendurl != fullurl or senddef.get('url') != defurl
 
         st = getattr(fctx, '_station', None) or {}
         corr = st.get('corr')
         started = _now_ms()
-        placed = sendurl != fullurl
 
         try:
             res, err = inner(fctx, sendurl, senddef)

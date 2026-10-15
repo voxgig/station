@@ -72,10 +72,11 @@ public final class SecretBroker {
     }
 
     let bytes = Array(url.utf8)
-    guard let q = bytes.firstIndex(of: 0x3F) else {
+    let hash = bytes.firstIndex(of: 0x23)
+    guard let q = bytes.firstIndex(of: 0x3F), hash.map({ q < $0 }) ?? true else {
       return (url: url, headers: out)
     }
-    let end = bytes[(q + 1)...].firstIndex(of: 0x23) ?? bytes.count
+    let end = hash ?? bytes.count
     let find = Array(placeholder.utf8)
     let encoded = Array(encodeQueryValue(value).utf8)
     var sent = Array(bytes[...q])
@@ -248,19 +249,44 @@ public final class SecretBroker {
   /// promise is absolute, every held value is scrubbed whatever its
   /// length. There is no sekreto instance underneath this env-only
   /// broker, so the held list is the complete set of values ever
-  /// resolved or hoisted - nothing more to delegate to.
+  /// resolved or hoisted - nothing more to delegate to. Every form is
+  /// matched against the original text and the union of the matches
+  /// redacted, so no replacement can hide another form.
   public func scrub(_ text: String) -> String {
     gate.lock()
     defer { gate.unlock() }
-    var out = text
-    for value in held where !value.isEmpty {
-      out = out.replacingOccurrences(of: value, with: "[redacted]")
-      let encoded = SecretBroker.encodeQueryValue(value)
-      if encoded != value {
-        out = out.replacingOccurrences(of: encoded, with: "[redacted]")
-      }
+    let forms: [[UInt8]] = held.filter { !$0.isEmpty }.flatMap {
+      [Array($0.utf8), Array(SecretBroker.encodeQueryValue($0).utf8)]
     }
-    return out
+    let bytes = Array(text.utf8)
+    func reach(_ at: Int) -> Int {
+      var end = at
+      for form in forms where at + form.count > end && at + form.count <= bytes.count {
+        if bytes[at..<(at + form.count)].elementsEqual(form) {
+          end = at + form.count
+        }
+      }
+      return end
+    }
+
+    var out: [UInt8] = []
+    var i = 0
+    while i < bytes.count {
+      var stop = reach(i)
+      if stop == i {
+        out.append(bytes[i])
+        i += 1
+        continue
+      }
+      var j = i + 1
+      while j < stop {
+        stop = max(stop, reach(j))
+        j += 1
+      }
+      out += Array("[redacted]".utf8)
+      i = stop
+    }
+    return String(decoding: out, as: UTF8.self)
   }
 
   /// Drop the cache so the next resolve asks the stores again (rotation

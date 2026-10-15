@@ -1058,16 +1058,15 @@ static size_t query_match(const char* url, size_t at, size_t end, const char* pl
 
 static char* substitute_query(const char* url, const char* placeholder, const char* value) {
   const char* q = strchr(url, '?');
-  const char* hash;
+  const char* hash = strchr(url, '#');
   size_t end;
   size_t i;
   char* encoded;
   vxstn_sb sb;
 
-  if (NULL == q) {
+  if (NULL == q || (NULL != hash && hash < q)) {
     return vxstn_sdup(url);
   }
-  hash = strchr(q, '#');
   end = NULL == hash ? strlen(url) : (size_t)(hash - url);
   encoded = vxstn_encode_query_value(value);
   vxstn_sb_init(&sb);
@@ -2024,28 +2023,63 @@ static const char* broker_value(vxstn_broker* b, const char* slug,
   return kv_get(b->cache, b->ncache, name);
 }
 
+/* The furthest end of any form matching at text[at], or `at` for none. */
+static size_t scrub_reach(const char* text, size_t at, char** forms, size_t nforms) {
+  size_t end = at;
+  size_t k;
+  for (k = 0; k < nforms; k++) {
+    size_t len = strlen(forms[k]);
+    if (at + len > end && 0 == strncmp(text + at, forms[k], len)) {
+      end = at + len;
+    }
+  }
+  return end;
+}
+
 /* Exact-value scrub, deliberately WITHOUT sekreto's four-character
  * readability floor (design 7 as revised): on boundaries where the
  * promise is absolute, every held value is scrubbed whatever its
- * length, as is the form a query placement sends. Owned result. */
+ * length, as is the form a query placement sends. Every form is matched
+ * against the original text and the union of the matches redacted, so no
+ * replacement can hide another form. Owned result. */
 static char* broker_scrub(vxstn_broker* b, const char* text) {
-  char* out = vxstn_sdup(text);
+  char** forms = (char**)malloc((2 * b->nheld + 1) * sizeof(char*));
+  size_t nforms = 0;
+  size_t size = strlen(text);
   size_t i;
+  vxstn_sb sb;
+
   for (i = 0; i < b->nheld; i++) {
     if ('\0' != b->held[i][0]) {
-      char* encoded = vxstn_encode_query_value(b->held[i]);
-      char* next = replaceall(out, b->held[i], "[redacted]");
-      free(out);
-      out = next;
-      if (0 != strcmp(encoded, b->held[i])) {
-        next = replaceall(out, encoded, "[redacted]");
-        free(out);
-        out = next;
-      }
-      free(encoded);
+      forms[nforms++] = vxstn_sdup(b->held[i]);
+      forms[nforms++] = vxstn_encode_query_value(b->held[i]);
     }
   }
-  return out;
+
+  vxstn_sb_init(&sb);
+  for (i = 0; i < size;) {
+    size_t stop = scrub_reach(text, i, forms, nforms);
+    size_t j;
+    if (stop == i) {
+      vxstn_sb_putc(&sb, text[i]);
+      i++;
+      continue;
+    }
+    for (j = i + 1; j < stop; j++) {
+      size_t end = scrub_reach(text, j, forms, nforms);
+      if (end > stop) {
+        stop = end;
+      }
+    }
+    vxstn_sb_put(&sb, "[redacted]");
+    i = stop;
+  }
+
+  for (i = 0; i < nforms; i++) {
+    free(forms[i]);
+  }
+  free(forms);
+  return sb.buf;
 }
 
 static void broker_refresh(vxstn_broker* b) {
