@@ -808,6 +808,19 @@ class TestStation < Minitest::Test
     assert_equal [], VoxgigStation.check_features({ 'ratelimit' => { 'rat' => 5 } }, d)
   end
 
+  def test_a_native_callable_is_a_function_option
+    d = { 'features' => [{
+      'name' => 'retry', 'active' => false, 'options' => { 'active' => false },
+      'optspec' => { 'sleep' => '`$FUNCTION`', 'label' => '`$STRING`' }, 'strict' => false,
+    }] }
+    [proc { |ms| ms }, ->(ms) { ms }, 1.method(:+)].each do |sleep|
+      assert_equal [], VoxgigStation.check_features({ 'retry' => { 'sleep' => sleep } }, d),
+                   sleep.class.name
+    end
+    assert_equal 1, VoxgigStation.check_features({ 'retry' => { 'sleep' => 'fast' } }, d).length
+    assert_equal 1, VoxgigStation.check_features({ 'retry' => { 'label' => -> {} } }, d).length
+  end
+
   def test_an_optspec_key_is_declared_and_type_checked
     d = { 'features' => [{
       'name' => 'test', 'active' => false, 'options' => { 'active' => false },

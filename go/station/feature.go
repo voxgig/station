@@ -2,6 +2,7 @@ package station
 
 import (
 	"fmt"
+	"reflect"
 	"regexp"
 	"sort"
 	"strings"
@@ -530,6 +531,9 @@ func featurekind(val any) string {
 	}
 	if _, is := tonum(val); is {
 		return "number"
+	}
+	if reflect.Func == reflect.ValueOf(val).Kind() {
+		return "function"
 	}
 	return "map"
 }

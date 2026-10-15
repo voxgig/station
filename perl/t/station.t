@@ -987,6 +987,28 @@ subtest 'feature options: optspec keys, kinds, and strict' => sub {
     is( scalar @$faults, 1, 'a strict feature refuses an undeclared key' );
 };
 
+subtest 'a native callable is a function option' => sub {
+    my $d = {
+        features => [
+            {
+                name    => 'retry',
+                active  => JSON::PP::false,
+                options => { active => JSON::PP::false },
+                optspec => { sleep => '`$FUNCTION`', label => '`$STRING`' },
+                strict  => JSON::PP::false,
+            }
+        ]
+    };
+    is_deeply( checkfeatures( { retry => { sleep => sub { return; } } }, $d ),
+        [], 'an anonymous sub' );
+    is_deeply( checkfeatures( { retry => { sleep => \&reset_env } }, $d ),
+        [], 'a named sub' );
+    is( scalar @{ checkfeatures( { retry => { sleep => 'fast' } }, $d ) },
+        1, 'a string is not a function' );
+    is( scalar @{ checkfeatures( { retry => { label => sub { return; } } }, $d ) },
+        1, 'a sub is not a string' );
+};
+
 subtest 'sdk() takes the test feature options its optspec declares' => sub {
     reset_env();
     my $config = {

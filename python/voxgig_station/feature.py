@@ -345,7 +345,7 @@ def _speckinds(spec):
 def _json(v):
     # JSON.stringify's spacing, so the pinned messages read the same in
     # every port.
-    return json.dumps(v, ensure_ascii=False, separators=(',', ':'))
+    return json.dumps(v, ensure_ascii=False, separators=(',', ':'), default=repr)
 
 
 def _kindof(v):
@@ -363,6 +363,8 @@ def _kindof(v):
         return 'map'
     if isinstance(v, str):
         return 'string'
+    if callable(v):
+        return 'function'
     return type(v).__name__.lower()
 
 

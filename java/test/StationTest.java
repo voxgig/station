@@ -804,6 +804,27 @@ public final class StationTest {
           0, "no strict reads as false");
     });
 
+    testcase("feature options: a native callable is a function option", () -> {
+      Map<String, Object> d = map("features", List.of(map(
+          "name", "retry", "active", false, "options", map("active", false),
+          "optspec", map("sleep", "`$FUNCTION`", "label", "`$STRING`"), "strict", false)));
+      java.util.function.Function<Integer, Integer> lambda = ms -> ms;
+      java.util.function.Supplier<String> reference = String::new;
+      java.util.function.Consumer<Map<String, Object>> sink = record -> {};
+      Runnable anonymous = new Runnable() {
+        @Override
+        public void run() {}
+      };
+      for (Object sleep : List.of(lambda, reference, sink, anonymous)) {
+        checkeq(Feature.checkfeatures(map("retry", map("sleep", sleep)), d).size(), 0,
+            "a callable: " + sleep.getClass().getName());
+      }
+      checkeq(Feature.checkfeatures(map("retry", map("sleep", "fast")), d).size(), 1,
+          "a string is not a function");
+      checkeq(Feature.checkfeatures(map("retry", map("label", lambda)), d).size(), 1,
+          "a function is not a string");
+    });
+
     testcase("front door: sdk() takes the test feature options its optspec declares", () -> {
       Factory.resetFactories();
       try {

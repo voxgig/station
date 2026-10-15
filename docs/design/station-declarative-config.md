@@ -1746,7 +1746,14 @@ declaration*:
   admits each alternative's kind and `` [`$EXACT`, …] `` the kinds of
   its values, the values themselves being the SDK's to check.
   `` `$ANY` ``, and a token station does not know, admit everything, so
-  a token sdkgen adds later is never a refusal.
+  a token sdkgen adds later is never a refusal. A function is the
+  port's own callable: anything `callable` in Python, a Proc, lambda or
+  Method in Ruby, a func in Go, a lambda, method reference or
+  functional-interface object in Java (the generated features take a
+  `Consumer` or a `Supplier` as readily as a `Function`), a CODE ref in
+  Perl, and a `Closure` in PHP, where a callable *string* stays a
+  string, as struct's PHP `typify` has it. The C, C++ and Rust checkers
+  see configuration as JSON, which carries no function.
 
 **Compound options are checked to kind only, and that limit is real.**
 A default establishes that `statuses` is a list and `noProxy` is a

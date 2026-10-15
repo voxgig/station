@@ -515,6 +515,9 @@ function kindof_feature(mixed $val): string
     if (null === $val) {
         return 'null';
     }
+    if ($val instanceof \Closure) {
+        return 'function';
+    }
     if (is_listv($val)) {
         return 'list';
     }

@@ -544,6 +544,36 @@ public final class Feature {
     if (val instanceof String) {
       return "string";
     }
+    if (isfunction(val)) {
+      return "function";
+    }
     return val.getClass().getSimpleName().toLowerCase();
+  }
+
+  // A lambda or method reference has a synthetic class, whatever interface it implements.
+  private static boolean isfunction(Object val) {
+    if (val.getClass().isSynthetic()) {
+      return true;
+    }
+    for (Class<?> c = val.getClass(); null != c; c = c.getSuperclass()) {
+      for (Class<?> face : c.getInterfaces()) {
+        if (functional(face)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  private static boolean functional(Class<?> face) {
+    if (face.isAnnotationPresent(FunctionalInterface.class)) {
+      return true;
+    }
+    for (Class<?> parent : face.getInterfaces()) {
+      if (functional(parent)) {
+        return true;
+      }
+    }
+    return false;
   }
 }

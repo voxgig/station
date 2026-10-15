@@ -374,6 +374,7 @@ module VoxgigStation
     return 'number' if v.is_a?(Numeric)
     return 'map' if v.is_a?(Hash)
     return 'string' if v.is_a?(String)
+    return 'function' if v.respond_to?(:call)
 
     v.class.name.to_s.downcase
   end

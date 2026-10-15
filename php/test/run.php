@@ -1523,6 +1523,19 @@ testcase('an_optspec_key_is_declared_and_type_checked', function () {
         $faults[0]['message']);
 });
 
+testcase('a_native_callable_is_a_function_option', function () {
+    $d = ['features' => [['name' => 'retry', 'active' => false,
+        'options' => ['active' => false],
+        'optspec' => ['sleep' => '`$FUNCTION`', 'label' => '`$STRING`'], 'strict' => false]]];
+    foreach ([fn($ms) => $ms, function ($ms) { return $ms; }, strlen(...), \Closure::fromCallable('strlen')] as $sleep) {
+        eq([], check_features(['retry' => ['sleep' => $sleep]], $d));
+    }
+    eq(1, count(check_features(['retry' => ['sleep' => 'fast']], $d)));
+    // A callable string is a string, as struct's typify has it.
+    eq([], check_features(['retry' => ['label' => 'strlen']], $d));
+    eq(1, count(check_features(['retry' => ['label' => fn() => null]], $d)));
+});
+
 testcase('sdk_takes_the_test_feature_options_its_optspec_declares', function () {
     $config = SDKCONFIG;
     $config['main']['slug'] = 'joplin';

@@ -798,6 +798,29 @@ func TestOptionsNamesTheInstanceFromATopLevelInstanceOrAs(t *testing.T) {
 	}
 }
 
+func TestCheckFeaturesTakesAFuncAsAFunction(t *testing.T) {
+	descriptor := map[string]any{"features": []any{map[string]any{
+		"name": "retry", "active": false,
+		"options": map[string]any{"active": false},
+		"optspec": map[string]any{"sleep": "`$FUNCTION`", "label": "`$STRING`"},
+		"strict":  false,
+	}}}
+	check := func(key string, val any) []station.Fault {
+		return station.CheckFeatures(map[string]any{"retry": map[string]any{key: val}}, descriptor)
+	}
+	for _, sleep := range []any{func(int) {}, strings.ToUpper, (&strings.Builder{}).WriteString} {
+		if faults := check("sleep", sleep); 0 != len(faults) {
+			t.Fatalf("%T: %v", sleep, faults)
+		}
+	}
+	if faults := check("sleep", "fast"); 1 != len(faults) {
+		t.Fatalf("a string is not a function: %v", faults)
+	}
+	if faults := check("label", func() {}); 1 != len(faults) {
+		t.Fatalf("a function is not a string: %v", faults)
+	}
+}
+
 func TestPolicyAllowlistReachesTheSDKOptions(t *testing.T) {
 	provideFake(t, "fakepad", nil)
 	st := declarative(t, map[string]any{

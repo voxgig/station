@@ -447,6 +447,7 @@ sub _kindof {
     my $r = ref $val;
     return 'list' if 'ARRAY' eq $r;
     return 'map'  if 'HASH' eq $r;
+    return 'function' if 'CODE' eq $r;
     return 'map'  if '' ne $r;
     return _isnumber($val) ? 'number' : 'string';
 }

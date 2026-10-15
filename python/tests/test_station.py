@@ -7,6 +7,7 @@
 # miniature of the py SDK's seams. Integration against a REAL generated
 # SDK lives in the consumer validation flow, not here.
 
+import functools
 import json
 import os
 import shutil
@@ -1224,6 +1225,19 @@ class TestFeatureChecker(unittest.TestCase):
         # ratelimit carries no `strict`, which sdkgen reads as false.
         self.assertEqual([], check_features({'ratelimit': {'rat': 5}},
                                             self.descriptor()))
+
+    def test_a_native_callable_is_a_function_option(self):
+        descriptor = {'features': [{
+            'name': 'retry', 'active': False, 'options': {'active': False},
+            'optspec': {'sleep': '`$FUNCTION`', 'label': '`$STRING`'}, 'strict': False,
+        }]}
+        for sleep in (lambda ms: ms, len, [].append, functools.partial(max, 0)):
+            self.assertEqual([], check_features({'retry': {'sleep': sleep}}, descriptor),
+                             repr(sleep))
+        self.assertEqual(1, len(check_features({'retry': {'sleep': 'fast'}}, descriptor)))
+        # A value JSON cannot render is reported, not raised.
+        self.assertEqual(1, len(check_features({'retry': {'label': len}}, descriptor)))
+        self.assertEqual(1, len(check_features({'retry': {'sleep': {1, 2}}}, descriptor)))
 
     def test_an_optspec_key_is_declared_and_type_checked(self):
         descriptor = {'features': [{
