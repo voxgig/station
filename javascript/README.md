@@ -8,10 +8,12 @@ npm test                      # conformance + integration suites
 ```
 
 A direct port of the TypeScript, minus the types. Secrets are brokered
-through `@voxgig/sekreto-js`; the config grammar validates through the
-javascript port of [voxgig/struct](https://github.com/voxgig/struct),
-found as a sibling checkout (set `STRUCT_HOME` if yours is elsewhere —
-the same convention as omni below).
+through `@voxgig/sekreto-js`; the config grammar validates through
+`@voxgig/struct-js`, the javascript port of
+[voxgig/struct](https://github.com/voxgig/struct), against
+`src/config-shape.js`, the shipped copy of `spec/config-shape.json` that
+`make sync-shape` writes. Both come with the package, so an installed
+station reads no checkout.
 
 `Station.js` requires `adapter.js` lazily — at the single point
 construction needs the carried adapter. CommonJS resolves the cycle
@@ -30,12 +32,13 @@ that way round; the other way, `adapter` would see a half-built module.
 | `src/descriptor.js` | descriptor v1 normalizer + canonical serializer |
 | `src/secrets.js` | the sekreto-backed broker + the placeholder |
 | `src/profile.js` | `station.json` lookup, config scope, and profile resolution |
-| `src/structhome.js` | locates the sibling voxgig/struct checkout |
+| `src/config-shape.js` | the shipped copy of `spec/config-shape.json`, written by `make sync-shape` |
 | `src/events.js` | the bounded event ring + tap |
 | `src/error.js` | the error-code catalog |
 | `test/conform.test.js` | the conformance suite |
 | `test/quickstart.test.js` | the §11 walkthroughs, against a live test API |
 | `test/pets.test.js` | the awkward cases, against the gnarly-pets test API |
+| `test/shape.test.js` | fails when `src/config-shape.js` drifts from the spec file |
 
 ## Testing
 
