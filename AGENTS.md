@@ -25,8 +25,8 @@ take. The other is **voxgig/struct**, which validates `station.json` at
 `typescript/package.json` `dependencies` and in the library `go/go.mod`, and
 `docs/design/station.md` names the pair. Do not "clean up" either one.
 
-TEN of the sixteen ports take sekreto in shipped code, by six different
-mechanisms — so a sekreto compatibility sweep has ten places to look, not
+ELEVEN of the sixteen ports take sekreto in shipped code, by seven different
+mechanisms — so a sekreto compatibility sweep has eleven places to look, not
 two:
 
 | port | how it takes sekreto |
@@ -41,14 +41,16 @@ two:
 | `java` | `import com.voxgig.sekreto.*`; `java/Makefile` finds a checkout and builds it |
 | `php` | `require_once` via `src/Sekreto.php` — `SEKRETO_HOME` or a sibling checkout, no Composer package |
 | `perl` | `require Voxgig::Sekreto` via `@INC` — sibling checkout, no CPAN distribution |
+| `c` | source vendored at `c/vendor/sekreto`, read out of git at `SEKRETO_C_COMMIT` (`tools/vendor.py`) and stamped with it; sekreto's core is built on voxgig/plugin's C host from a sibling checkout (`PLUGIN_HOME`). The sdkgen-station payload is built env-only |
 
-The remaining six — `c`, `cpp`, `swift`, `dart`, `elixir`, `lua` — do not load
+The remaining five — `cpp`, `swift`, `dart`, `elixir`, `lua` — do not load
 sekreto at all; they mention it only in comments. (`perl`'s vendored SDK
 payload does carry sekreto's modules — see `vendor-check` below.)
 
 So a sekreto change can reach station's *shipped* code, which is never true of
 omni. When sekreto releases, check station: `npm update @voxgig/sekreto` in
-`typescript/`, and the equivalents elsewhere. The committed lockfiles pin real
+`typescript/`, and the equivalents elsewhere — for `c`, a new
+`SEKRETO_C_COMMIT` and `make vendor-refresh`. The committed lockfiles pin real
 versions, so a new sekreto does **not** arrive on its own.
 
 ### 2. The corpus is hand-written JSON, NOT compiled from aontu
@@ -187,14 +189,17 @@ write-up of this design; sekreto's `AGENTS.md` documents the same shape.
 ```sh
 make test              # every port whose toolchain is present
 make omni-isolation    # omni is declared by no shipped library, + the guard's own mutation test
-make vendor-check      # the c/cpp/lua/perl SDK payloads match canonical (+ perl's sekreto copy)
+make vendor-check      # the c/cpp/lua/perl SDK payloads match canonical (+ perl's sekreto copy, + c/vendor/sekreto at its pinned commit)
 make sync-shape        # mirror spec/config-shape.json into typescript/src/config-shape.ts
 make pack-diff         # what a release would add to or remove from the package
 ```
 
 `make test` and the per-port suites need a **voxgig/omni checkout**
-(`OMNI_HOME`, or a sibling directory). `vendor-refresh` and `vendor-check`
-additionally need a **voxgig/sekreto checkout** (`SEKRETO_HOME`).
+(`OMNI_HOME`, or a sibling directory); the c port also needs a
+**voxgig/plugin checkout** (`PLUGIN_HOME`), as go and csharp do.
+`vendor-refresh` and `vendor-check` additionally need a **voxgig/sekreto
+checkout** (`SEKRETO_HOME`) that holds the commit `c/vendor/sekreto` is
+pinned to.
 
 ## Source code comments
 

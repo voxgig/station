@@ -37,7 +37,7 @@ everything here runs in-process.
 | Elixir | `elixir/` | env-only | written; no local toolchain | pre-rename `plugin` grammar |
 | Lua | `lua/` | env-only (vendored into SDKs) | suite run under a JS Lua VM | pre-rename `plugin` grammar |
 | Rust | `rust/` | sekreto rust | unit + conform suites | sdk grammar (front door pending) |
-| C (tier C) | `c/` | env-only (vendored) | unit + conform suites | sdk grammar (front door pending) |
+| C (tier C) | `c/` | sekreto c, vendored (the SDK payload is built env-only) | unit + conform + secret-store suites | sdk grammar (front door pending); config arrives in code (`vxstn_open` takes the JSON), so a consumer that reads `station.json` itself is fine |
 | C++ (tier C) | `cpp/` | env-only (vendored) | unit + conform suites | sdk grammar (front door pending) |
 
 The declarative-config column is the status the design's §12 promises

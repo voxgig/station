@@ -279,12 +279,13 @@ locally only, or reach a remote proxy through a local `voxgig-station`
 forwarding to it — a supported topology.
 
 **Secrets coverage is its own cut, and it is mostly good news.**
-sekreto ships ten ports — ts, js, py, rb, php, perl, go, rust, java,
-csharp — which covers nine of tier A outright, plus rust in tier B;
-the JVM targets (kotlin, scala, clojure) reach the Java port through
-ordinary interop. That leaves swift, dart and elixir in tier A, lua,
-haskell and ocaml in tier B, and all of tier C with no sekreto port
-today. For the tier A and B members of that list, being port-less is
+The station libraries for ts, js, py, rb, php, perl, go, rust, java,
+csharp and c take sekreto — nine of tier A outright, rust in tier B and
+c in tier C; the JVM targets (kotlin, scala, clojure) reach the Java
+port through ordinary interop. That leaves swift, dart and elixir in
+tier A, lua, haskell and ocaml in tier B, and the rest of tier C
+without it today, although sekreto itself now ships a port for each of
+those languages. For the tier A and B members of that list, being port-less is
 not being cut off from vaults, because **the resolution that matters
 can happen proxy-side**: attached, with `resolve: proxy`, the proxy's
 Go sekreto runs the chain and the application language resolves
@@ -295,13 +296,18 @@ directly — the one provider that needs no library — and says so
 rather than pretending.
 
 **Tier C is the exception, and it compounds.** c, cpp, zig and lean
-have no sekreto port *and* no wire client in v1, so proxy-side
-resolution is not available to them either: they are env-only, full
-stop, until they gain one or the other. Whichever arrives first
-closes it — a sekreto port unlocks solo, a wire client unlocks
-everything through the proxy — and a target with neither should not
-be sold as covered. The permanent fix everywhere is a sekreto port,
-contributed to sekreto; the tier table records who has one.
+have no wire client in v1, so proxy-side resolution is not available to
+them: a tier C library that takes no sekreto port is env-only, full
+stop, until it gains one or the other. Whichever arrives first closes
+it — a sekreto port unlocks solo, a wire client unlocks everything
+through the proxy — and a target with neither should not be sold as
+covered. c has closed it in solo: its library resolves through
+sekreto's C port, vendored at a pinned commit, and reaches the mini
+vault as a plugin kind the application links (§10). cpp's library is
+still env-only beside sekreto's C++ port, and zig and lean, whose
+libraries are deferred, have ports waiting for them. The permanent fix
+everywhere is a sekreto port, contributed to sekreto; the tier table
+records who has one.
 
 One honesty note the tiers force. In **c and zig** the SDKs' default
 fetcher returns "live transport unavailable" unless the application
@@ -1931,7 +1937,8 @@ and never blocks the core.
   is a sekreto roadmap question this design should not pre-empt.
   Until then the tier A/B ones are env-only in solo mode and fully
   covered attached; tier C, having no wire client either, is env-only
-  outright and is the case worth prioritizing (§2.2).
+  outright wherever its library takes no sekreto port, which c now
+  does (§2.2).
 - **An OS-keychain provider**, wanted by the original draft and absent
   from sekreto today. It belongs in sekreto if it is wanted.
 - **Whether the publish-time `aql` vault and sekreto's `boru`
