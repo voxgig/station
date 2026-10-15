@@ -655,7 +655,7 @@ func (st *Station) emitHTTP(name string, corr string, fullurl string,
 	// is reported whole. EscapedPath keeps the escapes that Path decodes.
 	host, path := "", fullurl
 	if u, err := url.Parse(fullurl); nil == err && "" != u.Scheme && "" != u.Host {
-		host = u.Host
+		host = urlHost(u)
 		path = u.EscapedPath()
 		if "" == path {
 			path = "/"
@@ -672,6 +672,20 @@ func (st *Station) emitHTTP(name string, corr string, fullurl string,
 			DurationMs: nowMs() - started, Bytes: bytes,
 		},
 	})
+}
+
+var defaultPorts = map[string]string{"http": "80", "https": "443"}
+
+// u.Host keeps an explicit default port, which the canonical URL.host drops.
+func urlHost(u *url.URL) string {
+	host := u.Hostname()
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	if port := u.Port(); "" != port && defaultPorts[u.Scheme] != port {
+		host += ":" + port
+	}
+	return host
 }
 
 func (st *Station) emitErr(name string, opctx any, err error) {

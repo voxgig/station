@@ -802,7 +802,9 @@ public class Station {
       // getRawPath keeps the escapes that getPath decodes.
       if (u.isAbsolute() && null != u.getRawAuthority()) {
         String h = u.getHost();
-        host = null == h ? "" : (0 <= u.getPort() ? h + ":" + u.getPort() : h);
+        int port = u.getPort();
+        host = null == h ? ""
+            : (0 <= port && port != defaultPort(u.getScheme()) ? h + ":" + port : h);
         String raw = u.getRawPath();
         path = null == raw || raw.isEmpty() ? "/" : raw;
       }
@@ -830,6 +832,11 @@ public class Station {
     }
     event.put("http", http);
     emit(event);
+  }
+
+  private static int defaultPort(String scheme) {
+    return "https".equalsIgnoreCase(scheme) ? 443
+        : "http".equalsIgnoreCase(scheme) ? 80 : -1;
   }
 
   private void emitErr(String name, String corr, RuntimeException err) {

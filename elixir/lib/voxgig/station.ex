@@ -622,10 +622,10 @@ defmodule Voxgig.Station do
   def now_ms, do: System.system_time(:millisecond)
 
   # ( host-with-port, hostname, path ) from a URL. Mirrors ts URL
-  # semantics: host keeps a non-default port, hostname strips it, an
-  # empty path reads as '/'. IPv6 literals are out of scope for the solo
-  # library (a bracketed host parses as-is). A non-URL yields the ts
-  # catch-branch's {'', '', fullurl}.
+  # semantics: the host follows the LAST '@' and keeps an IPv6 literal's
+  # brackets and a non-default port, hostname strips the port, and an
+  # empty path reads as '/'. A non-URL yields the ts catch-branch's
+  # {'', '', fullurl}.
   @doc false
   def parse_url(fullurl) do
     url = if is_binary(fullurl), do: fullurl, else: ""
@@ -633,7 +633,7 @@ defmodule Voxgig.Station do
     case Regex.run(~r{^([A-Za-z][A-Za-z0-9+.\-]*)://([^/?\#]*)([^?\#]*)}, url) do
       [_, scheme, authority, path] ->
         scheme = String.downcase(scheme)
-        authority = Regex.replace(~r/^[^@]*@/, authority, "")
+        authority = authority |> String.split("@") |> List.last()
 
         {hostname, port} =
           case Regex.run(~r/^(.*?)(?::(\d+))?$/, authority) do

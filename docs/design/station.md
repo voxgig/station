@@ -913,8 +913,11 @@ file) and `/vault/a/b` (a file in a folder) stay distinct. An empty
 path reads `/`, and a relative reference is reported whole as the path,
 with an empty `host`. The rule covers what a working transport sends:
 an `http` or `https` URL with a host, built from the block's base and
-the SDK's percent-encoded parameters. Other forms are outside it, and
-the ports may read them differently:
+the SDK's percent-encoded parameters. For such a URL, `http.host` is
+its host as `URL.host` reads it: no userinfo, an IPv6 address in
+brackets, and a port only when it is not the scheme's default, 80 for
+`http` and 443 for `https`. Other forms are outside it, and the ports
+may read them differently:
 - a hostless absolute URL;
 - a scheme with no authority;
 - a dot segment, which WHATWG normalizes and other HTTP stacks send as

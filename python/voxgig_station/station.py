@@ -54,6 +54,20 @@ def _first_non_empty(*vals):
     return None
 
 
+_DEFAULT_PORTS = {'http': 80, 'https': 443}
+
+
+def _url_host(u):
+    # netloc would carry the userinfo and an explicit default port, both of
+    # which the canonical URL.host drops.
+    host = u.hostname or ''
+    if ':' in host:
+        host = '[' + host + ']'
+    if u.port is not None and u.port != _DEFAULT_PORTS.get(u.scheme):
+        host += ':' + str(u.port)
+    return host
+
+
 # The ref grammar is the JOINT identity model's (station-and-plugin.md 2,
 # plugin design 4): a name is a package-ish specifier
 # (`^[a-zA-Z@][a-zA-Z0-9.~_\-/]*$`), a tag is not (`^[a-zA-Z0-9.~_-]+$`
@@ -632,7 +646,7 @@ class Station:
             # A relative reference is reported whole, like an unparseable URL.
             u = urlsplit(fullurl)
             if u.scheme and u.netloc:
-                host = u.netloc
+                host = _url_host(u)
                 path = u.path or '/'
         except Exception:
             path = fullurl

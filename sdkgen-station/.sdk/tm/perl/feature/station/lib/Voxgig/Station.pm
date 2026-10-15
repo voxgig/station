@@ -1735,16 +1735,16 @@ sub _isfalse {
 }
 
 # ( host-with-port, hostname, path ) from a URL, core-regex only (URI is
-# not core). Mirrors ts URL semantics: host keeps a non-default port,
-# hostname strips it, an empty path reads as '/'. IPv6 literals are out
-# of scope for the solo library (a bracketed host parses as-is).
+# not core). Mirrors ts URL semantics: the host follows the LAST '@' and
+# keeps an IPv6 literal's brackets and a non-default port, hostname
+# strips the port, an empty path reads as '/'.
 sub _parse_url {
     my ($fullurl) = @_;
     my $url = defined $fullurl && !ref $fullurl ? $fullurl : '';
 
     if ( $url =~ m{^([A-Za-z][A-Za-z0-9+.-]*)://([^/?#]*)([^?#]*)} ) {
         my ( $scheme, $authority, $path ) = ( lc $1, $2, $3 );
-        $authority =~ s/^[^@]*@//;    # userinfo, if any
+        $authority =~ s/^.*@//s;    # userinfo, if any
         my ( $hostname, $port ) = $authority =~ /^(.*?)(?::(\d+))?$/;
         $hostname = '' unless defined $hostname;
         my $default =

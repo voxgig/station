@@ -543,6 +543,40 @@ static void test_emit_http_path(void) {
   vxstn_station_free(st);
 }
 
+static void test_emit_http_host(void) {
+  static const char* const cases[][3] = {
+      {"https://h:443/x", "h", "/x"},
+      {"http://h:80/x", "h", "/x"},
+      {"https://h:8443/x", "h:8443", "/x"},
+      {"https://u:p@h/x", "h", "/x"},
+      {"https://u:p@ss@h/x", "h", "/x"},
+      {"http://[::1]:8080/x", "[::1]:8080", "/x"},
+      {"http://[::1]/x", "[::1]", "/x"},
+  };
+  const size_t n = sizeof(cases) / sizeof(cases[0]);
+  vxstn_open_opts opts;
+  vxstn_station* st;
+  vxstn_val* events;
+  size_t i;
+
+  memset(&opts, 0, sizeof(opts));
+  opts.proxy = "off";
+  st = vxstn_station_new(&opts, NULL);
+
+  for (i = 0; i < n; i++) {
+    vxstn_emit_http(st, "vault", NULL, "GET", cases[i][0], 200, vxstn_now_ms(), 0);
+  }
+  events = vxstn_events(st);
+  CHECK(n == events->len);
+  for (i = 0; i < n && i < events->len; i++) {
+    const vxstn_val* http = vxstn_map_get(events->items[i], "http");
+    CHECK_STR(vxstn_strval(vxstn_map_get(http, "host")), cases[i][1]);
+    CHECK_STR(vxstn_strval(vxstn_map_get(http, "path")), cases[i][2]);
+  }
+  vxstn_val_free(events);
+  vxstn_station_free(st);
+}
+
 /* ---- Stage 5: the config shape, the mirror, and its invariants ---- */
 
 /* The mirror is only honest if something compares it to the spec. Walk
@@ -1380,6 +1414,7 @@ int main(void) {
   test_outcome();
   test_emit_http();
   test_emit_http_path();
+  test_emit_http_host();
   test_shape_mirror();
   test_normalize_config();
   test_validate_config();

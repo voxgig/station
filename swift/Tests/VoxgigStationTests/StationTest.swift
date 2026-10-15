@@ -360,6 +360,32 @@ final class StationTest: XCTestCase {
     XCTAssertEqual(cases.map { $0.1 + " " + $0.2 }, got, "host and path of each request")
   }
 
+  func testTransportHttpEventHostReadsAsURLHost() throws {
+    let st = try memStation()
+    let binding = (try bind(st, NSObject()))!.binding
+
+    let cases = [
+      ("https://h:443/x", "h", "/x"),
+      ("http://h:80/x", "h", "/x"),
+      ("https://h:8443/x", "h:8443", "/x"),
+      ("https://u:p@h/x", "h", "/x"),
+      ("https://u:p@ss@h/x", "h", "/x"),
+      ("http://[::1]:8080/x", "[::1]:8080", "/x"),
+      ("http://[::1]/x", "[::1]", "/x"),
+    ]
+    for (url, _, _) in cases {
+      _ = try binding.transport(
+        nil, false, url, "GET", [:], { _, _ in true }, { _ in (200, 0) })
+    }
+
+    var got: [String] = []
+    for ev in st.events() where "http" == ev.get("kind").asStr {
+      let http = ev.get("http")
+      got.append((http.get("host").asStr ?? "") + " " + (http.get("path").asStr ?? ""))
+    }
+    XCTAssertEqual(cases.map { $0.1 + " " + $0.2 }, got, "host and path of each request")
+  }
+
   func testTransportMissingSecretFailsTheOpWithCode() throws {
     let st = try memStation()
     let binding = (try bind(st, NSObject()))!.binding

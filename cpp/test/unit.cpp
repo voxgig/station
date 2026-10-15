@@ -171,6 +171,36 @@ int main(int argc, char** argv) {
     }
   });
 
+  testcase("emit-http-host-reads-as-url-host", [] {
+    const std::vector<std::vector<std::string>> cases = {
+        {"https://h:443/x", "h", "/x"},
+        {"http://h:80/x", "h", "/x"},
+        {"https://h:8443/x", "h:8443", "/x"},
+        {"https://u:p@h/x", "h", "/x"},
+        {"https://u:p@ss@h/x", "h", "/x"},
+        {"http://[::1]:8080/x", "[::1]:8080", "/x"},
+        {"http://[::1]/x", "[::1]", "/x"},
+    };
+    vs::StationOptions opts;
+    opts.has_config = true;
+    opts.proxy = "off";
+    vs::Station st(opts);
+    for (const auto& c : cases) {
+      st.emit_http("vault", "", c[0], "GET", 200, vs::now_ms(), 0);
+    }
+    std::vector<vs::Jval> http;
+    for (const auto& ev : st.events()) {
+      if ("http" == ev.get("kind").str_or("")) {
+        http.push_back(ev.get("http"));
+      }
+    }
+    check(cases.size() == http.size(), "one http event per request");
+    for (size_t i = 0; i < cases.size() && i < http.size(); i++) {
+      checkeq(http[i].get("host").str_or(""), cases[i][1], cases[i][0] + " host");
+      checkeq(http[i].get("path").str_or(""), cases[i][2], cases[i][0] + " path");
+    }
+  });
+
   testcase("broker-env-resolution-and-miss", [] {
     setenv("UNIT_BROKER_APIKEY", "sk-live-x1", 1);
     vs::Jval providers = vs::parse_json(R"([{ "kind": "env" }])");

@@ -4491,7 +4491,8 @@ class Station {
     if (path.empty() || '?' == path[0] || '#' == path[0]) {
       path = "/";
     }
-    size_t at = authority.find('@');
+    // The host follows the LAST '@', so a raw '@' in a password stays out.
+    size_t at = authority.rfind('@');
     if (std::string::npos != at) {
       authority = authority.substr(at + 1);
     }

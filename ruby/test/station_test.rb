@@ -434,6 +434,26 @@ class TestStation < Minitest::Test
                  http.map { |h| [h['host'], h['path']] })
   end
 
+  def test_http_event_host_reads_as_url_host
+    cases = [
+      ['https://h:443/x', 'h', '/x'],
+      ['http://h:80/x', 'h', '/x'],
+      ['https://h:8443/x', 'h:8443', '/x'],
+      ['https://u:p@h/x', 'h', '/x'],
+      ['http://[::1]:8080/x', '[::1]:8080', '/x'],
+      ['http://[::1]/x', '[::1]', '/x'],
+    ]
+    st = VoxgigStation::Station.new('config' => nil)
+    b = bind(st, ->(_c, _u, _d) { [okres, nil] })
+    b[:client].mode = 'test'
+    cases.each do |url, _host, _path|
+      b[:utility].fetcher.call(b[:ctx], url, 'method' => 'GET', 'headers' => {})
+    end
+    http = st.events.select { |e| 'http' == e['kind'] }.map { |e| e['http'] }
+    assert_equal(cases.map { |_url, host, path| [host, path] },
+                 http.map { |h| [h['host'], h['path']] })
+  end
+
   def test_status_0_is_a_transport_failure
     ENV['GNARLY_PETS_APIKEY'] = 'status-zero-key'
     st = VoxgigStation::Station.new('config' => nil)

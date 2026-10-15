@@ -459,6 +459,41 @@ internal static class Program
                 + gotText + "\n  want: " + wantText);
         });
 
+        TestCase("transport: the http event's host reads as URL.host does", () =>
+        {
+            Station st = MemoryStation(Map(), null);
+            Bind(st, new object(), st.Options(Map()));
+            string[][] cases =
+            {
+                new[] { "https://h:443/x", "h", "/x" },
+                new[] { "http://h:80/x", "h", "/x" },
+                new[] { "https://h:8443/x", "h:8443", "/x" },
+                new[] { "https://u:p@h/x", "h", "/x" },
+                new[] { "http://[::1]:8080/x", "[::1]:8080", "/x" },
+                new[] { "http://[::1]/x", "[::1]", "/x" },
+            };
+            var want = new List<string>();
+            foreach (var c in cases)
+            {
+                st.Transport("test-plug", c[0], Map("method", "GET"), false, null,
+                    (url, def) => Map("status", 200));
+                want.Add(c[1] + " " + c[2]);
+            }
+            var got = new List<string>();
+            foreach (var ev in st.Events())
+            {
+                if ("http".Equals(ev.GetValueOrDefault("kind")))
+                {
+                    var hm = Descriptor.AsMap(ev["http"]);
+                    got.Add(hm["host"] + " " + hm["path"]);
+                }
+            }
+            string gotText = string.Join(" | ", got);
+            string wantText = string.Join(" | ", want);
+            Check(wantText == gotText, "host and path of each request\n  got:  "
+                + gotText + "\n  want: " + wantText);
+        });
+
         TestCase("transport: a missing secret fails the op with the code", () =>
         {
             Station st = MemoryStation(Map(), null);

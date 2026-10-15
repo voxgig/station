@@ -1046,6 +1046,33 @@ public final class StationTest {
       checkeq(got, want, "host and path of each request");
     });
 
+    testcase("transport: the http event's host reads as URL.host does", () -> {
+      Station st = memoryStation(map(), null);
+      bind(st, new Object(), st.options(map()));
+      String[][] cases = {
+          {"https://h:443/x", "h", "/x"},
+          {"http://h:80/x", "h", "/x"},
+          {"https://h:8443/x", "h:8443", "/x"},
+          {"https://u:p@h/x", "h", "/x"},
+          {"http://[::1]:8080/x", "[::1]:8080", "/x"},
+          {"http://[::1]/x", "[::1]", "/x"},
+      };
+      List<String> want = new ArrayList<>();
+      for (String[] c : cases) {
+        st.transport("test-plug", c[0], map("method", "GET"), false, null,
+            (url, def) -> map("status", 200));
+        want.add(c[1] + " " + c[2]);
+      }
+      List<String> got = new ArrayList<>();
+      for (Map<String, Object> ev : st.events()) {
+        if ("http".equals(ev.get("kind"))) {
+          Map<String, Object> hm = Descriptor.asmap(ev.get("http"));
+          got.add(hm.get("host") + " " + hm.get("path"));
+        }
+      }
+      checkeq(got, want, "host and path of each request");
+    });
+
     testcase("transport: a missing secret fails the op with the code", () -> {
       Station st = memoryStation(map(), null);
       bind(st, new Object(), st.options(map()));

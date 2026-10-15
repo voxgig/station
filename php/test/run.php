@@ -609,6 +609,27 @@ testcase('http_event_path_keeps_the_request_escapes', function () {
         array_map(fn($e) => [$e['http']['host'], $e['http']['path']], $http));
 });
 
+testcase('http_event_host_reads_as_url_host', function () {
+    $cases = [
+        ['https://h:443/x', 'h', '/x'],
+        ['http://h:80/x', 'h', '/x'],
+        ['https://h:8443/x', 'h:8443', '/x'],
+        ['https://u:p@h/x', 'h', '/x'],
+        ['https://u:p@ss@h/x', 'h', '/x'],
+        ['http://[::1]:8080/x', '[::1]:8080', '/x'],
+        ['http://[::1]/x', '[::1]', '/x'],
+    ];
+    $st = new Station(['config' => null]);
+    $b = bind($st, fn($_c, $_u, $_d) => [okres(), null]);
+    $b['client']->mode = 'test';
+    foreach ($cases as [$url]) {
+        ($b['utility']->fetcher)($b['ctx'], $url, ['method' => 'GET', 'headers' => []]);
+    }
+    $http = array_values(array_filter($st->events(), fn($e) => 'http' === $e['kind']));
+    eq(array_map(fn($c) => [$c[1], $c[2]], $cases),
+        array_map(fn($e) => [$e['http']['host'], $e['http']['path']], $http));
+});
+
 testcase('status_0_is_a_transport_failure', function () {
     putenv('GNARLY_PETS_APIKEY=status-zero-key');
     $st = new Station(['config' => null]);
