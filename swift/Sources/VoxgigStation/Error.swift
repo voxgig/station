@@ -67,6 +67,18 @@ public final class StationError: Error, CustomStringConvertible {
   }
 }
 
+/// A transport failure passed back with its text scrubbed: a Swift error
+/// cannot change its own description.
+public struct ScrubbedError: Error, CustomStringConvertible {
+  public let message: String
+
+  public init(_ message: String) {
+    self.message = message
+  }
+
+  public var description: String { return message }
+}
+
 /// A malformed-JSON failure from the in-tree parser. A station.json
 /// that is found but does not parse never lets this escape open():
 /// loadConfig catches it and rethrows as

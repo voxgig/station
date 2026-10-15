@@ -2,6 +2,9 @@ package station_test
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -529,6 +532,136 @@ func TestScrubHasNoLengthFloor(t *testing.T) {
 	// boundary promise is absolute (design §7).
 	if "the [redacted] value" != st.Redact("the xy value") {
 		t.Fatalf("short value survived the scrub: %q", st.Redact("the xy value"))
+	}
+}
+
+// --- query-placed credentials ---
+
+const queryValue, querySent = "tok!en 1", "tok%21en%201"
+
+// The URL an SDK generated from an `in: query` security scheme sends.
+func queryPlaced() string {
+	return "http://localhost:8920/api/todo?fields=id%2Ctitle&token=" +
+		url.QueryEscape("[station:fakepad]")
+}
+
+func TestQueryPlacedCredentialReachesOnlyTheWire(t *testing.T) {
+	st := newStation(t, map[string]string{"FAKEPAD_APIKEY": queryValue})
+
+	var seenurl string
+	var seen map[string]any
+	base := func(opctx any, fullurl string, fetchdef map[string]any) (any, error) {
+		seenurl, seen = fullurl, fetchdef
+		return okResponse()(opctx, fullurl, fetchdef)
+	}
+	h := bindOne(t, st, "fakepad", []string{"station"}, base, "")
+
+	placed := queryPlaced()
+	fetchdef := map[string]any{"url": placed, "method": "GET", "headers": map[string]any{}}
+	if _, err := h.client.fetcher(nil, placed, fetchdef); nil != err {
+		t.Fatal(err)
+	}
+
+	sent := "http://localhost:8920/api/todo?fields=id%2Ctitle&token=" + querySent
+	if sent != seenurl || sent != seen["url"] {
+		t.Fatalf("wire url %q, sent fetchdef url %v", seenurl, seen["url"])
+	}
+	if placed != fetchdef["url"] {
+		t.Fatalf("copy-on-inject violated: %v", fetchdef["url"])
+	}
+	dump, _ := json.Marshal(st.Events())
+	if strings.Contains(string(dump), querySent) || strings.Contains(string(dump), queryValue) {
+		t.Fatalf("credential leaked into events: %s", dump)
+	}
+}
+
+func TestTransportErrorQuotingThePlacedURLIsScrubbed(t *testing.T) {
+	st := newStation(t, map[string]string{"FAKEPAD_APIKEY": queryValue})
+
+	var fail func(sendurl string) error
+	base := func(opctx any, fullurl string, fetchdef map[string]any) (any, error) {
+		return nil, fail(fullurl)
+	}
+	h := bindOne(t, st, "fakepad", []string{"station"}, base, "")
+
+	send := func() error {
+		_, err := h.client.fetcher(nil, queryPlaced(), map[string]any{"headers": map[string]any{}})
+		if nil == err || strings.Contains(err.Error(), querySent) ||
+			!strings.Contains(err.Error(), "[redacted]") {
+			t.Fatalf("transport error not scrubbed: %v", err)
+		}
+		return err
+	}
+
+	// net/http's shape keeps its type.
+	fail = func(sendurl string) error {
+		return &url.Error{Op: "Get", URL: sendurl, Err: errors.New("connection refused")}
+	}
+	var urlerr *url.Error
+	if err := send(); !errors.As(err, &urlerr) {
+		t.Fatalf("*url.Error lost: %T", err)
+	}
+
+	fail = func(sendurl string) error { return errors.New("failed: GET " + sendurl) }
+	send()
+
+	dump, _ := json.Marshal(st.Events())
+	if strings.Contains(string(dump), querySent) {
+		t.Fatalf("credential leaked into events: %s", dump)
+	}
+}
+
+func TestTransportErrorQuotingOnlyTheFetchdefURLIsScrubbed(t *testing.T) {
+	st := newStation(t, map[string]string{"FAKEPAD_APIKEY": queryValue})
+	base := func(opctx any, fullurl string, fetchdef map[string]any) (any, error) {
+		return nil, errors.New("failed: GET " + fetchdef["url"].(string))
+	}
+	h := bindOne(t, st, "fakepad", []string{"station"}, base, "")
+
+	_, err := h.client.fetcher(nil, "http://localhost:8920/api/todo",
+		map[string]any{"url": queryPlaced(), "headers": map[string]any{}})
+	if nil == err || strings.Contains(err.Error(), querySent) ||
+		!strings.Contains(err.Error(), "[redacted]") {
+		t.Fatalf("transport error not scrubbed: %v", err)
+	}
+}
+
+// heldStation resolves each value into one station's broker, in order.
+func heldStation(t *testing.T, values ...string) *station.Station {
+	t.Helper()
+	env := map[string]string{}
+	for i, value := range values {
+		env[fmt.Sprintf("PAD%d_APIKEY", i)] = value
+	}
+	st := newStation(t, env)
+	for i := range values {
+		h := bindOne(t, st, fmt.Sprintf("pad%d", i), []string{"station"}, okResponse(), "")
+		if _, err := h.client.fetcher(nil, "http://localhost:8920/api/todo",
+			map[string]any{"headers": map[string]any{}}); nil != err {
+			t.Fatal(err)
+		}
+	}
+	return st
+}
+
+func TestScrubFindsAHeldValueInsideAnotherValuesEncodedForm(t *testing.T) {
+	for _, held := range [][]string{{"%", "secret!"}, {"secret!", "%"}} {
+		if got := heldStation(t, held...).Redact("token=secret%21"); "token=[redacted]" != got {
+			t.Fatalf("held %q: %q", held, got)
+		}
+	}
+}
+
+func TestScrubRedactsOverlappingFormsAsOneSpan(t *testing.T) {
+	got := heldStation(t, "ab!", "!c").Redact("x=ab%21c&y=!c")
+	if "x=[redacted]&y=[redacted]" != got {
+		t.Fatalf("overlap: %q", got)
+	}
+}
+
+func TestSekretoRedactCannotHideAnEncodedForm(t *testing.T) {
+	if got := heldStation(t, "abcd", "abcd!x").Redact("k=abcd%21x"); "k=[redacted]" != got {
+		t.Fatalf("sekreto first: %q", got)
 	}
 }
 

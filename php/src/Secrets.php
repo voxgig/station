@@ -28,6 +28,120 @@ function placeholder_for(string $name): string
     return '[station:' . $name . ']';
 }
 
+/** Every UTF-8 byte outside RFC 3986's unreserved set becomes upper-case %XX. */
+function encode_query_value(string $value): string
+{
+    return rawurlencode($value);
+}
+
+function placeholder_match_at(string $text, int $at, int $end, string $placeholder): int
+{
+    $i = $at;
+    $len = strlen($placeholder);
+    for ($k = 0; $k < $len; $k++) {
+        $ch = $placeholder[$k];
+        if ($i < $end && $text[$i] === $ch) {
+            $i++;
+            continue;
+        }
+        $hex = substr($text, $i + 1, 2);
+        if ($i + 3 <= $end && '%' === $text[$i] &&
+            2 === strspn($hex, '0123456789abcdefABCDEF') && hexdec($hex) === ord($ch)) {
+            $i += 3;
+            continue;
+        }
+        return -1;
+    }
+    return $i - $at;
+}
+
+/**
+ * The placeholder becomes the value in header values and in the URL
+ * query, where an SDK percent-encodes it (any hex case) and the value is
+ * encoded in turn. The path and fragment are never touched; the headers
+ * are a copy.
+ *
+ * @param array<string, mixed>|null $headers
+ * @return array{url: string, headers: array<string, mixed>}
+ */
+function substitute(string $url, ?array $headers, string $placeholder, string $value): array
+{
+    $out = $headers ?? [];
+    if ('' === $placeholder) {
+        return ['url' => $url, 'headers' => $out];
+    }
+
+    foreach ($out as $h => $v) {
+        if (is_string($v) && str_contains($v, $placeholder)) {
+            $out[$h] = str_replace($placeholder, $value, $v);
+        }
+    }
+
+    $q = strpos($url, '?');
+    $hash = strpos($url, '#');
+    if (false === $q || (false !== $hash && $hash < $q)) {
+        return ['url' => $url, 'headers' => $out];
+    }
+    $end = false === $hash ? strlen($url) : $hash;
+    $encoded = encode_query_value($value);
+    $query = '';
+    for ($i = $q + 1; $i < $end;) {
+        $n = placeholder_match_at($url, $i, $end, $placeholder);
+        if (0 < $n) {
+            $query .= $encoded;
+            $i += $n;
+        } else {
+            $query .= $url[$i];
+            $i++;
+        }
+    }
+    return ['url' => substr($url, 0, $q + 1) . $query . substr($url, $end), 'headers' => $out];
+}
+
+/**
+ * Every form of every value is matched against the original text and the
+ * union of the matches redacted, so no replacement can hide another form.
+ *
+ * @param array<int, string> $values
+ */
+function redact_values(string $text, array $values): string
+{
+    $forms = [];
+    foreach ($values as $value) {
+        if ('' !== $value) {
+            $forms[] = $value;
+            $forms[] = encode_query_value($value);
+        }
+    }
+    $reach = function (int $at) use ($text, $forms): int {
+        $end = $at;
+        foreach ($forms as $form) {
+            $len = strlen($form);
+            if ($at + $len > $end && substr($text, $at, $len) === $form) {
+                $end = $at + $len;
+            }
+        }
+        return $end;
+    };
+
+    $out = '';
+    $size = strlen($text);
+    for ($i = 0; $i < $size;) {
+        $stop = $reach($i);
+        if ($stop === $i) {
+            $out .= $text[$i];
+            $i++;
+            continue;
+        }
+        for ($j = $i + 1; $j < $stop; $j++) {
+            $stop = max($stop, $reach($j));
+        }
+        $out .= '[redacted]';
+        $i = $stop;
+    }
+    return $out;
+}
+
 class SecretBroker
 {
     private \Voxgig\Sekreto\Sekreto $sekreto;
@@ -106,18 +220,13 @@ class SecretBroker
      * Exact-value scrub, deliberately WITHOUT sekreto's four-character
      * readability floor (design station.md 7 as revised): on boundaries
      * where the promise is absolute, every held value is scrubbed
-     * whatever its length. sekreto's own redact() runs too, covering
-     * values resolved by the underlying instance that station never held.
+     * whatever its length. sekreto's own redact() runs after, covering
+     * values resolved by the underlying instance that station never held;
+     * run first, its raw-value replacement could split an encoded form.
      */
     public function scrub(string $text): string
     {
-        $out = $this->sekreto->redact($text);
-        foreach ($this->held as $value) {
-            if ('' !== $value) {
-                $out = str_replace($value, '[redacted]', $out);
-            }
-        }
-        return $out;
+        return $this->sekreto->redact(redact_values($text, $this->held));
     }
 
     /**

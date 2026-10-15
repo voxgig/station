@@ -143,6 +143,17 @@ class Station {
     }
     final calleropts = _copy(opts);
     final options = _withActivation(calleropts);
+
+    // `as` and `instance` are station's own: they ride the feature entry,
+    // never the SDK's options, which a generated SDK checks as closed.
+    final sopts = options['feature']['station'] as Map<String, dynamic>;
+    for (final key in const ['as', 'instance']) {
+      final val = options.remove(key);
+      if (null != val) {
+        sopts[key] = val;
+      }
+    }
+
     final extend = <dynamic>[];
     if (calleropts['extend'] is List) {
       extend.addAll(calleropts['extend'] as List);
@@ -344,8 +355,10 @@ class Station {
     }
 
     dynamic senddef = fetchdef;
+    dynamic sendurl = fullurl;
+    var placed = false;
     if (null != hosts && live) {
-      senddef = _copyFetchdef(senddef, copyHeaders: false);
+      senddef = _copyFetchdef(senddef);
       senddef['redirect'] = 'manual';
     }
 
@@ -370,13 +383,16 @@ class Station {
         return e;
       }
 
-      senddef = _copyFetchdef(senddef, copyHeaders: true);
-      final headers = senddef['headers'] as Map;
-      for (final h in headers.keys.toList()) {
-        final v = headers[h];
-        if (v is String && v.contains(placeholder)) {
-          headers[h] = v.split(placeholder).join(value);
-        }
+      senddef = _copyFetchdef(senddef);
+      final sent =
+          substitute(fullurl.toString(), senddef['headers'], placeholder, value);
+      sendurl = sent.url;
+      senddef['headers'] = sent.headers;
+      placed = sendurl != fullurl;
+      final defurl = senddef['url'];
+      if (defurl is String) {
+        senddef['url'] = substitute(defurl, null, placeholder, value).url;
+        placed = placed || senddef['url'] != defurl;
       }
     }
 
@@ -385,17 +401,21 @@ class Station {
 
     dynamic res;
     try {
-      res = await Future.value(inner(fctx, fullurl, senddef));
-    } catch (e) {
+      res = await Future.value(inner(fctx, sendurl, senddef));
+    } catch (e, stack) {
       _emitHttp(slug, corr, fullurl, senddef, 0, started, 0);
       _emitErr(slug, fctx, e);
-      rethrow;
+      final clean = _scrubbed(e, placed);
+      if (identical(clean, e)) {
+        rethrow;
+      }
+      Error.throwWithStackTrace(clean, stack);
     }
 
     if (res is Error || res is Exception) {
       _emitHttp(slug, corr, fullurl, senddef, 0, started, 0);
       _emitErr(slug, fctx, res);
-      return res;
+      return _scrubbed(res, placed);
     }
 
     var bytes = 0;
@@ -416,21 +436,24 @@ class Station {
     return res;
   }
 
-  Map<String, dynamic> _copyFetchdef(dynamic fetchdef,
-      {required bool copyHeaders}) {
+  Map<String, dynamic> _copyFetchdef(dynamic fetchdef) {
     final out = <String, dynamic>{};
     if (fetchdef is Map) {
       fetchdef.forEach((k, v) => out[k.toString()] = v);
     }
-    if (copyHeaders) {
-      final headers = <String, dynamic>{};
-      final oheaders = out['headers'];
-      if (oheaders is Map) {
-        oheaders.forEach((k, v) => headers[k.toString()] = v);
-      }
-      out['headers'] = headers;
-    }
     return out;
+  }
+
+  // A transport error may quote its URL, which carries a query-placed value.
+  // Dart errors expose no settable message, so a changed one comes back as
+  // a ScrubbedError.
+  dynamic _scrubbed(dynamic err, bool placed) {
+    if (!placed) {
+      return err;
+    }
+    final text = err.toString();
+    final clean = redact(text);
+    return clean == text ? err : ScrubbedError(clean);
   }
 
   String _clientMode(dynamic fctx) {

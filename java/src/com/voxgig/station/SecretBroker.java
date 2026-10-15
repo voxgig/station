@@ -10,12 +10,28 @@ import com.voxgig.sekreto.Sekreto;
 import com.voxgig.sekreto.Sekreto.SekretoError;
 import com.voxgig.sekreto.plugins.Plugins;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 public class SecretBroker {
+
+  private static final String UNRESERVED =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
+  private static final char[] HEX = "0123456789ABCDEF".toCharArray();
+
+  /** What substitute() hands the wire: the URL and a copy of the headers. */
+  public static final class Substituted {
+    public final String url;
+    public final Map<String, Object> headers;
+
+    Substituted(String url, Map<String, Object> headers) {
+      this.url = url;
+      this.headers = headers;
+    }
+  }
 
   private final Sekreto sekreto;
 
@@ -35,6 +51,136 @@ public class SecretBroker {
    */
   public static String placeholderFor(String name) {
     return "[station:" + name + "]";
+  }
+
+  /** Every UTF-8 byte outside RFC 3986's unreserved set becomes upper-case %XX. */
+  public static String encodeQueryValue(String value) {
+    StringBuilder out = new StringBuilder();
+    for (byte raw : value.getBytes(StandardCharsets.UTF_8)) {
+      int b = raw & 0xFF;
+      if (b < 0x80 && 0 <= UNRESERVED.indexOf(b)) {
+        out.append((char) b);
+      } else {
+        out.append('%').append(HEX[b >> 4]).append(HEX[b & 0xF]);
+      }
+    }
+    return out.toString();
+  }
+
+  private static int hexdigit(char c) {
+    if ('0' <= c && c <= '9') {
+      return c - '0';
+    }
+    if ('a' <= c && c <= 'f') {
+      return c - 'a' + 10;
+    }
+    if ('A' <= c && c <= 'F') {
+      return c - 'A' + 10;
+    }
+    return -1;
+  }
+
+  private static int matchAt(String text, int at, int end, String placeholder) {
+    int i = at;
+    for (int k = 0; k < placeholder.length(); k++) {
+      char ch = placeholder.charAt(k);
+      if (i < end && text.charAt(i) == ch) {
+        i++;
+        continue;
+      }
+      if (i + 3 <= end && '%' == text.charAt(i)) {
+        int hi = hexdigit(text.charAt(i + 1));
+        int lo = hexdigit(text.charAt(i + 2));
+        if (0 <= hi && 0 <= lo && hi * 16 + lo == ch) {
+          i += 3;
+          continue;
+        }
+      }
+      return -1;
+    }
+    return i - at;
+  }
+
+  /**
+   * The placeholder becomes the value in header values and in the URL
+   * query, where an SDK percent-encodes it (any hex case) and the value is
+   * encoded in turn. The path and fragment are never touched; the headers
+   * are a copy.
+   */
+  public static Substituted substitute(String url, Map<String, Object> headers,
+      String placeholder, String value) {
+    Map<String, Object> out = null == headers
+        ? new LinkedHashMap<>() : new LinkedHashMap<>(headers);
+    if (placeholder.isEmpty()) {
+      return new Substituted(url, out);
+    }
+
+    for (Map.Entry<String, Object> header : out.entrySet()) {
+      Object v = header.getValue();
+      if (v instanceof String && ((String) v).contains(placeholder)) {
+        header.setValue(((String) v).replace(placeholder, value));
+      }
+    }
+
+    int q = url.indexOf('?');
+    int hash = url.indexOf('#');
+    if (-1 == q || (-1 != hash && hash < q)) {
+      return new Substituted(url, out);
+    }
+    int end = -1 == hash ? url.length() : hash;
+    String encoded = encodeQueryValue(value);
+    StringBuilder query = new StringBuilder();
+    for (int i = q + 1; i < end;) {
+      int n = matchAt(url, i, end, placeholder);
+      if (0 < n) {
+        query.append(encoded);
+        i += n;
+      } else {
+        query.append(url.charAt(i));
+        i++;
+      }
+    }
+    return new Substituted(
+        url.substring(0, q + 1) + query + url.substring(end), out);
+  }
+
+  /**
+   * Every form of every value is matched against the original text and the
+   * union of the matches redacted, so no replacement can hide another form.
+   */
+  private static String redactValues(String text, List<String> values) {
+    List<String> forms = new ArrayList<>();
+    for (String value : values) {
+      if (!value.isEmpty()) {
+        forms.add(value);
+        forms.add(encodeQueryValue(value));
+      }
+    }
+    StringBuilder out = new StringBuilder();
+    for (int i = 0; i < text.length();) {
+      int stop = reach(text, i, forms);
+      if (stop == i) {
+        out.append(text.charAt(i));
+        i++;
+        continue;
+      }
+      for (int j = i + 1; j < stop; j++) {
+        stop = Math.max(stop, reach(text, j, forms));
+      }
+      out.append("[redacted]");
+      i = stop;
+    }
+    return out.toString();
+  }
+
+  private static int reach(String text, int at, List<String> forms) {
+    int end = at;
+    for (String form : forms) {
+      if (at + form.length() > end && text.startsWith(form, at)) {
+        end = at + form.length();
+      }
+    }
+    return end;
   }
 
   /**
@@ -118,17 +264,12 @@ public class SecretBroker {
    * Exact-value scrub, deliberately WITHOUT sekreto's four-character
    * readability floor (design 7 as revised): on boundaries where the
    * promise is absolute, every held value is scrubbed whatever its
-   * length. sekreto's own redact() runs too, covering values resolved by
-   * the underlying instance that station never held.
+   * length. sekreto's own redact() runs after, covering values resolved by
+   * the underlying instance that station never held; run first, its
+   * raw-value replacement could split an encoded form.
    */
   public synchronized String scrub(String text) {
-    String out = sekreto.redact(null == text ? "" : text);
-    for (String value : held) {
-      if (!value.isEmpty()) {
-        out = out.replace(value, "[redacted]");
-      }
-    }
-    return out;
+    return sekreto.redact(redactValues(null == text ? "" : text, held));
   }
 
   /**

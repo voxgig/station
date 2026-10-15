@@ -16,7 +16,7 @@ import {
   mergefeatures,
   resolveorder,
 } from '../src/feature'
-import { placeholderFor } from '../src/secrets'
+import { placeholderFor, substitute } from '../src/secrets'
 import { resolveProfile } from '../src/profile'
 import { normalizeConfig, validateConfig } from '../src/shape'
 import { instanceRef } from '../src/Station'
@@ -60,6 +60,11 @@ describe('station-conform', () => {
 
   test('placeholder', async () => {
     await R.runset(R.spec.placeholder, (slug: any) => placeholderFor(slug))
+  })
+
+  test('substitute', async () => {
+    await R.runset(R.spec.substitute, (vin: any) =>
+      substitute(vin.url, vin.headers, vin.placeholder, vin.value))
   })
 
   test('descriptor', async () => {

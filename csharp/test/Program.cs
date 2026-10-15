@@ -63,6 +63,20 @@ internal static class Program
     private static readonly Subject PLACEHOLDER = args =>
         SecretBroker.PlaceholderFor(Convert.ToString(args[0]));
 
+    private static readonly Subject SUBSTITUTE = args =>
+    {
+        SecretBroker.Substituted sent = SecretBroker.Substitute(
+            Convert.ToString(Descriptor.GetProp(args[0], "url")),
+            Descriptor.AsMap(Descriptor.GetProp(args[0], "headers")),
+            Convert.ToString(Descriptor.GetProp(args[0], "placeholder")),
+            Convert.ToString(Descriptor.GetProp(args[0], "value")));
+        return new Dictionary<string, object>
+        {
+            ["url"] = sent.Url,
+            ["headers"] = sent.Headers,
+        };
+    };
+
     private static readonly Subject DESCRIPTOR = args =>
         Voxgig.Station.Descriptor.NormalizeDescriptor(
             Descriptor.GetProp(args[0], "config"),
@@ -208,6 +222,11 @@ internal static class Program
             SdkConfig("TestPlug", "test-plug"), options, fopts);
     }
 
+    private static string EventText(Station st)
+    {
+        return string.Join("\n", st.Events().ConvertAll(ev => Descriptor.CanonicalSerialize(ev)));
+    }
+
     private static int Main(string[] args)
     {
         if (0 < args.Length)
@@ -220,6 +239,7 @@ internal static class Program
         // The shared corpus (design 13).
         TestCase("secretname", () => R.RunSet(R.Set("secretname"), SECRETNAME));
         TestCase("placeholder", () => R.RunSet(R.Set("placeholder"), PLACEHOLDER));
+        TestCase("substitute", () => R.RunSet(R.Set("substitute"), SUBSTITUTE));
         TestCase("descriptor", () => R.RunSet(R.Set("descriptor"), DESCRIPTOR));
         TestCase("descriptorwarnings", () => R.RunSet(R.Set("descriptorwarnings"), DESCWARN));
         TestCase("canonical", () => R.RunSet(R.Set("canonical"), CANONICAL));
@@ -270,6 +290,33 @@ internal static class Program
             {
                 Check("station_secret_no_value" == err.Code, "miss code");
             }
+        });
+
+        TestCase("broker: every form is matched against the original text", () =>
+        {
+            foreach (string[] held in new[] { new[] { "%", "secret!" }, new[] { "secret!", "%" } })
+            {
+                var broker = new SecretBroker(Vals());
+                broker.Hoist("a", held[0]);
+                broker.Hoist("b", held[1]);
+                string got = broker.Scrub("token=secret%21");
+                Check("token=[redacted]" == got, string.Join(" ", held) + ": " + got);
+            }
+            var overlap = new SecretBroker(Vals());
+            overlap.Hoist("a", "ab!");
+            overlap.Hoist("b", "!c");
+            string spans = overlap.Scrub("x=ab%21c&y=!c");
+            Check("x=[redacted]&y=[redacted]" == spans, "one span: " + spans);
+        });
+
+        TestCase("broker: sekreto's own redact cannot hide an encoded form", () =>
+        {
+            var broker = new SecretBroker(Vals(
+                Map("kind", "memory", "values", Map("SCRUB_APIKEY", "abcd"))));
+            Check("abcd" == broker.Value("scrub", "scrub.apikey"), "resolves");
+            broker.Hoist("other", "abcd!x");
+            string got = broker.Scrub("k=abcd%21x");
+            Check("k=[redacted]" == got, "sekreto runs second: " + got);
         });
 
         TestCase("open: idempotent ambient, conflicting reopen fails", () =>
@@ -407,6 +454,75 @@ internal static class Program
             var hm = Descriptor.AsMap(http["http"]);
             Check(200.Equals(hm["status"]), "wire status");
             Check(12L.Equals(hm["bytes"]), "bytes from content-length");
+        });
+
+        TestCase("transport: a query-placed credential reaches the wire encoded, and nothing else", () =>
+        {
+            Station st = MemoryStation(Map("TEST_PLUG_APIKEY", "tok!en 1"), null);
+            Bind(st, new object(), st.Options(Map()));
+
+            string url = "http://localhost:8000/api/todo?fields=id%2Ctitle&token="
+                + "%5Bstation%3Atest-plug%5D";
+            var fetchdef = Map("url", url, "method", "GET", "headers", Map());
+            var sent = new List<object>();
+            st.Transport("test-plug", url, fetchdef, true, null, (wireurl, def) =>
+            {
+                sent.Add(wireurl);
+                sent.Add(def["url"]);
+                return Map("status", 200);
+            });
+
+            string wire = "http://localhost:8000/api/todo?fields=id%2Ctitle&token=tok%21en%201";
+            Check(wire.Equals(sent[0]), "the value reaches the wire encoded");
+            Check(wire.Equals(sent[1]), "the sent fetchdef url agrees");
+            Check(url.Equals(fetchdef["url"]), "caller's fetchdef keeps the placeholder");
+            string events = EventText(st);
+            Check(!events.Contains("tok%21en%201") && !events.Contains("tok!en 1"),
+                "events carry no value");
+        });
+
+        TestCase("transport: a transport error quoting the placed URL is scrubbed", () =>
+        {
+            Station st = MemoryStation(Map("TEST_PLUG_APIKEY", "tok!en 1"), null);
+            Bind(st, new object(), st.Options(Map()));
+
+            string url = "http://localhost:8000/api/todo?token=%5Bstation%3Atest-plug%5D";
+            Exception caught = null;
+            try
+            {
+                st.Transport("test-plug", url, Map("url", url, "headers", Map()), true, null,
+                    (wireurl, def) => throw new InvalidOperationException("failed: GET " + wireurl));
+            }
+            catch (Exception err)
+            {
+                caught = err;
+            }
+            Check(null != caught, "the transport error surfaces");
+            Check(!caught.Message.Contains("tok%21en%201"), "scrubbed: " + caught.Message);
+            Check(caught.Message.Contains("[redacted]"), "scrub marker: " + caught.Message);
+            Check(!EventText(st).Contains("tok%21en%201"), "events carry no value");
+        });
+
+        TestCase("transport: an error quoting only the fetchdef url is scrubbed", () =>
+        {
+            Station st = MemoryStation(Map("TEST_PLUG_APIKEY", "tok!en 1"), null);
+            Bind(st, new object(), st.Options(Map()));
+
+            string defurl = "http://localhost:8000/api/todo?token=%5Bstation%3Atest-plug%5D";
+            Exception caught = null;
+            try
+            {
+                st.Transport("test-plug", "http://localhost:8000/api/todo",
+                    Map("url", defurl, "headers", Map()), true, null,
+                    (wireurl, def) => throw new InvalidOperationException("failed: GET " + def["url"]));
+            }
+            catch (Exception err)
+            {
+                caught = err;
+            }
+            Check(null != caught, "the transport error surfaces");
+            Check(!caught.Message.Contains("tok%21en%201"), "scrubbed: " + caught.Message);
+            Check(caught.Message.Contains("[redacted]"), "scrub marker: " + caught.Message);
         });
 
         TestCase("transport: no injection into mock transports", () =>

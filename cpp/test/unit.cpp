@@ -173,7 +173,40 @@ int main(int argc, char** argv) {
     broker.hoist("other", "hoisted-secret");
     checkeq(broker.scrub("say hoisted-secret twice hoisted-secret"),
             "say [redacted] twice [redacted]", "hoisted value scrubbed everywhere");
+    broker.hoist("query", "tok!en 1");
+    checkeq(broker.scrub("GET /x?token=tok%21en%201 for tok!en 1"),
+            "GET /x?token=[redacted] for [redacted]", "query-encoded form scrubbed too");
     unsetenv("UNIT_SCRUB_APIKEY");
+  });
+
+  testcase("broker-scrub-matches-every-form-against-the-original-text", [] {
+    vs::Jval none = vs::parse_json("[]");
+    const std::vector<std::vector<std::string>> orders = {{"%", "secret!"}, {"secret!", "%"}};
+    for (const auto& held : orders) {
+      vs::SecretBroker broker(none);
+      broker.hoist("a", held[0]);
+      broker.hoist("b", held[1]);
+      checkeq(broker.scrub("token=secret%21"), "token=[redacted]", held[0] + " " + held[1]);
+    }
+    vs::SecretBroker broker(none);
+    broker.hoist("a", "ab!");
+    broker.hoist("b", "!c");
+    checkeq(broker.scrub("x=ab%21c&y=!c"), "x=[redacted]&y=[redacted]",
+            "forms that overlap in the text are one span");
+  });
+
+  testcase("substitute-copies-headers-and-passes-non-strings", [] {
+    vs::Jval headers = vs::parse_json(R"({ "x-api-key": "[station:k]", "content-length": 12 })");
+    vs::Substituted sent =
+        vs::substitute("http://h/x?k=%5Bstation%3Ak%5D", headers, "[station:k]", "a b");
+    checkeq(sent.url, "http://h/x?k=a%20b", "query value encoded");
+    checkeq(sent.headers.get("x-api-key").str_or("?"), "a b", "header value raw");
+    check(sent.headers.get("content-length").isnum() &&
+              12 == sent.headers.get("content-length").nval,
+          "a non-string header passes through");
+    checkeq(headers.get("x-api-key").str_or("?"), "[station:k]", "input headers untouched");
+    check(vs::substitute("http://h/x", vs::Jval::absent(), "[station:k]", "v").headers.ismap(),
+          "no headers is an empty copy");
   });
 
   testcase("broker-unsupported-kinds-env-only", [] {

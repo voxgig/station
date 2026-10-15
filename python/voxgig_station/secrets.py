@@ -7,11 +7,14 @@
 # python port.
 
 import threading
+from urllib.parse import quote
 
 from voxgig_sekreto import Sekreto, SekretoError
 from voxgig_sekreto.plugins import ALL as SEKRETO_PLUGINS
 
 from .error import StationError
+
+_HEXDIGITS = frozenset('0123456789abcdefABCDEF')
 
 
 def placeholder_for(name):
@@ -20,6 +23,93 @@ def placeholder_for(name):
     tell which credential a header wants. For an untagged instance this
     is the api slug, so the single-instance case is unchanged."""
     return '[station:' + name + ']'
+
+
+def encode_query_value(value):
+    """Every UTF-8 byte outside RFC 3986's unreserved set becomes
+    upper-case %XX."""
+    return quote(value, safe='')
+
+
+def _match_at(text, at, end, placeholder):
+    i = at
+    for ch in placeholder:
+        if i < end and text[i] == ch:
+            i += 1
+            continue
+        hexpair = text[i + 1:i + 3]
+        if i + 3 <= end and '%' == text[i] and _HEXDIGITS.issuperset(hexpair) \
+                and int(hexpair, 16) == ord(ch):
+            i += 3
+            continue
+        return -1
+    return i - at
+
+
+def substitute(url, headers, placeholder, value):
+    """The placeholder becomes the value in header values and in the URL
+    query, where an SDK percent-encodes it (any hex case) and the value
+    is encoded in turn. The path and fragment are never touched; the
+    headers are a copy."""
+    out = dict(headers or {})
+    if '' == placeholder:
+        return {'url': url, 'headers': out}
+
+    for h, v in list(out.items()):
+        if isinstance(v, str) and placeholder in v:
+            out[h] = v.replace(placeholder, value)
+
+    q = url.find('?')
+    hash_at = url.find('#')
+    if -1 == q or (-1 != hash_at and hash_at < q):
+        return {'url': url, 'headers': out}
+    end = len(url) if -1 == hash_at else hash_at
+    encoded = encode_query_value(value)
+    query = []
+    i = q + 1
+    while i < end:
+        n = _match_at(url, i, end, placeholder)
+        if 0 < n:
+            query.append(encoded)
+            i += n
+        else:
+            query.append(url[i])
+            i += 1
+    return {'url': url[:q + 1] + ''.join(query) + url[end:], 'headers': out}
+
+
+def _redact_values(text, values):
+    """Every form of every value is matched against the original text and
+    the union of the matches redacted, so no replacement can hide another
+    form."""
+    forms = set()
+    for value in values:
+        if '' != value:
+            forms.add(value)
+            forms.add(encode_query_value(value))
+
+    def reach(at):
+        end = at
+        for form in forms:
+            if at + len(form) > end and text.startswith(form, at):
+                end = at + len(form)
+        return end
+
+    out = []
+    i = 0
+    while i < len(text):
+        stop = reach(i)
+        if stop == i:
+            out.append(text[i])
+            i += 1
+            continue
+        j = i + 1
+        while j < stop:
+            stop = max(stop, reach(j))
+            j += 1
+        out.append('[redacted]')
+        i = stop
+    return ''.join(out)
 
 
 class SecretBroker:
@@ -91,16 +181,14 @@ class SecretBroker:
         """Exact-value scrub, deliberately WITHOUT sekreto's four-character
         readability floor (design station.md 7 as revised): on boundaries
         where the promise is absolute, every held value is scrubbed
-        whatever its length. sekreto's own redact() runs too, covering
+        whatever its length. sekreto's own redact() runs after, covering
         values resolved by the underlying instance that station never
-        held."""
-        out = self._sekreto.redact(text)
+        held; run first, its raw-value replacement could split an encoded
+        form."""
         with self._lock:
             held = list(self._held)
-        for value in held:
-            if '' != value:
-                out = '[redacted]'.join(out.split(value))
-        return out
+        text = text if isinstance(text, str) else ''
+        return self._sekreto.redact(_redact_values(text, held))
 
     def refresh(self):
         """Drop caches so the next resolve asks the stores again (rotation

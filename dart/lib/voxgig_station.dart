@@ -12,10 +12,12 @@ export 'src/adapter.dart'
 export 'src/descriptor.dart'
     show Normalized, canonicalSerialize, envtoken, normalizeDescriptor,
         secretnameDefault;
-export 'src/error.dart' show CODES, StationError, isKnownCode;
+export 'src/error.dart' show CODES, ScrubbedError, StationError, isKnownCode;
 export 'src/events.dart' show EventBuffer, TapFn;
 export 'src/profile.dart'
     show MERGE_SENSITIVE, findConfigFile, loadConfig, refapi, resolveProfile,
         selectProfile;
-export 'src/secrets.dart' show SecretBroker, envkey, placeholderFor, validname;
+export 'src/secrets.dart'
+    show SecretBroker, Substituted, encodeQueryValue, envkey, placeholderFor,
+        substitute, validname;
 export 'src/station.dart' show PluginEntry, RegisterResult, Station;

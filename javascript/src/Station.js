@@ -23,7 +23,7 @@ const {
   resolveorder,
 } = require('./feature')
 const { normalizeConfig, validateConfig } = require('./shape')
-const { SecretBroker, placeholderFor } = require('./secrets')
+const { SecretBroker, placeholderFor, substitute } = require('./secrets')
 
 // adapter.js requires this module for Station.current(), so the carried
 // adapter is required lazily - at the one point construction needs it -
@@ -270,24 +270,23 @@ class Station {
       throw new StationError('station_no_plugin', 'station is closed')
     }
     opts = opts || {}
-    const fmap = { ...(opts.feature || {}) }
+    const { as, instance, ...sdkopts } = opts
+    const fmap = { ...(sdkopts.feature || {}) }
     fmap['station'] = {
       ...(fmap['station'] || {}),
       active: true, station: this, calleropts: opts,
-      // §6.1: `as` is a TAG, resolved against the api in _register -
-      // the api comes from the SDK being passed and is not knowable
-      // here until that SDK's config has been normalized.
-      ...(null == opts.as ? {} : { as: opts.as }),
-      ...(null == opts.instance ? {} : { instance: opts.instance }),
+      // §6.1: `as` is a tag, resolved against the SDK's api in _register.
+      ...(null == as ? {} : { as }),
+      ...(null == instance ? {} : { instance }),
     }
     const options = {
-      ...opts,
+      ...sdkopts,
       feature: fmap,
       // The carried adapter rides extend for SDKs generated WITHOUT
       // the station feature; when the generated class exists the
       // constructor uses it and the extend copy is skipped by name
       // (both delegate to featureBinding, so behavior is identical).
-      extend: [...(opts.extend || []), adapterFeature(this, opts)],
+      extend: [...(sdkopts.extend || []), adapterFeature(this, opts)],
     }
     return new SDK(options)
   }
@@ -534,6 +533,8 @@ class Station {
     }
 
     let senddef = fetchdef
+    let sendurl = fullurl
+    let placed = false
     if (null != hosts && live) {
       senddef = { ...senddef, redirect: 'manual' }
     }
@@ -569,13 +570,14 @@ class Station {
         return e instanceof Error ? e : new Error(String(e))
       }
 
-      senddef = { ...senddef, headers: { ...(senddef.headers || {}) } }
-      for (const h of Object.keys(senddef.headers)) {
-        const v = senddef.headers[h]
-        if ('string' === typeof v && v.includes(placeholder)) {
-          senddef.headers[h] = v.split(placeholder).join(value)
-        }
+      const sent = substitute(fullurl, senddef.headers, placeholder, value)
+      sendurl = sent.url
+      senddef = { ...senddef, headers: sent.headers }
+      const defurl = senddef.url
+      if ('string' === typeof defurl) {
+        senddef.url = substitute(defurl, null, placeholder, value).url
       }
+      placed = sendurl !== fullurl || senddef.url !== defurl
     }
 
     const corr = fctx.station$?.corr
@@ -583,18 +585,18 @@ class Station {
 
     let res
     try {
-      res = await inner(fctx, fullurl, senddef)
+      res = await inner(fctx, sendurl, senddef)
     }
     catch (e) {
       this.emitHttp(name, corr, fullurl, senddef, 0, started, 0)
       this.emitErr(name, fctx, e)
-      throw e
+      throw this.scrubbed(e, placed)
     }
 
     if (res instanceof Error) {
       this.emitHttp(name, corr, fullurl, senddef, 0, started, 0)
       this.emitErr(name, fctx, res)
-      return res
+      return this.scrubbed(res, placed)
     }
 
     let bytes = 0
@@ -603,6 +605,14 @@ class Station {
     this.emitHttp(name, corr, fullurl, senddef, res?.status || 0, started, bytes)
 
     return res
+  }
+
+  // A transport error may quote its URL, which carries a query-placed value.
+  scrubbed(err, placed) {
+    if (placed && err instanceof Error) {
+      err.message = this.redact(err.message)
+    }
+    return err
   }
 
   emitHttp(slug, corr, fullurl, fetchdef, status, started, bytes) {

@@ -19,9 +19,9 @@
 //     3.3 wrap-position guard, and applies the returned
 //     placeholder/base to its live options map;
 //   - Binding.transport(...) per request - the adapter deep-clones its
-//     fetchdef before applying the injected header set (copy-on-inject,
-//     design 5.3: the clone is the adapter's ONLY job there; which
-//     headers change is decided here);
+//     fetchdef before applying the injected header set and the placed
+//     URLs (copy-on-inject, design 5.3: the clone is the adapter's ONLY
+//     job there; which headers and query values change is decided here);
 //   - Binding.opStart()/opDone() from the hook bridge, keyed by the
 //     SDK's own per-op context id (design 3 item 3).
 //

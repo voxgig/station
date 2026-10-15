@@ -53,6 +53,30 @@ local function checkfails(code, fn)
     'expected code ' .. code .. ', got: ' .. tostring(err))
 end
 
+-- Does any string anywhere in v (keys included) contain needle?
+local function holds(v, needle)
+  if type(v) == 'string' then
+    return string.find(v, needle, 1, true) ~= nil
+  end
+  if type(v) == 'table' then
+    for k, x in pairs(v) do
+      if holds(k, needle) or holds(x, needle) then
+        return true
+      end
+    end
+  end
+  return false
+end
+
+local function keylist(t)
+  local keys = {}
+  for k in pairs(t) do
+    keys[#keys + 1] = k
+  end
+  table.sort(keys)
+  return table.concat(keys, ',')
+end
+
 -- ---------------------------------------------------------------------
 -- A fake generated SDK: the exact seams the adapter touches.
 -- ---------------------------------------------------------------------
@@ -286,6 +310,22 @@ testcase('broker', function()
     'hoisted overrides survive refresh')
 end)
 
+testcase('broker-scrub-forms', function()
+  -- Every form of every held value is matched against the original text.
+  for _, held in ipairs({ { '%', 'secret!' }, { 'secret!', '%' } }) do
+    local broker = st.SecretBroker.new({})
+    broker:hoist('a', held[1])
+    broker:hoist('b', held[2])
+    checkeq(broker:scrub('token=secret%21'), 'token=[redacted]', held[1] .. ' ' .. held[2])
+  end
+
+  local broker = st.SecretBroker.new({})
+  broker:hoist('a', 'ab!')
+  broker:hoist('b', '!c')
+  checkeq(broker:scrub('x=ab%21c&y=!c'), 'x=[redacted]&y=[redacted]',
+    'forms that overlap in the text are one span')
+end)
+
 testcase('ambient', function()
   local a = st.open({ config = st.NULL })
   checkeq(st.current(), a)
@@ -378,6 +418,109 @@ testcase('inject', function()
   checkeq(httpev.http.host, 'localhost:8901')
   checkeq(httpev.http.path, '/api/task/x')
   checkeq(httpev.http.bytes, 2)
+end)
+
+testcase('query-inject', function()
+  local station = st.new({ config = st.NULL, proxy = 'off' })
+  local b = bind(station, { options = {
+    apikey = 'tok!en 1', base = 'http://localhost:8901' } })
+
+  local url = 'http://localhost:8901/api/task/x?fields=id%2Ctitle&token=' ..
+    '%5Bstation%3Ataskpad%5D'
+  local fetchdef = { url = url, method = 'GET', headers = {} }
+  local res, err = b.utility.fetcher({ client = b.client }, url, fetchdef)
+  checkeq(err, nil)
+  check(res ~= nil)
+
+  local wire = 'http://localhost:8901/api/task/x?fields=id%2Ctitle&token=tok%21en%201'
+  checkeq(b.inner_calls[1].url, wire, 'the value reaches the wire encoded')
+  checkeq(b.inner_calls[1].fetchdef.url, wire, 'the sent fetchdef url agrees')
+  checkeq(fetchdef.url, url, "the caller's fetchdef keeps the placeholder")
+  check(not holds(station:events(), 'tok%21en%201'), 'no encoded value in events')
+  check(not holds(station:events(), 'tok!en 1'), 'no raw value in events')
+end)
+
+testcase('query-error-scrubbed', function()
+  local url = 'http://localhost:8901/api/task/x?token=%5Bstation%3Ataskpad%5D'
+  local sent = 'tok%21en%201'
+
+  -- An error value (the SDKs' convention), and a raised one.
+  local station = st.new({ config = st.NULL, proxy = 'off' })
+  local b = bind(station, {
+    options = { apikey = 'tok!en 1', base = 'http://localhost:8901' },
+    inner = function(_fctx, fullurl)
+      return nil, { msg = 'failed: GET ' .. fullurl }
+    end,
+  })
+  local res, err = b.utility.fetcher({ client = b.client }, url,
+    { url = url, headers = {} })
+  checkeq(res, nil)
+  check(type(err) == 'table' and type(err.msg) == 'string', 'an error value')
+  check(string.find(err.msg, sent, 1, true) == nil, err.msg)
+  check(string.find(err.msg, '[redacted]', 1, true) ~= nil, err.msg)
+  check(not holds(station:events(), sent), 'no encoded value in events')
+
+  local station2 = st.new({ config = st.NULL, proxy = 'off' })
+  local b2 = bind(station2, {
+    options = { apikey = 'tok!en 1', base = 'http://localhost:8901' },
+    inner = function(_fctx, fullurl)
+      error('failed: GET ' .. fullurl, 0)
+    end,
+  })
+  local ok, raised = pcall(b2.utility.fetcher, { client = b2.client }, url,
+    { url = url, headers = {} })
+  check(not ok, 'the raise propagates')
+  check(string.find(raised, sent, 1, true) == nil, raised)
+  check(string.find(raised, '[redacted]', 1, true) ~= nil, raised)
+  check(not holds(station2:events(), sent), 'no encoded value in events')
+end)
+
+testcase('defurl-error-scrubbed', function()
+  -- The request URL carries no placeholder; only the fetchdef's own url does.
+  local url = 'http://localhost:8901/api/task/x'
+  local defurl = url .. '?token=%5Bstation%3Ataskpad%5D'
+  local sent = 'tok%21en%201'
+
+  local station = st.new({ config = st.NULL, proxy = 'off' })
+  local b = bind(station, {
+    options = { apikey = 'tok!en 1', base = 'http://localhost:8901' },
+    inner = function(_fctx, _fullurl, fetchdef)
+      return nil, { msg = 'failed: GET ' .. fetchdef.url }
+    end,
+  })
+  local _, err = b.utility.fetcher({ client = b.client }, url,
+    { url = defurl, headers = {} })
+  check(type(err) == 'table' and type(err.msg) == 'string', 'an error value')
+  check(string.find(err.msg, sent, 1, true) == nil, err.msg)
+  check(string.find(err.msg, '[redacted]', 1, true) ~= nil, err.msg)
+
+  local station2 = st.new({ config = st.NULL, proxy = 'off' })
+  local b2 = bind(station2, {
+    options = { apikey = 'tok!en 1', base = 'http://localhost:8901' },
+    inner = function(_fctx, _fullurl, fetchdef)
+      error('failed: GET ' .. fetchdef.url, 0)
+    end,
+  })
+  local ok, raised = pcall(b2.utility.fetcher, { client = b2.client }, url,
+    { url = defurl, headers = {} })
+  check(not ok, 'the raise propagates')
+  check(string.find(raised, sent, 1, true) == nil, raised)
+  check(string.find(raised, '[redacted]', 1, true) ~= nil, raised)
+end)
+
+testcase('connect-keeps-station-keys', function()
+  local station = st.new({ config = st.NULL, proxy = 'off' })
+  local built = nil
+  local SDK = { new = function(options) built = options end }
+
+  station:connect(SDK, { as = 'spare', base = 'http://x' })
+  checkeq(keylist(built), 'base,extend,feature', 'the SDK options')
+  checkeq(built.feature.station.as, 'spare', 'as rides the feature entry')
+
+  station:connect(SDK, { instance = 'taskpad$spare' })
+  checkeq(keylist(built), 'extend,feature', 'the SDK options')
+  checkeq(built.feature.station.instance, 'taskpad$spare',
+    'instance rides the feature entry')
 end)
 
 testcase('mock-no-inject', function()

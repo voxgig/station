@@ -17,7 +17,7 @@ use Scalar::Util qw(blessed);
 use Voxgig::Station::Error ();
 
 use Exporter 'import';
-our @EXPORT_OK = qw(placeholder_for);
+our @EXPORT_OK = qw(encode_query_value placeholder_for substitute);
 
 # Keyed by INSTANCE (design station.md 7.2). Two live instances of one
 # api must have distinct placeholders or the injection seam cannot tell
@@ -26,6 +26,112 @@ our @EXPORT_OK = qw(placeholder_for);
 sub placeholder_for {
     my ($name) = @_;
     return '[station:' . ( defined $name ? $name : '' ) . ']';
+}
+
+# Every UTF-8 byte outside RFC 3986's unreserved set becomes upper-case
+# %XX. A byte string, such as a value read from the environment, is
+# already UTF-8.
+sub encode_query_value {
+    my ($value) = @_;
+    my $bytes = defined $value ? "$value" : '';
+    utf8::encode($bytes) if utf8::is_utf8($bytes);
+    $bytes =~ s/([^A-Za-z0-9\-._~])/sprintf('%%%02X', ord($1))/ge;
+    return $bytes;
+}
+
+sub _match_at {
+    my ( $text, $at, $end, $placeholder ) = @_;
+    my $i = $at;
+    for my $ch ( split //, $placeholder ) {
+        if ( $i < $end && substr( $text, $i, 1 ) eq $ch ) {
+            $i++;
+            next;
+        }
+        if (   $i + 3 <= $end
+            && '%' eq substr( $text, $i, 1 )
+            && substr( $text, $i + 1, 2 ) =~ /\A[0-9A-Fa-f]{2}\z/
+            && hex( substr( $text, $i + 1, 2 ) ) == ord($ch) ) {
+            $i += 3;
+            next;
+        }
+        return -1;
+    }
+    return $i - $at;
+}
+
+# The placeholder becomes the value in header values and in the URL
+# query, where an SDK percent-encodes it (any hex case) and the value is
+# encoded in turn. The path and fragment are never touched; the headers
+# are a copy.
+sub substitute {
+    my ( $url, $headers, $placeholder, $value ) = @_;
+    my $out = { %{ ref($headers) eq 'HASH' ? $headers : {} } };
+    return { url => $url, headers => $out } if '' eq $placeholder;
+
+    for my $h ( keys %$out ) {
+        my $v = $out->{$h};
+        next unless defined $v && !ref $v && 0 <= index( $v, $placeholder );
+        $out->{$h} = join( $value, split( /\Q$placeholder\E/, $v, -1 ) );
+    }
+
+    my $q    = index( $url, '?' );
+    my $hash = index( $url, '#' );
+    return { url => $url, headers => $out }
+      if -1 == $q || ( -1 != $hash && $hash < $q );
+    my $end     = -1 == $hash ? length($url) : $hash;
+    my $encoded = encode_query_value($value);
+    my $query   = '';
+    for ( my $i = $q + 1 ; $i < $end ; ) {
+        my $n = _match_at( $url, $i, $end, $placeholder );
+        if ( 0 < $n ) {
+            $query .= $encoded;
+            $i += $n;
+        }
+        else {
+            $query .= substr( $url, $i, 1 );
+            $i++;
+        }
+    }
+    return {
+        url     => substr( $url, 0, $q + 1 ) . $query . substr( $url, $end ),
+        headers => $out,
+    };
+}
+
+# Every form of every value is matched against the original text and the
+# union of the matches redacted, so no replacement can hide another form.
+sub _redact_values {
+    my ( $text, $values ) = @_;
+    my @forms = map { ( $_, encode_query_value($_) ) }
+      grep { defined $_ && '' ne $_ } @$values;
+    my $reach = sub {
+        my ($at) = @_;
+        my $end = $at;
+        for my $form (@forms) {
+            my $len = length $form;
+            $end = $at + $len
+              if $at + $len > $end && substr( $text, $at, $len ) eq $form;
+        }
+        return $end;
+    };
+
+    my $out = '';
+    my $i   = 0;
+    while ( $i < length $text ) {
+        my $stop = $reach->($i);
+        if ( $stop == $i ) {
+            $out .= substr( $text, $i, 1 );
+            $i++;
+            next;
+        }
+        for ( my $j = $i + 1 ; $j < $stop ; $j++ ) {
+            my $end = $reach->($j);
+            $stop = $end if $end > $stop;
+        }
+        $out .= '[redacted]';
+        $i = $stop;
+    }
+    return $out;
 }
 
 package Voxgig::Station::SecretBroker;
@@ -96,16 +202,16 @@ sub value {
 # Exact-value scrub, deliberately WITHOUT sekreto's four-character
 # readability floor (design station.md 7 as revised): on boundaries where
 # the promise is absolute, every held value is scrubbed whatever its
-# length. sekreto's own redactall runs too, covering values resolved by
-# the underlying instance that station never held.
+# length. sekreto's own redactall runs after, covering values resolved by
+# the underlying instance that station never held; run first, its
+# raw-value replacement could split an encoded form.
 sub scrub {
     my ( $self, $text ) = @_;
-    my $out = $self->{sekreto}->redactall( defined $text ? "$text" : '' );
-    for my $value ( @{ $self->{held} } ) {
-        next if !defined $value || '' eq $value;
-        $out = join( '[redacted]', split( /\Q$value\E/, $out, -1 ) );
-    }
-    return $out;
+    my $out = Voxgig::Station::Secrets::_redact_values(
+        defined $text ? "$text" : '',
+        $self->{held}
+    );
+    return $self->{sekreto}->redactall($out);
 }
 
 # Drop caches so the next resolve asks the stores again (rotation support

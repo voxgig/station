@@ -51,6 +51,10 @@ DRIVERS = {
 
   'placeholder' => ->(slug) { VoxgigStation.placeholder_for(slug) },
 
+  'substitute' => lambda { |vin|
+    VoxgigStation.substitute(vin['url'], vin['headers'], vin['placeholder'], vin['value'])
+  },
+
   'descriptor' => lambda { |vin|
     VoxgigStation.normalize_descriptor(vin['config'], vin['feature'])[:descriptor]
   },

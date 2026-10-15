@@ -10,8 +10,8 @@
 -- idiomatic for a single-file Lua rock and for vendoring. SDK-facing
 -- seams follow the generated Lua SDKs' conventions: the transport is a
 -- function returning a (response, err) MULTI-RETURN pair - errors are
--- values, never raised, and this middleware propagates both slots
--- unchanged; client mode is client.mode; per-op state rides the
+-- values, never raised, and this middleware propagates both slots;
+-- client mode is client.mode; per-op state rides the
 -- 'station$' slot on the SDK's own ctx table; hooks are dispatched by
 -- literal method-name lookup, so the adapter is just a table carrying
 -- those method names.
@@ -1102,6 +1102,69 @@ function M.placeholder_for(slug)
   return '[station:' .. tostring(slug == nil and '' or slug) .. ']'
 end
 
+-- Every UTF-8 byte outside RFC 3986's unreserved set becomes upper-case %XX.
+function M.encode_query_value(value)
+  return (string.gsub(value, '[^A-Za-z0-9%-%._~]', function(c)
+    return string.format('%%%02X', string.byte(c))
+  end))
+end
+
+-- The placeholder's length at byte `at` of the query, each of its bytes
+-- literal or as %XX in either hex case; nil when it is not there.
+local function match_at(query, at, placeholder)
+  local i = at
+  for k = 1, #placeholder do
+    local ch = string.byte(placeholder, k)
+    if string.byte(query, i) == ch then
+      i = i + 1
+    else
+      local hex = string.match(query, '^%%(%x%x)', i)
+      if hex == nil or tonumber(hex, 16) ~= ch then
+        return nil
+      end
+      i = i + 3
+    end
+  end
+  return i - at
+end
+
+-- The placeholder becomes the value in header values and in the URL query,
+-- where an SDK percent-encodes it (any hex case) and the value is encoded in
+-- turn. The path and fragment are never touched. Returns url, headers (a
+-- copy).
+function M.substitute(url, headers, placeholder, value)
+  local out = shallowcopy(headers)
+  if placeholder == '' then
+    return url, out
+  end
+  for h, v in pairs(out) do
+    if type(v) == 'string' then
+      out[h] = replaceall(v, placeholder, value)
+    end
+  end
+
+  local q = type(url) == 'string' and string.find(url, '?', 1, true) or nil
+  local hash = type(url) == 'string' and string.find(url, '#', 1, true) or nil
+  if q == nil or (hash ~= nil and hash < q) then
+    return url, out
+  end
+  local stop = hash or #url + 1
+  local query = string.sub(url, q + 1, stop - 1)
+  local encoded = M.encode_query_value(value)
+  local parts, i = {}, 1
+  while i <= #query do
+    local n = match_at(query, i, placeholder)
+    if n ~= nil then
+      parts[#parts + 1] = encoded
+      i = i + n
+    else
+      parts[#parts + 1] = string.sub(query, i, i)
+      i = i + 1
+    end
+  end
+  return string.sub(url, 1, q) .. table.concat(parts) .. string.sub(url, stop), out
+end
+
 local SecretBroker = {}
 SecretBroker.__index = SecretBroker
 
@@ -1170,15 +1233,45 @@ end
 -- Exact-value scrub, deliberately WITHOUT sekreto's four-character
 -- readability floor (design station.md 7 as revised): on boundaries
 -- where the promise is absolute, every held value is scrubbed whatever
--- its length.
+-- its length. Every form is matched against the original text and the
+-- union of the matches redacted, so no replacement can hide another form.
 function SecretBroker:scrub(text)
-  local out = tostring(text == nil and '' or text)
-  for _, value in ipairs(self.held) do
+  local s = tostring(text == nil and '' or text)
+  local forms = {}
+  for _, held in ipairs(self.held) do
+    local value = tostring(held)
     if value ~= '' then
-      out = replaceall(out, value, '[redacted]')
+      forms[#forms + 1] = value
+      forms[#forms + 1] = M.encode_query_value(value)
     end
   end
-  return out
+  local function reach(at)
+    local stop = at
+    for _, form in ipairs(forms) do
+      if at + #form > stop and string.sub(s, at, at + #form - 1) == form then
+        stop = at + #form
+      end
+    end
+    return stop
+  end
+
+  local parts, i = {}, 1
+  while i <= #s do
+    local stop = reach(i)
+    if stop == i then
+      parts[#parts + 1] = string.sub(s, i, i)
+      i = i + 1
+    else
+      local j = i + 1
+      while j < stop do
+        stop = math.max(stop, reach(j))
+        j = j + 1
+      end
+      parts[#parts + 1] = '[redacted]'
+      i = stop
+    end
+  end
+  return table.concat(parts)
 end
 
 -- Drop caches so the next resolve asks the environment again (rotation
@@ -1327,6 +1420,15 @@ local function construct(self, SDK, opts)
   opts = type(opts) == 'table' and opts or {}
   local options = shallowcopy(opts)
   options.feature = activation(self, options.feature, opts)
+
+  -- `as` and `instance` are station's own: they ride the feature entry,
+  -- never the SDK's options, which a generated SDK checks as closed.
+  for _, key in ipairs({ 'as', 'instance' }) do
+    if options[key] ~= nil then
+      options.feature.station[key] = options[key]
+      options[key] = nil
+    end
+  end
 
   -- The carried adapter rides extend for SDKs generated WITHOUT the
   -- station feature; when the generated class exists the constructor
@@ -1581,6 +1683,8 @@ function Station:_transport(slug, inner, fctx, fullurl, fetchdef)
   end
 
   local senddef = fetchdef
+  local sendurl = fullurl
+  local placed = false
   if hosts ~= nil and live then
     senddef = shallowcopy(senddef)
     senddef.redirect = 'manual'
@@ -1611,13 +1715,15 @@ function Station:_transport(slug, inner, fctx, fullurl, fetchdef)
     end
 
     senddef = shallowcopy(senddef)
-    local headers = shallowcopy(senddef.headers)
-    for h, v in pairs(headers) do
-      if type(v) == 'string' and string.find(v, placeholder, 1, true) ~= nil then
-        headers[h] = replaceall(v, placeholder, value)
-      end
-    end
+    local headers
+    sendurl, headers = M.substitute(fullurl, senddef.headers, placeholder, value)
     senddef.headers = headers
+    placed = sendurl ~= fullurl
+    local defurl = senddef.url
+    if type(defurl) == 'string' then
+      senddef.url = M.substitute(defurl, nil, placeholder, value)
+      placed = placed or senddef.url ~= defurl
+    end
   end
 
   local st = type(fctx) == 'table' and type(fctx['station$']) == 'table' and
@@ -1625,19 +1731,19 @@ function Station:_transport(slug, inner, fctx, fullurl, fetchdef)
   local corr = st ~= nil and st.corr or nil
   local started = now_ms()
 
-  local ok, res, err = pcall(inner, fctx, fullurl, senddef)
+  local ok, res, err = pcall(inner, fctx, sendurl, senddef)
   if not ok then
     -- The transport raised (not the SDK convention, but a wrap must not
-    -- swallow it): record, then re-raise unchanged.
+    -- swallow it): record, then re-raise.
     self:_emit_http(slug, corr, fullurl, senddef, 0, started, 0)
     self:_emit_err(slug, fctx, res)
-    error(res, 0)
+    error(self:_scrubbed(res, placed), 0)
   end
 
   if err ~= nil then
     self:_emit_http(slug, corr, fullurl, senddef, 0, started, 0)
     self:_emit_err(slug, fctx, err)
-    return res, err
+    return res, self:_scrubbed(err, placed)
   end
 
   if res == nil then
@@ -1659,6 +1765,25 @@ function Station:_transport(slug, inner, fctx, fullurl, fetchdef)
   self:_emit_http(slug, corr, fullurl, senddef, status, started, bytes)
 
   return res, err
+end
+
+-- A transport error may quote its URL, which carries a query-placed value:
+-- a string comes back scrubbed, an error table is scrubbed in place.
+function Station:_scrubbed(err, placed)
+  if not placed then
+    return err
+  end
+  if type(err) == 'string' then
+    return self:redact(err)
+  end
+  if type(err) == 'table' then
+    for _, key in ipairs({ 'msg', 'message' }) do
+      if type(err[key]) == 'string' then
+        err[key] = self:redact(err[key])
+      end
+    end
+  end
+  return err
 end
 
 -- Op events from the hook bridge (design station.md 3 item 3).

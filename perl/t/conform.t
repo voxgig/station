@@ -82,7 +82,7 @@ use Voxgig::Station::Feature qw(
   checkpin featuresources mergefeatures resolveorder
 );
 use Voxgig::Station::Profile qw(resolve_profile);
-use Voxgig::Station::Secrets qw(placeholder_for);
+use Voxgig::Station::Secrets qw(placeholder_for substitute);
 use Voxgig::Station::Shape qw(normalize_config validate_config);
 use Voxgig::Station::Struct qw(struct_parse);
 
@@ -158,6 +158,14 @@ my @DRIVERS = (
     ],
 
     [ placeholder => sub { return placeholder_for( $_[0] ) } ],
+
+    [
+        substitute => sub {
+            my ($vin) = @_;
+            return substitute( $vin->{url}, $vin->{headers}, $vin->{placeholder},
+                $vin->{value} );
+        }
+    ],
 
     [
         descriptor => sub {
