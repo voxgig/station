@@ -36,7 +36,7 @@ use JSON::PP ();
 use Scalar::Util qw(blessed refaddr reftype);
 use Time::HiRes ();
 
-our $VERSION = '0.0.1';
+our $VERSION = '0.2.0';
 
 # Self-locating bootstrap: this lib tree may sit anywhere (a checkout, a
 # vendored copy inside a generated SDK's feature container), so the lib

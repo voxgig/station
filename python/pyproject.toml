@@ -1,6 +1,6 @@
 [project]
 name = "voxgig-station"
-version = "0.0.1"
+version = "0.2.0"
 description = "station: one control surface for outbound integrations"
 requires-python = ">=3.9"
 # Two runtime dependencies and no more (design 9): sekreto

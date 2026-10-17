@@ -62,7 +62,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define VXSTN_VERSION "0.0.1"
+#define VXSTN_VERSION "0.2.0"
 
 /* =========================================================================
  * Errors (design station.md 14): <subject>_<condition>, absence as
