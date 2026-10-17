@@ -1208,15 +1208,18 @@ Encryption at rest for the SQLite store: §18.
 
 ### 8.6 Compatibility
 
-Five artifacts version independently — wire protocol, descriptor
-schema, StationEvent schema, each library's semver, and the generated
-adapter frozen into consumer repos at add time. The policy: the proxy
+Four artifacts version independently — wire protocol, descriptor
+schema, StationEvent schema, and the generated adapter frozen into
+consumer repos at add time. The libraries do not: every port shares
+one semver, the one in the repository's `VERSION` file, and a release
+ships every port that has a release route at it. The policy: the proxy
 accepts wire and descriptor versions N and N−1 and rejects unknown
 versions with a structured error (`station_protocol`) the library
 surfaces; descriptor and event schemas evolve additively within a
-major (unknown fields ignored); an adapter pins its library to
-`^major` via the feature model's `deps.<lang>` entry, and bumping
-that range on a library major is the station repo's job (it owns the
+major (unknown fields ignored); an adapter names its library through
+the feature model's `deps.<lang>` entry, which carries the shared
+version and moves with the ports (`make version-set` rewrites it with
+them), and keeping it there is the station repo's job (it owns the
 sdkgen-station package). Skew is the steady state — `add` is
 overwrite and adapters live for years in consumer diffs — so
 compatibility is designed, not hoped.

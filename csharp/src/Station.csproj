@@ -10,7 +10,7 @@
          pending - like sekreto's csharp port, which declares no PackageId
          at all yet and must gain one first (station design 9.6). -->
     <PackageId>Voxgig.Station</PackageId>
-    <Version>0.0.1</Version>
+    <Version>0.2.0</Version>
     <Authors>Voxgig</Authors>
     <Description>voxgig/station - one control surface for outbound integrations (solo mode).</Description>
   </PropertyGroup>

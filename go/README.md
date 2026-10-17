@@ -31,6 +31,10 @@ fallbacks) and writes a `go.work` pointing at them. `go.mod` therefore
 carries no path that works on only one machine. Nothing else is added:
 the design's budget is one library plus these two.
 
+A consumer requires the module by tag,
+`go get github.com/voxgig/station/go@v<version>`, at the version every
+station port shares (the repository's `VERSION` file).
+
 `spec/config-shape.json` is the shape artifact every port reads, and
 this port EMBEDS a mirror of it (`station/config-shape.json`, via
 `go:embed`) because a Go module ships compiled and cannot see `spec/`

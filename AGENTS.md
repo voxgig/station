@@ -80,16 +80,31 @@ extension is sdkgen's call, not station's. Leave it alone until sdkgen moves.
 
 ## Release and publish
 
-`release.yml` handles two npm packages — the language ports — released one at
-a time:
+**Every port shares one version: the one in `VERSION`.** Every port but go
+declares it, in its manifest or, where it has none, in a version constant; go's
+version is its tag. So must the proxy daemon's `Version`, the c, cpp, lua and perl
+payloads in sdkgen-station, and the station dependencies the sdkgen-station
+feature model writes into generated SDKs. `make version-check` fails naming any
+that differ; CI runs it in the vendor lane, and a release runs it before
+`pack-diff`. `make version-set V=X.Y.Z` rewrites them all in one diff. **Never
+bump one port alone.**
 
-| port | package | tag |
+Three ports have a release route, and a release ships all three at `VERSION`:
+
+| port | released as | tag |
 | --- | --- | --- |
-| `typescript/` | `@voxgig/station` | `typescript/v<version>` |
-| `javascript/` | `@voxgig/station-js` | `javascript/v<version>` |
+| `typescript/` | npm `@voxgig/station` | `typescript/v<version>` |
+| `javascript/` | npm `@voxgig/station-js` | `javascript/v<version>` |
+| `go/` | the tag itself: `go get github.com/voxgig/station/go@v<version>` | `go/v<version>` |
 
-The other fourteen ports ship no package and have no publish flow; they are
-consumed from this repository.
+The other thirteen ports ship no package and have no publish flow; they are
+consumed from this repository, and their declarations still follow `VERSION`.
+
+Outside the shared version, on purpose: the `version` each port's carried
+adapter gives the station *feature* (it mirrors the feature model's own
+`version` and moves with sdkgen-station), sdkgen-station's own package version,
+the wire, descriptor and event schema versions (design §8.6), and `rust/corpus`,
+the unpublished conformance crate.
 
 `sdkgen-station/` is a **third** npm package, `@voxgig/sdkgen-station` — the
 sdkgen feature package described above. `release.yml` has no `port` value for
@@ -97,12 +112,8 @@ it, it carries no release scripts, and it is **not on npm** at all (0.0.1 has
 never been published). Releasing it needs a route that does not exist yet;
 bumping its version alone publishes nothing.
 
-Both are published and tagged, so the path works end to end:
-
-| package | npm | tag |
-| --- | --- | --- |
-| `@voxgig/station` | 0.1.0 | `typescript/v0.1.0` |
-| `@voxgig/station-js` | 0.0.2 | `javascript/v0.0.2` |
+`make release-plan` shows, for each port, whether `VERSION` is released, the
+commit its tag and its npm build came from, and what a release would still do.
 
 > `release.yml`'s header still says "TRUSTED PUBLISHING IS PER PACKAGE, and
 > NEITHER station package is registered yet", with `npm trust` commands to run
@@ -119,9 +130,22 @@ reads as "the package does not exist" and costs an hour if you have not met it.
 
 ### Releasing
 
-**Actions → release → Run workflow** on `main`, choosing the `port`. The
-version comes from that port's own manifest, so **bump it first in a reviewed
-PR**, then dispatch.
+1. **Bump every port in a reviewed PR:** `make version-set V=X.Y.Z`, and
+   commit the diff.
+2. **Once it merges, release all three from that one commit.** Run
+   **Actions → release → Run workflow** on `main` with `port: typescript`,
+   then again with `port: javascript`. Then tag go on the same commit:
+
+   ```sh
+   git tag go/vX.Y.Z <the commit both npm releases came from>
+   git push origin go/vX.Y.Z
+   ```
+
+   No workflow tags go yet, and a go tag cannot be taken back:
+   `proxy.golang.org` caches a version permanently. Run `make release-plan`
+   on that commit first. It fetches the tags, and it refuses unless the
+   commit is on `origin/main` and is the one the npm releases came from.
+3. `make release-plan` must then report every port `done`.
 
 `allow_removals` exists because a release that would *remove* files from the
 published package fails unless you declare it deliberate: adding files is
@@ -155,24 +179,26 @@ nothing, silently.
 before tagging, re-dispatch: the registry check skips the completed publish and
 retries the tag.
 
-**That retry works only while `main` still points at the published commit.**
+**That retry is safe only while `main` still points at the published commit.**
 Dispatches are restricted to `main`, and before tagging the run compares npm's
-recorded `gitHead` for the version against `GITHUB_SHA`; a mismatch is a hard
-error, because the tag would otherwise point at code the registry does not
-contain. So if `main` has moved on, re-dispatching fails — and bumping the
-version to get past it publishes a *second* version rather than tagging the
-first. Recover by tagging the original published commit directly:
+recorded `gitHead` for the version against `GITHUB_SHA`. **npm records no
+`gitHead` for a tarball publish, so that comparison only ever warns.** The
+commit is in the version's provenance attestation instead, and
+`make release-plan` reads it from there. If `main` has moved on, do not
+re-dispatch, and do not bump the version to get past it, which publishes a
+*second* version rather than tagging the first. Tag the published commit
+directly:
 
 ```sh
-npm view @voxgig/station@<version> gitHead     # the commit that was published
+make release-plan                              # "npm built it from <commit>"
 git tag <port>/v<version> <that commit>
 git push origin <port>/v<version>
 ```
 
 `release.yml` also triggers on `typescript/v*` and `javascript/v*` **tag
 pushes**, so this starts a release run — which is what you want: it re-runs at
-the published commit, the registry check skips the completed publish, and the
-`gitHead` comparison now passes because the tag points at exactly that commit.
+the published commit and the registry check skips the completed publish, so the
+run only re-verifies that commit.
 The tag path has its own guard (`git merge-base --is-ancestor` against
 `origin/main`), so the commit must still be on `main` — which the published one
 is.
@@ -191,6 +217,9 @@ make omni-isolation    # omni is declared by no shipped library, + the guard's o
 make vendor-check      # the c/cpp/lua/perl SDK payloads match canonical (+ perl's sekreto copy)
 make sync-shape        # mirror spec/config-shape.json into the typescript and javascript ports
 make pack-diff         # what a release would add to or remove from the package
+make version-check     # every port declares VERSION, + the gate's own mutation test
+make version-set V=X.Y.Z  # move every port to a new version in one diff
+make release-plan      # per port: is VERSION released, and what would a release do
 ```
 
 `make test` and the per-port suites need a **voxgig/omni checkout**

@@ -38,6 +38,8 @@ import java.util.regex.Pattern;
 @SuppressWarnings({"unchecked"})
 public class Station {
 
+  public static final String VERSION = "0.2.0";
+
   /** The inner transport a station wrap delegates to. */
   @FunctionalInterface
   public interface Transport {

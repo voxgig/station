@@ -106,7 +106,27 @@ vendor-refresh:
 vendor-check:
 	python3 tools/vendor.py --check
 
-.PHONY: test build-typescript sync-shape vendor-refresh vendor-check test-c4 $(addprefix test-,$(RUNNABLE)) test-csharp test-swift test-dart test-elixir test-lua
+# CI's vendor lane and a release's pack-diff are where version-check runs.
+vendor-check pack-diff: version-check
+
+# Every port declares one version, the one in VERSION, and a release ships
+# them all at it. version-set rewrites every declaration in one diff.
+version-check:
+	python3 tools/version.py --check
+	python3 tools/version_selftest.py
+
+version-set:
+	@test -n "$(V)" || { echo "usage: make version-set V=<x.y.z>" >&2; exit 1; }
+	python3 tools/version.py --set $(V)
+
+# What a release dispatched now would do for each port; needs the network.
+release-plan: version-check
+	python3 tools/release_plan.py
+
+release-plan-test:
+	python3 tools/release_plan_test.py
+
+.PHONY: test build-typescript sync-shape vendor-refresh vendor-check version-check version-set release-plan release-plan-test test-c4 $(addprefix test-,$(RUNNABLE)) test-csharp test-swift test-dart test-elixir test-lua
 
 # What a release would add to, or remove from, the published package.
 # Needs the network, so it runs at release time rather than on every PR.
@@ -133,3 +153,4 @@ hooks:
 	git config core.hooksPath .githooks
 
 test: comments
+test: version-check
