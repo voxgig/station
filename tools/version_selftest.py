@@ -3,8 +3,9 @@
 
 A guard that has never failed is not a guard. Against a scratch copy of the
 tree this moves each declaration to another version, and deletes each one,
-and requires the check to fail naming that file; then it requires `--set` to
-leave a tree the check accepts.
+and requires the check to fail naming that file. Then it requires `--set` to
+leave a tree the check accepts, to write nothing when any declaration is
+broken, and to refuse a version SemVer does not allow.
 
 Exit status: 0 if every mutation produced the expected verdict, 1 otherwise.
 """
@@ -75,6 +76,28 @@ def main():
         ok, out = verdict(tmp)
         good = ok and '1.2.3-rc.1' == V.shared(tmp)
         results.append(('PASS' if good else 'FAIL', 'set', out.strip()))
+
+        last = V.DECLARATIONS[-1]
+        before = {d['path']: V.read(tmp, d['path']) for d in V.DECLARATIONS}
+        before['VERSION'] = V.read(tmp, 'VERSION')
+        mutate(tmp, last, lambda m: '')
+        before[last['path']] = V.read(tmp, last['path'])
+        try:
+            V.set_version(tmp, '7.7.7')
+            results.append(('FAIL', 'set:partial', 'a broken declaration was accepted'))
+        except SystemExit:
+            after = {p: V.read(tmp, p) for p in before}
+            results.append(('PASS' if after == before else 'FAIL', 'set:partial',
+                            'nothing written' if after == before
+                            else 'wrote files before refusing'))
+        V.write(tmp, last['path'], before[last['path']])
+
+        for bad in ('01.2.3', '1.02.3', '1.2.3-alpha..1', '1.2.3-01', '1.2.3+b', '1.2'):
+            try:
+                V.set_version(tmp, bad)
+                results.append(('FAIL', 'set:%s' % bad, 'accepted'))
+            except SystemExit:
+                results.append(('PASS', 'set:%s' % bad, 'refused'))
 
         V.write(tmp, 'VERSION', 'one\n')
         try:

@@ -120,7 +120,7 @@ version-set:
 	python3 tools/version.py --set $(V)
 
 # What a release dispatched now would do for each port; needs the network.
-release-plan:
+release-plan: version-check
 	python3 tools/release_plan.py
 
 release-plan-test:

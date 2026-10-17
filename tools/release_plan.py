@@ -4,9 +4,11 @@
     python3 tools/release_plan.py                       # print the plan
     python3 tools/release_plan.py --pushed-tag go/v0.3.0 --github-output FILE
 
-Every port with a release route ships at VERSION from one commit. A port
-already released at VERSION is left alone only while its directory is
-unchanged since its tag, so one version never names two trees of a port.
+Every port with a release route ships at VERSION from one commit on main. A
+port already released at VERSION is left alone only while its directory is
+unchanged since its tag, so one version never names two trees of a port, and
+go is tagged only on the commit the npm release came from. Tags and main are
+fetched first, because a tag pushed by a release run exists only on origin.
 """
 
 import argparse
@@ -74,22 +76,64 @@ def decide(port, tag, head, at, same_tree, registry, warn):
     return 'publish+tag'
 
 
-def plan(version, head, pushed, tag_at, same_tree, registry_of, warn):
+def newest(commits, is_ancestor):
+    commits = sorted(set(commits))
+    for c in commits:
+        if all(o == c or is_ancestor(o, c) for o in commits):
+            return c
+    if commits:
+        raise Refusal('the npm releases came from commits on different lines '
+                      'of history: %s' % ', '.join(c[:12] for c in commits))
+    return None
+
+
+def plan(version, head, pushed, tag_at, same_tree, registry_of, warn,
+         on_main, is_ancestor):
     if pushed and pushed not in ['%s/v%s' % (p, version) for p in PORTS]:
         raise Refusal('pushed tag %s is not a port tag for VERSION %s'
                       % (pushed, version))
+    registry = {p: registry_of(p, version) for p in NPM_PORTS}
     states = {}
     for port in PORTS:
         tag = '%s/v%s' % (port, version)
-        registry = registry_of(port, version) if port in NPM_PORTS else None
         states[port] = decide(port, tag, head, tag_at(tag),
-                              lambda c, p=port: same_tree(p, c), registry, warn)
+                              lambda c, p=port: same_tree(p, c),
+                              registry.get(port), warn)
+
+    if any('done' != s for s in states.values()) and not on_main():
+        raise Refusal('%s is not on origin/main, and releases come from main'
+                      % head[:12])
+
+    if 'tag' == states['go']:
+        sources = [src for published, src in registry.values() if published and src]
+        if any(states[p] in PUBLISH for p in NPM_PORTS):
+            sources.append(head)
+        release = newest(sources, is_ancestor)
+        if release and release != head:
+            raise Refusal('go/v%s belongs on %s, the commit the npm release came '
+                          'from, not on %s' % (version, release[:12], head[:12]))
     return states
 
 
 def git(*args):
     return subprocess.run(['git'] + list(args), cwd=ROOT,
                           capture_output=True, text=True)
+
+
+def fetch():
+    r = git('fetch', '--quiet', 'origin',
+            '+refs/heads/main:refs/remotes/origin/main', 'refs/tags/*:refs/tags/*')
+    if 0 != r.returncode:
+        raise Refusal('cannot fetch main and the tags from origin: %s'
+                      % r.stderr.strip())
+
+
+def is_ancestor(a, b):
+    return 0 == git('merge-base', '--is-ancestor', a, b).returncode
+
+
+def on_main():
+    return is_ancestor('HEAD', 'refs/remotes/origin/main')
 
 
 def tag_at(tag):
@@ -144,6 +188,8 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--pushed-tag', default='')
     ap.add_argument('--github-output')
+    ap.add_argument('--no-fetch', action='store_true',
+                    help='plan from the local tags and main as they are')
     args = ap.parse_args(argv)
 
     sys.path.insert(0, os.path.join(ROOT, 'tools'))
@@ -153,6 +199,13 @@ def main(argv=None):
 
     def warn(msg):
         print('::warning::' + msg)
+
+    try:
+        if not args.no_fetch:
+            fetch()
+    except Refusal as e:
+        print('::error::%s' % e)
+        return 1
 
     registry = {p: registry_of(p, version) for p in NPM_PORTS}
     for port in PORTS:
@@ -167,7 +220,7 @@ def main(argv=None):
 
     try:
         states = plan(version, head, args.pushed_tag, tag_at, same_tree,
-                      lambda port, _v: registry[port], warn)
+                      lambda port, _v: registry[port], warn, on_main, is_ancestor)
     except Refusal as e:
         print('::error::%s' % e)
         return 1

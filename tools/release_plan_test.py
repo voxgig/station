@@ -12,8 +12,10 @@ RP = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(RP)
 
 HEAD = 'h' * 40
+MID = 'm' * 40
 OLD = 'o' * 40
 OTHER = 'x' * 40
+LINE = {(OLD, MID), (OLD, HEAD), (MID, HEAD)}
 
 
 def decide(at, registry, same=True):
@@ -58,13 +60,16 @@ class Decide(unittest.TestCase):
 
 class Plan(unittest.TestCase):
 
-    def run_plan(self, pushed='', tags=None, registry=None, changed=()):
+    def run_plan(self, pushed='', tags=None, registry=None, changed=(),
+                 on_main=True):
         tags = tags or {}
         registry = registry or {}
         return RP.plan('1.0.0', HEAD, pushed, tags.get,
                        lambda port, c: port not in changed,
                        lambda port, v: registry.get(port, (False, '')),
-                       lambda msg: None)
+                       lambda msg: None,
+                       lambda: on_main,
+                       lambda a, b: (a, b) in LINE)
 
     def test_first_release(self):
         self.assertEqual({'typescript': 'publish+tag',
@@ -91,6 +96,32 @@ class Plan(unittest.TestCase):
             self.run_plan(pushed='go/v1.0.1')
         with self.assertRaisesRegex(RP.Refusal, 'not a port tag'):
             self.run_plan(pushed='python/v1.0.0')
+
+    def test_off_main(self):
+        with self.assertRaisesRegex(RP.Refusal, 'not on origin/main'):
+            self.run_plan(on_main=False)
+        tags = {'%s/v1.0.0' % p: OLD for p in RP.PORTS}
+        registry = {p: (True, OLD) for p in RP.NPM_PORTS}
+        self.assertEqual({p: 'done' for p in RP.PORTS},
+                         self.run_plan(tags=tags, registry=registry, on_main=False))
+
+    def test_go_goes_on_the_npm_release_commit(self):
+        npm_done = {'typescript/v1.0.0': OLD, 'javascript/v1.0.0': HEAD}
+        released = {'typescript': (True, OLD), 'javascript': (True, HEAD)}
+        self.assertEqual('tag', self.run_plan(tags=npm_done, registry=released)['go'])
+
+        npm_done['javascript/v1.0.0'] = MID
+        released['javascript'] = (True, MID)
+        with self.assertRaisesRegex(RP.Refusal, 'belongs on mmmm'):
+            self.run_plan(tags=npm_done, registry=released)
+
+        self.assertEqual('tag', self.run_plan(
+            registry={'typescript': (True, HEAD), 'javascript': (True, HEAD)})['go'])
+
+        with self.assertRaisesRegex(RP.Refusal, 'different lines'):
+            self.run_plan(tags={'typescript/v1.0.0': OTHER, 'javascript/v1.0.0': MID},
+                          registry={'typescript': (True, OTHER),
+                                    'javascript': (True, MID)})
 
     def test_everything_released(self):
         tags = {'%s/v1.0.0' % p: HEAD for p in RP.PORTS}

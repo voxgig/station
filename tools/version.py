@@ -5,9 +5,10 @@
     python3 tools/version.py --set 0.3.0    # write VERSION and every declaration
     python3 tools/version.py --print        # the shared version
 
-A declaration is a file and a pattern whose second group is the version.
-`count` is how many matches the file must hold, so an edit that moves a
-declaration out of the pattern's reach fails the check instead of passing.
+Go declares none: its version is its tag. A declaration is a file and a
+pattern whose second group is the version. `count` is how many matches the
+file must hold, so an edit that moves a declaration out of the pattern's
+reach fails the check instead of passing.
 """
 
 import argparse
@@ -17,8 +18,14 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-SEMVER = r'\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?'
-SEMVER_RE = re.compile(r'^' + SEMVER + r'$')
+FOUND = r'\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?'
+
+# SemVer's grammar without build metadata, which a go module version
+# cannot carry: no leading zeros, no empty prerelease identifier.
+NUM = r'(?:0|[1-9]\d*)'
+PRE = r'(?:' + NUM + r'|\d*[A-Za-z-][0-9A-Za-z-]*)'
+SEMVER_RE = re.compile(
+    r'^' + NUM + r'\.' + NUM + r'\.' + NUM + r'(?:-' + PRE + r'(?:\.' + PRE + r')*)?$')
 
 PAYLOAD = 'sdkgen-station/.sdk/tm/'
 
@@ -26,7 +33,7 @@ PAYLOAD = 'sdkgen-station/.sdk/tm/'
 def decl(path, pattern, count=1):
     return {
         'path': path,
-        're': re.compile(pattern.replace('{V}', '(' + SEMVER + ')'), re.M),
+        're': re.compile(pattern.replace('{V}', '(' + FOUND + ')'), re.M),
         'count': count,
     }
 
@@ -57,6 +64,12 @@ DECLARATIONS = [
          r'^(inline const char\* VERSION = "){V}(";)'),
     decl(PAYLOAD + 'cpp/feature/station/voxgig_station.hpp',
          r'^(inline const char\* VERSION = "){V}(";)'),
+    decl('ruby/lib/voxgig_station/station.rb', r"^(  VERSION = '){V}(')"),
+    decl('php/src/Station.php', r"^(const VERSION = '){V}(';)"),
+    decl('java/src/com/voxgig/station/Station.java',
+         r'^(  public static final String VERSION = "){V}(";)'),
+    decl('swift/Sources/VoxgigStation/Station.swift',
+         r'^(  public static let version = "){V}(")'),
     decl('proxy/internal/daemon/config.go', r'^(const Version = "){V}(")'),
     # The library each generated SDK depends on, one entry per target.
     decl('sdkgen-station/.sdk/model/feature/station.aontu',
@@ -78,7 +91,7 @@ def write(root, path, text):
 def shared(root):
     text = read(root, 'VERSION').strip()
     if not SEMVER_RE.match(text):
-        raise SystemExit('VERSION holds %r, which is not a semver X.Y.Z' % text)
+        raise SystemExit('VERSION holds %r, which is not a SemVer X.Y.Z[-pre]' % text)
     return text
 
 
@@ -107,22 +120,25 @@ def check(root, out=sys.stdout):
     for p in problems:
         print(p, file=out)
     if not problems:
-        print('every port declares %s (%d files)' % (version, len(DECLARATIONS)),
+        print('every declaration says %s (%d files)' % (version, len(DECLARATIONS)),
               file=out)
     return not problems
 
 
 def set_version(root, version):
     if not SEMVER_RE.match(version):
-        raise SystemExit('%r is not a semver X.Y.Z' % version)
+        raise SystemExit('%r is not a SemVer X.Y.Z[-pre]' % version)
+    rewritten = {}
     for d in DECLARATIONS:
-        text = read(root, d['path'])
+        text = rewritten.get(d['path'], read(root, d['path']))
         new, n = d['re'].subn(lambda m: m.group(1) + version + m.group(3), text)
         if n != d['count']:
-            raise SystemExit('%s: expected %d version declaration(s), found %d'
-                             % (d['path'], d['count'], n))
-        if new != text:
-            write(root, d['path'], new)
+            raise SystemExit('%s: expected %d version declaration(s), found %d; '
+                             'nothing was written' % (d['path'], d['count'], n))
+        rewritten[d['path']] = new
+    for path, text in rewritten.items():
+        if text != read(root, path):
+            write(root, path, text)
     write(root, 'VERSION', version + '\n')
 
 

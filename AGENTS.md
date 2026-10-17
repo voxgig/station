@@ -80,9 +80,9 @@ extension is sdkgen's call, not station's. Leave it alone until sdkgen moves.
 
 ## Release and publish
 
-**Every port shares one version: the one in `VERSION`.** Each port's own
-declaration (its manifest, or a version constant where it has none) must say
-the same, and so must the proxy daemon's `Version`, the c, cpp, lua and perl
+**Every port shares one version: the one in `VERSION`.** Every port but go
+declares it, in its manifest or, where it has none, in a version constant; go's
+version is its tag. So must the proxy daemon's `Version`, the c, cpp, lua and perl
 payloads in sdkgen-station, and the station dependencies the sdkgen-station
 feature model writes into generated SDKs. `make version-check` fails naming any
 that differ; CI runs it in the vendor lane, and a release runs it before
@@ -142,8 +142,9 @@ reads as "the package does not exist" and costs an hour if you have not met it.
    ```
 
    No workflow tags go yet, and a go tag cannot be taken back:
-   `proxy.golang.org` caches a version permanently. Check `make release-plan`
-   first, and tag only the commit it names.
+   `proxy.golang.org` caches a version permanently. Run `make release-plan`
+   on that commit first. It fetches the tags, and it refuses unless the
+   commit is on `origin/main` and is the one the npm releases came from.
 3. `make release-plan` must then report every port `done`.
 
 `allow_removals` exists because a release that would *remove* files from the
