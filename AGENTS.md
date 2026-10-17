@@ -85,8 +85,8 @@ declares it, in its manifest or, where it has none, in a version constant; go's
 version is its tag. So must the proxy daemon's `Version`, the c, cpp, lua and perl
 payloads in sdkgen-station, and the station dependencies the sdkgen-station
 feature model writes into generated SDKs. `make version-check` fails naming any
-that differ; CI runs it in the vendor lane, and a release runs it before
-`pack-diff`. `make version-set V=X.Y.Z` rewrites them all in one diff. **Never
+that differ; CI runs it in the `versions` job, and every release runs it
+before it plans. `make version-set V=X.Y.Z` rewrites them all in one diff. **Never
 bump one port alone.**
 
 Three ports have a release route, and a release ships all three at `VERSION`:
@@ -115,13 +115,8 @@ bumping its version alone publishes nothing.
 `make release-plan` shows, for each port, whether `VERSION` is released, the
 commit its tag and its npm build came from, and what a release would still do.
 
-> `release.yml`'s header still says "TRUSTED PUBLISHING IS PER PACKAGE, and
-> NEITHER station package is registered yet", with `npm trust` commands to run
-> "before the first release of each". **That is out of date** — both have since
-> released through this workflow. Keep the commands as the reference for
-> registering a *new* package; do not read them as a blocker.
-
-Note the `--file release.yml` in those commands. **Every other @voxgig package
+`release.yml`'s header carries the `npm trust` command that registers a new
+package. Note its `--file release.yml`. **Every other @voxgig package
 registers `publish.yml`; station and sekreto use `release.yml`.** npm binds a trusted
 publisher to one owner, one repo and a single workflow **filename**, so
 renaming this file breaks publishing until the `npm trust` re-run — and an
@@ -132,38 +127,34 @@ reads as "the package does not exist" and costs an hour if you have not met it.
 
 1. **Bump every port in a reviewed PR:** `make version-set V=X.Y.Z`, and
    commit the diff.
-2. **Once it merges, release all three from that one commit.** Run
-   **Actions → release → Run workflow** on `main` with `port: typescript`,
-   then again with `port: javascript`. Then tag go on the same commit:
-
-   ```sh
-   git tag go/vX.Y.Z <the commit both npm releases came from>
-   git push origin go/vX.Y.Z
-   ```
-
-   No workflow tags go yet, and a go tag cannot be taken back:
-   `proxy.golang.org` caches a version permanently. Run `make release-plan`
-   on that commit first. It fetches the tags, and it refuses unless the
-   commit is on `origin/main` and is the one the npm releases came from.
-3. `make release-plan` must then report every port `done`.
+2. **Once it merges, Actions → release → Run workflow** on `main`. One run
+   releases every port at `VERSION` from that commit: typescript and
+   javascript publish to npm, then all three tags go up in one atomic push,
+   after every publish has succeeded and the go module has passed as a
+   consumer resolves it. A port already released at `VERSION` is skipped,
+   but only while its directory is unchanged since its tag; otherwise the run
+   refuses, because one version must not name two trees of a port.
+3. `make release-plan` then reports every port `done`.
 
 `allow_removals` exists because a release that would *remove* files from the
 published package fails unless you declare it deliberate: adding files is
 ordinary, silently dropping some is how a patch release breaks consumers.
 `make pack-diff` is the same check by hand.
 
-### Three jobs, each with the least it needs
+### Five jobs, each with the least it needs
 
 | job | holds | runs |
 | --- | --- | --- |
-| `build` | `contents: read` | sibling checkouts, install, build, tests, packaging checks — all project code and every dependency lifecycle script. Uploads the tarball. |
-| `publish` | `id-token: write`, `contents: read` | downloads that tarball and publishes it. **No checkout at all.** |
+| `plan` | `contents: read` | the version gate and `tools/release_plan.py`: what each port still needs. |
+| `npm` | `contents: read` | per npm port: sibling checkouts, install, build, tests, packaging checks — all project code and every dependency lifecycle script. Uploads the tarball. |
+| `go` | `contents: read` | builds and tests the go module with no workspace, as a consumer resolves it. |
+| `publish` | `id-token: write`, `contents: read` | per npm port: downloads that tarball and publishes it. **No checkout at all.** |
 | `tag` | `contents: write` | git, and nothing else. |
 
 `id-token: write` is a **job-level** grant — it reaches every process in the
 job — so a compromised `postinstall` during install could mint a publish
 credential. That is why the publish job never checks out the repository and
-only ships the tarball `build` produced.
+only ships the tarball the `npm` job produced.
 
 The publish job's `contents: read` is belt-and-braces: with no checkout,
 nothing there reads the repository and the grant could be dropped. It is
@@ -176,18 +167,15 @@ nothing, silently.
 ### Irreversible
 
 **npm never allows republishing a version.** If a run publishes then fails
-before tagging, re-dispatch: the registry check skips the completed publish and
-retries the tag.
+before tagging, re-dispatch: the plan finds the version on npm, built from this
+commit, and only tags.
 
-**That retry is safe only while `main` still points at the published commit.**
-Dispatches are restricted to `main`, and before tagging the run compares npm's
-recorded `gitHead` for the version against `GITHUB_SHA`. **npm records no
-`gitHead` for a tarball publish, so that comparison only ever warns.** The
-commit is in the version's provenance attestation instead, and
-`make release-plan` reads it from there. If `main` has moved on, do not
-re-dispatch, and do not bump the version to get past it, which publishes a
-*second* version rather than tagging the first. Tag the published commit
-directly:
+**That retry works only while `main` still points at the published commit.**
+npm records no `gitHead` for a tarball publish, so the plan reads the source
+commit from the version's provenance attestation, and refuses to tag a
+different one. If `main` has moved on, do not re-dispatch, and do not bump the
+version to get past it, which publishes a *second* version rather than
+tagging the first. Push one port's tag on the published commit instead:
 
 ```sh
 make release-plan                              # "npm built it from <commit>"
@@ -195,13 +183,10 @@ git tag <port>/v<version> <that commit>
 git push origin <port>/v<version>
 ```
 
-`release.yml` also triggers on `typescript/v*` and `javascript/v*` **tag
-pushes**, so this starts a release run — which is what you want: it re-runs at
-the published commit and the registry check skips the completed publish, so the
-run only re-verifies that commit.
-The tag path has its own guard (`git merge-base --is-ancestor` against
-`origin/main`), so the commit must still be on `main` — which the published one
-is.
+`release.yml` triggers on `typescript/v*`, `javascript/v*` and `go/v*` **tag
+pushes**, and that run plans at the tagged commit: it publishes whatever is
+missing and pushes the remaining tags. The pushed tag must be one of
+`VERSION`'s port tags, and its commit must be on `main`.
 
 Never publish locally over a token — that bypasses OIDC and its provenance
 attestation.
