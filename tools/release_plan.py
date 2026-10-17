@@ -154,17 +154,29 @@ def main(argv=None):
     def warn(msg):
         print('::warning::' + msg)
 
+    registry = {p: registry_of(p, version) for p in NPM_PORTS}
+    for port in PORTS:
+        tag = '%s/v%s' % (port, version)
+        facts = []
+        if tag_at(tag):
+            facts.append('tagged on %s' % tag_at(tag)[:12])
+        if registry.get(port, (False,))[0]:
+            facts.append('npm built it from %s'
+                         % (registry[port][1][:12] or 'an unrecorded commit'))
+        print('%-11s %-22s %s' % (port, tag, ', '.join(facts) or 'unreleased'))
+
     try:
         states = plan(version, head, args.pushed_tag, tag_at, same_tree,
-                      registry_of, warn)
+                      lambda port, _v: registry[port], warn)
     except Refusal as e:
         print('::error::%s' % e)
         return 1
 
     publish = [p for p in NPM_PORTS if states[p] in PUBLISH]
     tags = ['%s/v%s' % (p, version) for p in PORTS if states[p] in TAG]
+    print('\nfrom %s:' % head[:12])
     for port in PORTS:
-        print('%-11s %s/v%s  %s' % (port, port, version, states[port]))
+        print('  %-11s %s' % (port, states[port]))
     if not publish and not tags:
         print('every port is released at %s; nothing to do' % version)
 

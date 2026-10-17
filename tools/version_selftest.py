@@ -83,9 +83,9 @@ def main():
         except SystemExit:
             results.append(('PASS', 'VERSION:not-semver', 'refused'))
 
-    for status, tag, note in results:
-        print('%s  %-72s %s' % (status, tag, note))
     bad = [r for r in results if 'PASS' != r[0]]
+    for status, tag, note in (results if '-v' in sys.argv else bad):
+        print('%s  %-72s %s' % (status, tag, note))
     print('\n%d/%d mutations produced the expected verdict'
           % (len(results) - len(bad), len(results)))
     return 1 if bad else 0

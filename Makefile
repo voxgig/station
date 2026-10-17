@@ -106,6 +106,9 @@ vendor-refresh:
 vendor-check:
 	python3 tools/vendor.py --check
 
+# CI's vendor lane and a release's pack-diff are where version-check runs.
+vendor-check pack-diff: version-check
+
 # Every port declares one version, the one in VERSION, and a release ships
 # them all at it. version-set rewrites every declaration in one diff.
 version-check:
