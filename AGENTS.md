@@ -218,3 +218,15 @@ only for intricate or surprising code. Names carry intent; documents carry
 requirements. Run `make comments comments-test` after editing source.
 
 Durable implementation rationale is in [COMMENT-NOTES.md](COMMENT-NOTES.md).
+
+## The plan
+
+[`docs/plan/`](docs/plan/README.md) holds the plan, the per-item
+register and the upstream register. Read `docs/plan/status.md` before
+starting work: it says what is in flight and what to pick up first.
+
+**A change that lands a plan item updates that item's row in
+`docs/plan/progress.md` in the same commit.** A change to a
+dependency's pin, or to the state of an upstream issue, updates
+`docs/plan/upstream.md`. Status lives there: `README.md` and the design
+documents carry a status line each, and are corrected from it.
