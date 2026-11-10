@@ -41,7 +41,7 @@ Four outcomes get there, and the workstreams below are grouped by them:
 ## 2. Where things stand
 
 The per-port matrix and the evidence are in [`status.md`](status.md).
-In one table, on `main` at `a570686` (0.2.0):
+In one table, on `main` at `690b08f` (0.2.0):
 
 | design phase | in-process library | proxy and agent surface |
 |---|---|---|
@@ -91,7 +91,7 @@ the plan depends on all of them.
 
 | | workstream | design reference | gated on | who can do it |
 |---|---|---|---|---|
-| **W0** | Close out 0.2.0 | `AGENTS.md`, Releasing | nothing | a maintainer: it needs tag-push rights, and a token with the `workflow` scope to apply the patch |
+| **W0** | Close out 0.2.0 | `AGENTS.md`, Releasing | nothing | a maintainer: it needs tag-push rights |
 | **W1** | Land the review queue | — | review | review and merge rights; no new code |
 | **W2** | Make the solo library safe for live use | §3.3, §5, §6, §16 | W1 | anyone; canonical first |
 | **W3** | Installable in every language | §9.2, §9.6; Stage 4 | DEC-1; W0 for Go | anyone, plus upstream releases |
@@ -107,26 +107,29 @@ W0 ──► W1 ──┬──► W2 ──► release 0.3.0 ──► W5.5 onw
 W5.1 (the proxy builds, and CI holds it) depends on nothing and can start today.
 ```
 
-W0 comes first because it is two commands and a patch, and the Go tag
-belongs on the commit `main` points at now. W1 comes before any new
-code because the queue is the same files: every fix in W2 touches what
-those six pull requests touch, in all sixteen ports.
+W0 comes first because what is left of it is two commands. W1 comes
+before any new code because the queue is the same files: every fix in
+W2 touches what those six pull requests touch, in all sixteen ports.
 
-**A change to a GitHub workflow is delivered as a patch on `main`**,
-because a session's token cannot push one. The patches, and the workflow
-changes that cannot be written yet, are in
-[`patch/`](patch/README.md).
+**For a change to a GitHub workflow, a patch is created on `main`.** A
+session's token cannot push a workflow file, so it writes the change as
+a patch and commits the patch file to `main` itself, which is where the
+maintainer looks for one. [`patch/`](patch/README.md) says how, and
+lists the workflow changes that cannot be written yet.
 
 ### W0. Close out 0.2.0
 
 Three steps were left when the 0.2.0 release session ran out of
 permissions. They are written up, with their patches, in voxgig/likeness
-`HANDOVER.md`.
+`HANDOVER.md`. One is done.
 
-1. Tag `go/v0.2.0` on `a570686`, the commit `make release-plan` names.
-   Closes [#27].
-2. Apply [`patch/station-release-workflow.patch`](patch/README.md): one
-   dispatch releases every port, and CI gains a `versions` job.
+1. Tag `go/v0.2.0` on `a570686`, the commit the npm releases came from.
+   Closes [#27]. `main` has since moved, so the tag is pushed by hand:
+   a dispatch runs at `main`'s head, and the plan refuses to put this
+   tag anywhere but the release commit.
+2. ~~Apply the release-workflow patch.~~ Done on 2026-11-10, as
+   `690b08f`: one dispatch now releases every port, and CI has a
+   `versions` job.
 3. Move likeness onto the tag.
 
 Then close [#24], which `b145609` fixed and 0.2.0 shipped, and prune the
@@ -397,8 +400,8 @@ released TypeScript library, so nothing in this plan blocks it.
 | **0.3.x** | W2b, W3's port packaging, W4. | each item's own exit |
 | **0.4.0** | Attach in typescript and javascript, with the proxy binary released beside them. Phase 1's exit. | W5 items 1–7 |
 
-Every release moves every port (`make version-set`), ships typescript
-and javascript through `release.yml`, and tags go on the same commit.
+Every release moves every port (`make version-set`), and one dispatch
+of `release.yml` on that commit ships all three.
 0.3.0 changes behaviour that 0.2.0 shipped: [#60] checks feature options
 as the SDK does, [#48] changes message text, and [#58] makes the C port
 refuse a provider kind it used to warn about. Its release notes say so.

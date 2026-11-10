@@ -9,8 +9,10 @@ Statuses: `NOT STARTED`, `IN PROGRESS`, `DONE`, `DECISION NEEDED`,
 `BLOCKED` (on what, in the note), `DECIDED-NO`.
 
 Every note below was checked on **2026-11-10** against `main` at
-`a570686` unless it gives another date or revision. "Read" means the
-code was read and the behaviour not run; "run" means it was run. What
+`a570686` unless it gives another date or revision. `main` moved to
+`690b08f` that evening, when W0.3 landed; it changed no port's source.
+"Read" means the code was read and the behaviour not run; "run" means
+it was run. What
 station needs from other repositories is in [`upstream.md`](upstream.md),
 and its rows are named here as `sdkgen-6`, `sekreto-1` and so on.
 
@@ -22,9 +24,9 @@ end.
 
 | Item | Status | Notes |
 |---|---|---|
-| W0.1 Tag `go/v0.2.0` on `a570686` | BLOCKED | On a maintainer with tag-push rights. `make release-plan` (run) prints `typescript done`, `javascript done`, `go tag`. `git ls-remote --tags` shows no `go/*` tag, and the Go proxy lists no version of `github.com/voxgig/station/go`. The commands and the check afterwards are in voxgig/likeness `HANDOVER.md` §1. A Go tag cannot be withdrawn, so tag only the commit `release-plan` names. |
+| W0.1 Tag `go/v0.2.0` on `a570686` | BLOCKED | On a maintainer with tag-push rights. `git ls-remote --tags` shows no `go/*` tag, and the Go proxy lists no version of `github.com/voxgig/station/go`. `main` has moved past the release commit, so `make release-plan` at its head now stops with `go/v0.2.0 belongs on a570686fe886, the commit the npm release came from, not on 690b08f58ffa` (run). That is the guard working, and it means a dispatch of the release workflow cannot make this tag: it is pushed by hand, on `a570686`, as `AGENTS.md` says under "Irreversible". With the tag there, `release-plan` at `690b08f` reports every port `done` (run, with a local tag in a throwaway clone; nothing was pushed). The `release.yml` at `a570686` is the old one, with no `go/v*` trigger, so the push should start no run. A Go tag cannot be withdrawn. |
 | W0.2 Close [#27] | BLOCKED | On W0.1. Its first step, real versions in `go/go.mod`, landed in voxgig/station#32. The feature model already requires `v0.2.0`. |
-| W0.3 One dispatch releases every port; CI gains a `versions` job | BLOCKED | On a maintainer applying [`patch/station-release-workflow.patch`](patch/README.md), which needs a token with the `workflow` scope. The patch is byte-identical to the one in likeness `upstream/patch/`. It applies with `git am` to `main` at `a570686`, and to `main` with all six open pull requests merged (run). On the result, `make version-check release-plan-test` pass, and actionlint 1.7.12 with shellcheck 0.9.0 is clean on both workflow files (run). It edits `build.yml`, `release.yml`, `AGENTS.md` and the `Makefile`, answers the review thread left open on voxgig/station#65, and corrects `release.yml`'s stale header. |
+| W0.3 One dispatch releases every port; CI gains a `versions` job | DONE | `690b08f`, committed to `main` on 2026-11-10 by the maintainer, applying `station-release-workflow.patch`. `main`'s tree is exactly `a570686` plus that patch (run). CI run 42878382277 on it is green: all twenty lanes and the new `versions` job, against that evening's plugin and struct. It also corrected `release.yml`'s stale header and rewrote the release section of `AGENTS.md`. Still open from the same change: the review thread on voxgig/station#65 can be closed, and likeness's `HANDOVER.md` still lists this as its step 2. |
 | W0.4 likeness onto station 0.2.0 | BLOCKED | On W0.1, because `go mod tidy` needs the tag. `likeness-station-go-v0.2.0.patch`; likeness `HANDOVER.md` §3. |
 | W0.5 Close [#24] | NOT STARTED | Fixed on `main` by `b145609` (voxgig/station#28) and shipped in 0.2.0: `construct()` takes `as` and `instance` out before the SDK sees its options (`typescript/src/Station.ts:205`, read). The ports with `connect` pin it in their suites. Not re-run against a generated SDK (W4.3). |
 | W0.6 Prune merged branches | NOT STARTED | Eighteen remote branches are fully merged into `main`. `chore/comment-policy` is one commit ahead and conflicts in four files; its change looks like what landed, squashed, as voxgig/station#22. Confirm, then delete. |
@@ -34,7 +36,7 @@ end.
 
 ## W1. Land the review queue
 
-All six were green at their heads on 2026-10-15 and are 18 to 20 commits
+All six were green at their heads on 2026-10-15 and are 19 to 21 commits
 behind `main`, so each needs its branch updated and CI re-run. Every
 review thread on them is resolved: four on [#60], three on [#51], one on
 [#58], none on the others. None has an approval.
@@ -47,6 +49,11 @@ needed `vendor-refresh`. Eleven port suites pass: typescript (158 tests:
 php (73), perl, java (62), rust, c (with its new secrets suite) and
 cpp. csharp, swift, dart, elixir and lua were **not** run, for want of a
 toolchain; CI runs them. The merged tree was not pushed anywhere.
+
+The merges were repeated on `690b08f` after `main` moved: the same four
+merge clean, the same two conflict, and the same two resolutions settle
+them. The suites were not re-run there, since `690b08f` changes no
+port's source.
 
 | Item | Status | Notes |
 |---|---|---|
@@ -82,7 +89,7 @@ port's suite.
 | W2.8 [#55]: the four forms that still differ from `URL.host` | DECISION NEEDED | DEC-4. |
 | W2.9 [#61]: an unpaired surrogate escape in `station.json` | NOT STARTED | Refuse with `station_config_invalid` in every port, as I-JSON requires. go needs a scan of the raw text, since `encoding/json` has already replaced the escape. Corpus: a lone high, a lone low, and a valid pair that must still be accepted. |
 | W2.10 [#64]: the kill switch | DECISION NEEDED | DEC-5. Today mode `block` raises `station_host_allow`, the allowlist's code (`typescript/src/Station.ts:354-357`, read), and the config is read once, at construction. |
-| W2.11 Release 0.3.0 | NOT STARTED | After W2a. `make version-set V=0.3.0`, typescript and javascript through `release.yml`, `go/v0.3.0` on the same commit. The notes name the three behaviour changes in `plan.md` §6. |
+| W2.11 Release 0.3.0 | NOT STARTED | After W2a. `make version-set V=0.3.0` in a reviewed pull request, then one dispatch of `release.yml` on that commit, which publishes typescript and javascript and pushes all three tags (W0.3). The notes name the three behaviour changes in `plan.md` §6. |
 
 
 ## W3. Installable in every language
@@ -119,7 +126,7 @@ What is published where is in [`upstream.md`](upstream.md), under
 | W4.6 The corpus sections §13 names and `spec/station.json` lacks | NOT STARTED | `inject`, `order`, `redact`, `event`, `degrade`, `envelope`. `event` first: [#50], [#52] and [#36] are each pinned once per port because no section can see an event. `envelope` and `degrade` belong to W5.4. |
 | W4.7 Plugin conformance (C4a, C4b) | DONE | Continuous, so "done" means wired and red on drift. `typescript/test/c4-plugin.test.ts` landed in `ce0819b` (2026-08-24), and CI's typescript lane sets `STATION_REQUIRE_C4=1`, so a missing plugin checkout fails the lane. Run against plugin `8605cdc`: 144 pass, 0 pinned divergences, 128 skipped, each with its reason. plugin's own register still says `NOT STARTED` (`plugin-1`). |
 | W4.8 Small repairs | NOT STARTED | The root `make test-dart` runs `dart test`, and the port has no `package:test`; CI uses `make -C dart test`, which works. The explicit first-element checks of `station-declarative-config.md` §4.4 can go once every port's struct carries the fix for voxgig/struct#113, closed 2026-08-25. |
-| W4.9 The `versions` CI job | BLOCKED | On W0.3: it is part of that patch. Until then `make vendor-check` and `make pack-diff` run `version-check` first. |
+| W4.9 The `versions` CI job | DONE | Landed with W0.3 in `690b08f`. `build.yml` runs `make version-check` and `make release-plan-test` in their own job, and the hooks that carried the gate on `vendor-check` and `pack-diff` are gone from the `Makefile`. |
 
 
 ## W5. The proxy and the agent surface

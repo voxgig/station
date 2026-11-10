@@ -231,10 +231,12 @@ dependency's pin, or to the state of an upstream issue, updates
 `docs/plan/upstream.md`. Status lives there: `README.md` and the design
 documents carry a status line each, and are corrected from it.
 
-**A change under `.github/workflows/` is delivered as a patch on `main`.**
+**For a change under `.github/workflows/`, create a patch on `main`.**
 GitHub refuses a workflow change pushed without the `workflow` scope,
 which a session's token does not have. Make the change on a scratch
-branch cut from `main`, write it into `docs/plan/patch/` with
-`git format-patch`, and add its row to `docs/plan/patch/README.md`; a
-maintainer applies it. Do not leave the change waiting for a human to
-write it.
+branch cut from `main`, write it out with `git format-patch`, and commit
+the patch file to `main` itself, in `docs/plan/patch/`, with its row in
+`docs/plan/patch/README.md`. `main` is where the maintainer looks for
+it: a patch left on a feature branch is not found. A session that may
+not push to `main` says so at once, and asks. Do not leave the change
+waiting for a human to write it.

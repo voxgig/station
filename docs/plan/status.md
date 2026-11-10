@@ -1,6 +1,6 @@
 # Status: where the next session starts
 
-Snapshot, **2026-11-10**, of `main` at `a570686` (0.2.0). The register
+Snapshot, **2026-11-10**, of `main` at `690b08f` (0.2.0). The register
 in [`progress.md`](progress.md) is the per-item authority, and
 [`upstream.md`](upstream.md) tracks what other repositories owe. This
 file says what is in flight, what to pick up first, and what waits on a
@@ -12,19 +12,23 @@ wrong status file is worse than none.**
 
 ## How this snapshot was checked
 
-- **CI.** Run 39025102214 on `a570686` (2026-10-17): all twenty lanes
-  green. Its log was read lane by lane, to confirm each suite ran and
-  did not skip its way to green.
+- **CI.** Run 42878382277 on `690b08f` (2026-11-10): green, all twenty
+  lanes and the `versions` job, against that evening's plugin and
+  struct. The counts in the table below are from run 39025102214 on
+  `a570686` (2026-10-17), whose log was read lane by lane to confirm
+  each suite ran and did not skip its way to green. No port's source
+  differs between the two commits.
 - **Re-run, 2026-11-10.** Eleven port suites, in CI's layout, against
   omni `dcbab7a`, sekreto `32b83ac`, plugin `8605cdc` and struct
   `18d6237`. CI pins the first two and floats the others, and struct
   had moved that day. All eleven passed with CI's counts.
-- **Not run.** csharp, swift, dart, elixir and lua: there was no
-  toolchain. For those five, the CI run above is the evidence.
+- **Not run here.** csharp, swift, dart, elixir and lua: there was no
+  toolchain. For those five, the CI runs above are the evidence.
 - **The gates.** `make version-check`, `vendor-check`, `comments`,
   `omni-isolation` and `release-plan` pass.
 
-Nothing has merged since 2026-10-17.
+W0.3 landed on `main` on 2026-11-10, as `690b08f`. Nothing else has
+merged since 2026-10-17.
 
 
 ## The ports
@@ -82,9 +86,11 @@ Nothing else is in flight.
 
 In this order. The first two need the maintainer; the rest do not.
 
-1. **W0.1, then W0.3 and W0.4.** Tag `go/v0.2.0` on `a570686` before
-   `main` moves. The commands are in voxgig/likeness `HANDOVER.md`, and
-   W0.3's patch is in [`patch/`](patch/README.md).
+1. **W0.1, then W0.4.** Tag `go/v0.2.0` on `a570686`, by hand:
+   `git tag go/v0.2.0 a570686fe886bc2d686c991ffee5c7e6a47b5f8a`, then
+   `git push origin go/v0.2.0`. `main` has moved past that commit, so
+   `make release-plan` stops with an error naming it until the tag is
+   there, and a dispatch of the release workflow cannot make it.
 2. **W1, in the register's order.** A trial merge of all six passed on
    2026-11-10, with two one-line resolutions the register spells out.
 3. **W5.1**, the proxy's build. It can start now: no open pull request
@@ -106,7 +112,7 @@ Everything here needs the maintainer, and most of it fits one sitting.
 | what | why a human | rows |
 |---|---|---|
 | Push the tag `go/v0.2.0` | Tag-push rights. The last session's push was refused. | W0.1 |
-| Apply the workflow patches in [`patch/`](patch/README.md) | A token with the `workflow` scope. A session cannot push a change under `.github/workflows/`, so each one is written as a patch on `main`. One is ready: the release workflow. | W0.3, W4.9 now; W3.11, W4.3, W4.4 and W5.1 when their patches are written |
+| Apply a workflow patch, when one is on `main` in [`patch/`](patch/README.md) | A token with the `workflow` scope. A session cannot push a change under `.github/workflows/`, so it commits a patch to `main` instead. None is pending. | W3.11, W4.3, W4.4 and W5.1, when their patches are written |
 | Review and merge six pull requests | Merge rights | W1 |
 | Seven decisions | The owner's call | DEC-1 to DEC-7 |
 | Register `@voxgig/sdkgen-station` for trusted publishing | An npm owner | W3.11 |
@@ -116,6 +122,8 @@ Everything here needs the maintainer, and most of it fits one sitting.
 
 ## Recently settled
 
+- **The release workflow releases every port from one dispatch**, and
+  CI has a `versions` job (W0.3 and W4.9, `690b08f`, 2026-11-10).
 - **0.2.0 is on npm for both packages**, and every port declares it
   (voxgig/station#65). Only the Go tag is outstanding.
 - **Nine sdkgen issues closed on 2026-10-17**, among them every sdkgen
@@ -140,9 +148,8 @@ schedules:
 - `station.md` §9 and `station-declarative-config.md` §11 describe
   sdkgen as it stood in August. W0.8; `upstream.md` has the current
   state.
-- `release.yml`'s header says neither package is registered for trusted
-  publishing. Both are; `AGENTS.md` already says so, and W0.3's patch
-  corrects the header.
+- voxgig/likeness `HANDOVER.md` still lists the release-workflow patch
+  as a step to take. It is done.
 
 
 [#24]: https://github.com/voxgig/station/issues/24
