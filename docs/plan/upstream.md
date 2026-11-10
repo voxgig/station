@@ -65,7 +65,7 @@ and has no such package. A blank means it was not checked.
 
 | | npm | Go tags | PyPI | RubyGems | crates.io | NuGet | Maven Central | Packagist | Hex | pub.dev |
 |---|---|---|---|---|---|---|---|---|---|---|
-| **station** | 0.2.0, and `-js` 0.2.0 | — | — | — | — | — | — | — | — | — |
+| **station** | 0.2.0, and `-js` 0.2.0 | v0.2.0 | — | — | — | — | — | — | — | — |
 | **sdkgen-station** | — | | | | | | | | | |
 | **sekreto** | 0.3.0, and `-js` 0.2.0 | — | — | — | — | — | | | | |
 | **struct** | 0.3.7, and `-js` 0.1.7 | v0.1.6 | yes | yes | 0.1.7 | yes | — | — | yes | yes |
@@ -159,7 +159,7 @@ the station feature on its default branch: the fourteen that mention
 
 | # | what station needs | upstream | state | gates, and notes |
 |---|---|---|---|---|
-| sdk-1 | The four SDKs likeness uses, regenerated with the station feature and merged | [joplin-sdk#4], [obsidian-sdk#3], [notion-sdk#5], [linear-sdk#3] | OPEN | W3.13, C.1. Three name sdkgen 4.34.6 in their titles; the generator is at 4.41.0. likeness's `HANDOVER.md` records that they still require station's Go module at `v0.0.1`. They need generating again on a current sdkgen and on `sdkgen-station` from station `main`, after W0.1. |
+| sdk-1 | The four SDKs likeness uses, regenerated with the station feature and merged | [joplin-sdk#4], [obsidian-sdk#3], [notion-sdk#5], [linear-sdk#3] | OPEN | W3.13, C.1. Three name sdkgen 4.34.6 in their titles; the generator is at 4.41.0. likeness's `HANDOVER.md` records that they still require station's Go module at `v0.0.1`. They need generating again on a current sdkgen and on `sdkgen-station` from station `main`, which requires `v0.2.0`; that tag now exists (W0.1). |
 | sdk-2 | Generator fixes that reach an SDK only when it is regenerated | voxgig/sdkgen#400, #401 (Linear's queries and paging), #403, #405 (C: a live transport; two SDKs in one program), #406, #413, #414, #418, #419 | DONE upstream, all closed 2026-10-17; in no SDK yet | C.1. These were every sdkgen cause behind a red cell in likeness's matrix. |
 | sdk-3 | Tags and published packages | [joplin-sdk#2], [linear-sdk#2], [obsidian-sdk#2], [notion-sdk#3] | OPEN | A consumer can pin only a commit. |
 

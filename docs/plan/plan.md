@@ -41,7 +41,7 @@ Four outcomes get there, and the workstreams below are grouped by them:
 ## 2. Where things stand
 
 The per-port matrix and the evidence are in [`status.md`](status.md).
-In one table, on `main` at `690b08f` (0.2.0):
+In one table, on `main` at `e78b38a` (0.2.0):
 
 | design phase | in-process library | proxy and agent surface |
 |---|---|---|
@@ -49,9 +49,9 @@ In one table, on `main` at `690b08f` (0.2.0):
 | **Phase 2**, breadth and depth | Sixteen ports in CI, all green. Eleven carry the declarative front door and all eleven corpus sections. Five run eight sections. | Not started (replay, record, mock, OTLP, persistence). |
 | **Phase 3**, long tail and remote | rust, lua, c and cpp exist. Six targets have no adapter. | Not started. |
 
-Released: `@voxgig/station` and `@voxgig/station-js` 0.2.0 on npm. The
-Go module is not tagged. No other port has a package, and
-`@voxgig/sdkgen-station` has never been published.
+Released at 0.2.0: `@voxgig/station` and `@voxgig/station-js` on npm,
+and the Go module by its tag, `go/v0.2.0`. No other port has a package,
+and `@voxgig/sdkgen-station` has never been published.
 
 
 ## 3. Standing rules
@@ -107,10 +107,10 @@ W0 ──► W1 ──┬──► W2 ──► release 0.3.0 ──► W5.5 onw
 W5.1 (the proxy builds, and CI holds it) depends on nothing and can start today.
 ```
 
-W0 comes first because what is left of it is one dispatch and one patch
-to likeness. W1 comes before any new code because the queue is the same
-files: every fix in W2 touches what those six pull requests touch, in
-all sixteen ports.
+What is left of W0 is one patch to likeness and some housekeeping. W1
+comes before any new code because the queue is the same files: every
+fix in W2 touches what those six pull requests touch, in all sixteen
+ports.
 
 **For a change to a GitHub workflow, a patch is created on `main`.** A
 session's token cannot push a workflow file, so it writes the change as
@@ -122,13 +122,14 @@ lists the workflow changes that cannot be written yet.
 
 Three steps were left when the 0.2.0 release session ran out of
 permissions. They are written up, with their patches, in voxgig/likeness
-`HANDOVER.md`. One is done.
+`HANDOVER.md`. Two are done.
 
-1. Tag `go/v0.2.0`, by a dispatch of the release workflow, as every
-   release so far has been made. Closes [#27]. `main` has moved one
-   commit past `a570686`, the commit the npm releases came from, and
-   the plan used to refuse to tag go anywhere else. It now tags go on a
-   later commit of `main` when `go/` is the same tree, which it is.
+1. ~~Tag `go/v0.2.0`.~~ Done on 2026-11-10, by a dispatch of the
+   release workflow, as every release so far has been made. `main` had
+   moved past `a570686`, the commit the npm releases came from, and the
+   plan used to refuse to tag go anywhere else. It now tags go on a
+   later commit of `main` when `go/` is the same tree, so the tag is on
+   `e78b38a`. [#27] can be closed.
 2. ~~Apply the release-workflow patch.~~ Done on 2026-11-10, as
    `690b08f`: one dispatch now releases every port, and CI has a
    `versions` job.
@@ -139,7 +140,8 @@ merged branches.
 
 **Exit:** `make release-plan` reports every port `done`, and
 `go list -m github.com/voxgig/station/go@v0.2.0` resolves through the
-Go proxy.
+Go proxy. Both have held since 2026-11-10. Step 3 and the housekeeping
+are what remain.
 
 ### W1. Land the review queue
 
@@ -326,7 +328,7 @@ only when the feature initialises (`d866631`), php checks that the class
 exists, and the feature is generated inactive. So in those languages an
 SDK that never binds does not need station at all, and making the
 dependency optional removes the red lanes without waiting on anyone. Go
-links station statically and needs only its tag (W0).
+links station statically, and has its tag.
 
 The calls inside it: whether "optional" is acceptable for py, rb and
 php; which registries come first (the issue names py, rb, php and
@@ -397,7 +399,7 @@ released TypeScript library, so nothing in this plan blocks it.
 
 | release | carries | gate |
 |---|---|---|
-| **0.2.0** | Released on npm 2026-10-16 and 17. The Go tag is outstanding. | W0 |
+| **0.2.0** | Released: on npm 2026-10-16 and 17, and the Go tag on 2026-11-10. | Done; W0's housekeeping remains |
 | **0.3.0** | W1 and W2a. The first release to recommend for live use. | W2a's exit |
 | **0.3.x** | W2b, W3's port packaging, W4. | each item's own exit |
 | **0.4.0** | Attach in typescript and javascript, with the proxy binary released beside them. Phase 1's exit. | W5 items 1–7 |

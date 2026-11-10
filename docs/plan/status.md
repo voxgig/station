@@ -1,6 +1,6 @@
 # Status: where the next session starts
 
-Snapshot, **2026-11-10**, of `main` at `690b08f` (0.2.0). The register
+Snapshot, **2026-11-10**, of `main` at `e78b38a` (0.2.0). The register
 in [`progress.md`](progress.md) is the per-item authority, and
 [`upstream.md`](upstream.md) tracks what other repositories owe. This
 file says what is in flight, what to pick up first, and what waits on a
@@ -27,7 +27,9 @@ wrong status file is worse than none.**
 - **The gates.** `make version-check`, `vendor-check`, `comments`,
   `omni-isolation` and `release-plan` pass.
 
-W0.3 landed on `main` on 2026-11-10, as `690b08f`. Nothing else has
+Three things landed on `main` on 2026-11-10: W0.3 as `690b08f`; this
+register and W0.9 as `e78b38a`, where CI run 42913018209 is green; and
+the tag `go/v0.2.0`, from release run 42913723297. No pull request has
 merged since 2026-10-17.
 
 
@@ -37,7 +39,7 @@ merged since 2026-10-17.
 |---|---|---|---|---|---|---|
 | typescript (canonical) | sekreto | 11 | **no** | yes | 147 tests: 127 pass, 20 skipped | npm `@voxgig/station` 0.2.0 |
 | javascript | sekreto | 11 | yes | yes | 21 pass | npm `@voxgig/station-js` 0.2.0 |
-| go | sekreto | 11 | yes | yes | both packages pass | **no tag yet** (W0.1) |
+| go | sekreto | 11 | yes | yes | both packages pass | tag `go/v0.2.0` |
 | python | sekreto | 11 | yes | yes | 91 pass | — |
 | ruby | sekreto | 11 | yes | yes | 70 and 12 pass | — |
 | php | sekreto | 11 | yes | yes | 63 pass | — |
@@ -84,14 +86,11 @@ Nothing else is in flight.
 
 ## Pick this up first
 
-In this order. The first two need the maintainer; the rest do not.
+In this order. Item 2 needs the maintainer, to review and merge; the
+rest do not.
 
-1. **W0.1, then W0.4.** Get W0.9, the change to
-   `tools/release_plan.py`, onto `main`, then dispatch the release
-   workflow there. It tags `go/v0.2.0` and does nothing else: both npm
-   packages are already released. Without W0.9 the dispatch stops at
-   its plan step, because `main` has moved one commit past the release
-   commit.
+1. **W0.4, and W0.2.** 0.2.0 is released on all three routes. What
+   follows from it: move likeness onto the Go tag, and close [#27].
 2. **W1, in the register's order.** A trial merge of all six passed on
    2026-11-10, with two one-line resolutions the register spells out.
 3. **W5.1**, the proxy's build. It can start now: no open pull request
@@ -112,21 +111,21 @@ Everything here needs the maintainer, and most of it fits one sitting.
 
 | what | why a human | rows |
 |---|---|---|
-| Dispatch the release workflow, for `go/v0.2.0` | It is a release, and a Go tag cannot be withdrawn. It needs W0.9 on `main` first. | W0.1 |
 | Apply a workflow patch, when one is on `main` in [`patch/`](patch/README.md) | A token with the `workflow` scope. A session cannot push a change under `.github/workflows/`, so it commits a patch to `main` instead. None is pending. | W3.11, W4.3, W4.4 and W5.1, when their patches are written |
 | Review and merge six pull requests | Merge rights | W1 |
 | Seven decisions | The owner's call | DEC-1 to DEC-7 |
 | Register `@voxgig/sdkgen-station` for trusted publishing | An npm owner | W3.11 |
 | Approve the upstream drafts for filing | They go to other repositories, and each one notifies people | [`upstream.md`](upstream.md), "Not yet filed" |
-| Close [#24]; delete merged branches | Housekeeping | W0.5, W0.6 |
+| Close [#27] and [#24]; delete merged branches | Housekeeping | W0.2, W0.5, W0.6 |
 
 
 ## Recently settled
 
 - **The release workflow releases every port from one dispatch**, and
   CI has a `versions` job (W0.3 and W4.9, `690b08f`, 2026-11-10).
-- **0.2.0 is on npm for both packages**, and every port declares it
-  (voxgig/station#65). Only the Go tag is outstanding.
+- **0.2.0 is released on all three routes.** Both npm packages, and
+  now the Go module: release run 42913723297 tagged `go/v0.2.0` on
+  2026-11-10 (W0.1). Every port declares 0.2.0 (voxgig/station#65).
 - **Nine sdkgen issues closed on 2026-10-17**, among them every sdkgen
   cause behind a red cell in likeness's matrix. The fixes are in the
   generator and in no SDK yet (`sdk-2`).
@@ -149,8 +148,10 @@ schedules:
 - `station.md` §9 and `station-declarative-config.md` §11 describe
   sdkgen as it stood in August. W0.8; `upstream.md` has the current
   state.
-- voxgig/likeness `HANDOVER.md` still lists the release-workflow patch
-  as a step to take. It is done.
+- voxgig/likeness `HANDOVER.md` still lists the Go tag and the
+  release-workflow patch as steps to take. Both are done; its third
+  step, W0.4, is the one left.
 
 
 [#24]: https://github.com/voxgig/station/issues/24
+[#27]: https://github.com/voxgig/station/issues/27

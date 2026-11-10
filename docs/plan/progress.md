@@ -9,8 +9,9 @@ Statuses: `NOT STARTED`, `IN PROGRESS`, `DONE`, `DECISION NEEDED`,
 `BLOCKED` (on what, in the note), `DECIDED-NO`.
 
 Every note below was checked on **2026-11-10** against `main` at
-`a570686` unless it gives another date or revision. `main` moved to
-`690b08f` that evening, when W0.3 landed; it changed no port's source.
+`a570686` unless it gives another date or revision. `main` moved twice
+that evening: to `690b08f` when W0.3 landed, and to `e78b38a` when this
+register and W0.9 did. Neither changed a port's source.
 "Read" means the code was read and the behaviour not run; "run" means
 it was run. What
 station needs from other repositories is in [`upstream.md`](upstream.md),
@@ -24,15 +25,15 @@ end.
 
 | Item | Status | Notes |
 |---|---|---|
-| W0.1 Tag `go/v0.2.0` | BLOCKED | On W0.9 reaching `main`, and then one dispatch of the release workflow. `git ls-remote --tags` shows no `go/*` tag, and the Go proxy lists no version of `github.com/voxgig/station/go`. Every release so far has been a dispatch, six of six, and this one is too. At `690b08f` the workflow's own plan step stops with `go/v0.2.0 belongs on a570686fe886, the commit the npm release came from, not on 690b08f58ffa`, exit 1, before anything is published or tagged (run): `main` moved one commit past the release commit when W0.3 landed. With W0.9 the same step answers `tags=go/v0.2.0`, the go job's steps pass, the tag job's script pushes the tag, and the plan then reports every port `done` (run, end to end, against a local stand-in for origin; nothing on GitHub was touched). The tag lands on `main`'s head, where `go/` is the tree of `a570686`. A Go tag cannot be withdrawn. Pushing it by hand on `a570686` remains the other route. |
-| W0.2 Close [#27] | BLOCKED | On W0.1. Its first step, real versions in `go/go.mod`, landed in voxgig/station#32. The feature model already requires `v0.2.0`. |
+| W0.1 Tag `go/v0.2.0` | DONE | 2026-11-10. Release run 42913723297, a dispatch on `main` at `e78b38a`, made the tag: it planned `go tag`, built and tested the go module with no workspace, skipped both npm jobs because both packages were already released, and pushed `go/v0.2.0` on `e78b38a`. `go/` there is the same tree object as on `a570686`, the commit the npm release came from. `make release-plan` on `main` now reports every port `done`. The Go proxy lists `v0.2.0` for `github.com/voxgig/station/go`, and a fresh module outside any workspace gets it by version, builds and runs (run). Before the dispatch, the same consumer check passed against the commit itself, and CI run 42913018209 on `e78b38a` was green. |
+| W0.2 Close [#27] | NOT STARTED | The tag it asked for exists (W0.1), and its first step, real versions in `go/go.mod`, landed in voxgig/station#32. Close it, naming `go/v0.2.0`. |
 | W0.3 One dispatch releases every port; CI gains a `versions` job | DONE | `690b08f`, committed to `main` on 2026-11-10 by the maintainer, applying `station-release-workflow.patch`. `main`'s tree is exactly `a570686` plus that patch (run). CI run 42878382277 on it is green: all twenty lanes and the new `versions` job, against that evening's plugin and struct. It also corrected `release.yml`'s stale header and rewrote the release section of `AGENTS.md`. Still open from the same change: the review thread on voxgig/station#65 can be closed, and likeness's `HANDOVER.md` still lists this as its step 2. |
-| W0.4 likeness onto station 0.2.0 | BLOCKED | On W0.1, because `go mod tidy` needs the tag. `likeness-station-go-v0.2.0.patch`; likeness `HANDOVER.md` §3. |
+| W0.4 likeness onto station 0.2.0 | NOT STARTED | Unblocked by W0.1: `go mod tidy` can now find the tag. `likeness-station-go-v0.2.0.patch`; likeness `HANDOVER.md` §3. It also moves likeness's Python and Ruby pins, which name `a570686`. |
 | W0.5 Close [#24] | NOT STARTED | Fixed on `main` by `b145609` (voxgig/station#28) and shipped in 0.2.0: `construct()` takes `as` and `instance` out before the SDK sees its options (`typescript/src/Station.ts:205`, read). The ports with `connect` pin it in their suites. Not re-run against a generated SDK (W4.3). |
 | W0.6 Prune merged branches | NOT STARTED | Eighteen remote branches are fully merged into `main`. `chore/comment-policy` is one commit ahead and conflicts in four files; its change looks like what landed, squashed, as voxgig/station#22. Confirm, then delete. |
 | W0.7 This register, and the README and design status lines brought back to the code | DONE | This change. The README table said the declarative front door was pending in ten ports that have it, that five ports had no toolchain when CI runs all five, and that the proxy was deferred when `proxy/` holds one. `station.md` §17 and `station-and-plugin-plan.md` §0 and §3 said the same. |
 | W0.8 The design's account of sdkgen, brought up to date | NOT STARTED | `station.md` §9 item 3 and `station-declarative-config.md` §11 describe sdkgen as it stood in August: seventeen of twenty `Config_*` components passing their target name (all twenty do), the constructor's `extend` tolerance still to come (the ts, js and py templates carry it; the others were not checked), and a per-feature option schema as later work (it shipped as `optspec`). [`upstream.md`](upstream.md) carries the current state. The prose should say what station still needs and point there for the rest. |
-| W0.9 A dispatch can tag go after `main` has moved | DONE | This change. `tools/release_plan.py` put go's tag only on the commit the npm release came from, and the workflow can only tag the commit it runs on, so once `main` had moved no dispatch could finish 0.2.0. The plan now also allows a later commit of `main` when `go/` is the same tree as on that commit, and says so in the run, naming both commits. It still refuses when `go/` has changed, or when the commit does not descend from the release. No workflow file changes. 13 tests, two of them new; three mutations of the new rule each fail one (run). `AGENTS.md`, "Irreversible", says the same. |
+| W0.9 A dispatch can tag go after `main` has moved | DONE | This change. `tools/release_plan.py` put go's tag only on the commit the npm release came from, and the workflow can only tag the commit it runs on, so once `main` had moved no dispatch could finish 0.2.0. The plan now also allows a later commit of `main` when `go/` is the same tree as on that commit, and says so in the run, naming both commits. It still refuses when `go/` has changed, or when the commit does not descend from the release. No workflow file changes. 13 tests, two of them new; three mutations of the new rule each fail one (run). `AGENTS.md`, "Irreversible", says the same. On `main` as `e78b38a`, and used the same evening: it is what let W0.1's dispatch run. |
 
 
 ## W1. Land the review queue
@@ -101,7 +102,7 @@ What is published where is in [`upstream.md`](upstream.md), under
 | Item | Status | Notes |
 |---|---|---|
 | W3.1 The route | DECISION NEEDED | DEC-1. |
-| W3.2 [#31]: the feature model writes a dependency that resolves, and an optional one where the language allows | BLOCKED | On W3.1. `sdkgen-station/.sdk/model/feature/station.aontu` names `voxgig-station` (PyPI), `voxgig_station` (RubyGems, pub.dev, Hex, crates.io), `voxgig/station` (Packagist), `com.voxgig:station` (Maven) and `Voxgig.Station` (NuGet). None exists. Its Swift entry names `https://github.com/voxgig/station-swift`, which is not a public repository. Go needs only W0.1. |
+| W3.2 [#31]: the feature model writes a dependency that resolves, and an optional one where the language allows | BLOCKED | On W3.1. `sdkgen-station/.sdk/model/feature/station.aontu` names `voxgig-station` (PyPI), `voxgig_station` (RubyGems, pub.dev, Hex, crates.io), `voxgig/station` (Packagist), `com.voxgig:station` (Maven) and `Voxgig.Station` (NuGet). None exists. Its Swift entry names `https://github.com/voxgig/station-swift`, which is not a public repository. Go is done: W0.1. |
 | W3.3 [#39]: Python installs outside a checkout | NOT STARTED | Not gated on DEC-1: these are defects on any route. `shape.py:183` reads `spec/config-shape.json` by a checkout-relative path; ship it as package data and have `make sync-shape` keep it in step, as it does for typescript and javascript. `structhome.py` looks for a struct checkout and says struct is unpublished; `voxgig-struct` is on PyPI. `pyproject.toml` requires `voxgig-sekreto>=0.1`, which is not (`sekreto-1`). |
 | W3.4 Ruby: a gemspec | NOT STARTED | `ruby/` has none, so Bundler can take the port neither from git nor from a registry. |
 | W3.5 PHP: a manifest that states its requirements | NOT STARTED | `php/composer.json` requires only `php`; sekreto is found through `SEKRETO_HOME` or a sibling checkout. Composer reads a VCS package from a repository's root, not a subdirectory. |
@@ -112,7 +113,7 @@ What is published where is in [`upstream.md`](upstream.md), under
 | W3.10 [#30]: a generated SDK registers itself, or its README says what it needs | BLOCKED | On `sdkgen-7`. sdkgen generates the registration for ts and js only. In Go an explicit `station.Provide` was verified to work (the issue). The README text is sdkgen's `ReadmeStation`. |
 | W3.11 A release route for `@voxgig/sdkgen-station` | BLOCKED | On a maintainer registering a third package with `npm trust`. The `port` value in `release.yml` is a workflow change, and follows as a patch on `main` ([`patch/`](patch/README.md)). The package has never been published (`npm view` finds nothing). Its version is outside `VERSION` by decision. |
 | W3.12 Generated C SDKs resolve through sekreto | NOT STARTED | After W1.6, which leaves them env-only: the payload is built with `VXSTN_ENV_ONLY`. sdkgen-station would have to carry sekreto and plugin's C host beside sdkgen's own `secrets` feature, which vendors sekreto at a different commit. |
-| W3.13 The fleet's SDKs regenerated | BLOCKED | On W0.1 and `sdk-1`. The four regeneration pull requests are open and were generated on sdkgen 4.34.6. No SDK in voxgig-sdk carries the station feature on its default branch. |
+| W3.13 The fleet's SDKs regenerated | BLOCKED | On `sdk-1`. W0.1 is done, so a regenerated SDK's Go module can require `v0.2.0`. The four regeneration pull requests are open and were generated on sdkgen 4.34.6. No SDK in voxgig-sdk carries the station feature on its default branch. |
 
 
 ## W4. One contract in every port
@@ -163,7 +164,7 @@ What is published where is in [`upstream.md`](upstream.md), under
 
 | Item | Status | Notes |
 |---|---|---|
-| C.1 voxgig/likeness | BLOCKED | On W0.1 for its own step, and on `sdk-1` to `sdk-3` for the red cells of its matrix. From this plan it waits on W1.2 (eight Go entries), W1.6 (the C port, with the regenerated C SDKs) and W2.6 and W2.9 (parity). Its Stage 3, search and writes, also needs the Joplin and Notion definitions to carry search. |
+| C.1 voxgig/likeness | BLOCKED | On `sdk-1` to `sdk-3` for the red cells of its matrix. Its own step, W0.4, is open now that the Go tag exists. From this plan it waits on W1.2 (eight Go entries), W1.6 (the C port, with the regenerated C SDKs) and W2.6 and W2.9 (parity). Its Stage 3, search and writes, also needs the Joplin and Notion definitions to carry search. |
 | C.2 voxgig/station-view | DECISION NEEDED | DEC-6. The repository holds comment-policy tooling and no code. |
 | C.3 senecajs/seneca-station | DECISION NEEDED | DEC-7. The repository holds a README and a licence. |
 
