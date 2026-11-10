@@ -91,7 +91,7 @@ the plan depends on all of them.
 
 | | workstream | design reference | gated on | who can do it |
 |---|---|---|---|---|
-| **W0** | Close out 0.2.0 | `AGENTS.md`, Releasing | nothing | a maintainer: it needs tag-push rights |
+| **W0** | Close out 0.2.0 | `AGENTS.md`, Releasing | nothing | whoever may dispatch the release workflow |
 | **W1** | Land the review queue | — | review | review and merge rights; no new code |
 | **W2** | Make the solo library safe for live use | §3.3, §5, §6, §16 | W1 | anyone; canonical first |
 | **W3** | Installable in every language | §9.2, §9.6; Stage 4 | DEC-1; W0 for Go | anyone, plus upstream releases |
@@ -107,9 +107,10 @@ W0 ──► W1 ──┬──► W2 ──► release 0.3.0 ──► W5.5 onw
 W5.1 (the proxy builds, and CI holds it) depends on nothing and can start today.
 ```
 
-W0 comes first because what is left of it is two commands. W1 comes
-before any new code because the queue is the same files: every fix in
-W2 touches what those six pull requests touch, in all sixteen ports.
+W0 comes first because what is left of it is one dispatch and one patch
+to likeness. W1 comes before any new code because the queue is the same
+files: every fix in W2 touches what those six pull requests touch, in
+all sixteen ports.
 
 **For a change to a GitHub workflow, a patch is created on `main`.** A
 session's token cannot push a workflow file, so it writes the change as
@@ -123,10 +124,11 @@ Three steps were left when the 0.2.0 release session ran out of
 permissions. They are written up, with their patches, in voxgig/likeness
 `HANDOVER.md`. One is done.
 
-1. Tag `go/v0.2.0` on `a570686`, the commit the npm releases came from.
-   Closes [#27]. `main` has since moved, so the tag is pushed by hand:
-   a dispatch runs at `main`'s head, and the plan refuses to put this
-   tag anywhere but the release commit.
+1. Tag `go/v0.2.0`, by a dispatch of the release workflow, as every
+   release so far has been made. Closes [#27]. `main` has moved one
+   commit past `a570686`, the commit the npm releases came from, and
+   the plan used to refuse to tag go anywhere else. It now tags go on a
+   later commit of `main` when `go/` is the same tree, which it is.
 2. ~~Apply the release-workflow patch.~~ Done on 2026-11-10, as
    `690b08f`: one dispatch now releases every port, and CI has a
    `versions` job.

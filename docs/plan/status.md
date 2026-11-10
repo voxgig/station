@@ -86,11 +86,12 @@ Nothing else is in flight.
 
 In this order. The first two need the maintainer; the rest do not.
 
-1. **W0.1, then W0.4.** Tag `go/v0.2.0` on `a570686`, by hand:
-   `git tag go/v0.2.0 a570686fe886bc2d686c991ffee5c7e6a47b5f8a`, then
-   `git push origin go/v0.2.0`. `main` has moved past that commit, so
-   `make release-plan` stops with an error naming it until the tag is
-   there, and a dispatch of the release workflow cannot make it.
+1. **W0.1, then W0.4.** Get W0.9, the change to
+   `tools/release_plan.py`, onto `main`, then dispatch the release
+   workflow there. It tags `go/v0.2.0` and does nothing else: both npm
+   packages are already released. Without W0.9 the dispatch stops at
+   its plan step, because `main` has moved one commit past the release
+   commit.
 2. **W1, in the register's order.** A trial merge of all six passed on
    2026-11-10, with two one-line resolutions the register spells out.
 3. **W5.1**, the proxy's build. It can start now: no open pull request
@@ -111,7 +112,7 @@ Everything here needs the maintainer, and most of it fits one sitting.
 
 | what | why a human | rows |
 |---|---|---|
-| Push the tag `go/v0.2.0` | Tag-push rights. The last session's push was refused. | W0.1 |
+| Dispatch the release workflow, for `go/v0.2.0` | It is a release, and a Go tag cannot be withdrawn. It needs W0.9 on `main` first. | W0.1 |
 | Apply a workflow patch, when one is on `main` in [`patch/`](patch/README.md) | A token with the `workflow` scope. A session cannot push a change under `.github/workflows/`, so it commits a patch to `main` instead. None is pending. | W3.11, W4.3, W4.4 and W5.1, when their patches are written |
 | Review and merge six pull requests | Merge rights | W1 |
 | Seven decisions | The owner's call | DEC-1 to DEC-7 |

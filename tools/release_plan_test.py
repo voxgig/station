@@ -61,13 +61,14 @@ class Decide(unittest.TestCase):
 class Plan(unittest.TestCase):
 
     def run_plan(self, pushed='', tags=None, registry=None, changed=(),
-                 on_main=True):
+                 on_main=True, warnings=None):
         tags = tags or {}
         registry = registry or {}
+        warnings = [] if warnings is None else warnings
         return RP.plan('1.0.0', HEAD, pushed, tags.get,
                        lambda port, c: port not in changed,
                        lambda port, v: registry.get(port, (False, '')),
-                       lambda msg: None,
+                       warnings.append,
                        lambda: on_main,
                        lambda a, b: (a, b) in LINE)
 
@@ -108,12 +109,10 @@ class Plan(unittest.TestCase):
     def test_go_goes_on_the_npm_release_commit(self):
         npm_done = {'typescript/v1.0.0': OLD, 'javascript/v1.0.0': HEAD}
         released = {'typescript': (True, OLD), 'javascript': (True, HEAD)}
-        self.assertEqual('tag', self.run_plan(tags=npm_done, registry=released)['go'])
-
-        npm_done['javascript/v1.0.0'] = MID
-        released['javascript'] = (True, MID)
-        with self.assertRaisesRegex(RP.Refusal, 'belongs on mmmm'):
-            self.run_plan(tags=npm_done, registry=released)
+        warnings = []
+        self.assertEqual('tag', self.run_plan(tags=npm_done, registry=released,
+                                              warnings=warnings)['go'])
+        self.assertEqual([], warnings)
 
         self.assertEqual('tag', self.run_plan(
             registry={'typescript': (True, HEAD), 'javascript': (True, HEAD)})['go'])
@@ -122,6 +121,26 @@ class Plan(unittest.TestCase):
             self.run_plan(tags={'typescript/v1.0.0': OTHER, 'javascript/v1.0.0': MID},
                           registry={'typescript': (True, OTHER),
                                     'javascript': (True, MID)})
+
+    def test_go_follows_onto_a_later_commit_only_with_the_same_tree(self):
+        npm_done = {'typescript/v1.0.0': OLD, 'javascript/v1.0.0': MID}
+        released = {'typescript': (True, OLD), 'javascript': (True, MID)}
+
+        warnings = []
+        states = self.run_plan(tags=npm_done, registry=released, warnings=warnings)
+        self.assertEqual({'typescript': 'done', 'javascript': 'done', 'go': 'tag'},
+                         states)
+        self.assertEqual(1, len(warnings))
+        self.assertRegex(warnings[0], 'go/v1.0.0 goes on hhhh.*unchanged since mmmm')
+
+        with self.assertRaisesRegex(RP.Refusal, 'belongs on mmmm.*has changed since'):
+            self.run_plan(tags=npm_done, registry=released, changed=('go',))
+
+    def test_go_never_goes_on_a_commit_the_release_is_not_behind(self):
+        elsewhere = {'typescript/v1.0.0': OTHER, 'javascript/v1.0.0': OTHER}
+        released = {'typescript': (True, OTHER), 'javascript': (True, OTHER)}
+        with self.assertRaisesRegex(RP.Refusal, 'belongs on xxxx.*does not descend'):
+            self.run_plan(tags=elsewhere, registry=released)
 
     def test_everything_released(self):
         tags = {'%s/v1.0.0' % p: HEAD for p in RP.PORTS}

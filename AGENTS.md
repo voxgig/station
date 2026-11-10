@@ -188,6 +188,12 @@ pushes**, and that run plans at the tagged commit: it publishes whatever is
 missing and pushes the remaining tags. The pushed tag must be one of
 `VERSION`'s port tags, and its commit must be on `main`.
 
+**go is the exception, because it is a tag and nothing more.** A dispatch can
+still tag go after `main` has moved, as long as `go/` is the same tree it was
+on the commit the npm release came from. The plan says so when it does, and
+names both commits. If `go/` has changed since, the plan refuses, and
+`go/v<version>` is pushed by hand on that commit, as above.
+
 Never publish locally over a token — that bypasses OIDC and its provenance
 attestation.
 

@@ -6,9 +6,11 @@
 
 Every port with a release route ships at VERSION from one commit on main. A
 port already released at VERSION is left alone only while its directory is
-unchanged since its tag, so one version never names two trees of a port, and
-go is tagged only on the commit the npm release came from. Tags and main are
-fetched first, because a tag pushed by a release run exists only on origin.
+unchanged since its tag, so one version never names two trees of a port. go
+is tagged on the commit the npm release came from, or on a later commit of
+main where go/ is still the same tree, so a run after main has moved can
+finish the release. Tags and main are fetched first, because a tag pushed by
+a release run exists only on origin.
 """
 
 import argparse
@@ -110,8 +112,16 @@ def plan(version, head, pushed, tag_at, same_tree, registry_of, warn,
             sources.append(head)
         release = newest(sources, is_ancestor)
         if release and release != head:
-            raise Refusal('go/v%s belongs on %s, the commit the npm release came '
-                          'from, not on %s' % (version, release[:12], head[:12]))
+            if not is_ancestor(release, head):
+                raise Refusal('go/v%s belongs on %s, the commit the npm release '
+                              'came from, and %s does not descend from it'
+                              % (version, release[:12], head[:12]))
+            if not same_tree('go', release):
+                raise Refusal('go/v%s belongs on %s, the commit the npm release '
+                              'came from: go/ has changed since, so it cannot go '
+                              'on %s' % (version, release[:12], head[:12]))
+            warn('go/v%s goes on %s: go/ is unchanged since %s, the commit the '
+                 'npm release came from' % (version, head[:12], release[:12]))
     return states
 
 
