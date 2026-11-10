@@ -14,6 +14,7 @@ already use (`doc/plan/` there), so that the family reads one way.
 | [`progress.md`](progress.md) | The plan register: one row per item, with its status and the evidence for it. Every open issue and pull request is mapped to a row. | **In the same commit as the work it records.** |
 | [`upstream.md`](upstream.md) | The upstream register: what station pins of each dependency, one row per thing station needs from another repository, and the asks not yet filed. | An upstream issue is filed, moves or closes; a pin moves. |
 | [`status.md`](status.md) | The snapshot: the per-port matrix, what is in flight, what to pick up first, and what waits on a human. | At the end of a working session. |
+| [`patch/`](patch/README.md) | Workflow changes, each written as a patch against `main` for a maintainer to apply. | A workflow change is ready, or one has been applied. |
 
 ## The rules
 
@@ -32,6 +33,12 @@ already use (`doc/plan/` there), so that the family reads one way.
 5. **A wrong status file is worse than none.** `status.md` is dated. If
    it has gone stale and nobody is going to refresh it, delete it:
    `progress.md` is the authority and does not depend on it.
+6. **A workflow change is a patch on `main`.** A session's token cannot
+   push a change under `.github/workflows/`. Such a change is made on a
+   scratch branch cut from `main`, written into [`patch/`](patch/README.md)
+   with `git format-patch`, and applied by a maintainer. Its item stays
+   `BLOCKED`, on that patch being applied, until the pull request that
+   applies it has merged.
 
 ## Statuses
 

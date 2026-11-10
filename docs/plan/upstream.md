@@ -29,22 +29,26 @@ station), `DECISION NEEDED`.
 | | | `javascript/package.json` | `@voxgig/sekreto-js` `^0.2.0`, locked 0.2.0 | npm 0.2.0 |
 | | | `python/pyproject.toml` | `voxgig-sekreto>=0.1` | not on PyPI |
 | | | `c/vendor/sekreto`, after W1.6 | `SEKRETO_C_COMMIT`, `32b83ac` | — |
-| **voxgig/struct** | library | `build.yml` checkout | **unpinned** | `main` is `18d6237`, moved 2026-11-10 |
+| **voxgig/struct** | library | `build.yml` checkout | **unpinned**, until Stage 5 is complete | `main` is `18d6237`, moved 2026-11-10 |
 | | | `typescript/package.json` | `^0.2.2`, locked 0.2.2 | npm 0.3.7, outside the range |
 | | | `javascript/package.json` | `@voxgig/struct-js` `^0.1.7`, locked 0.1.7 | npm 0.1.7 |
 | | | `go/go.mod` | `v0.1.6` | `go/v0.1.6` |
 | | | `rust/Cargo.toml` | a path to `vendor/struct`, a link to the sibling checkout; the lock records 0.1.7 | crates.io 0.1.7 |
-| **voxgig/plugin** | sekreto's dependency; the C4 corpus | `build.yml` checkout | **unpinned** | `main` is `8605cdc` |
+| **voxgig/plugin** | sekreto's dependency; the C4 corpus | `build.yml` checkout | **unpinned**, on purpose | `main` is `8605cdc` |
 | | | `go/go.mod`, indirect | a pseudo-version of `91f294b` (2026-09-01) | `go/v0.2.0` |
 | | | typescript lockfile, transitive | 0.1.7 | npm 0.2.0 |
 | **voxgig/omni** | tests only | `build.yml` checkout | `dcbab7a` (voxgig/omni#36, 2026-08-22) | `main` is `ef55ad0`; npm 0.2.0; `go/v0.2.0` |
 | **voxgig/sdkgen** | generator, for sdkgen-station | `sdkgen-station/package.json` peer | `>=3.6` | npm 4.41.0 |
 
-Three things in that table are worth acting on. They are rows W4.4 and
-W4.5 of the plan register:
+Three things in that table are worth knowing. The first two are rows
+W4.4 and W4.5 of the plan register:
 
-- **struct and plugin float in CI.** A change in either reaches every
-  station pull request unannounced.
+- **struct and plugin float in CI, and both by decision.** `build.yml`
+  leaves plugin unpinned so that drift from plugin's corpus goes red,
+  which is the C4 contract working, and leaves struct unpinned until
+  Stage 5 is complete. So a change in either reaches every station pull
+  request. A lane that goes red on an unrelated change is upstream
+  drift until shown otherwise.
 - **The canonical port tests a different struct from every other
   port.** The typescript lane links no struct checkout, so it runs
   npm's 0.2.2 from the lockfile, while the other fifteen run struct

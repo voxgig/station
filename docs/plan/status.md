@@ -83,7 +83,8 @@ Nothing else is in flight.
 In this order. The first two need the maintainer; the rest do not.
 
 1. **W0.1, then W0.3 and W0.4.** Tag `go/v0.2.0` on `a570686` before
-   `main` moves. The commands are in voxgig/likeness `HANDOVER.md`.
+   `main` moves. The commands are in voxgig/likeness `HANDOVER.md`, and
+   W0.3's patch is in [`patch/`](patch/README.md).
 2. **W1, in the register's order.** A trial merge of all six passed on
    2026-11-10, with two one-line resolutions the register spells out.
 3. **W5.1**, the proxy's build. It can start now: no open pull request
@@ -105,7 +106,7 @@ Everything here needs the maintainer, and most of it fits one sitting.
 | what | why a human | rows |
 |---|---|---|
 | Push the tag `go/v0.2.0` | Tag-push rights. The last session's push was refused. | W0.1 |
-| Apply the release-workflow patch; add CI jobs; pin `plugin` and `struct` | A token with the `workflow` scope. Every change under `.github/workflows/` needs it. | W0.3, W4.3, W4.4, W4.9, W5.1 |
+| Apply the workflow patches in [`patch/`](patch/README.md) | A token with the `workflow` scope. A session cannot push a change under `.github/workflows/`, so each one is written as a patch on `main`. One is ready: the release workflow. | W0.3, W4.9 now; W3.11, W4.3, W4.4 and W5.1 when their patches are written |
 | Review and merge six pull requests | Merge rights | W1 |
 | Seven decisions | The owner's call | DEC-1 to DEC-7 |
 | Register `@voxgig/sdkgen-station` for trusted publishing | An npm owner | W3.11 |
@@ -140,7 +141,8 @@ schedules:
   sdkgen as it stood in August. W0.8; `upstream.md` has the current
   state.
 - `release.yml`'s header says neither package is registered for trusted
-  publishing. Both are; `AGENTS.md` already says so.
+  publishing. Both are; `AGENTS.md` already says so, and W0.3's patch
+  corrects the header.
 
 
 [#24]: https://github.com/voxgig/station/issues/24

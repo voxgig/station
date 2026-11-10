@@ -230,3 +230,11 @@ starting work: it says what is in flight and what to pick up first.
 dependency's pin, or to the state of an upstream issue, updates
 `docs/plan/upstream.md`. Status lives there: `README.md` and the design
 documents carry a status line each, and are corrected from it.
+
+**A change under `.github/workflows/` is delivered as a patch on `main`.**
+GitHub refuses a workflow change pushed without the `workflow` scope,
+which a session's token does not have. Make the change on a scratch
+branch cut from `main`, write it into `docs/plan/patch/` with
+`git format-patch`, and add its row to `docs/plan/patch/README.md`; a
+maintainer applies it. Do not leave the change waiting for a human to
+write it.

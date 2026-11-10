@@ -91,12 +91,12 @@ the plan depends on all of them.
 
 | | workstream | design reference | gated on | who can do it |
 |---|---|---|---|---|
-| **W0** | Close out 0.2.0 | `AGENTS.md`, Releasing | nothing | a maintainer: it needs tag-push rights and a token with the `workflow` scope |
+| **W0** | Close out 0.2.0 | `AGENTS.md`, Releasing | nothing | a maintainer: it needs tag-push rights, and a token with the `workflow` scope to apply the patch |
 | **W1** | Land the review queue | — | review | review and merge rights; no new code |
 | **W2** | Make the solo library safe for live use | §3.3, §5, §6, §16 | W1 | anyone; canonical first |
 | **W3** | Installable in every language | §9.2, §9.6; Stage 4 | DEC-1; W0 for Go | anyone, plus upstream releases |
-| **W4** | One contract in every port | §13; Stage 5 | W1 | anyone; workflow edits need the `workflow` scope |
-| **W5** | The proxy and the agent surface | §7, §8; Phase 1 exit | DEC-2; W2 for the library half | anyone |
+| **W4** | One contract in every port | §13; Stage 5 | W1 | anyone; a workflow change goes in as a patch |
+| **W5** | The proxy and the agent surface | §7, §8; Phase 1 exit | DEC-2; W2 for the library half | anyone; a workflow change goes in as a patch |
 | **W6** | Phase 2's remainder | §6, §17 | W5 | anyone |
 | **W7** | Phase 3 | §8.4, §9.1, §17 | W5, and upstream | anyone, plus upstream |
 
@@ -112,6 +112,11 @@ belongs on the commit `main` points at now. W1 comes before any new
 code because the queue is the same files: every fix in W2 touches what
 those six pull requests touch, in all sixteen ports.
 
+**A change to a GitHub workflow is delivered as a patch on `main`**,
+because a session's token cannot push one. The patches, and the workflow
+changes that cannot be written yet, are in
+[`patch/`](patch/README.md).
+
 ### W0. Close out 0.2.0
 
 Three steps were left when the 0.2.0 release session ran out of
@@ -120,8 +125,8 @@ permissions. They are written up, with their patches, in voxgig/likeness
 
 1. Tag `go/v0.2.0` on `a570686`, the commit `make release-plan` names.
    Closes [#27].
-2. Apply `station-release-workflow.patch`: one dispatch releases every
-   port, and CI gains a `versions` job.
+2. Apply [`patch/station-release-workflow.patch`](patch/README.md): one
+   dispatch releases every port, and CI gains a `versions` job.
 3. Move likeness onto the tag.
 
 Then close [#24], which `b145609` fixed and 0.2.0 shipped, and prune the
@@ -228,14 +233,18 @@ do.
   every port, adapter code that compiles only inside a generated SDK is
   never compiled ([#60] names three such pieces), and [#63] could not
   be caught. This is the lane `station.md` §9.5 and §13 already require.
-- CI pins `plugin` and `struct`, as it pins omni and sekreto.
+- CI pins `struct` once the last five ports have taken that tranche,
+  which is when `build.yml` itself says to. `plugin` stays unpinned, on
+  purpose: its corpus is the C4 contract, and a red lane when plugin
+  moves is that contract working.
 - The corpus gains the sections §13 names and it lacks, starting with
   `event`, so that an event's shape is pinned once and not sixteen
   times.
 
 **Exit:** all sixteen ports run every corpus section or pin it as
 pending by name; every port has a completeness guard; the integration
-suites run in CI; and no dependency in `build.yml` floats.
+suites run in CI; and the only dependency that floats in `build.yml` is
+`plugin`, which floats on purpose.
 
 ### W5. The proxy and the agent surface
 
@@ -409,12 +418,12 @@ refuse a provider kind it used to warn about. Its release notes say so.
 | risk | why it is real | what the plan does |
 |---|---|---|
 | **The queue rots.** | Six pull requests, a month old, across the same files in sixteen ports. Two already conflict. | W1 before any new code. |
-| **Upstream moves under an unpinned CI.** | `plugin` and `struct` float in `build.yml`. struct has a parity pull request open that changes behaviour across its ports. A red lane on an unrelated pull request is the likely first symptom. | W4 pins both. |
+| **Upstream moves under a floating CI.** | `plugin` and `struct` float in `build.yml`, both by decision: plugin so that drift from its corpus goes red, struct until Stage 5 completes. struct has a parity pull request open that changes behaviour across its ports. A red lane on an unrelated pull request is the likely first symptom. | A red lane is read as upstream drift first, and reported upstream. W4 pins struct when the last five ports have landed. |
 | **Code without a CI lane dies quietly.** | The proxy stopped compiling when sekreto's API moved, and nothing went red. | W5 item 1 adds the lane before anything else is built on it. |
 | **A fix skips the corpus.** | Sixteen ports make every fix expensive, and the cheap version is to fix the port that was reported. | Standing rule 2, and the exit of every W2 item. |
 | **Distribution waits on other repositories.** | sekreto and plugin are on npm only. | DEC-1's staged route does not wait for them. |
 | **Attach has one side.** | The proxy implements the wire; no library does. A protocol with one implementation has not been tested. | The testkit and the wire's corpus sections come before the first client. |
-| **Human-only steps queue up.** | Tags, workflow files, merges and registry setup all need the maintainer. | `status.md` lists them together, so they can be done in one sitting. |
+| **Human-only steps queue up.** | Tags, merges, registry setup and applying a workflow patch all need the maintainer. | `status.md` lists them together, so they can be done in one sitting, and every workflow change arrives as a patch ready for `git am`. |
 | **The second consumer of plugin never appears.** | sdkgen's adoption is uncommitted. | DEC-3 stays deferred; no port is put behind plugin. |
 
 
