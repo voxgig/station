@@ -98,8 +98,9 @@ sync-shape:
 # orphan, and c's SDK Makefile would otherwise keep compiling it.
 #
 # Both need a voxgig/sekreto checkout (the perl payload carries
-# sekreto's modules as well); the tool finds a sibling one itself, or
-# set SEKRETO_HOME.
+# sekreto's modules as well, and c/vendor/sekreto is read out of it at
+# the commit tools/vendor.py pins); the tool finds a sibling one itself,
+# or set SEKRETO_HOME.
 vendor-refresh:
 	python3 tools/vendor.py --write
 

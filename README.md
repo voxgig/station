@@ -46,7 +46,7 @@ orientation; that directory is the authority.
 | Elixir | `elixir/` | env-only | unit, corpus (8) | `sdk` grammar; front door pending |
 | Lua | `lua/` | env-only (vendored into SDKs) | unit, corpus (8) | `sdk` grammar; front door pending |
 | Rust | `rust/` | sekreto rust | unit, corpus (11) | full declarative front door |
-| C (tier C) | `c/` | env-only (vendored) | unit, corpus (11) | full declarative front door |
+| C (tier C) | `c/` | sekreto c, vendored (the SDK payload is built env-only) | unit, corpus (11), secret store | full declarative front door; config arrives in code (`vxstn_open` takes the JSON), so a consumer that reads `station.json` itself is fine |
 | C++ (tier C) | `cpp/` | env-only (vendored) | unit, corpus (11) | full declarative front door |
 
 The declarative-config column is the status the design's §12 promises
