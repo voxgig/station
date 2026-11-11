@@ -40,8 +40,8 @@ orientation; that directory is the authority.
 | Perl | `perl/` | sekreto perl (vendored into SDKs) | unit, corpus (11) | full declarative front door |
 | Java | `java/` | sekreto java | unit, corpus (11) | full declarative front door |
 | Kotlin | (rides the java library, JVM interop) | — | generation-validated | rides java |
-| C# | `csharp/` | sekreto csharp | unit, corpus (8) | `sdk` grammar; front door pending |
-| Swift | `swift/` | env-only | unit, corpus (8) | `sdk` grammar; front door pending |
+| C# | `csharp/` | sekreto csharp | unit, corpus (9) | `sdk` grammar, named instances; front door pending |
+| Swift | `swift/` | env-only | unit, corpus (9) | `sdk` grammar, named instances; front door pending |
 | Dart | `dart/` | env-only | unit, corpus (8) | `sdk` grammar; front door pending |
 | Elixir | `elixir/` | env-only | unit, corpus (8) | `sdk` grammar; front door pending |
 | Lua | `lua/` | env-only (vendored into SDKs) | unit, corpus (8) | `sdk` grammar; front door pending |
@@ -54,8 +54,8 @@ this table. Eleven ports carry the full front door
 (`station.sdk()`/`create()`/`check()`, struct-validated config,
 feature management) and run all eleven sections of the conformance
 corpus. C#, Swift, Dart, Elixir and Lua read the `sdk`/`api` instance
-grammar and run eight sections; the front door is their remaining
-tranche (see `spec/README.md`).
+grammar. Dart, Elixir and Lua run eight sections, and C# and Swift
+nine; the front door is their remaining tranche (see `spec/README.md`).
 
 CI runs every port's unit and corpus suites. The end-to-end suites run
 against real generated SDKs and skip in CI, which generates none.

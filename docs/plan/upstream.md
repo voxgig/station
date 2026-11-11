@@ -32,7 +32,7 @@ station), `DECISION NEEDED`.
 | | | `typescript/package.json` | `^0.3.0`, locked 0.3.0 | npm 0.3.0 |
 | | | `javascript/package.json` | `@voxgig/sekreto-js` `^0.2.0`, locked 0.2.0 | npm 0.2.0 |
 | | | `python/pyproject.toml` | `voxgig-sekreto>=0.1` | not on PyPI |
-| | | `c/vendor/sekreto`, after W1.6 | `SEKRETO_C_COMMIT`, `32b83ac` | — |
+| | | `c/vendor/sekreto`, since W1.6 | `SEKRETO_C_COMMIT`, `32b83ac` | — |
 | **voxgig/struct** | library | `build.yml` checkout | **unpinned**, until Stage 5 is complete | `main` is `055ac4a` on 2026-11-11. It moved on both days this register was checked. |
 | | | `typescript/package.json` | `^0.2.2`, locked 0.2.2 | npm 0.3.7, outside the range |
 | | | `javascript/package.json` | `@voxgig/struct-js` `^0.1.7`, locked 0.1.7 | npm 0.1.7 |
@@ -57,9 +57,9 @@ W4.4 and W4.5 of the plan register:
   port.** The typescript lane links no struct checkout, so it runs
   npm's 0.2.2 from the lockfile, while the other fifteen run struct
   `main`.
-- **Moving the sekreto pin is three edits, and after W1.6 four**:
-  `build.yml`, `go/go.mod`, the npm ranges, and `SEKRETO_C_COMMIT` with
-  a `make vendor-refresh`.
+- **Moving the sekreto pin is four edits**, since W1.6: `build.yml`,
+  `go/go.mod`, the npm ranges, and `SEKRETO_C_COMMIT` with a `make
+  vendor-refresh`.
 
 
 ## Registries
@@ -91,10 +91,10 @@ sections were written.
 | # | what station needs | upstream | state | gates, and notes |
 |---|---|---|---|---|
 | sdkgen-1 | Every feature model declares its `transport` role, and `configDefinition` carries it (§11 items 6 and 7) | in the tree | DONE | Nothing. Twenty bundled models carry it: one `base`, eight `wrap`, eleven `none`. |
-| sdkgen-2 | A per-feature option schema (§11 item 8, planned for "later") | in the tree, as `optspec` (`ts/src/helpers/optspec.ts`) | DONE | W1.1 is station catching up with it. |
+| sdkgen-2 | A per-feature option schema (§11 item 8, planned for "later") | in the tree, as `optspec` (`ts/src/helpers/optspec.ts`) | DONE | Nothing. W1.1 was station catching up with it. |
 | sdkgen-3 | `ReadmeStation`, the agent-guide paragraph, `docs/how-to/use-station.md`, and an error-code catalog (§9.4; §11 items 3 to 5) | in the tree | DONE | Nothing. The how-to leads with the declarative flow. |
 | sdkgen-4 | `configDefinition(model, target.name)` in every `Config_*` component (§9.3) | in the tree | DONE | Nothing. All twenty do; the design still says seventeen (W0.8). |
-| sdkgen-5 | A misspelled feature option is refused | [sdkgen#422] | OPEN | What W1.1 gives up. Every feature defaults to `strict: false`. See also `struct-2`. |
+| sdkgen-5 | A misspelled feature option is refused | [sdkgen#422] | OPEN | What W1.1 gave up. Every feature defaults to `strict: false`. See also `struct-2`. |
 | sdkgen-6 | An `extend`-carried feature is added at its `featureorder` slot, not appended when its `__after__` anchor is absent | — | NOT FILED | W2.1, for newly generated SDKs. `Main.fragment.ts` skips the name in the ordered loop and adds it afterwards "positioned by its own `__after__` entry"; `FeatureAddUtility.ts` appends when the anchor is missing. |
 | sdkgen-7 | A generated SDK registers itself with station at module load in every target that can express it (§6.2; §11 item 2) | — | NOT FILED | W3.10, and Stage 4's exit outside ts and js. Only `cmp/ts` and `cmp/js` have a `MainStation` fragment. |
 | sdkgen-8 | `PreDone` runs for every operation that ends | [sdkgen#428] | OPEN | W2.6. It decides which stage station's `op` event can ride. |

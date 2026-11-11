@@ -1962,9 +1962,9 @@ disagree:
   c and cpp beside ts/js, all eleven carrying the declarative front
   door and the full corpus, green in CI, with csharp, swift, dart,
   elixir and lua on the `sdk` grammar and green in CI on eight corpus
-  sections, the front door still to come (`spec/README.md`; scala
-  and clojure wait for Phase 3 behind their §9.1 adapter
-  prerequisites), each over its own sekreto port where one exists and
+  sections, or nine for csharp and swift, the front door still to come
+  (`spec/README.md`; scala and clojure wait for Phase 3 behind their
+  §9.1 adapter prerequisites), each over its own sekreto port where one exists and
   env-only where it does not (swift, dart, elixir — §2.2). What
   remains is proxy-flavoured: replay/mock/record with the §6 per-class
   semantics; OTLP export; grants hardening + revocation UX.

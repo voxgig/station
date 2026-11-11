@@ -41,17 +41,19 @@ Four outcomes get there, and the workstreams below are grouped by them:
 ## 2. Where things stand
 
 The per-port matrix and the evidence are in [`status.md`](status.md).
-In one table, on `main` at `e78b38a` (0.2.0):
+In one table, on `main` at `9a650d4`, which is 0.2.0 and the six pull
+requests of W1:
 
 | design phase | in-process library | proxy and agent surface |
 |---|---|---|
 | **Phase 1**, prove the loop | Done. Stages 1–3b in the canonical. | Written and tested, but stranded: it does not compile against the sekreto CI pins, has no CI lane, and no library speaks its wire protocol. Phase 1's exit is not met. |
-| **Phase 2**, breadth and depth | Sixteen ports in CI, all green. Eleven carry the declarative front door and all eleven corpus sections. Five run eight sections. | Not started (replay, record, mock, OTLP, persistence). |
+| **Phase 2**, breadth and depth | Sixteen ports in CI, all green. Eleven carry the declarative front door and all eleven corpus sections. Three run eight sections, and two run nine. | Not started (replay, record, mock, OTLP, persistence). |
 | **Phase 3**, long tail and remote | rust, lua, c and cpp exist. Six targets have no adapter. | Not started. |
 
 Released at 0.2.0: `@voxgig/station` and `@voxgig/station-js` on npm,
 and the Go module by its tag, `go/v0.2.0`. No other port has a package,
-and `@voxgig/sdkgen-station` has never been published.
+and `@voxgig/sdkgen-station` has never been published. What merged on
+2026-11-11 is in no release yet: it goes out with 0.3.0.
 
 
 ## 3. Standing rules
@@ -107,10 +109,10 @@ W0 ──► W1 ──┬──► W2 ──► release 0.3.0 ──► W5.5 onw
 W5.1 (the proxy builds, and CI holds it) depends on nothing and can start today.
 ```
 
-What is left of W0 is one merge in likeness and one stale passage of the
-design (W0.8). W1 comes before any new code because the queue is the
-same files: every fix in W2 touches what those six pull requests touch,
-in all sixteen ports.
+W0 and W1 are done, but for one stale passage of the design (W0.8). W1
+came before any new code because the queue was the same files: every
+fix in W2 touches what those six pull requests touched, in all sixteen
+ports.
 
 **For a change to a GitHub workflow, a patch is created on `main`.** A
 session's token cannot push a workflow file, so it writes the change as
@@ -122,8 +124,7 @@ lists the workflow changes that cannot be written yet.
 
 Three steps were left when the 0.2.0 release session ran out of
 permissions. They were written up, with their patches, in
-voxgig/likeness `HANDOVER.md`. Two are done, and the third is waiting to
-be merged.
+voxgig/likeness `HANDOVER.md`. All three are done.
 
 1. ~~Tag `go/v0.2.0`.~~ Done on 2026-11-10, by a dispatch of the
    release workflow, as every release so far has been made. `main` had
@@ -134,8 +135,8 @@ be merged.
 2. ~~Apply the release-workflow patch.~~ Done on 2026-11-10, as
    `690b08f`: one dispatch now releases every port, and CI has a
    `versions` job.
-3. Move likeness onto the tag. Written, as voxgig/likeness#13, which
-   also retires the handover. It is waiting to be merged.
+3. ~~Move likeness onto the tag.~~ Done on 2026-11-11:
+   voxgig/likeness#13 merged, and it retired the handover too.
 
 The housekeeping is done too. [#24], which `b145609` fixed and 0.2.0
 shipped, is closed, after its own script passed against a generated
@@ -143,23 +144,29 @@ SDK. The merged branches are gone.
 
 **Exit:** `make release-plan` reports every port `done`, and
 `go list -m github.com/voxgig/station/go@v0.2.0` resolves through the
-Go proxy. Both have held since 2026-11-10. Step 3's merge is what
-remains.
+Go proxy. Both held from 2026-11-10, and likeness has been on the tag
+since 2026-11-11, so the exit is met. Since W1 merged, `make
+release-plan` says something else, and rightly: the ports have changed
+since their tags, so `VERSION` must move before the next release.
 
 ### W1. Land the review queue
 
-Six pull requests have been open since 2026-10-15, all green at their
-heads. They close eight open issues between them. They were trial-merged
-together onto `a570686` on 2026-11-10: the order below needs two
-one-line conflict resolutions, and the merged tree passes every gate and
-all eleven port suites that can run outside CI.
+Six pull requests had been open since 2026-10-15, all green at their
+heads and a month behind `main`. **All six merged on 2026-11-11**, in
+this order: [#60], [#47], [#51], [#56], [#48], [#58].
 
-Order: [#60], [#51], [#56], [#47], [#48], [#58]. The register carries
-each one's conflicts and what it closes.
+Each branch was brought up to `main` first, and its CI run again before
+the merge. That is the step the trial merge of 2026-11-10 could not
+stand in for. Its eleven suites passed, and CI then failed two of the
+six in swift and csharp, ports with no toolchain outside CI: three pins
+written to a closure signature `main` had since changed, and eight
+refusal messages that one pull request had added in the style another
+was removing. Both were fixed on the branches, a line at a time, and
+nothing merged red. The register has each one's runs and commits.
 
 **Exit:** the six are merged, CI is green on `main` for all twenty
 lanes, and [#23], [#26], [#38], [#45], [#49], [#50], [#52] and [#59]
-are closed.
+are closed. Met on 2026-11-11.
 
 ### W2. Make the solo library safe for live use
 
@@ -403,7 +410,7 @@ released TypeScript library, so nothing in this plan blocks it.
 | release | carries | gate |
 |---|---|---|
 | **0.2.0** | Released: on npm 2026-10-16 and 17, and the Go tag on 2026-11-10. | Done; W0's housekeeping remains |
-| **0.3.0** | W1 and W2a. The first release to recommend for live use. | W2a's exit |
+| **0.3.0** | W1, which is on `main`, and W2a. The first release to recommend for live use. | W2a's exit |
 | **0.3.x** | W2b, W3's port packaging, W4. | each item's own exit |
 | **0.4.0** | Attach in typescript and javascript, with the proxy binary released beside them. Phase 1's exit. | W5 items 1–7 |
 
@@ -418,7 +425,7 @@ refuse a provider kind it used to warn about. Its release notes say so.
 
 | client | state | what it needs from this plan |
 |---|---|---|
-| **voxgig/likeness** | Stages 0 and 1 done; Stage 2 at 9 of 20 cells; Stage 3 not started. CI green. | W0 (its own step 3); [#51] for eight Go entries; [#58] for the C port; [#36] and [#61] for parity. The rest is the generated SDKs: see [`upstream.md`](upstream.md). |
+| **voxgig/likeness** | Stages 0 and 1 done; Stage 2 at 9 of 20 cells; Stage 3 not started. On station 0.2.0 in every port that pins it. CI green. | A release carrying [#51], for eight Go entries, and [#58], for the C port; [#36] and [#61] for parity. The rest is the generated SDKs: see [`upstream.md`](upstream.md). |
 | **voxgig/station-view** | Tooling only. No code, no design. | DEC-6, then W5. |
 | **senecajs/seneca-station** | A README. No code, no design. | DEC-7. |
 
@@ -427,7 +434,7 @@ refuse a provider kind it used to warn about. Its release notes say so.
 
 | risk | why it is real | what the plan does |
 |---|---|---|
-| **The queue rots.** | Six pull requests, a month old, across the same files in sixteen ports. Two already conflict. | W1 before any new code. |
+| **A local merge passes and CI does not.** | Five ports have no toolchain outside CI. Both faults found while W1 merged were in them, and the trial merge had passed. | A branch is brought up to `main` and its CI run again before it merges. Standing rule 8. |
 | **Upstream moves under a floating CI.** | `plugin` and `struct` float in `build.yml`, both by decision: plugin so that drift from its corpus goes red, struct until Stage 5 completes. struct has a parity pull request open that changes behaviour across its ports. A red lane on an unrelated pull request is the likely first symptom. | A red lane is read as upstream drift first, and reported upstream. W4 pins struct when the last five ports have landed. |
 | **Code without a CI lane dies quietly.** | The proxy stopped compiling when sekreto's API moved, and nothing went red. | W5 item 1 adds the lane before anything else is built on it. |
 | **A fix skips the corpus.** | Sixteen ports make every fix expensive, and the cheap version is to fix the port that was reported. | Standing rule 2, and the exit of every W2 item. |
