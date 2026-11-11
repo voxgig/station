@@ -73,6 +73,19 @@ jobs:
       - name: The guard must catch what it claims to
         run: python3 tools/omni_isolation_selftest.py
 
+  versions:
+    name: every port declares VERSION
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+      - name: Every port declares the shared version, and the gate can fail
+        run: make version-check
+      - name: The release plan reaches every state it claims to
+        run: make release-plan-test
+
   ports:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -178,12 +191,13 @@ jobs:
       - name: javascript
         id: javascript
         continue-on-error: true
-        env:
-          STRUCT_HOME: ${{ github.workspace }}/struct
         run: |
           cd station/javascript
           mkdir -p node_modules/@voxgig
           ln -sfn ../../../../sekreto/javascript node_modules/@voxgig/sekreto-js
+          # @voxgig/struct-js is a published dependency, linked here to the
+          # checkout beside it, as sekreto is.
+          ln -sfn ../../../../struct/javascript node_modules/@voxgig/struct-js
           # sekreto's own install, the way the typescript lane above does
           # it: sekreto's core is built on voxgig/plugin now (sekreto
           # 43eb579) and declares @voxgig/plugin-js. Node resolves that

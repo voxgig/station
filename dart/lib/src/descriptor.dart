@@ -154,11 +154,31 @@ Normalized normalizeDescriptor(dynamic config, [dynamic activeFeatures]) {
   final factive = activeFeatures is Map ? activeFeatures : {};
   if (fdefs is Map) {
     final fnames = fdefs.keys.map((k) => k.toString()).toList()..sort();
+    // station.md 7.4: each row carries the feature's declared schema and
+    // its transport role.
     for (final fname in fnames) {
-      features.add(<String, dynamic>{
+      final fdef = fdefs[fname];
+      final row = <String, dynamic>{
         'name': fname,
         'active': true == _mget(factive[fname], 'active'),
-      });
+      };
+      final fopts = _mget(fdef, 'options');
+      if (fopts is Map) {
+        row['options'] = fopts;
+      }
+      final optspec = _mget(fdef, 'optspec');
+      if (optspec is Map) {
+        row['optspec'] = optspec;
+      }
+      final strict = _mget(fdef, 'strict');
+      if (strict is bool) {
+        row['strict'] = strict;
+      }
+      final transport = _mget(fdef, 'transport');
+      if (null != transport && '' != transport.toString()) {
+        row['transport'] = transport.toString();
+      }
+      features.add(row);
     }
   }
 

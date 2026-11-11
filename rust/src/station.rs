@@ -15,10 +15,11 @@ use crate::feature::{
     check_features, check_pin, compose_features, fault_messages, feature_names, feature_sources,
     merge_features, resolve_order,
 };
-use crate::instance::instance_ref;
+use crate::instance::{instance_ref, named_ref};
 use crate::jsonx::{jget, jobj, jstr, jtext, jtextof, now_ms};
 use crate::profile::{
-    config_scope, load_config, refapi, resolve_profile, select_profile, ResolvedProfile,
+    block_of, config_scope, instance_options, load_config, refapi, resolve_profile,
+    select_profile, ResolvedProfile,
 };
 use crate::secrets::SecretBroker;
 use crate::shape::{normalize_config, validate_config};
@@ -351,10 +352,33 @@ impl Station {
     /// way the canonical `options(instanceName?, extra?)` does, so the
     /// name gets its own method and every existing `options(&extra)` call
     pub fn options_for(&self, instance: &str, extra: &Json) -> Json {
-        let mut out: BTreeMap<String, Json> = match extra {
-            Json::Map(entries) => entries.clone(),
-            _ => BTreeMap::new(),
+        let mut names: BTreeMap<String, Json> = BTreeMap::new();
+        for key in ["as", "instance"] {
+            match jget(extra, key) {
+                None | Some(Json::Null) => {}
+                Some(found) => {
+                    names.insert(key.to_string(), found.clone());
+                }
+            }
+        }
+        if !instance.is_empty() {
+            names.insert("instance".to_string(), jtext(instance));
+        }
+        let mut named: BTreeMap<String, Json> =
+            match jget(extra, "feature").and_then(|feature| jget(feature, "station")) {
+                Some(Json::Map(entries)) => entries.clone(),
+                _ => BTreeMap::new(),
+            };
+        named.extend(names.clone());
+        let mut out: BTreeMap<String, Json> = match named_ref(&Json::Map(named)) {
+            Some(reference) => instance_options(&self.block_for(&reference), Some(extra)),
+            None => match extra {
+                Json::Map(entries) => entries.clone(),
+                _ => BTreeMap::new(),
+            },
         };
+        out.remove("as");
+        out.remove("instance");
 
         let mut features: BTreeMap<String, Json> = match out.get("feature") {
             Some(Json::Map(entries)) => entries.clone(),
@@ -365,9 +389,7 @@ impl Station {
             _ => BTreeMap::new(),
         };
         sopts.insert("active".to_string(), Json::Bool(true));
-        if !instance.is_empty() {
-            sopts.insert("instance".to_string(), jtext(instance));
-        }
+        sopts.extend(names);
         features.insert("station".to_string(), Json::Map(sopts));
         out.insert("feature".to_string(), Json::Map(features));
 
@@ -395,15 +417,7 @@ impl Station {
     /// ONE RULE, ONE PLACE: registration and the transport seam both ask
     /// here, because them disagreeing is how the credential and the
     pub fn block_for(&self, name: &str) -> Json {
-        let declared = self.declared_ref(name);
-        if let Some(block) = self.profile.sdk.get(&declared) {
-            return block.clone();
-        }
-        self.profile
-            .api
-            .get(&refapi(name))
-            .cloned()
-            .unwrap_or_else(|| Json::Map(BTreeMap::new()))
+        block_of(&self.profile, &self.declared_ref(name))
     }
 
     /// itself. `create("stripe$prod")` registers under `stripe$1`, and
@@ -682,18 +696,8 @@ impl Station {
             features.insert(fname, Json::Map(rest));
         }
 
-        let mut options: BTreeMap<String, Json> = match jget(&block, "options") {
-            Some(Json::Map(entries)) => entries.clone(),
-            _ => BTreeMap::new(),
-        };
-        let base = jstr(&block, "base");
-        if !base.is_empty() {
-            options.insert("base".to_string(), jtext(base));
-        }
+        let mut options = instance_options(&block, overrides);
         if let Some(Json::Map(extra)) = overrides {
-            for (key, val) in extra.iter() {
-                options.insert(key.clone(), val.clone());
-            }
             if let Some(Json::Map(over)) = extra.get("feature") {
                 for (key, val) in over.iter() {
                     features.insert(key.clone(), val.clone());

@@ -155,7 +155,7 @@ file every port runs — through the Perl
 (and `SEKRETO_HOME`, `STRUCT_HOME`) if the checkouts are not siblings of
 this repository.
 
-The suite runs every one of the corpus's ten sections, and WHICH ones is
+The suite runs every one of the corpus's eleven sections, and WHICH ones is
 not a matter of what happens to be written out by hand: `t/conform.t`
 declares a `@DRIVERS` table (section name -> subject) and a `@PENDING`
 table (section name -> the reason it is not run), REGISTERS the

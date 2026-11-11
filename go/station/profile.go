@@ -121,6 +121,32 @@ func RefApi(ref string) string {
 	return ref
 }
 
+// BlockOf is the block that governs an instance: its own, else its
+// api's.
+func BlockOf(profile *ResolvedProfile, ref string) map[string]any {
+	if block, has := profile.Sdk[ref]; has {
+		return block
+	}
+	return profile.Api[RefApi(ref)]
+}
+
+// InstanceOptions is §3.5 for a named instance: the block's `options`,
+// then its `base` (steps 3-6), under the caller's options (step 9), per
+// top-level key.
+func InstanceOptions(block map[string]any, opts map[string]any) map[string]any {
+	out := map[string]any{}
+	for k, v := range asMap(block["options"]) {
+		out[k] = v
+	}
+	if base := asString(block["base"]); "" != base {
+		out["base"] = base
+	}
+	for k, v := range opts {
+		out[k] = v
+	}
+	return out
+}
+
 func shallow(sources ...map[string]any) map[string]any {
 	out := map[string]any{}
 	for _, src := range sources {
