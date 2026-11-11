@@ -1,6 +1,7 @@
 # Status: where the next session starts
 
-Snapshot, **2026-11-10**, of `main` at `e78b38a` (0.2.0). The register
+Snapshot, **2026-11-11**. `main` is at 0.2.0, released on every route,
+and no port's source has changed since `a570686`. The register
 in [`progress.md`](progress.md) is the per-item authority, and
 [`upstream.md`](upstream.md) tracks what other repositories owe. This
 file says what is in flight, what to pick up first, and what waits on a
@@ -22,6 +23,9 @@ wrong status file is worse than none.**
   omni `dcbab7a`, sekreto `32b83ac`, plugin `8605cdc` and struct
   `18d6237`. CI pins the first two and floats the others, and struct
   had moved that day. All eleven passed with CI's counts.
+- **Re-run again, 2026-11-11.** The same eleven suites on `main`, after
+  struct had moved once more, to `055ac4a`. All eleven pass, with the
+  same counts.
 - **Not run here.** csharp, swift, dart, elixir and lua: there was no
   toolchain. For those five, the CI runs above are the evidence.
 - **The gates.** `make version-check`, `vendor-check`, `comments`,
@@ -81,16 +85,19 @@ repository generates the SDKs they look for (W4.3).
 Six pull requests, all opened 2026-10-15 and all green at their heads:
 W1.1 to W1.6. An automated review ran on each. Its eight threads, on
 three of the six, are all answered and resolved. None has an approval.
-Nothing else is in flight.
+
+One branch in voxgig/likeness, `claude/bold-newton-4of9bo`, with no pull
+request yet: it moves likeness onto station 0.2.0 and retires the
+handover (W0.4).
 
 
 ## Pick this up first
 
-In this order. Item 2 needs the maintainer, to review and merge; the
-rest do not.
+In this order. Items 1 and 2 need the maintainer, to review and merge;
+the rest do not.
 
-1. **W0.4, and W0.2.** 0.2.0 is released on all three routes. What
-   follows from it: move likeness onto the Go tag, and close [#27].
+1. **W0.4.** Merge likeness's branch `claude/bold-newton-4of9bo`. That
+   finishes the 0.2.0 handover.
 2. **W1, in the register's order.** A trial merge of all six passed on
    2026-11-10, with two one-line resolutions the register spells out.
 3. **W5.1**, the proxy's build. It can start now: no open pull request
@@ -113,10 +120,11 @@ Everything here needs the maintainer, and most of it fits one sitting.
 |---|---|---|
 | Apply a workflow patch, when one is on `main` in [`patch/`](patch/README.md) | A token with the `workflow` scope. A session cannot push a change under `.github/workflows/`, so it commits a patch to `main` instead. None is pending. | W3.11, W4.3, W4.4 and W5.1, when their patches are written |
 | Review and merge six pull requests | Merge rights | W1 |
+| Merge likeness's branch `claude/bold-newton-4of9bo` | Merge rights in voxgig/likeness. It has no pull request yet. | W0.4 |
 | Seven decisions | The owner's call | DEC-1 to DEC-7 |
 | Register `@voxgig/sdkgen-station` for trusted publishing | An npm owner | W3.11 |
 | Approve the upstream drafts for filing | They go to other repositories, and each one notifies people | [`upstream.md`](upstream.md), "Not yet filed" |
-| Close [#27] and [#24]; delete merged branches | Housekeeping | W0.2, W0.5, W0.6 |
+| Close [#24]; delete merged branches | Housekeeping | W0.5, W0.6 |
 
 
 ## Recently settled
@@ -126,6 +134,7 @@ Everything here needs the maintainer, and most of it fits one sitting.
 - **0.2.0 is released on all three routes.** Both npm packages, and
   now the Go module: release run 42913723297 tagged `go/v0.2.0` on
   2026-11-10 (W0.1). Every port declares 0.2.0 (voxgig/station#65).
+- **[#27] is closed** (W0.2), with a note naming the tag.
 - **Nine sdkgen issues closed on 2026-10-17**, among them every sdkgen
   cause behind a red cell in likeness's matrix. The fixes are in the
   generator and in no SDK yet (`sdk-2`).
@@ -148,9 +157,9 @@ schedules:
 - `station.md` §9 and `station-declarative-config.md` §11 describe
   sdkgen as it stood in August. W0.8; `upstream.md` has the current
   state.
-- voxgig/likeness `HANDOVER.md` still lists the Go tag and the
-  release-workflow patch as steps to take. Both are done; its third
-  step, W0.4, is the one left.
+- voxgig/likeness `HANDOVER.md` still lists three steps to take. All
+  three are done, and the branch for W0.4 deletes the file. Until that
+  branch merges, likeness's `main` carries it.
 
 
 [#24]: https://github.com/voxgig/station/issues/24

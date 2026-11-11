@@ -107,7 +107,7 @@ W0 ──► W1 ──┬──► W2 ──► release 0.3.0 ──► W5.5 onw
 W5.1 (the proxy builds, and CI holds it) depends on nothing and can start today.
 ```
 
-What is left of W0 is one patch to likeness and some housekeeping. W1
+What is left of W0 is one merge in likeness and some housekeeping. W1
 comes before any new code because the queue is the same files: every
 fix in W2 touches what those six pull requests touch, in all sixteen
 ports.
@@ -121,19 +121,22 @@ lists the workflow changes that cannot be written yet.
 ### W0. Close out 0.2.0
 
 Three steps were left when the 0.2.0 release session ran out of
-permissions. They are written up, with their patches, in voxgig/likeness
-`HANDOVER.md`. Two are done.
+permissions. They were written up, with their patches, in
+voxgig/likeness `HANDOVER.md`. Two are done, and the third is waiting to
+be merged.
 
 1. ~~Tag `go/v0.2.0`.~~ Done on 2026-11-10, by a dispatch of the
    release workflow, as every release so far has been made. `main` had
-   moved past `a570686`, the commit the npm releases came from, and the
-   plan used to refuse to tag go anywhere else. It now tags go on a
-   later commit of `main` when `go/` is the same tree, so the tag is on
-   `e78b38a`. [#27] can be closed.
+   moved past `a570686`, the later of the two commits the npm packages
+   were built from, and the plan used to refuse to tag go anywhere else.
+   It now tags go on a later commit of `main` when `go/` is the same
+   tree, so the tag is on `e78b38a`. [#27] is closed.
 2. ~~Apply the release-workflow patch.~~ Done on 2026-11-10, as
    `690b08f`: one dispatch now releases every port, and CI has a
    `versions` job.
-3. Move likeness onto the tag.
+3. Move likeness onto the tag. Done on likeness's branch
+   `claude/bold-newton-4of9bo`, which also retires the handover. It is
+   waiting to be merged.
 
 Then close [#24], which `b145609` fixed and 0.2.0 shipped, and prune the
 merged branches.

@@ -13,6 +13,10 @@ Everything below was observed on **2026-11-10**. Issue states were read
 through GitHub's search API, package lists from each registry, and
 sdkgen at its `main`, `66de706` (4.41.0).
 
+Checked again on **2026-11-11**: every issue and pull request a row
+below gives as open is still open, and the heads of struct and sdkgen
+had moved, as the pins table says. sdkgen's source was not read again.
+
 States: `DONE`, `OPEN` (an issue or pull request exists upstream),
 `NOT FILED` (station needs it and nothing upstream tracks it; a draft
 is at the end), `WATCH` (nothing is owed, but a change there will reach
@@ -29,7 +33,7 @@ station), `DECISION NEEDED`.
 | | | `javascript/package.json` | `@voxgig/sekreto-js` `^0.2.0`, locked 0.2.0 | npm 0.2.0 |
 | | | `python/pyproject.toml` | `voxgig-sekreto>=0.1` | not on PyPI |
 | | | `c/vendor/sekreto`, after W1.6 | `SEKRETO_C_COMMIT`, `32b83ac` | — |
-| **voxgig/struct** | library | `build.yml` checkout | **unpinned**, until Stage 5 is complete | `main` is `18d6237`, moved 2026-11-10 |
+| **voxgig/struct** | library | `build.yml` checkout | **unpinned**, until Stage 5 is complete | `main` is `055ac4a` on 2026-11-11. It moved on both days this register was checked. |
 | | | `typescript/package.json` | `^0.2.2`, locked 0.2.2 | npm 0.3.7, outside the range |
 | | | `javascript/package.json` | `@voxgig/struct-js` `^0.1.7`, locked 0.1.7 | npm 0.1.7 |
 | | | `go/go.mod` | `v0.1.6` | `go/v0.1.6` |
@@ -38,7 +42,7 @@ station), `DECISION NEEDED`.
 | | | `go/go.mod`, indirect | a pseudo-version of `91f294b` (2026-09-01) | `go/v0.2.0` |
 | | | typescript lockfile, transitive | 0.1.7 | npm 0.2.0 |
 | **voxgig/omni** | tests only | `build.yml` checkout | `dcbab7a` (voxgig/omni#36, 2026-08-22) | `main` is `ef55ad0`; npm 0.2.0; `go/v0.2.0` |
-| **voxgig/sdkgen** | generator, for sdkgen-station | `sdkgen-station/package.json` peer | `>=3.6` | npm 4.41.0 |
+| **voxgig/sdkgen** | generator, for sdkgen-station | `sdkgen-station/package.json` peer | `>=3.6` | npm 4.41.1 on 2026-11-11 |
 
 Three things in that table are worth knowing. The first two are rows
 W4.4 and W4.5 of the plan register:
@@ -159,7 +163,7 @@ the station feature on its default branch: the fourteen that mention
 
 | # | what station needs | upstream | state | gates, and notes |
 |---|---|---|---|---|
-| sdk-1 | The four SDKs likeness uses, regenerated with the station feature and merged | [joplin-sdk#4], [obsidian-sdk#3], [notion-sdk#5], [linear-sdk#3] | OPEN | W3.13, C.1. Three name sdkgen 4.34.6 in their titles; the generator is at 4.41.0. likeness's `HANDOVER.md` records that they still require station's Go module at `v0.0.1`. They need generating again on a current sdkgen and on `sdkgen-station` from station `main`, which requires `v0.2.0`; that tag now exists (W0.1). |
+| sdk-1 | The four SDKs likeness uses, regenerated with the station feature and merged | [joplin-sdk#4], [obsidian-sdk#3], [notion-sdk#5], [linear-sdk#3] | OPEN | W3.13, C.1. Three name sdkgen 4.34.6 in their titles; the generator is at 4.41.1. They still require station's Go module at `v0.0.1`, which was never tagged: likeness's `go/go.mod` maps it to the tag with one `replace` line, and its `PROCESS.md` says why. They need generating again on a current sdkgen and on `sdkgen-station` from station `main`, which requires `v0.2.0`; that tag now exists (W0.1). |
 | sdk-2 | Generator fixes that reach an SDK only when it is regenerated | voxgig/sdkgen#400, #401 (Linear's queries and paging), #403, #405 (C: a live transport; two SDKs in one program), #406, #413, #414, #418, #419 | DONE upstream, all closed 2026-10-17; in no SDK yet | C.1. These were every sdkgen cause behind a red cell in likeness's matrix. |
 | sdk-3 | Tags and published packages | [joplin-sdk#2], [linear-sdk#2], [obsidian-sdk#2], [notion-sdk#3] | OPEN | A consumer can pin only a commit. |
 

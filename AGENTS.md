@@ -246,3 +246,9 @@ the patch file to `main` itself, in `docs/plan/patch/`, with its row in
 it: a patch left on a feature branch is not found. A session that may
 not push to `main` says so at once, and asks. Do not leave the change
 waiting for a human to write it.
+
+**A commit message can close an issue.** `close`, `fix` or `resolve`, in
+any tense, written directly before an issue's number closes that issue
+when the commit reaches `main`, whatever the sentence around it meant.
+One issue here closed a step early that way. Name an issue without one
+of those words in front of it, unless closing it is the point.
