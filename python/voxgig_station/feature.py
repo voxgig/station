@@ -8,6 +8,7 @@
 # A port of typescript/src/feature.ts, which is canonical.
 
 import json
+import re
 
 from .error import StationError
 
@@ -264,45 +265,94 @@ def check_features(merged, descriptor):
         if not _ismap(entry):
             continue
         defaults = spec['options'] if _ismap(spec.get('options')) else {}
+        typed = spec['optspec'] if _ismap(spec.get('optspec')) else {}
 
         for key in sorted(entry.keys()):
             if key in RESERVED_KEYS:
                 continue
 
-            if key not in defaults:
-                # THE CASE THAT ACTUALLY BITES: `retry.retires: 5` is
-                # accepted and silently ignored today, because the SDK's
-                # own feature spec is `$OPEN` per feature so the SDK
-                # cannot catch it and nothing else looks.
+            if key not in defaults and key not in typed:
+                # A feature the SDK does not close is $OPEN in its own
+                # option spec, so refusing the key would be stricter than
+                # the SDK.
+                if True is not spec.get('strict'):
+                    continue
                 faults.append({
                     'code': 'station_feature_option',
                     'feature': name,
                     'key': key,
                     'message': 'feature "' + name + '" declares no option "' +
                                key + '"; it declares [' +
-                               ', '.join(sorted(defaults.keys())) + ']',
+                               ', '.join(sorted(set(defaults) | set(typed))) +
+                               ']',
                 })
                 continue
 
-            want = _kindof(defaults[key])
+            # sdkgen widens every declared option to admit null, and a
+            # null default constrains nothing.
+            if entry[key] is None:
+                continue
+
+            # The type outranks the default: sdkgen's option spec does too.
+            if key in typed:
+                want = _speckinds(typed[key])
+            else:
+                want = None if defaults[key] is None else [_kindof(defaults[key])]
             got = _kindof(entry[key])
-            if want != got:
+            if want is not None and got not in want:
                 faults.append({
                     'code': 'station_feature_option',
                     'feature': name,
                     'key': key,
                     'message': 'feature "' + name + '" option "' + key +
-                               '" expects ' + want + ', but found ' + got +
-                               ': ' + _json(entry[key]),
+                               '" expects ' + ' or '.join(want) +
+                               ', but found ' + got + ': ' + _json(entry[key]),
                 })
 
     return faults
 
 
+_TOKEN_KIND = {
+    'MAP': 'map', 'LIST': 'list', 'ARRAY': 'list', 'STRING': 'string',
+    'NUMBER': 'number', 'INTEGER': 'number', 'DECIMAL': 'number',
+    'BOOLEAN': 'boolean', 'FUNCTION': 'function', 'NULL': 'null', 'NIL': 'null',
+}
+
+_TOKEN_RE = re.compile(r'^`\$([A-Z]+)`$')
+
+
+def _speckinds(spec):
+    """The kinds an `optspec` type admits, or None when it admits any."""
+    if isinstance(spec, str):
+        token = _TOKEN_RE.match(spec)
+        if token is None:
+            return [_kindof(spec)]
+        return [_TOKEN_KIND[token.group(1)]] \
+            if token.group(1) in _TOKEN_KIND else None
+
+    if isinstance(spec, list) and 0 < len(spec) and '`$ONE`' == spec[0]:
+        kinds = []
+        for alt in spec[1:]:
+            some = _speckinds(alt)
+            if some is None:
+                return None
+            kinds.extend(k for k in some if k not in kinds)
+        return kinds
+
+    if isinstance(spec, list) and 0 < len(spec) and '`$EXACT`' == spec[0]:
+        kinds = []
+        for v in spec[1:]:
+            if _kindof(v) not in kinds:
+                kinds.append(_kindof(v))
+        return kinds
+
+    return [_kindof(spec)]
+
+
 def _json(v):
     # JSON.stringify's spacing, so the pinned messages read the same in
     # every port.
-    return json.dumps(v, ensure_ascii=False, separators=(',', ':'))
+    return json.dumps(v, ensure_ascii=False, separators=(',', ':'), default=repr)
 
 
 def _kindof(v):
@@ -320,6 +370,8 @@ def _kindof(v):
         return 'map'
     if isinstance(v, str):
         return 'string'
+    if callable(v):
+        return 'function'
     return type(v).__name__.lower()
 
 

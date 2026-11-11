@@ -554,6 +554,24 @@ merged instance**, never per layer — a synthesized default in an
 overlay block would silently re-enable an integration the base
 declared inactive.
 
+**Every construction path takes the block's options.** `sdk(name)` and
+`create(name, overrides)` construct with the merged block's `options`,
+then its `base`, under the caller's options, one top-level key at a
+time: a caller's `headers` replaces the block's `headers` whole, which
+is the shallow rule again. `connect(SDK, opts)`, `adopt(SDK, opts)` and
+the inverted binding `options(name, extra)` apply the same merge when
+the caller names the instance before construction — the leading name,
+`instance`, or an `as` that is a full ref, at the top of `opts` or in
+`feature.station`. A bare tag, or no name, leaves the instance unknown
+until the SDK's own config is read during construction, which is too
+late to change what the SDK was constructed with; when that instance
+declares `options` the caller did not pass, `connect` and `adopt` emit
+one `station` warning naming the keys and the fix,
+`{ instance: "<ref>" }`. An unnamed `options(extra)` constructs nothing
+itself, so it has no moment to warn. An `instance` corpus entry with a
+`ref` pins the merge: it asks for the options that instance is
+constructed with.
+
 `station.json` is looked up from cwd upward to the repo root, then
 `~/.voxgig/station.json`. The profile is `Station.open({profile})`,
 else `VOXGIG_STATION_PROFILE`, else `default` — the explicit option
@@ -799,9 +817,12 @@ Two sekreto semantics station must not paper over, both load-bearing:
 - **R1 (solo): hygiene, not a security boundary.** Station asks
   sekreto for the plugin's secret and holds the returned value
   privately; the SDK's `options.apikey` is an inert placeholder;
-  `prepareAuth` runs normally and produces an `authorization` header
-  containing the placeholder; the middleware swaps in the real value
-  at send time. What R1 buys, by construction: `client.options()`
+  `prepareAuth` runs normally and places the placeholder where the
+  API's auth model puts a key, usually an `authorization` header and
+  for some APIs a query parameter; the middleware swaps in the real
+  value at send time, in header values and in the URL query, where it
+  writes the value percent-encoded (the `substitute` corpus section).
+  What R1 buys, by construction: `client.options()`
   never exposes the value; `client.prepare()` output is safe to log or
   hand to an agent (today it carries the real key); captures, events,
   and `ctrl.explain` never contain it. What R1 does **not** buy —
@@ -865,6 +886,23 @@ the object graph reachable from `ctx`/`spec`/`ctrl` holds only the
 placeholder, ever. The `inject` corpus section asserts exactly this
 (after a completed op, `ctrl.explain.fetchdef.headers` still holds
 the placeholder) in every language.
+
+**A placed query reaches error text.** A header never appears in an
+error message, but a URL does: an HTTP client that fails quotes the URL
+it was given (Go's `*url.Error`, Python's requests, Ruby's net/http).
+So once a value is placed in a query — of the URL the request goes to,
+or of the fetchdef's own `url`, which an inner transport may quote
+instead — a transport failure is passed back up with its text scrubbed
+by the same exact-value scrub events use, which also removes the
+value's percent-encoded form. That scrub matches every form of every
+held value against the original text and redacts the union of the
+matches: replacing one form at a time lets an earlier replacement break
+a later form apart (a held `%` turns `secret%21` into
+`secret[redacted]21`, and `secret!` is no longer found), and no order
+of replacements avoids that for two forms that overlap. sekreto's own
+raw-value redact runs after it, for the same reason. A port whose
+errors are immutable returns an equivalent error carrying the scrubbed
+text, and only when scrubbing changed it.
 
 **Injection placement:** below every recording feature and never into
 mock transports (§3.3). In c/zig, where the app supplies the base
@@ -1188,15 +1226,18 @@ Encryption at rest for the SQLite store: §18.
 
 ### 8.6 Compatibility
 
-Five artifacts version independently — wire protocol, descriptor
-schema, StationEvent schema, each library's semver, and the generated
-adapter frozen into consumer repos at add time. The policy: the proxy
+Four artifacts version independently — wire protocol, descriptor
+schema, StationEvent schema, and the generated adapter frozen into
+consumer repos at add time. The libraries do not: every port shares
+one semver, the one in the repository's `VERSION` file, and a release
+ships every port that has a release route at it. The policy: the proxy
 accepts wire and descriptor versions N and N−1 and rejects unknown
 versions with a structured error (`station_protocol`) the library
 surfaces; descriptor and event schemas evolve additively within a
-major (unknown fields ignored); an adapter pins its library to
-`^major` via the feature model's `deps.<lang>` entry, and bumping
-that range on a library major is the station repo's job (it owns the
+major (unknown fields ignored); an adapter names its library through
+the feature model's `deps.<lang>` entry, which carries the shared
+version and moves with the ports (`make version-set` rewrites it with
+them), and keeping it there is the station repo's job (it owns the
 sdkgen-station package). Skew is the steady state — `add` is
 overwrite and adapters live for years in consumer diffs — so
 compatibility is designed, not hoped.
@@ -1858,11 +1899,14 @@ authoritative copy is proxy-side (§8.3).
 
 Obeying §9.6's rule — an adapter never precedes its library. The solo
 halves of the first two phases have landed ahead of the proxy —
-sixteen library ports are written, eleven run the conformance corpus
-in CI, and the declarative front door
+sixteen library ports are written and all sixteen run the conformance
+corpus in CI, and the declarative front door
 ([`station-declarative-config.md`](./station-declarative-config.md)
-§12) is implemented in the canonical — so the phases below carry their
-state rather than pretending to be all future:
+§12) is implemented in eleven of them — so the phases below carry their
+state rather than pretending to be all future. That state was last
+refreshed on 2026-11-10; the live per-item register is
+[`docs/plan/`](../plan/README.md), which is the authority when the two
+disagree:
 
 - **Phase 1 — prove the loop (narrow and deep):** ts library over
   `@voxgig/sekreto` — **landed, solo mode**, and it now includes
@@ -1872,28 +1916,33 @@ state rather than pretending to be all future:
   `sdk()`/`create()`/`instances()`/`check()`/`warm()` surface with the
   factory table and loader, and feature merge + constraint-and-band
   ordering + the descriptor-derived checker. Stage 4 is **partial**:
-  the feature model declares `transport` and `instance`, while adapter
-  self-registration waits on sdkgen's own injection machinery, and the
-  ReadmeStation/AgentGuide copy belongs with that change. Still open
-  in Phase 1 beyond that: proxy core (register with proof-of-token,
-  envelope forward, R2 with the Go sekreto proxy-side, proxy-side
-  policy authority, capture, tap, status) + MCP
-  (`station_status`/`integrations`/`describe`/`call`/`traffic`) +
-  solardemo end-to-end through the proxy. Browser-safe entry points
+  the feature model declares `transport` and `instance`, and sdkgen
+  generates adapter self-registration for ts and js, with the
+  ReadmeStation/AgentGuide copy; no other target self-registers yet.
+  The proxy core (register with proof-of-token, envelope forward, R2
+  with the Go sekreto proxy-side, proxy-side policy authority, capture,
+  tap, status) and MCP
+  (`station_status`/`integrations`/`describe`/`call`/`traffic`) are
+  **written, in `proxy/`, and not yet attached to**: no library speaks
+  the wire protocol, and the daemon is outside CI. Still open in
+  Phase 1, then: the library half of §8, and solardemo end-to-end
+  through the proxy. Browser-safe entry points
   were listed here; they are struck — the browser is not a target
   (§2.2). Exit unchanged: the §11 quickstarts and the
   §12 agent transcript both real.
 - **Phase 2 — breadth and depth:** the library breadth has largely
   landed ahead of the proxy half — go, py, rb, php, perl, java, rust,
-  c and cpp beside ts/js, all eleven on the `sdk` grammar and green in
-  CI, with csharp, swift, dart, elixir and lua written but
-  toolchain-gated on the pre-rename grammar (`spec/README.md`; scala
+  c and cpp beside ts/js, all eleven carrying the declarative front
+  door and the full corpus, green in CI, with csharp, swift, dart,
+  elixir and lua on the `sdk` grammar and green in CI on eight corpus
+  sections, the front door still to come (`spec/README.md`; scala
   and clojure wait for Phase 3 behind their §9.1 adapter
   prerequisites), each over its own sekreto port where one exists and
   env-only where it does not (swift, dart, elixir — §2.2). What
   remains is proxy-flavoured: replay/mock/record with the §6 per-class
-  semantics; OTLP export; grants hardening + revocation UX;
-  ReadmeStation + AgentGuide + `docs/how-to/use-station.md`. The
+  semantics; OTLP export; grants hardening + revocation UX.
+  ReadmeStation, AgentGuide and `docs/how-to/use-station.md` have
+  shipped in sdkgen. The
   `station.json` schema item is **satisfied by the struct shape**
   (`spec/config-shape.json`), enforced at `open()` in-process rather
   than shipped as a JSON Schema; the conformance corpus is enforced in

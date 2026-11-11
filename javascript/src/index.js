@@ -5,8 +5,9 @@
 // station is server-side only and that entry is gone, so the two are
 // structurally the same shape again.
 
-const { Station, checkInstanceName, checkInstanceTag, instanceRef } =
-  require('./Station')
+const {
+  Station, checkInstanceName, checkInstanceTag, instanceRef, namedRef,
+} = require('./Station')
 const { factoryFor, provide, provided, resetFactories } = require('./factory')
 const {
   DEFAULT_EXPORT, camelify, checkPackage, factoryFromModule, loadAsync,
@@ -22,8 +23,10 @@ const {
 } = require('./descriptor')
 const { placeholderFor } = require('./secrets')
 const {
+  blockOf,
   configScope,
   findConfigFile,
+  instanceOptions,
   loadConfig,
   refapi,
   resolveProfile,
@@ -56,6 +59,7 @@ module.exports = {
   checkInstanceName,
   checkInstanceTag,
   instanceRef,
+  namedRef,
   factoryFor,
   provide,
   provided,
@@ -74,8 +78,10 @@ module.exports = {
   normalizeDescriptor,
   secretnameDefault,
   placeholderFor,
+  blockOf,
   configScope,
   findConfigFile,
+  instanceOptions,
   loadConfig,
   refapi,
   resolveProfile,

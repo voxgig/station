@@ -365,6 +365,23 @@ void stationCases(void Function(String, FutureOr<void> Function()) testcase) {
     check(!out.contains(' k '), 'one-char value scrubbed');
   });
 
+  testcase('scrub matches every form against the original text', () {
+    for (final held in [
+      ['%', 'secret!'],
+      ['secret!', '%'],
+    ]) {
+      final broker = SecretBroker(null);
+      broker.hoist('a', held[0]);
+      broker.hoist('b', held[1]);
+      eq(broker.scrub('token=secret%21'), 'token=[redacted]', held.join(' '));
+    }
+    final broker = SecretBroker(null);
+    broker.hoist('a', 'ab!');
+    broker.hoist('b', '!c');
+    eq(broker.scrub('x=ab%21c&y=!c'), 'x=[redacted]&y=[redacted]',
+        'forms that overlap in the text are one span');
+  });
+
   testcase('redact runs the broker scrub through the station', () {
     final st = Station({'config': null, 'proxy': 'off'});
     st.hoist('solardemo', 'sekrit');
@@ -505,6 +522,127 @@ void stationCases(void Function(String, FutureOr<void> Function()) testcase) {
         'one hoist warning');
   });
 
+  testcase('connect keeps as and instance out of the SDK options', () {
+    final st = Station({'config': null, 'proxy': 'off'});
+    dynamic built;
+    String keys() => ((built as Map).keys.toList()..sort()).join(',');
+
+    st.connect((dynamic options) => built = options,
+        {'as': 'spare', 'base': 'http://x'});
+    eq(keys(), 'base,extend,feature', 'sdk options');
+    eq(built['feature']['station']['as'], 'spare', 'as rides the entry');
+
+    st.connect((dynamic options) => built = options,
+        {'instance': r'gnarly-pets$spare'});
+    eq(keys(), 'extend,feature', 'sdk options');
+    eq(built['feature']['station']['instance'], r'gnarly-pets$spare',
+        'instance rides the entry');
+  });
+
+  testcase('connect and adopt hand a named instance its declared options', () {
+    final st = Station({
+      'config': {
+        'station': 1,
+        'profiles': {
+          'default': {
+            'sdk': {
+              'notes': {
+                'base': 'http://127.0.0.1:9',
+                'options': {
+                  'headers': {'x-api-version': '2022-06-28'},
+                  'prefix': '/v1',
+                },
+              },
+            },
+          },
+        },
+      },
+      'proxy': 'off',
+    });
+    final seen = <String>[];
+    dynamic record(dynamic options) {
+      final plain = Map<String, dynamic>.from(options as Map)
+        ..remove('feature')
+        ..remove('extend');
+      seen.add(canonicalSerialize(plain));
+      return plain;
+    }
+
+    st.connect(record, {'instance': 'notes'});
+    st.adopt(record, {'instance': 'notes'});
+    st.connect(record, {
+      'feature': {
+        'station': {'instance': 'notes'}
+      }
+    });
+    final want = canonicalSerialize({
+      'base': 'http://127.0.0.1:9',
+      'headers': {'x-api-version': '2022-06-28'},
+      'prefix': '/v1',
+    });
+    eq(seen.length, 3, 'three constructions');
+    for (final one in seen) {
+      eq(one, want, 'the block options reach the SDK');
+    }
+
+    st.connect(record, {
+      'as': r'notes$',
+      'headers': {'x-caller': 'yes'},
+      'suffix': '.json',
+    });
+    eq(
+        seen[3],
+        canonicalSerialize({
+          'base': 'http://127.0.0.1:9',
+          'headers': {'x-caller': 'yes'},
+          'prefix': '/v1',
+          'suffix': '.json',
+        }),
+        'the caller wins per top-level key, as in build()');
+  });
+
+  testcase('an unnamed connect warns that declared options cannot reach', () {
+    final st = Station({
+      'config': {
+        'station': 1,
+        'profiles': {
+          'default': {
+            'sdk': {
+              'gnarly-pets': {
+                'options': {
+                  'headers': {'x-api-version': '1'}
+                },
+              },
+            },
+          },
+        },
+      },
+      'proxy': 'off',
+    });
+    // A generated SDK runs its extend features as it constructs, so the
+    // registry holds the client connect returns.
+    dynamic generated(dynamic options) {
+      final ctx = makeCtx(options: options as Map<String, dynamic>);
+      for (final f in options['extend'] as List) {
+        f.init(ctx, options['feature']['station']);
+      }
+      return ctx.client;
+    }
+
+    final client = st.connect(generated, {'prefix': '/mine'});
+    check(null != st.boundEntry(client), 'bound');
+    final warns = st
+        .events()
+        .where((ev) =>
+            'gnarly-pets' == ev['plugin'] && null != ev['meta']?['warn'])
+        .map((ev) => ev['meta']['warn'].toString())
+        .toList();
+    eq(warns.length, 1, 'one warning');
+    check(warns[0].contains('[headers]'), 'names the options: ' + warns[0]);
+    check(warns[0].contains('{ instance: "gnarly-pets" }'),
+        'names the fix: ' + warns[0]);
+  });
+
   testcase('copy-on-inject: the wire gets the value, ctx keeps the placeholder',
       () async {
     if (!hasEnv('GNARLY_PETS_APIKEY')) {
@@ -549,6 +687,103 @@ void stationCases(void Function(String, FutureOr<void> Function()) testcase) {
     eq(op.length, 1, 'one op event');
     eq(op[0]['corr'], http[0]['corr'], 'op/http correlate');
     eq(op[0]['op']['outcome'], 'ok', 'outcome');
+  });
+
+  testcase('a query-placed credential reaches the wire encoded, and nothing else',
+      () async {
+    final st = Station({'config': null, 'proxy': 'off'});
+    dynamic seenurl;
+    dynamic seendef;
+    final ctx =
+        makeCtx(inner: (dynamic fctx, dynamic wireurl, dynamic def) async {
+      seenurl = wireurl;
+      seendef = def;
+      return {'status': 200, 'headers': {}};
+    });
+    ctx.options['apikey'] = 'tok!en 1';
+    bindCtx(st, ctx);
+
+    const url = 'http://localhost:8903/api/pet/p1?fields=id%2Ctitle&token='
+        '%5Bstation%3Agnarly-pets%5D';
+    final fetchdef = <String, dynamic>{
+      'url': url,
+      'method': 'GET',
+      'headers': <String, dynamic>{},
+    };
+    await ctx.utility.fetcher(FakeCtx(client: ctx.client), url, fetchdef);
+
+    const wire =
+        'http://localhost:8903/api/pet/p1?fields=id%2Ctitle&token=tok%21en%201';
+    eq(seenurl, wire, 'the value reaches the wire encoded');
+    eq(seendef['url'], wire, 'the sent fetchdef url agrees');
+    eq(fetchdef['url'], url, 'the ctx-reachable fetchdef keeps the placeholder');
+    final events = st.events().toString();
+    check(!events.contains('tok%21en%201') && !events.contains('tok!en 1'),
+        'events carry no value');
+  });
+
+  testcase('a transport error quoting the placed URL is scrubbed', () async {
+    const url = 'http://localhost:8903/api/pet/p1?token=%5Bstation%3Agnarly-pets%5D';
+
+    // Thrown, and returned as a value (the generated pipeline's iserr).
+    for (final raise in [true, false]) {
+      final st = Station({'config': null, 'proxy': 'off'});
+      final ctx =
+          makeCtx(inner: (dynamic fctx, dynamic wireurl, dynamic def) async {
+        final failure = Exception('failed: GET ' + wireurl.toString());
+        if (raise) {
+          throw failure;
+        }
+        return failure;
+      });
+      ctx.options['apikey'] = 'tok!en 1';
+      bindCtx(st, ctx);
+
+      dynamic err;
+      try {
+        err = await ctx.utility.fetcher(FakeCtx(client: ctx.client), url,
+            <String, dynamic>{'url': url, 'method': 'GET', 'headers': {}});
+      } catch (e) {
+        err = e;
+      }
+      final text = err.toString();
+      check(err is ScrubbedError, 'scrubbed copy: ' + text);
+      check(!text.contains('tok%21en%201'), 'scrubbed: ' + text);
+      check(text.contains('[redacted]'), 'scrub marker: ' + text);
+      check(!st.events().toString().contains('tok%21en%201'),
+          'events carry no value');
+    }
+  });
+
+  testcase('a transport error quoting only the fetchdef url is scrubbed',
+      () async {
+    const url = 'http://localhost:8903/api/pet/p1';
+    const defurl = url + '?token=%5Bstation%3Agnarly-pets%5D';
+
+    for (final raise in [true, false]) {
+      final st = Station({'config': null, 'proxy': 'off'});
+      final ctx =
+          makeCtx(inner: (dynamic fctx, dynamic wireurl, dynamic def) async {
+        final failure = Exception('failed: GET ' + def['url'].toString());
+        if (raise) {
+          throw failure;
+        }
+        return failure;
+      });
+      ctx.options['apikey'] = 'tok!en 1';
+      bindCtx(st, ctx);
+
+      dynamic err;
+      try {
+        err = await ctx.utility.fetcher(FakeCtx(client: ctx.client), url,
+            <String, dynamic>{'url': defurl, 'method': 'GET', 'headers': {}});
+      } catch (e) {
+        err = e;
+      }
+      final text = err.toString();
+      check(!text.contains('tok%21en%201'), 'scrubbed: ' + text);
+      check(text.contains('[redacted]'), 'scrub marker: ' + text);
+    }
   });
 
   testcase('no injection into mock transports', () async {

@@ -12,7 +12,7 @@ defmodule Voxgig.Station.MixProject do
   def project do
     [
       app: :voxgig_station,
-      version: "0.0.1",
+      version: "0.2.0",
       elixir: "~> 1.14",
       description: "voxgig/station - one control surface for outbound integrations (solo mode)",
       start_permanent: Mix.env() == :prod,

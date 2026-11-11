@@ -1399,6 +1399,98 @@
       }
      },
      {
+      "doc": true,
+      "id": "descriptor#feature-schema",
+      "in": {
+       "config": {
+        "entity": {},
+        "feature": {
+         "retry": {
+          "options": {
+           "active": false,
+           "retries": 2
+          },
+          "optspec": {
+           "jitter": "`$BOOLEAN`"
+          },
+          "strict": true,
+          "transport": "wrap"
+         },
+         "test": {
+          "options": {
+           "active": false
+          },
+          "optspec": {
+           "entity": "`$MAP`",
+           "net": "`$MAP`"
+          },
+          "strict": false,
+          "transport": "base"
+         }
+        },
+        "main": {
+         "name": "Joplin",
+         "slug": "joplin",
+         "target": "ts",
+         "version": "0.0.1"
+        },
+        "options": {
+         "base": "http://localhost:41184",
+         "entity": {}
+        }
+       },
+       "feature": {
+        "test": {
+         "active": true
+        }
+       }
+      },
+      "out": {
+       "auth": {
+        "active": false,
+        "prefix": "",
+        "secretname": "joplin.apikey"
+       },
+       "base": "http://localhost:41184",
+       "entities": {},
+       "envtoken": "JOPLIN",
+       "features": [
+        {
+         "active": false,
+         "name": "retry",
+         "options": {
+          "active": false,
+          "retries": 2
+         },
+         "optspec": {
+          "jitter": "`$BOOLEAN`"
+         },
+         "strict": true,
+         "transport": "wrap"
+        },
+        {
+         "active": true,
+         "name": "test",
+         "options": {
+          "active": false
+         },
+         "optspec": {
+          "entity": "`$MAP`",
+          "net": "`$MAP`"
+         },
+         "strict": false,
+         "transport": "base"
+        }
+       ],
+       "name": "Joplin",
+       "server": [],
+       "slug": "joplin",
+       "station": 1,
+       "target": "ts",
+       "version": "0.0.1"
+      }
+     },
+     {
       "id": "descriptor#legacy",
       "in": {
        "config": {
@@ -2202,6 +2294,601 @@
       "out": [
        "a"
       ]
+     },
+     {
+      "doc": true,
+      "id": "feature#check-optspec-keys-are-declared",
+      "in": {
+       "check": {
+        "test": {
+         "active": true,
+         "entity": {
+          "note": {}
+         },
+         "net": {
+          "offline": true
+         }
+        }
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "test",
+         "options": {
+          "active": false
+         },
+         "optspec": {
+          "entity": "`$MAP`",
+          "net": "`$MAP`"
+         },
+         "strict": false
+        }
+       ]
+      },
+      "out": []
+     },
+     {
+      "id": "feature#check-optspec-type-is-a-kind",
+      "in": {
+       "check": {
+        "test": {
+         "entity": "notes"
+        }
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "test",
+         "options": {
+          "active": false
+         },
+         "optspec": {
+          "entity": "`$MAP`",
+          "net": "`$MAP`"
+         },
+         "strict": false
+        }
+       ]
+      },
+      "out": [
+       {
+        "code": "station_feature_option",
+        "feature": "test",
+        "key": "entity"
+       }
+      ]
+     },
+     {
+      "id": "feature#check-default-is-a-kind",
+      "in": {
+       "check": {
+        "retry": {
+         "retries": "three"
+        }
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "retry",
+         "options": {
+          "active": false,
+          "retries": 2
+         },
+         "optspec": {
+          "jitter": "`$BOOLEAN`",
+          "sleep": "`$FUNCTION`"
+         },
+         "strict": false
+        }
+       ]
+      },
+      "out": [
+       {
+        "code": "station_feature_option",
+        "feature": "retry",
+        "key": "retries"
+       }
+      ]
+     },
+     {
+      "doc": true,
+      "id": "feature#check-type-outranks-default",
+      "in": {
+       "check": {
+        "netsim": {
+         "latency": {
+          "max": 50,
+          "min": 10
+         }
+        }
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "netsim",
+         "options": {
+          "active": false,
+          "latency": 0
+         },
+         "optspec": {
+          "latency": [
+           "`$ONE`",
+           "`$NUMBER`",
+           "`$MAP`"
+          ]
+         },
+         "strict": false
+        }
+       ]
+      },
+      "out": []
+     },
+     {
+      "id": "feature#check-one-of-admits-each-kind",
+      "in": {
+       "check": {
+        "netsim": {
+         "latency": "slow"
+        }
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "netsim",
+         "options": {
+          "active": false,
+          "latency": 0
+         },
+         "optspec": {
+          "latency": [
+           "`$ONE`",
+           "`$NUMBER`",
+           "`$MAP`"
+          ]
+         },
+         "strict": false
+        }
+       ]
+      },
+      "out": [
+       {
+        "code": "station_feature_option",
+        "feature": "netsim",
+        "key": "latency"
+       }
+      ]
+     },
+     {
+      "id": "feature#check-exact-is-a-kind",
+      "in": {
+       "check": {
+        "validate": {
+         "mode": 5
+        }
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "validate",
+         "options": {
+          "active": false
+         },
+         "optspec": {
+          "mode": [
+           "`$ONE`",
+           [
+            "`$EXACT`",
+            "throw"
+           ],
+           [
+            "`$EXACT`",
+            "report"
+           ]
+          ]
+         },
+         "strict": false
+        }
+       ]
+      },
+      "out": [
+       {
+        "code": "station_feature_option",
+        "feature": "validate",
+        "key": "mode"
+       }
+      ]
+     },
+     {
+      "id": "feature#check-exact-checks-kind-not-value",
+      "in": {
+       "check": {
+        "validate": {
+         "mode": "loud"
+        }
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "validate",
+         "options": {
+          "active": false
+         },
+         "optspec": {
+          "mode": [
+           "`$ONE`",
+           [
+            "`$EXACT`",
+            "throw"
+           ],
+           [
+            "`$EXACT`",
+            "report"
+           ]
+          ]
+         },
+         "strict": false
+        }
+       ]
+      },
+      "out": []
+     },
+     {
+      "id": "feature#check-any-admits-anything",
+      "in": {
+       "check": {
+        "log": {
+         "logger": 5
+        }
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "log",
+         "options": {
+          "active": false
+         },
+         "optspec": {
+          "logger": "`$ANY`"
+         },
+         "strict": false
+        }
+       ]
+      },
+      "out": []
+     },
+     {
+      "doc": true,
+      "id": "feature#check-null-is-admitted-for-a-default",
+      "in": {
+       "check": {
+        "retry": {
+         "retries": null
+        }
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "retry",
+         "options": {
+          "active": false,
+          "retries": 2
+         },
+         "optspec": {
+          "jitter": "`$BOOLEAN`",
+          "sleep": "`$FUNCTION`"
+         },
+         "strict": false
+        }
+       ]
+      },
+      "out": []
+     },
+     {
+      "doc": true,
+      "id": "feature#check-null-is-admitted-for-a-type",
+      "in": {
+       "check": {
+        "retry": {
+         "sleep": null
+        }
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "retry",
+         "options": {
+          "active": false,
+          "retries": 2
+         },
+         "optspec": {
+          "jitter": "`$BOOLEAN`",
+          "sleep": "`$FUNCTION`"
+         },
+         "strict": false
+        }
+       ]
+      },
+      "out": []
+     },
+     {
+      "doc": true,
+      "id": "feature#check-null-default-admits-any-value",
+      "in": {
+       "check": {
+        "retry": {
+         "policy": {
+          "a": 1
+         },
+         "retries": 3
+        }
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "retry",
+         "options": {
+          "active": false,
+          "policy": null,
+          "retries": null
+         },
+         "optspec": {
+          "jitter": "`$BOOLEAN`",
+          "sleep": "`$FUNCTION`"
+         },
+         "strict": false
+        }
+       ]
+      },
+      "out": []
+     },
+     {
+      "id": "feature#check-type-outranks-a-null-default",
+      "in": {
+       "check": {
+        "netsim": {
+         "latency": "slow"
+        }
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "netsim",
+         "options": {
+          "active": false,
+          "latency": null
+         },
+         "optspec": {
+          "latency": "`$NUMBER`"
+         },
+         "strict": false
+        }
+       ]
+      },
+      "out": [
+       {
+        "code": "station_feature_option",
+        "feature": "netsim",
+        "key": "latency"
+       }
+      ]
+     },
+     {
+      "id": "feature#check-function-type-refuses-data",
+      "in": {
+       "check": {
+        "retry": {
+         "sleep": "fast"
+        }
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "retry",
+         "options": {
+          "active": false,
+          "retries": 2
+         },
+         "optspec": {
+          "jitter": "`$BOOLEAN`",
+          "sleep": "`$FUNCTION`"
+         },
+         "strict": false
+        }
+       ]
+      },
+      "out": [
+       {
+        "code": "station_feature_option",
+        "feature": "retry",
+        "key": "sleep"
+       }
+      ]
+     },
+     {
+      "doc": true,
+      "id": "feature#check-undeclared-key-when-not-strict",
+      "in": {
+       "check": {
+        "retry": {
+         "retires": 5
+        }
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "retry",
+         "options": {
+          "active": false,
+          "retries": 2
+         },
+         "optspec": {
+          "jitter": "`$BOOLEAN`",
+          "sleep": "`$FUNCTION`"
+         },
+         "strict": false
+        }
+       ]
+      },
+      "out": []
+     },
+     {
+      "id": "feature#check-undeclared-key-when-strict-absent",
+      "in": {
+       "check": {
+        "retry": {
+         "retires": 5
+        }
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "retry",
+         "options": {
+          "active": false,
+          "retries": 2
+         },
+         "optspec": {
+          "jitter": "`$BOOLEAN`",
+          "sleep": "`$FUNCTION`"
+         }
+        }
+       ]
+      },
+      "out": []
+     },
+     {
+      "doc": true,
+      "id": "feature#check-undeclared-key-when-strict",
+      "in": {
+       "check": {
+        "retry": {
+         "retires": 5
+        }
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "retry",
+         "options": {
+          "active": false,
+          "retries": 2
+         },
+         "optspec": {
+          "jitter": "`$BOOLEAN`",
+          "sleep": "`$FUNCTION`"
+         },
+         "strict": true
+        }
+       ]
+      },
+      "out": [
+       {
+        "code": "station_feature_option",
+        "feature": "retry",
+        "key": "retires"
+       }
+      ]
+     },
+     {
+      "id": "feature#check-unknown-feature",
+      "in": {
+       "check": {
+        "nosuch": {}
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "retry",
+         "options": {
+          "active": false,
+          "retries": 2
+         },
+         "optspec": {
+          "jitter": "`$BOOLEAN`",
+          "sleep": "`$FUNCTION`"
+         },
+         "strict": true
+        }
+       ]
+      },
+      "out": [
+       {
+        "code": "station_feature_unknown",
+        "feature": "nosuch"
+       }
+      ]
+     },
+     {
+      "id": "feature#check-reserved-keys-are-not-options",
+      "in": {
+       "check": {
+        "retry": {
+         "active": true,
+         "order": {
+          "band": 1
+         }
+        }
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "retry",
+         "options": {
+          "active": false,
+          "retries": 2
+         },
+         "optspec": {
+          "jitter": "`$BOOLEAN`",
+          "sleep": "`$FUNCTION`"
+         },
+         "strict": true
+        }
+       ]
+      },
+      "out": []
+     },
+     {
+      "id": "feature#check-faults-sorted-by-feature-then-key",
+      "in": {
+       "check": {
+        "nosuch": {},
+        "retry": {
+         "retires": 5,
+         "retries": "x"
+        }
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "retry",
+         "options": {
+          "active": false,
+          "retries": 2
+         },
+         "optspec": {
+          "jitter": "`$BOOLEAN`",
+          "sleep": "`$FUNCTION`"
+         },
+         "strict": true
+        }
+       ]
+      },
+      "out": [
+       {
+        "code": "station_feature_unknown",
+        "feature": "nosuch"
+       },
+       {
+        "code": "station_feature_option",
+        "feature": "retry",
+        "key": "retires"
+       },
+       {
+        "code": "station_feature_option",
+        "feature": "retry",
+        "key": "retries"
+       }
+      ]
      }
     ]
    },
@@ -2802,6 +3489,179 @@
        },
        "profile": "default"
       }
+     },
+     {
+      "doc": true,
+      "id": "instance#declared-options-reach-a-named-instance",
+      "in": {
+       "config": {
+        "profiles": {
+         "default": {
+          "sdk": {
+           "notes": {
+            "base": "http://127.0.0.1:9",
+            "options": {
+             "headers": {
+              "x-api-version": "2022-06-28"
+             },
+             "prefix": "/v1"
+            }
+           }
+          }
+         }
+        },
+        "station": 1
+       },
+       "opts": {},
+       "profile": "default",
+       "ref": "notes"
+      },
+      "out": {
+       "base": "http://127.0.0.1:9",
+       "headers": {
+        "x-api-version": "2022-06-28"
+       },
+       "prefix": "/v1"
+      }
+     },
+     {
+      "doc": true,
+      "id": "instance#the-caller-wins-per-top-level-key",
+      "in": {
+       "config": {
+        "profiles": {
+         "default": {
+          "sdk": {
+           "notes": {
+            "base": "http://127.0.0.1:9",
+            "options": {
+             "headers": {
+              "x-api-version": "2022-06-28"
+             },
+             "prefix": "/v1"
+            }
+           }
+          }
+         }
+        },
+        "station": 1
+       },
+       "opts": {
+        "base": "http://caller:1",
+        "headers": {
+         "x-caller": "yes"
+        },
+        "suffix": ".json"
+       },
+       "profile": "default",
+       "ref": "notes"
+      },
+      "out": {
+       "base": "http://caller:1",
+       "headers": {
+        "x-caller": "yes"
+       },
+       "prefix": "/v1",
+       "suffix": ".json"
+      }
+     },
+     {
+      "id": "instance#block-base-beats-its-own-options-base",
+      "in": {
+       "config": {
+        "profiles": {
+         "default": {
+          "sdk": {
+           "notes": {
+            "base": "http://block:1",
+            "options": {
+             "base": "http://options:1"
+            }
+           }
+          }
+         }
+        },
+        "station": 1
+       },
+       "opts": {},
+       "profile": "default",
+       "ref": "notes"
+      },
+      "out": {
+       "base": "http://block:1"
+      }
+     },
+     {
+      "doc": true,
+      "id": "instance#api-options-reach-an-undeclared-instance",
+      "in": {
+       "config": {
+        "profiles": {
+         "default": {
+          "api": {
+           "notes": {
+            "options": {
+             "headers": {
+              "x-api-version": "2022-06-28"
+             }
+            }
+           }
+          }
+         }
+        },
+        "station": 1
+       },
+       "opts": {
+        "prefix": "/eu"
+       },
+       "profile": "default",
+       "ref": "notes$eu"
+      },
+      "out": {
+       "headers": {
+        "x-api-version": "2022-06-28"
+       },
+       "prefix": "/eu"
+      }
+     },
+     {
+      "id": "instance#overlay-options-replace-wholesale",
+      "in": {
+       "config": {
+        "profiles": {
+         "default": {
+          "sdk": {
+           "notes": {
+            "base": "http://127.0.0.1:9",
+            "options": {
+             "headers": {
+              "x-api-version": "2022-06-28"
+             },
+             "prefix": "/v1"
+            }
+           }
+          }
+         },
+         "prod": {
+          "sdk": {
+           "notes": {
+            "options": {
+             "suffix": ".json"
+            }
+           }
+          }
+         }
+        },
+        "station": 1
+       },
+       "opts": {},
+       "profile": "prod",
+       "ref": "notes"
+      },
+      "out": {
+       "base": "http://127.0.0.1:9",
+       "suffix": ".json"
+      }
      }
     ]
    },
@@ -3024,6 +3884,346 @@
        "envkey": "VOXGIG_SOLARDEMO_APIKEY",
        "envtoken": "VOXGIG_SOLARDEMO",
        "secretname": "voxgig_solardemo.apikey"
+      }
+     }
+    ]
+   },
+   "substitute": {
+    "set": [
+     {
+      "doc": true,
+      "id": "substitute#header-prefix-survives",
+      "in": {
+       "headers": {
+        "accept": "application/json",
+        "authorization": "Bearer [station:pets]"
+       },
+       "placeholder": "[station:pets]",
+       "url": "https://api.example.com/pets",
+       "value": "s3cret"
+      },
+      "out": {
+       "headers": {
+        "accept": "application/json",
+        "authorization": "Bearer s3cret"
+       },
+       "url": "https://api.example.com/pets"
+      }
+     },
+     {
+      "doc": true,
+      "id": "substitute#query-percent-encoded",
+      "in": {
+       "headers": {},
+       "placeholder": "[station:joplin]",
+       "url": "http://127.0.0.1:41184/notes?token=%5Bstation%3Ajoplin%5D",
+       "value": "s3cret"
+      },
+      "out": {
+       "headers": {},
+       "url": "http://127.0.0.1:41184/notes?token=s3cret"
+      }
+     },
+     {
+      "id": "substitute#query-lowercase-hex",
+      "in": {
+       "headers": {},
+       "placeholder": "[station:joplin]",
+       "url": "http://127.0.0.1:41184/notes?token=%5bstation%3ajoplin%5d",
+       "value": "s3cret"
+      },
+      "out": {
+       "headers": {},
+       "url": "http://127.0.0.1:41184/notes?token=s3cret"
+      }
+     },
+     {
+      "id": "substitute#query-raw",
+      "in": {
+       "headers": {},
+       "placeholder": "[station:joplin]",
+       "url": "http://127.0.0.1:41184/notes?token=[station:joplin]",
+       "value": "s3cret"
+      },
+      "out": {
+       "headers": {},
+       "url": "http://127.0.0.1:41184/notes?token=s3cret"
+      }
+     },
+     {
+      "doc": true,
+      "id": "substitute#query-tagged-instance",
+      "in": {
+       "headers": {},
+       "placeholder": "[station:joplin$spare]",
+       "url": "http://h/notes?token=%5Bstation%3Ajoplin%24spare%5D",
+       "value": "s3cret"
+      },
+      "out": {
+       "headers": {},
+       "url": "http://h/notes?token=s3cret"
+      }
+     },
+     {
+      "id": "substitute#query-mixed-encoding",
+      "in": {
+       "headers": {},
+       "placeholder": "[station:joplin$spare]",
+       "url": "http://h/notes?token=%5Bstation%3Ajoplin$spare%5D",
+       "value": "s3cret"
+      },
+      "out": {
+       "headers": {},
+       "url": "http://h/notes?token=s3cret"
+      }
+     },
+     {
+      "doc": true,
+      "id": "substitute#query-sibling-instance-untouched",
+      "in": {
+       "headers": {},
+       "placeholder": "[station:joplin]",
+       "url": "http://h/notes?token=%5Bstation%3Ajoplin%24spare%5D",
+       "value": "s3cret"
+      },
+      "out": {
+       "headers": {},
+       "url": "http://h/notes?token=%5Bstation%3Ajoplin%24spare%5D"
+      }
+     },
+     {
+      "doc": true,
+      "id": "substitute#query-other-parameters-byte-identical",
+      "in": {
+       "headers": {},
+       "placeholder": "[station:joplin]",
+       "url": "http://h/notes?fields=id%2Ctitle&token=%5Bstation%3Ajoplin%5D&limit=10",
+       "value": "s3cret"
+      },
+      "out": {
+       "headers": {},
+       "url": "http://h/notes?fields=id%2Ctitle&token=s3cret&limit=10"
+      }
+     },
+     {
+      "doc": true,
+      "id": "substitute#query-value-encoded-strictly",
+      "in": {
+       "headers": {
+        "x-api-key": "[station:k]"
+       },
+       "placeholder": "[station:k]",
+       "url": "http://h/x?key=%5Bstation%3Ak%5D",
+       "value": "a&b=c d/\u00e9!*'()~"
+      },
+      "out": {
+       "headers": {
+        "x-api-key": "a&b=c d/\u00e9!*'()~"
+       },
+       "url": "http://h/x?key=a%26b%3Dc%20d%2F%C3%A9%21%2A%27%28%29~"
+      }
+     },
+     {
+      "id": "substitute#query-prefix-survives",
+      "in": {
+       "headers": {},
+       "placeholder": "[station:k]",
+       "url": "http://h/x?auth=Bearer%20%5Bstation%3Ak%5D",
+       "value": "s3cret"
+      },
+      "out": {
+       "headers": {},
+       "url": "http://h/x?auth=Bearer%20s3cret"
+      }
+     },
+     {
+      "id": "substitute#query-every-occurrence",
+      "in": {
+       "headers": {},
+       "placeholder": "[station:k]",
+       "url": "http://h/x?a=%5Bstation%3Ak%5D&b=[station:k]",
+       "value": "v"
+      },
+      "out": {
+       "headers": {},
+       "url": "http://h/x?a=v&b=v"
+      }
+     },
+     {
+      "doc": true,
+      "id": "substitute#path-untouched",
+      "in": {
+       "headers": {},
+       "placeholder": "[station:joplin]",
+       "url": "http://h/%5Bstation%3Ajoplin%5D/notes/[station:joplin]",
+       "value": "s3cret"
+      },
+      "out": {
+       "headers": {},
+       "url": "http://h/%5Bstation%3Ajoplin%5D/notes/[station:joplin]"
+      }
+     },
+     {
+      "id": "substitute#path-untouched-with-query",
+      "in": {
+       "headers": {},
+       "placeholder": "[station:joplin]",
+       "url": "http://h/[station:joplin]/x?a=1",
+       "value": "s3cret"
+      },
+      "out": {
+       "headers": {},
+       "url": "http://h/[station:joplin]/x?a=1"
+      }
+     },
+     {
+      "doc": true,
+      "id": "substitute#fragment-untouched",
+      "in": {
+       "headers": {},
+       "placeholder": "[station:joplin]",
+       "url": "http://h/x?a=1#%5Bstation%3Ajoplin%5D",
+       "value": "s3cret"
+      },
+      "out": {
+       "headers": {},
+       "url": "http://h/x?a=1#%5Bstation%3Ajoplin%5D"
+      }
+     },
+     {
+      "id": "substitute#query-before-fragment",
+      "in": {
+       "headers": {},
+       "placeholder": "[station:joplin]",
+       "url": "http://h/x?token=%5Bstation%3Ajoplin%5D#top",
+       "value": "s3cret"
+      },
+      "out": {
+       "headers": {},
+       "url": "http://h/x?token=s3cret#top"
+      }
+     },
+     {
+      "doc": true,
+      "id": "substitute#question-mark-in-fragment-untouched",
+      "in": {
+       "headers": {},
+       "placeholder": "[station:k]",
+       "url": "https://h/x#view?token=%5Bstation%3Ak%5D",
+       "value": "s3cret"
+      },
+      "out": {
+       "headers": {},
+       "url": "https://h/x#view?token=%5Bstation%3Ak%5D"
+      }
+     },
+     {
+      "id": "substitute#question-mark-in-fragment-after-query",
+      "in": {
+       "headers": {},
+       "placeholder": "[station:k]",
+       "url": "https://h/x?a=%5Bstation%3Ak%5D#view?b=%5Bstation%3Ak%5D",
+       "value": "s3cret"
+      },
+      "out": {
+       "headers": {},
+       "url": "https://h/x?a=s3cret#view?b=%5Bstation%3Ak%5D"
+      }
+     },
+     {
+      "id": "substitute#truncated-escape-untouched",
+      "in": {
+       "headers": {},
+       "placeholder": "[station:joplin]",
+       "url": "http://h/x?t=%5Bstation%3Ajoplin%5",
+       "value": "s3cret"
+      },
+      "out": {
+       "headers": {},
+       "url": "http://h/x?t=%5Bstation%3Ajoplin%5"
+      }
+     },
+     {
+      "id": "substitute#bad-escape-untouched",
+      "in": {
+       "headers": {},
+       "placeholder": "[station:joplin]",
+       "url": "http://h/x?t=%5Bstation%3Ajoplin%ZZ",
+       "value": "s3cret"
+      },
+      "out": {
+       "headers": {},
+       "url": "http://h/x?t=%5Bstation%3Ajoplin%ZZ"
+      }
+     },
+     {
+      "id": "substitute#empty-value",
+      "in": {
+       "headers": {
+        "authorization": "[station:joplin]"
+       },
+       "placeholder": "[station:joplin]",
+       "url": "http://h/x?token=%5Bstation%3Ajoplin%5D",
+       "value": ""
+      },
+      "out": {
+       "headers": {
+        "authorization": ""
+       },
+       "url": "http://h/x?token="
+      }
+     },
+     {
+      "id": "substitute#no-placeholder",
+      "in": {
+       "headers": {
+        "accept": "*/*",
+        "content-length": "12"
+       },
+       "placeholder": "[station:joplin]",
+       "url": "http://h/x?a=%5B1%5D&b=2",
+       "value": "s3cret"
+      },
+      "out": {
+       "headers": {
+        "accept": "*/*",
+        "content-length": "12"
+       },
+       "url": "http://h/x?a=%5B1%5D&b=2"
+      }
+     },
+     {
+      "id": "substitute#header-name-case-kept",
+      "in": {
+       "headers": {
+        "X-Api-Key": "[station:k]"
+       },
+       "placeholder": "[station:k]",
+       "url": "http://h/x",
+       "value": "v"
+      },
+      "out": {
+       "headers": {
+        "X-Api-Key": "v"
+       },
+       "url": "http://h/x"
+      }
+     },
+     {
+      "id": "substitute#empty-placeholder-substitutes-nothing",
+      "in": {
+       "headers": {
+        "authorization": "Bearer t"
+       },
+       "placeholder": "",
+       "url": "http://h/x?a=b",
+       "value": "v"
+      },
+      "out": {
+       "headers": {
+        "authorization": "Bearer t"
+       },
+       "url": "http://h/x?a=b"
       }
      }
     ]

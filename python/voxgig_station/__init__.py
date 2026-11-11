@@ -32,8 +32,10 @@ from .loader import (
     load_sync,
 )
 from .profile import (
+    block_of,
     config_scope,
     find_config_file,
+    instance_options,
     load_config,
     refapi,
     resolve_profile,
@@ -53,6 +55,7 @@ from .station import (
     check_instance_name,
     check_instance_tag,
     instance_ref,
+    named_ref,
 )
 
 __all__ = [
@@ -68,6 +71,7 @@ __all__ = [
     'Station',
     'StationError',
     'adapter_feature',
+    'block_of',
     'camelify',
     'canonical_serialize',
     'check_features',
@@ -85,11 +89,13 @@ __all__ = [
     'feature_binding',
     'feature_sources',
     'find_config_file',
+    'instance_options',
     'instance_ref',
     'is_known_code',
     'load_config',
     'load_sync',
     'merge_features',
+    'named_ref',
     'normalize_config',
     'normalize_descriptor',
     'placeholder_for',

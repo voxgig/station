@@ -33,13 +33,15 @@ from .feature import (
 )
 from .loader import load_sync
 from .profile import (
+    block_of,
     config_scope,
+    instance_options,
     load_config,
     refapi,
     resolve_profile,
     select_profile,
 )
-from .secrets import SecretBroker, placeholder_for
+from .secrets import SecretBroker, placeholder_for, substitute
 from .shape import normalize_config, validate_config
 
 
@@ -153,6 +155,20 @@ def instance_ref(api, fopts):
     # Someone who wants the untagged instance passes no `as` at all.
     return _checkref(api + '$' + as_tag if -1 == as_tag.find('$')
                      else _checkapi(api, as_tag))
+
+
+def named_ref(fopts):
+    """The ref a caller names before construction: an explicit instance,
+    or an `as` that is a full ref. A bare tag needs the SDK's api, so not."""
+    fopts = fopts or {}
+    explicit = _first_non_empty(fopts.get('instance'))
+    if explicit is not None:
+        return _checkref(explicit)
+
+    as_tag = _first_non_empty(fopts.get('as'))
+    if as_tag is not None and -1 != as_tag.find('$'):
+        return _checkref(as_tag)
+    return None
 
 
 class Station:
@@ -294,6 +310,15 @@ class Station:
             raise StationError('station_no_plugin', 'station is closed')
         opts = opts or {}
 
+        sopts = (opts.get('feature') or {}).get('station')
+        sopts = dict(sopts) if isinstance(sopts, dict) else {}
+        for key in ('as', 'instance'):
+            if opts.get(key) is not None:
+                sopts[key] = opts[key]
+        ref = named_ref(sopts)
+        if ref is not None:
+            opts = instance_options(self.block_for(ref), opts)
+
         # calleropts must survive the SDK's option pipeline (vs.clone
         # flattens arbitrary objects), so any extend instances are left
         # out of the carried copy - the binding only reads plain keys.
@@ -317,7 +342,8 @@ class Station:
             entry['instance'] = opts['instance']
         fmap['station'] = entry
 
-        options = dict(opts)
+        options = {k: v for k, v in opts.items()
+                   if k not in ('as', 'instance')}
         options['feature'] = fmap
         # The carried adapter rides extend for SDKs generated WITHOUT
         # the station feature; when the generated class exists the
@@ -325,7 +351,31 @@ class Station:
         # (both delegate to feature_binding, so behavior is identical).
         options['extend'] = list(opts.get('extend') or []) + \
             [adapter_feature(self, calleropts)]
-        return SDK(options)
+        client = SDK(options)
+        if ref is None:
+            self._warn_unapplied(client, options)
+        return client
+
+    def _warn_unapplied(self, client, options):
+        # An unnamed connect learns its api from the SDK's config during
+        # construction: too late for the block's options to reach it.
+        entry = self._bound_entry(client)
+        declared = None if entry is None else \
+            (self.block_for(entry['name']) or {}).get('options')
+        if not isinstance(declared, dict):
+            return
+        missed = sorted(k for k in declared if k not in options)
+        if 0 == len(missed):
+            return
+        name = entry['name']
+        self._emit({
+            't': _now_ms(), 'kind': 'station', 'plugin': name,
+            'api': entry['api'],
+            'meta': {'warn': 'instance "' + name + '" declares options [' +
+                     ', '.join(missed) + '] that reach the SDK only when '
+                     'the instance is named before construction; pass '
+                     '{ instance: "' + name + '" }'},
+        })
 
     def options(self, a=None, b=None):
         """Inverted binding (design station.md 3.1): build the plain
@@ -338,8 +388,17 @@ class Station:
         and they need to say which instance they are building without a
         second method."""
         named = isinstance(a, str)
-        instance = a if named else None
         extra = (b if named else a) or {}
+        names = {k: extra[k] for k in ('as', 'instance')
+                 if extra.get(k) is not None}
+        if named:
+            names['instance'] = a
+        sopts = (extra.get('feature') or {}).get('station')
+        sopts = dict(sopts) if isinstance(sopts, dict) else {}
+        sopts.update(names)
+        ref = named_ref(sopts)
+        if ref is not None:
+            extra = instance_options(self.block_for(ref), extra)
         calleropts = {k: v for k, v in extra.items() if 'extend' != k}
         fmap = dict(extra.get('feature') or {})
         entry = dict(fmap.get('station') or {})
@@ -348,10 +407,9 @@ class Station:
             'station': self._handle(),
             'calleropts': calleropts,
         })
-        if instance is not None:
-            entry['instance'] = instance
+        entry.update(names)
         fmap['station'] = entry
-        out = dict(extra)
+        out = {k: v for k, v in extra.items() if k not in ('as', 'instance')}
         out['feature'] = fmap
         return out
 
@@ -393,10 +451,7 @@ class Station:
         ONE RULE, ONE PLACE: registration and the transport seam both ask
         here, because them disagreeing is how the credential and the
         allowlist came apart in the first place."""
-        block = self._profile['sdk'].get(self.declared_ref(name))
-        if block is None:
-            block = self._profile['api'].get(refapi(name))
-        return block
+        return block_of(self._profile, self.declared_ref(name))
 
     def declared_ref(self, name):
         """The DECLARED instance an assigned tag stands for, or the name
@@ -557,6 +612,8 @@ class Station:
                 return None, err
 
         senddef = fetchdef
+        sendurl = fullurl
+        placed = False
         if hosts is not None and live:
             senddef = dict(senddef or {})
             senddef['redirect'] = 'manual'
@@ -585,26 +642,31 @@ class Station:
                 return None, e
 
             senddef = dict(senddef or {})
-            senddef['headers'] = dict(senddef.get('headers') or {})
-            for h, v in list(senddef['headers'].items()):
-                if isinstance(v, str) and placeholder in v:
-                    senddef['headers'][h] = v.replace(placeholder, value)
+            sent = substitute(fullurl, senddef.get('headers'),
+                              placeholder, value)
+            sendurl = sent['url']
+            senddef['headers'] = sent['headers']
+            defurl = senddef.get('url')
+            if isinstance(defurl, str):
+                senddef['url'] = substitute(
+                    defurl, None, placeholder, value)['url']
+            placed = sendurl != fullurl or senddef.get('url') != defurl
 
         st = getattr(fctx, '_station', None) or {}
         corr = st.get('corr')
         started = _now_ms()
 
         try:
-            res, err = inner(fctx, fullurl, senddef)
+            res, err = inner(fctx, sendurl, senddef)
         except Exception as e:
             self._emit_http(name, corr, fullurl, senddef, 0, started, 0)
             self._emit_err(name, fctx, e)
-            raise
+            raise self._scrubbed(e, placed)
 
         if err is not None:
             self._emit_http(name, corr, fullurl, senddef, 0, started, 0)
             self._emit_err(name, fctx, err)
-            return res, err
+            return res, self._scrubbed(err, placed)
 
         status = 0
         nbytes = 0
@@ -623,6 +685,21 @@ class Station:
         self._emit_http(name, corr, fullurl, senddef, status, started, nbytes)
 
         return res, err
+
+    def _scrubbed(self, err, placed):
+        """A transport error may quote its URL, which carries a
+        query-placed value. An exception is scrubbed in place: its message
+        lives in `args`, and the SDK's own error keeps a copy in `msg`."""
+        if not placed:
+            return err
+        if isinstance(err, str):
+            return self.redact(err)
+        if isinstance(err, BaseException):
+            err.args = tuple(self.redact(a) if isinstance(a, str) else a
+                             for a in err.args)
+            if isinstance(getattr(err, 'msg', None), str):
+                err.msg = self.redact(err.msg)
+        return err
 
     def _emit_http(self, name, corr, fullurl, fetchdef, status, started, nbytes):
         host = ''
@@ -830,10 +907,7 @@ class Station:
             fname = rest.pop('name')
             fmap[fname] = rest
 
-        opts = dict(block.get('options') or {})
-        if block.get('base') is not None:
-            opts['base'] = block['base']
-        opts.update(overrides or {})
+        opts = instance_options(block, overrides)
         feature = dict(fmap)
         feature.update((overrides or {}).get('feature') or {})
         opts['feature'] = feature

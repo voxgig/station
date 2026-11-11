@@ -165,10 +165,8 @@ pub fn normalize_descriptor(config: &Json, active_features: &Json) -> (Json, Vec
         }
     }
 
-    // §8.5: the features list gains `options` and `transport`, because it
-    // `config.feature[name].options` is the feature's own declared key set
-    // them. ADDITIVE, so descriptor v1 consumers are unaffected and the
-    // `transport` is CARRIED rather than inferred: the obvious signal, an
+    // §7.4: each row carries the feature's declared schema (`options`,
+    // `optspec`, `strict`) and its `transport` role, never an inferred one.
     let mut features: Vec<Json> = Vec::new();
     if let Some(Json::Map(fdefs)) = jget(config, "feature") {
         for (fname, fdef) in fdefs.iter() {
@@ -182,6 +180,12 @@ pub fn normalize_descriptor(config: &Json, active_features: &Json) -> (Json, Vec
             ];
             if let Some(fopts @ Json::Map(_)) = jget(fdef, "options") {
                 row.push(("options", fopts.clone()));
+            }
+            if let Some(optspec @ Json::Map(_)) = jget(fdef, "optspec") {
+                row.push(("optspec", optspec.clone()));
+            }
+            if let Some(strict @ Json::Bool(_)) = jget(fdef, "strict") {
+                row.push(("strict", strict.clone()));
             }
             match jget(fdef, "transport") {
                 Some(Json::Null) | None => {}
