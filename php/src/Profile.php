@@ -284,7 +284,7 @@ function checksecrets(array $sdk, string $profile_name): void
                 'profile "' . $profile_name . '": instances "' . $seen[$name][0] .
                 '" and "' . $ref . '" both resolve to secret name "' . $name .
                 '", so they would share one credential; name it explicitly ' .
-                'on each, or at the api level to share it deliberately (5.1)');
+                'on each, or at the api level to share it deliberately (§5.1)');
         }
         if (!isset($seen[$name])) {
             $seen[$name] = [$ref, $derived];

@@ -203,7 +203,7 @@ def _checksecrets(sdk, profile_name):
                 'profile "' + profile_name + '": instances "' + prior[0] +
                 '" and "' + ref + '" both resolve to secret name "' + name +
                 '", so they would share one credential; name it explicitly '
-                'on each, or at the api level to share it deliberately (5.1)')
+                'on each, or at the api level to share it deliberately (§5.1)')
         if prior is None:
             seen[name] = (ref, derived)
 

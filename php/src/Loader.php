@@ -242,7 +242,7 @@ function factory_from_module(mixed $api, mixed $mod, mixed $export = null): arra
         throw new StationError('station_sdk_load',
             'api "' . $api . '": the module exports a constructor but no ' .
             '`config` singleton, so its feature schema and transport roles ' .
-            'cannot be read before construction (6.2)');
+            'cannot be read before construction (§6.2)');
     }
 
     $construct = is_string($ctor)

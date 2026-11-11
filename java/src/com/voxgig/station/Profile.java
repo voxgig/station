@@ -274,7 +274,7 @@ public final class Profile {
             "profile \"" + profileName + "\": instances \"" + prior[0]
                 + "\" and \"" + ref + "\" both resolve to secret name \"" + name
                 + "\", so they would share one credential; name it explicitly "
-                + "on each, or at the api level to share it deliberately (5.1)");
+                + "on each, or at the api level to share it deliberately (§5.1)");
       }
       if (null == prior) {
         seen.put(name, new String[] { ref, derived ? "1" : "0" });
