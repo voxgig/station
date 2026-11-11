@@ -570,7 +570,7 @@ final class StationTest: XCTestCase {
     ]
     for (url, _, _) in cases {
       _ = try binding.transport(
-        nil, false, url, "GET", [:], { _, _ in true }, { _ in (200, 0) })
+        nil, false, url, "GET", [:], { _, _, _ in true }, { _ in (200, 0) })
     }
 
     var got: [String] = []
@@ -624,7 +624,7 @@ final class StationTest: XCTestCase {
     do {
       _ = try binding.transport(
         nil, true, "http://api.good.example:x@evil.example/x", "GET", [:],
-        { _, _ in true }, { _ in (200, 0) })
+        { _, _, _ in true }, { _ in (200, 0) })
       XCTFail("the listed host as the user name must be denied")
     } catch let err as StationError {
       XCTAssertEqual("station_host_allow", err.code, "userinfo host code")
