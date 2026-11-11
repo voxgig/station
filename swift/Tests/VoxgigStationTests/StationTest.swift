@@ -544,7 +544,7 @@ final class StationTest: XCTestCase {
     ]
     for (url, _, _) in cases {
       _ = try binding.transport(
-        nil, false, url, "GET", [:], { _, _ in true }, { _ in (200, 0) })
+        nil, false, url, "GET", [:], { _, _, _ in true }, { _ in (200, 0) })
     }
 
     var got: [String] = []
