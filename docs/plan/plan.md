@@ -107,10 +107,10 @@ W0 ──► W1 ──┬──► W2 ──► release 0.3.0 ──► W5.5 onw
 W5.1 (the proxy builds, and CI holds it) depends on nothing and can start today.
 ```
 
-What is left of W0 is one merge in likeness and some housekeeping. W1
-comes before any new code because the queue is the same files: every
-fix in W2 touches what those six pull requests touch, in all sixteen
-ports.
+What is left of W0 is one merge in likeness and one stale passage of the
+design (W0.8). W1 comes before any new code because the queue is the
+same files: every fix in W2 touches what those six pull requests touch,
+in all sixteen ports.
 
 **For a change to a GitHub workflow, a patch is created on `main`.** A
 session's token cannot push a workflow file, so it writes the change as
@@ -134,17 +134,17 @@ be merged.
 2. ~~Apply the release-workflow patch.~~ Done on 2026-11-10, as
    `690b08f`: one dispatch now releases every port, and CI has a
    `versions` job.
-3. Move likeness onto the tag. Done on likeness's branch
-   `claude/bold-newton-4of9bo`, which also retires the handover. It is
-   waiting to be merged.
+3. Move likeness onto the tag. Written, as voxgig/likeness#13, which
+   also retires the handover. It is waiting to be merged.
 
-Then close [#24], which `b145609` fixed and 0.2.0 shipped, and prune the
-merged branches.
+The housekeeping is done too. [#24], which `b145609` fixed and 0.2.0
+shipped, is closed, after its own script passed against a generated
+SDK. The merged branches are gone.
 
 **Exit:** `make release-plan` reports every port `done`, and
 `go list -m github.com/voxgig/station/go@v0.2.0` resolves through the
-Go proxy. Both have held since 2026-11-10. Step 3 and the housekeeping
-are what remain.
+Go proxy. Both have held since 2026-11-10. Step 3's merge is what
+remains.
 
 ### W1. Land the review queue
 
