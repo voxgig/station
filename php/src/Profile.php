@@ -302,3 +302,38 @@ function providers_of(mixed $profile): ?array
     $p = $secrets['providers'] ?? null;
     return is_array($p) && array_is_list($p) ? $p : null;
 }
+
+/**
+ * The block that governs an instance: its own, else its api's.
+ *
+ * @param array<string, mixed> $profile
+ * @return array<string, mixed>|null
+ */
+function block_of(array $profile, string $ref): ?array
+{
+    $own = $profile['sdk'][$ref] ?? null;
+    if (null !== $own) {
+        return $own;
+    }
+    return $profile['api'][refapi($ref)] ?? null;
+}
+
+/**
+ * 3.5 for a named instance: the block's `options`, then its `base`
+ * (steps 3-6), under the caller's options (step 9), per top-level key.
+ *
+ * @param array<string, mixed>|null $block
+ * @param array<string, mixed>|null $opts
+ * @return array<string, mixed>
+ */
+function instance_options(?array $block, ?array $opts = null): array
+{
+    $out = is_array($block['options'] ?? null) ? $block['options'] : [];
+    if (null !== ($block['base'] ?? null)) {
+        $out['base'] = $block['base'];
+    }
+    foreach ($opts ?? [] as $k => $v) {
+        $out[$k] = $v;
+    }
+    return $out;
+}

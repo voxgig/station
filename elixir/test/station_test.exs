@@ -135,6 +135,50 @@ defmodule Voxgig.StationTest do
     assert 2 == Station.status(st)["events"]["buffered"]
   end
 
+  test "the http event path keeps the request escapes" do
+    cases = [
+      {"https://h/vault/projects%2Flaunch%20plan.md", "h", "/vault/projects%2Flaunch%20plan.md"},
+      {"https://h", "h", "/"},
+      {"/vault/projects%2Flaunch%20plan.md?x=1", "", "/vault/projects%2Flaunch%20plan.md?x=1"}
+    ]
+
+    st = Station.new(%{"config" => nil, "proxy" => "off"})
+
+    for {url, _host, _path} <- cases do
+      Station.emit_http(st, "vault", nil, url, "GET", 200, Station.now_ms(), 0)
+    end
+
+    got =
+      for %{"kind" => "http", "http" => http} <- Station.events(st),
+          do: {http["host"], http["path"]}
+
+    assert Enum.map(cases, fn {_url, host, path} -> {host, path} end) == got
+  end
+
+  test "the http event host reads as URL.host does" do
+    cases = [
+      {"https://h:443/x", "h", "/x"},
+      {"http://h:80/x", "h", "/x"},
+      {"https://h:8443/x", "h:8443", "/x"},
+      {"https://u:p@h/x", "h", "/x"},
+      {"https://u:p@ss@h/x", "h", "/x"},
+      {"http://[::1]:8080/x", "[::1]:8080", "/x"},
+      {"http://[::1]/x", "[::1]", "/x"}
+    ]
+
+    st = Station.new(%{"config" => nil, "proxy" => "off"})
+
+    for {url, _host, _path} <- cases do
+      Station.emit_http(st, "vault", nil, url, "GET", 200, Station.now_ms(), 0)
+    end
+
+    got =
+      for %{"kind" => "http", "http" => http} <- Station.events(st),
+          do: {http["host"], http["path"]}
+
+    assert Enum.map(cases, fn {_url, host, path} -> {host, path} end) == got
+  end
+
   test "status shape" do
     st = Station.new(%{"config" => nil, "proxy" => "off"})
     status = Station.status(st)
@@ -229,6 +273,22 @@ defmodule Voxgig.StationTest do
     refute out =~ "long-secret-value"
     assert out =~ "[redacted]"
     refute String.contains?(out, " k ")
+  end
+
+  test "scrub also removes a held value's strict query encoding" do
+    broker = Secrets.hoist(Secrets.broker(), "joplin", "tok!en 1")
+    out = Secrets.scrub(broker, "GET /notes?token=tok%21en%201 failed for tok!en 1")
+    assert "GET /notes?token=[redacted] failed for [redacted]" == out
+  end
+
+  test "scrub matches every form of every held value against the original text" do
+    for held <- [["%", "secret!"], ["secret!", "%"]] do
+      broker = Enum.reduce(held, Secrets.broker(), &Secrets.hoist(&2, &1, &1))
+      assert "token=[redacted]" == Secrets.scrub(broker, "token=secret%21"), inspect(held)
+    end
+
+    broker = Secrets.hoist(Secrets.hoist(Secrets.broker(), "a", "ab!"), "b", "!c")
+    assert "x=[redacted]&y=[redacted]" == Secrets.scrub(broker, "x=ab%21c&y=!c")
   end
 
   test "redact runs the broker scrub through the station" do

@@ -7,9 +7,10 @@
 // Binding.transport seams - never restate a binding rule here. The one
 // physical duty the type boundary leaves on this side is the
 // copy-on-inject clone (station design 5.3): the fetchdef is deep-cloned
-// BEFORE the injected header set is applied, so the object graph
-// reachable from ctx/spec/ctrl.explain keeps only the placeholder, ever
-// (fetchdef.headers IS spec.headers by reference - Make.swift).
+// BEFORE the injected header set and placed url are applied, so the
+// object graph reachable from ctx/spec/ctrl.explain keeps only the
+// placeholder, ever (fetchdef.headers IS spec.headers by reference -
+// Make.swift).
 //
 // The station handle rides the feature options as a native value
 // (stationOptions() below plants it); with no handle the adapter binds
@@ -121,11 +122,58 @@ public final class StationFeature: BaseFeature {
 // spelling lives here because the library cannot construct this SDK's
 // Value maps. `calleropts` marks what the caller passed, so an explicit
 // caller base wins over the profile's (station design 3.5).
+//
+// The instance name is optional (station design 6.1): the named instance
+// - `instance:`, else a top-level `instance` or full-ref `as`, else the
+// station entry's own - is constructed with its block's `options` and
+// `base` under the caller's options, one top-level key at a time (3.5),
+// and the binding registers under that ref.
 public func stationOptions(_ station: Station? = nil, _ extra: VMap? = nil) -> VMap {
-  let calleropts = extra ?? VMap()
+  return stationOptionsFor(station, nil, extra)
+}
+
+public func stationOptions(_ station: Station?, instance: String, _ extra: VMap? = nil) -> VMap {
+  return stationOptionsFor(station, instance, extra)
+}
+
+private func stationOptionsFor(_ station: Station?, _ instance: String?, _ extra: VMap?) -> VMap {
+  let given = extra ?? VMap()
+
+  let names = VMap()
+  for key in ["as", "instance"] {
+    if let text = given.entries[key]?.asString {
+      names.entries[key] = .string(text)
+    }
+  }
+  if let instance = instance, !instance.isEmpty {
+    names.entries["instance"] = .string(instance)
+  }
+
+  let named = VMap()
+  if let em = given.entries["feature"]?.asMap?.entries["station"]?.asMap {
+    for (k, v) in em.entries {
+      named.entries[k] = v
+    }
+  }
+  for (k, v) in names.entries {
+    named.entries[k] = v
+  }
+
+  let calleropts = VMap()
+  if let st = Station.from(station),
+    let defaults = st.instanceDefaults(stationValueJson(.map(named))),
+    case .map(let dm) = stationJsonValue(defaults)
+  {
+    for (k, v) in dm.entries {
+      calleropts.entries[k] = v
+    }
+  }
+  for (k, v) in given.entries {
+    calleropts.entries[k] = v
+  }
 
   let out = VMap()
-  for (k, v) in calleropts.entries {
+  for (k, v) in calleropts.entries where "as" != k && "instance" != k {
     out.entries[k] = v
   }
 
@@ -145,6 +193,9 @@ public func stationOptions(_ station: Station? = nil, _ extra: VMap? = nil) -> V
   entry.entries["active"] = .bool(true)
   if let station = station {
     entry.entries["station"] = .nat(station)
+  }
+  for (k, v) in names.entries {
+    entry.entries[k] = v
   }
   entry.entries["calleropts"] = .map(calleropts)
 
@@ -182,7 +233,7 @@ private func stationTransport(
   do {
     return try binding.transport(
       ctx.id, live, fullurl, method, headers,
-      { injected, manualRedirect in
+      { place, injected, manualRedirect in
         var senddef = fetchdef
         if nil != injected || manualRedirect {
           let cloned = clone(.map(fetchdef)).asMap ?? VMap()
@@ -193,6 +244,9 @@ private func stationTransport(
             }
             cloned.entries["headers"] = .map(hm)
           }
+          if let defurl = cloned.entries["url"]?.asString {
+            cloned.entries["url"] = .string(place(defurl))
+          }
           if manualRedirect {
             // In-band annotation on the sent copy only: with a hosts
             // policy, redirects come back manual (station design 8.2).
@@ -200,7 +254,7 @@ private func stationTransport(
           }
           senddef = cloned
         }
-        return try inner(ctx, fullurl, senddef)
+        return try inner(ctx, place(fullurl), senddef)
       },
       { res in
         let (status, _) = fresStatus(res)
@@ -236,6 +290,33 @@ private func stationOutcome(_ ctx: Context) -> String {
     return "err"
   }
   return "ok"
+}
+
+// Station Json as this SDK's Value, the inverse of stationValueJson: a
+// declared block's options enter the SDK options through it. JSON has one
+// number kind; an integral one is this SDK's int.
+private func stationJsonValue(_ json: VoxgigStation.Json) -> Value {
+  switch json {
+  case .null:
+    return .null
+  case .bool(let flag):
+    return .bool(flag)
+  case .num(let num):
+    if num.rounded() == num && abs(num) < 9.0e15 {
+      return .int(Int64(num))
+    }
+    return .double(num)
+  case .str(let text):
+    return .string(text)
+  case .list(let items):
+    return .list(items.map(stationJsonValue))
+  case .map(let entries):
+    let out = VMap()
+    for key in entries.keys.sorted() {
+      out.entries[key] = stationJsonValue(entries[key]!)
+    }
+    return .map(out)
+  }
 }
 
 // The SDK's Value tree as the station library's Json (functions and

@@ -12,6 +12,124 @@ pub fn placeholder_for(name: &str) -> String {
     format!("[station:{}]", name)
 }
 
+/// Every UTF-8 byte outside RFC 3986's unreserved set becomes upper-case %XX.
+pub fn encode_query_value(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || b"-._~".contains(&byte) {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{:02X}", byte));
+        }
+    }
+    out
+}
+
+fn match_at(text: &[u8], at: usize, end: usize, placeholder: &[u8]) -> Option<usize> {
+    let hexval = |byte: u8| (byte as char).to_digit(16);
+    let mut i = at;
+    for &ch in placeholder {
+        if i < end && text[i] == ch {
+            i += 1;
+            continue;
+        }
+        if i + 3 <= end && b'%' == text[i] {
+            if let (Some(hi), Some(lo)) = (hexval(text[i + 1]), hexval(text[i + 2])) {
+                if u32::from(ch) == hi * 16 + lo {
+                    i += 3;
+                    continue;
+                }
+            }
+        }
+        return None;
+    }
+    Some(i - at)
+}
+
+/// The placeholder becomes the value in header values and in the URL
+/// query, where an SDK percent-encodes it (any hex case) and the value is
+/// encoded in turn. The path and fragment are never touched; the headers
+/// are a copy.
+pub fn substitute(
+    url: &str,
+    headers: &BTreeMap<String, String>,
+    placeholder: &str,
+    value: &str,
+) -> (String, BTreeMap<String, String>) {
+    let mut out = headers.clone();
+    if placeholder.is_empty() {
+        return (url.to_string(), out);
+    }
+    for entry in out.values_mut() {
+        if entry.contains(placeholder) {
+            *entry = entry.replace(placeholder, value);
+        }
+    }
+
+    let hash = url.find('#');
+    let query = match url.find('?') {
+        Some(at) if hash.is_none_or(|hash| at < hash) => at + 1,
+        _ => return (url.to_string(), out),
+    };
+    let end = hash.unwrap_or(url.len());
+    let encoded = encode_query_value(value);
+    let mut sent = url[..query].to_string();
+    let (mut copied, mut at) = (query, query);
+    while at < end {
+        match match_at(url.as_bytes(), at, end, placeholder.as_bytes()) {
+            Some(len) if 0 < len => {
+                sent.push_str(&url[copied..at]);
+                sent.push_str(&encoded);
+                at += len;
+                copied = at;
+            }
+            _ => at += 1,
+        }
+    }
+    sent.push_str(&url[copied..]);
+    (sent, out)
+}
+
+/// Every form of every value is matched against the original text and the
+/// union of the matches redacted, so no replacement can hide another form.
+fn redact_values(text: &str, values: &[String]) -> String {
+    let mut forms: Vec<String> = Vec::new();
+    for value in values.iter().filter(|value| !value.is_empty()) {
+        forms.push(value.clone());
+        forms.push(encode_query_value(value));
+    }
+    let bytes = text.as_bytes();
+    let reach = |at: usize| {
+        forms.iter().fold(at, |end, form| {
+            if at + form.len() > end && bytes[at..].starts_with(form.as_bytes()) {
+                at + form.len()
+            } else {
+                end
+            }
+        })
+    };
+
+    let mut out = String::with_capacity(text.len());
+    let (mut copied, mut at) = (0, 0);
+    while at < bytes.len() {
+        let mut stop = reach(at);
+        if stop == at {
+            at += 1;
+            continue;
+        }
+        let mut next = at + 1;
+        while next < stop {
+            stop = stop.max(reach(next));
+            next += 1;
+        }
+        out.push_str(&text[copied..at]);
+        out.push_str("[redacted]");
+        (copied, at) = (stop, stop);
+    }
+    out.push_str(&text[copied..]);
+    out
+}
+
 pub struct SecretBroker {
     sekreto: RefCell<Sekreto>,
     /// Values hoisted from a resident options.apikey (design §3.1),
@@ -80,17 +198,10 @@ impl SecretBroker {
         }
     }
 
+    /// sekreto's redact runs second; run first, it could split an encoded form.
     pub fn scrub(&self, text: &str) -> String {
-        let mut out = self.sekreto.borrow().redact(text);
-        for value in self.held.borrow().iter() {
-            if !value.is_empty() {
-                out = out
-                    .split(value.as_str())
-                    .collect::<Vec<&str>>()
-                    .join("[redacted]");
-            }
-        }
-        out
+        let out = redact_values(text, &self.held.borrow());
+        self.sekreto.borrow().redact(&out)
     }
 
     /// Drop caches so the next resolve asks the stores again (rotation

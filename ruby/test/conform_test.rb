@@ -51,6 +51,10 @@ DRIVERS = {
 
   'placeholder' => ->(slug) { VoxgigStation.placeholder_for(slug) },
 
+  'substitute' => lambda { |vin|
+    VoxgigStation.substitute(vin['url'], vin['headers'], vin['placeholder'], vin['value'])
+  },
+
   'descriptor' => lambda { |vin|
     VoxgigStation.normalize_descriptor(vin['config'], vin['feature'])[:descriptor]
   },
@@ -69,17 +73,29 @@ DRIVERS = {
     VoxgigStation.validate_config(VoxgigStation.normalize_config(denull(vin)))
   },
 
-  # The 3.3 merge, and the whole of this port's profile contract.
+  # The 3.3 merge, and the whole of this port's profile contract. A
+  # `ref` asks for the options that named instance is constructed with.
   'instance' => lambda { |vin|
-    VoxgigStation.resolve_profile(denull(vin['config']), vin['profile'])
+    profile = VoxgigStation.resolve_profile(denull(vin['config']), vin['profile'])
+    next profile if vin['ref'].nil?
+
+    VoxgigStation.instance_options(
+      VoxgigStation.block_of(profile, vin['ref']), denull(vin['opts']))
   },
 
   # design station.md 8's pure half (10.1): the three-level merge with
-  # its depth boundary, and the 8.4 order resolution. ONE DRIVER, TWO
-  # ENTRY SHAPES - `merged` selects the resolver, anything else the
-  # merge - because a port that guessed from looser cues would run the
-  # wrong subject on a mistyped entry.
+  # its depth boundary, the 8.4 order resolution, and the 8.5 option
+  # checker. ONE DRIVER, THREE ENTRY SHAPES - `check` selects the
+  # checker, `merged` the resolver, anything else the merge - because a
+  # port that guessed from looser cues would run the wrong subject on a
+  # mistyped entry.
   'feature' => lambda { |vin|
+    unless vin['check'].nil?
+      next VoxgigStation.check_features(denull(vin['check']),
+                                        { 'features' => denull(vin['features']) })
+                        .map { |f| f.slice('code', 'feature', 'key') }
+    end
+
     if vin['merged'].nil?
       VoxgigStation.merge_features(VoxgigStation.feature_sources(
         denull(vin['base']), denull(vin['overlay']), vin['api'], vin['ref']))

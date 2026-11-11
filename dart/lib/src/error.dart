@@ -64,4 +64,15 @@ class StationError implements Exception {
   String toString() => message;
 }
 
+// A transport failure passed back with its text scrubbed, standing in for an
+// error whose message cannot be changed in place.
+class ScrubbedError implements Exception {
+  final String message;
+
+  ScrubbedError(this.message);
+
+  @override
+  String toString() => message;
+}
+
 bool isKnownCode(dynamic code) => CODES.contains(code);

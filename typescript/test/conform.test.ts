@@ -11,13 +11,14 @@ import {
 } from '../src/descriptor'
 import { isKnownCode } from '../src/error'
 import {
+  checkfeatures,
   checkpin,
   featuresources,
   mergefeatures,
   resolveorder,
 } from '../src/feature'
-import { placeholderFor } from '../src/secrets'
-import { resolveProfile } from '../src/profile'
+import { placeholderFor, substitute } from '../src/secrets'
+import { blockOf, instanceOptions, resolveProfile } from '../src/profile'
 import { normalizeConfig, validateConfig } from '../src/shape'
 import { instanceRef } from '../src/Station'
 import { omnihome, specfile } from '../src/omnihome'
@@ -62,6 +63,11 @@ describe('station-conform', () => {
     await R.runset(R.spec.placeholder, (slug: any) => placeholderFor(slug))
   })
 
+  test('substitute', async () => {
+    await R.runset(R.spec.substitute, (vin: any) =>
+      substitute(vin.url, vin.headers, vin.placeholder, vin.value))
+  })
+
   test('descriptor', async () => {
     await R.runset(R.spec.descriptor, (vin: any) =>
       normalizeDescriptor(vin.config, vin.feature).descriptor)
@@ -81,14 +87,24 @@ describe('station-conform', () => {
       validateConfig(normalizeConfig(denull(vin))))
   })
 
-  // The §3.3 merge, and the whole of this port's profile contract.
+  // The §3.3 merge, and the whole of this port's profile contract. A
+  // `ref` asks for the options that named instance is constructed with.
   test('instance', async () => {
-    await R.runset(R.spec.instance, (vin: any) =>
-      resolveProfile(denull(vin.config), vin.profile))
+    await R.runset(R.spec.instance, (vin: any) => {
+      const profile = resolveProfile(denull(vin.config), vin.profile)
+      if (null == vin.ref) { return profile }
+      return instanceOptions(blockOf(profile, vin.ref), denull(vin.opts))
+    })
   })
 
   test('feature', async () => {
     await R.runset(R.spec.feature, (vin: any) => {
+      if (null != vin.check) {
+        return checkfeatures(denull(vin.check), { features: denull(vin.features) })
+          .map((f) => null == f.key
+            ? { code: f.code, feature: f.feature }
+            : { code: f.code, feature: f.feature, key: f.key })
+      }
       if (null != vin.merged) {
         const ordered = resolveorder(denull(vin.merged))
         checkpin(ordered)

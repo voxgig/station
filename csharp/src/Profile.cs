@@ -325,5 +325,39 @@ namespace Voxgig.Station
                 }
             }
         }
+
+        /// <summary>The block that governs an instance: its own, else its api's.</summary>
+        public static Dictionary<string, object> BlockOf(
+            Dictionary<string, object> profile, string ref_)
+        {
+            object own = Descriptor.GetProp(profile.GetValueOrDefault("sdk"), ref_);
+            if (own is IDictionary<string, object>)
+            {
+                return Descriptor.AsMap(own);
+            }
+            return Descriptor.AsMap(
+                Descriptor.GetProp(profile.GetValueOrDefault("api"), RefApi(ref_)));
+        }
+
+        /// <summary>
+        /// 3.5 for a named instance: the block's `options`, then its `base`
+        /// (steps 3-6), under the caller's options (step 9), per top-level key.
+        /// </summary>
+        public static Dictionary<string, object> InstanceOptions(
+            Dictionary<string, object> block, object opts)
+        {
+            var out_ = new Dictionary<string, object>(
+                Descriptor.AsMap(Descriptor.GetProp(block, "options")));
+            object base_ = Descriptor.GetProp(block, "base");
+            if (null != base_)
+            {
+                out_["base"] = base_;
+            }
+            foreach (KeyValuePair<string, object> entry in Descriptor.AsMap(opts))
+            {
+                out_[entry.Key] = entry.Value;
+            }
+            return out_;
+        }
     }
 }

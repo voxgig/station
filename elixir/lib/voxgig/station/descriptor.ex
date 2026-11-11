@@ -88,15 +88,14 @@ defmodule Voxgig.Station.Descriptor do
       |> Map.new(fn {ename, e} -> {to_string(ename), entity_view(mmap(e))} end)
 
     factive = mmap(active_features)
+    fdefs = mmap(mget(config, "feature"))
 
     features =
-      mmap(mget(config, "feature"))
+      fdefs
       |> Map.keys()
       |> Enum.map(&to_string/1)
       |> Enum.sort()
-      |> Enum.map(fn fname ->
-        %{"name" => fname, "active" => true == mget(mmap(factive[fname]), "active")}
-      end)
+      |> Enum.map(fn fname -> feature_row(fname, mmap(fdefs[fname]), factive) end)
 
     descriptor = %{
       "station" => 1,
@@ -113,6 +112,28 @@ defmodule Voxgig.Station.Descriptor do
     }
 
     {descriptor, warnings}
+  end
+
+  # station.md 7.4: each row carries the feature's declared schema and
+  # its transport role.
+  defp feature_row(fname, fdef, factive) do
+    row = %{"name" => fname, "active" => true == mget(mmap(factive[fname]), "active")}
+
+    row =
+      Enum.reduce(["options", "optspec"], row, fn key, acc ->
+        case fdef[key] do
+          m when is_map(m) and not is_struct(m) -> Map.put(acc, key, m)
+          _ -> acc
+        end
+      end)
+
+    row = if is_boolean(fdef["strict"]), do: Map.put(row, "strict", fdef["strict"]), else: row
+
+    case fdef["transport"] do
+      nil -> row
+      "" -> row
+      transport -> Map.put(row, "transport", to_string(transport))
+    end
   end
 
   defp entity_view(e) do

@@ -148,14 +148,27 @@ public enum Descriptor {
       }
     }
 
+    // Design 7.4: each row carries the feature's declared schema and its
+    // transport role.
     var features: [Json] = []
     if let featdefs = config.get("feature").asMap {
       for fname in sortedKeys(featdefs) {
         let active = true == activeFeatures.get(fname).get("active").asBool
-        features.append(.map([
+        let fdef = featdefs[fname] ?? .null
+        var row: [String: Json] = [
           "name": .str(fname),
           "active": .bool(active),
-        ]))
+        ]
+        for key in ["options", "optspec"] where fdef.get(key).isMap {
+          row[key] = fdef.get(key)
+        }
+        if let strict = fdef.get("strict").asBool {
+          row["strict"] = .bool(strict)
+        }
+        if let transport = jsonText(fdef.get("transport")) {
+          row["transport"] = .str(transport)
+        }
+        features.append(.map(row))
       }
     }
 
