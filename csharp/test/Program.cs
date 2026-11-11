@@ -63,6 +63,20 @@ internal static class Program
     private static readonly Subject PLACEHOLDER = args =>
         SecretBroker.PlaceholderFor(Convert.ToString(args[0]));
 
+    private static readonly Subject SUBSTITUTE = args =>
+    {
+        SecretBroker.Substituted sent = SecretBroker.Substitute(
+            Convert.ToString(Descriptor.GetProp(args[0], "url")),
+            Descriptor.AsMap(Descriptor.GetProp(args[0], "headers")),
+            Convert.ToString(Descriptor.GetProp(args[0], "placeholder")),
+            Convert.ToString(Descriptor.GetProp(args[0], "value")));
+        return new Dictionary<string, object>
+        {
+            ["url"] = sent.Url,
+            ["headers"] = sent.Headers,
+        };
+    };
+
     private static readonly Subject DESCRIPTOR = args =>
         Voxgig.Station.Descriptor.NormalizeDescriptor(
             Descriptor.GetProp(args[0], "config"),
@@ -105,10 +119,23 @@ internal static class Program
     private static readonly Subject CANONICAL = args =>
         Descriptor.CanonicalSerialize(Denull(args[0]));
 
+    // A `ref` asks for the options that named instance is constructed with.
     private static readonly Subject INSTANCE = args =>
-        Profile.ResolveProfile(
+    {
+        Dictionary<string, object> profile = Profile.ResolveProfile(
             Descriptor.GetProp(args[0], "config"),
             Convert.ToString(Descriptor.GetProp(args[0], "profile")));
+        if (!(Descriptor.GetProp(args[0], "ref") is string ref_))
+        {
+            return profile;
+        }
+        return Profile.InstanceOptions(
+            Profile.BlockOf(profile, ref_), Denull(Descriptor.GetProp(args[0], "opts")));
+    };
+
+    private static readonly Subject INSTANCEREF = args =>
+        Station.InstanceRef(Convert.ToString(Descriptor.GetProp(args[0], "api")),
+            Descriptor.GetProp(args[0], "opts"));
 
     private static readonly Subject ERRORS = args => StationError.IsKnownCode(args[0]);
 
@@ -208,6 +235,11 @@ internal static class Program
             SdkConfig("TestPlug", "test-plug"), options, fopts);
     }
 
+    private static string EventText(Station st)
+    {
+        return string.Join("\n", st.Events().ConvertAll(ev => Descriptor.CanonicalSerialize(ev)));
+    }
+
     private static int Main(string[] args)
     {
         if (0 < args.Length)
@@ -220,11 +252,13 @@ internal static class Program
         // The shared corpus (design 13).
         TestCase("secretname", () => R.RunSet(R.Set("secretname"), SECRETNAME));
         TestCase("placeholder", () => R.RunSet(R.Set("placeholder"), PLACEHOLDER));
+        TestCase("substitute", () => R.RunSet(R.Set("substitute"), SUBSTITUTE));
         TestCase("descriptor", () => R.RunSet(R.Set("descriptor"), DESCRIPTOR));
         TestCase("descriptorwarnings", () => R.RunSet(R.Set("descriptorwarnings"), DESCWARN));
         TestCase("canonical", () => R.RunSet(R.Set("canonical"), CANONICAL));
         // The 3.3 merge, and the whole of this port's profile contract.
         TestCase("instance", () => R.RunSet(R.Set("instance"), INSTANCE));
+        TestCase("instanceref", () => R.RunSet(R.Set("instanceref"), INSTANCEREF));
         TestCase("errors", () => R.RunSet(R.Set("errors"), ERRORS));
 
         // Focused unit cases: the mechanics the corpus cannot reach.
@@ -272,6 +306,33 @@ internal static class Program
             }
         });
 
+        TestCase("broker: every form is matched against the original text", () =>
+        {
+            foreach (string[] held in new[] { new[] { "%", "secret!" }, new[] { "secret!", "%" } })
+            {
+                var broker = new SecretBroker(Vals());
+                broker.Hoist("a", held[0]);
+                broker.Hoist("b", held[1]);
+                string got = broker.Scrub("token=secret%21");
+                Check("token=[redacted]" == got, string.Join(" ", held) + ": " + got);
+            }
+            var overlap = new SecretBroker(Vals());
+            overlap.Hoist("a", "ab!");
+            overlap.Hoist("b", "!c");
+            string spans = overlap.Scrub("x=ab%21c&y=!c");
+            Check("x=[redacted]&y=[redacted]" == spans, "one span: " + spans);
+        });
+
+        TestCase("broker: sekreto's own redact cannot hide an encoded form", () =>
+        {
+            var broker = new SecretBroker(Vals(
+                Map("kind", "memory", "values", Map("SCRUB_APIKEY", "abcd"))));
+            Check("abcd" == broker.Value("scrub", "scrub.apikey"), "resolves");
+            broker.Hoist("other", "abcd!x");
+            string got = broker.Scrub("k=abcd%21x");
+            Check("k=[redacted]" == got, "sekreto runs second: " + got);
+        });
+
         TestCase("open: idempotent ambient, conflicting reopen fails", () =>
         {
             Station.Reset();
@@ -307,6 +368,77 @@ internal static class Program
             Check(true.Equals(entry["active"]), "active");
             Check(ReferenceEquals(st, entry["station"]), "handle rides the options");
             Check("http://x:1".Equals(options["base"]), "caller opts kept");
+        });
+
+        TestCase("options: a named instance is constructed with its block's options", () =>
+        {
+            Station st = MemoryStation(Map("TEST_PLUG_EU_APIKEY", "eu-key"), Map(
+                "test-plug", Map("options", Map("prefix", "/default")),
+                "test-plug$eu", Map("base", "http://eu.example:1",
+                    "options", Map("prefix", "/eu", "suffix", ".json"))));
+            var options = st.Options("test-plug$eu", Map("suffix", ".xml"));
+            Check("/eu".Equals(options.GetValueOrDefault("prefix")),
+                "the block's options reach the SDK");
+            Check(".xml".Equals(options.GetValueOrDefault("suffix")),
+                "the caller's options win, key by key");
+            Check("http://eu.example:1".Equals(options.GetValueOrDefault("base")),
+                "the block's base");
+
+            var binding = Bind(st, new object(), options);
+            Check("test-plug$eu".Equals(binding["plugin"]),
+                "registered under the named ref: " + binding["plugin"]);
+            Check("test_plug_eu.apikey".Equals(binding["secretname"]),
+                "the instance's own secret name: " + binding["secretname"]);
+            Check("[station:test-plug$eu]".Equals(options["apikey"]),
+                "the instance's placeholder");
+
+            var sent = new List<object>();
+            st.Transport("test-plug$eu", "http://eu.example:1/api/todo",
+                Map("headers", Map("authorization", "[station:test-plug$eu]")), true, null,
+                (url, def) =>
+                {
+                    sent.Add(Descriptor.GetProp(def["headers"], "authorization"));
+                    return Map("status", 200);
+                });
+            Check("eu-key".Equals(sent[0]), "the instance's credential on the wire");
+
+            var plain = Bind(st, new object(), st.Options(Map()));
+            Check("test-plug".Equals(plain["plugin"]), "the default instance keeps its slug");
+        });
+
+        TestCase("options: a top-level instance or full-ref as names the instance", () =>
+        {
+            Station st = MemoryStation(Map(), Map(
+                "test-plug$eu", Map("options", Map("prefix", "/eu"))));
+            foreach (string key in new[] { "instance", "as" })
+            {
+                var options = st.Options(Map(key, "test-plug$eu"));
+                Check("/eu".Equals(options.GetValueOrDefault("prefix")), "named by " + key);
+                Check(!options.ContainsKey("instance") && !options.ContainsKey("as"),
+                    key + " is not an SDK option");
+                var entry = Descriptor.AsMap(Descriptor.GetProp(options["feature"], "station"));
+                Check("test-plug$eu".Equals(entry.GetValueOrDefault(key)),
+                    key + " rides the station entry");
+            }
+
+            var lead = st.Options("test-plug$eu", Map("instance", "test-plug$us"));
+            Check("/eu".Equals(lead.GetValueOrDefault("prefix")),
+                "the leading name outranks a top-level instance");
+
+            var tagged = st.Options(Map("as", "eu"));
+            Check(!tagged.ContainsKey("prefix"), "a bare tag waits for the SDK's api");
+            Check("test-plug$eu".Equals(Bind(st, new object(), tagged)["plugin"]),
+                "and resolves against it at binding");
+
+            try
+            {
+                Bind(st, new object(), st.Options("other$eu", Map()));
+                Check(false, "a ref naming another api must fail");
+            }
+            catch (StationError err)
+            {
+                Check("station_instance_api" == err.Code, "instance api code");
+            }
         });
 
         TestCase("binding: registers, plants placeholder, hoists a resident key", () =>
@@ -407,6 +539,75 @@ internal static class Program
             var hm = Descriptor.AsMap(http["http"]);
             Check(200.Equals(hm["status"]), "wire status");
             Check(12L.Equals(hm["bytes"]), "bytes from content-length");
+        });
+
+        TestCase("transport: a query-placed credential reaches the wire encoded, and nothing else", () =>
+        {
+            Station st = MemoryStation(Map("TEST_PLUG_APIKEY", "tok!en 1"), null);
+            Bind(st, new object(), st.Options(Map()));
+
+            string url = "http://localhost:8000/api/todo?fields=id%2Ctitle&token="
+                + "%5Bstation%3Atest-plug%5D";
+            var fetchdef = Map("url", url, "method", "GET", "headers", Map());
+            var sent = new List<object>();
+            st.Transport("test-plug", url, fetchdef, true, null, (wireurl, def) =>
+            {
+                sent.Add(wireurl);
+                sent.Add(def["url"]);
+                return Map("status", 200);
+            });
+
+            string wire = "http://localhost:8000/api/todo?fields=id%2Ctitle&token=tok%21en%201";
+            Check(wire.Equals(sent[0]), "the value reaches the wire encoded");
+            Check(wire.Equals(sent[1]), "the sent fetchdef url agrees");
+            Check(url.Equals(fetchdef["url"]), "caller's fetchdef keeps the placeholder");
+            string events = EventText(st);
+            Check(!events.Contains("tok%21en%201") && !events.Contains("tok!en 1"),
+                "events carry no value");
+        });
+
+        TestCase("transport: a transport error quoting the placed URL is scrubbed", () =>
+        {
+            Station st = MemoryStation(Map("TEST_PLUG_APIKEY", "tok!en 1"), null);
+            Bind(st, new object(), st.Options(Map()));
+
+            string url = "http://localhost:8000/api/todo?token=%5Bstation%3Atest-plug%5D";
+            Exception caught = null;
+            try
+            {
+                st.Transport("test-plug", url, Map("url", url, "headers", Map()), true, null,
+                    (wireurl, def) => throw new InvalidOperationException("failed: GET " + wireurl));
+            }
+            catch (Exception err)
+            {
+                caught = err;
+            }
+            Check(null != caught, "the transport error surfaces");
+            Check(!caught.Message.Contains("tok%21en%201"), "scrubbed: " + caught.Message);
+            Check(caught.Message.Contains("[redacted]"), "scrub marker: " + caught.Message);
+            Check(!EventText(st).Contains("tok%21en%201"), "events carry no value");
+        });
+
+        TestCase("transport: an error quoting only the fetchdef url is scrubbed", () =>
+        {
+            Station st = MemoryStation(Map("TEST_PLUG_APIKEY", "tok!en 1"), null);
+            Bind(st, new object(), st.Options(Map()));
+
+            string defurl = "http://localhost:8000/api/todo?token=%5Bstation%3Atest-plug%5D";
+            Exception caught = null;
+            try
+            {
+                st.Transport("test-plug", "http://localhost:8000/api/todo",
+                    Map("url", defurl, "headers", Map()), true, null,
+                    (wireurl, def) => throw new InvalidOperationException("failed: GET " + def["url"]));
+            }
+            catch (Exception err)
+            {
+                caught = err;
+            }
+            Check(null != caught, "the transport error surfaces");
+            Check(!caught.Message.Contains("tok%21en%201"), "scrubbed: " + caught.Message);
+            Check(caught.Message.Contains("[redacted]"), "scrub marker: " + caught.Message);
         });
 
         TestCase("transport: no injection into mock transports", () =>

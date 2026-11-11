@@ -31,10 +31,10 @@ pub use crate::instance::{check_instance_name, check_instance_tag, check_ref, in
 pub use crate::jsonx::{jbool, jget, jlist, jmap, jobj, jstr, jtext, now_ms};
 pub use crate::loader::{camelify, check_package, DEFAULT_EXPORT};
 pub use crate::profile::{
-    block_defaults, config_scope, find_config_file, load_config, refapi, resolve_profile,
-    select_profile, ResolvedProfile, MERGE_SENSITIVE,
+    block_defaults, block_of, config_scope, find_config_file, instance_options, load_config,
+    refapi, resolve_profile, select_profile, ResolvedProfile, MERGE_SENSITIVE,
 };
-pub use crate::secrets::{placeholder_for, SecretBroker};
+pub use crate::secrets::{encode_query_value, placeholder_for, substitute, SecretBroker};
 pub use crate::shape::{
     config_shape, config_shape_json, normalize_config, profile_defaults, validate_config,
 };

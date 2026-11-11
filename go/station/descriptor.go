@@ -175,6 +175,12 @@ func NormalizeDescriptor(config map[string]any, activeFeatures map[string]any) (
 		if fopts, is := fdef["options"].(map[string]any); is {
 			row["options"] = fopts
 		}
+		if optspec, is := fdef["optspec"].(map[string]any); is {
+			row["optspec"] = optspec
+		}
+		if strict, is := fdef["strict"].(bool); is {
+			row["strict"] = strict
+		}
 		if transport, has := fdef["transport"]; has && nil != transport {
 			if text := fmt.Sprint(transport); "" != text {
 				row["transport"] = text

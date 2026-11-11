@@ -141,7 +141,10 @@ describe('feature-order', () => {
 describe('feature-check', () => {
   const descriptor = {
     features: [
-      { name: 'retry', active: false, options: { retries: 2, statuses: ['500'] } },
+      {
+        name: 'retry', active: false, options: { retries: 2, statuses: ['500'] },
+        optspec: { jitter: '`$BOOLEAN`' }, strict: true,
+      },
       { name: 'log', active: true, options: { level: 'info' } },
     ],
   }
@@ -153,15 +156,56 @@ describe('feature-check', () => {
     equal(true, -1 !== faults[0].message.indexOf('log, retry'))
   })
 
-  test('an unknown option key is caught — the case that actually bites', () => {
-    // `retry.retires: 5` is accepted and silently ignored today:
-    // makeOptions' feature spec is `$OPEN` per feature, so the SDK
-    // cannot catch it and nothing else looks.
+  test('an unknown option key is caught when the feature is strict', () => {
     const faults = checkfeatures({ retry: { retires: 5 } }, descriptor)
     equal(1, faults.length)
     equal('station_feature_option', faults[0].code)
     equal('retires', faults[0].key)
-    equal(true, -1 !== faults[0].message.indexOf('retries'))
+    equal(true,
+      -1 !== faults[0].message.indexOf('[jitter, retries, statuses]'))
+  })
+
+  test('a feature that is not strict accepts what its SDK accepts', () => {
+    // sdkgen opens a feature's option spec unless `strict` is true, and
+    // `strict` defaults to false, so absent and false are one case.
+    deepStrictEqual(checkfeatures({ log: { lvel: 'debug' } }, descriptor), [])
+    deepStrictEqual(checkfeatures({ log: { level: 7 } }, descriptor).length, 1)
+  })
+
+  test('an optspec key is declared, and checked against its type', () => {
+    // The `test` feature as sdkgen emits it: its seed options carry a
+    // type and no default.
+    const testfeature = {
+      features: [{
+        name: 'test', active: false, options: { active: false },
+        optspec: { entity: '`$MAP`', net: '`$MAP`' }, strict: false,
+      }],
+    }
+    deepStrictEqual(checkfeatures(
+      { test: { active: true, entity: { note: {} }, net: { offline: true } } },
+      testfeature), [])
+
+    const faults = checkfeatures({ test: { net: 'offline' } }, testfeature)
+    equal(1, faults.length)
+    equal('net', faults[0].key)
+    equal(true, -1 !== faults[0].message.indexOf('expects map, but found string'))
+
+    deepStrictEqual(checkfeatures({ retry: { jitter: true } }, descriptor), [])
+    equal(1, checkfeatures({ retry: { jitter: 'yes' } }, descriptor).length)
+  })
+
+  test('an optspec type outranks the default it sits beside', () => {
+    const netsim = {
+      features: [{
+        name: 'netsim', active: false, options: { active: false, latency: 0 },
+        optspec: { latency: ['`$ONE`', '`$NUMBER`', '`$MAP`'] },
+      }],
+    }
+    deepStrictEqual(
+      checkfeatures({ netsim: { latency: { min: 10, max: 50 } } }, netsim), [])
+    deepStrictEqual(checkfeatures({ netsim: { latency: 20 } }, netsim), [])
+    equal(true, -1 !== checkfeatures({ netsim: { latency: 'slow' } }, netsim)[0]
+      .message.indexOf('expects number or map'))
   })
 
   test('a scalar option is checked against its default s type', () => {
@@ -226,15 +270,18 @@ describe('feature-model-contract', () => {
       },
       { station: { active: true } })
 
-    // Station puts the instance name here before construction. If the
-    // model did not declare it, station's own checker would call the
-    // option station puts there unknown - which is the whole reason the
-    // model has to declare it rather than lean on the `$OPEN` spec.
+    // Station puts the instance name here before construction, and the
+    // model declares it, so even a strict reading accepts it.
     deepStrictEqual(
       checkfeatures({ station: { instance: 'pad$eu' } }, descriptor), [])
 
+    const strict = {
+      features: descriptor.features.map((f: any) => ({ ...f, strict: true })),
+    }
+    deepStrictEqual(
+      checkfeatures({ station: { instance: 'pad$eu' } }, strict), [])
     equal('station_feature_option',
-      checkfeatures({ station: { instanse: 'pad$eu' } }, descriptor)[0].code)
+      checkfeatures({ station: { instanse: 'pad$eu' } }, strict)[0].code)
   })
 })
 

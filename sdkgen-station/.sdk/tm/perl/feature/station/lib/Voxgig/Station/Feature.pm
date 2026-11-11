@@ -338,38 +338,48 @@ sub checkfeatures {
         my $entry = $merged->{$name};
         next unless _ismap($entry);
         my $defaults = _ismap( $spec->{options} ) ? $spec->{options} : {};
-        my @defaultkeys = sort keys %$defaults;
+        my $typed    = _ismap( $spec->{optspec} ) ? $spec->{optspec} : {};
+        my %declared = map { $_ => 1 } ( keys %$defaults, keys %$typed );
+        my @declaredkeys = sort keys %declared;
 
         for my $key ( sort keys %$entry ) {
             next if $RESERVED{$key};
 
-            if ( !exists $defaults->{$key} ) {
+            if ( !$declared{$key} ) {
 
-                # THE CASE THAT ACTUALLY BITES: `retry.retires: 5` is
-                # accepted and silently ignored today, because the SDK's
-                # own feature spec is `$OPEN` per feature so the SDK
-                # cannot catch it and nothing else looks.
+                # A feature the SDK does not close is $OPEN in its own
+                # option spec, so refusing the key would be stricter than
+                # the SDK.
+                next unless _istrue( $spec->{strict} );
                 push @faults,
                   {
                     code    => 'station_feature_option',
                     feature => $name,
                     key     => $key,
                     message => 'feature "' . $name . '" declares no option "'
-                      . $key . '"; it declares [' . join( ', ', @defaultkeys ) . ']',
+                      . $key . '"; it declares [' . join( ', ', @declaredkeys ) . ']',
                   };
                 next;
             }
 
-            my $want = _kindof( $defaults->{$key} );
-            my $got  = _kindof( $entry->{$key} );
-            if ( $want ne $got ) {
+            # sdkgen widens every declared option to admit null, and a null
+            # default constrains nothing.
+            next unless defined $entry->{$key};
+
+            # The type outranks the default: sdkgen's option spec does too.
+            my $want =
+                exists $typed->{$key}      ? _speckinds( $typed->{$key} )
+              : defined $defaults->{$key} ? [ _kindof( $defaults->{$key} ) ]
+              :                             undef;
+            my $got = _kindof( $entry->{$key} );
+            if ( defined $want && !grep { $_ eq $got } @$want ) {
                 push @faults,
                   {
                     code    => 'station_feature_option',
                     feature => $name,
                     key     => $key,
                     message => 'feature "' . $name . '" option "' . $key
-                      . '" expects ' . $want . ', but found ' . $got . ': '
+                      . '" expects ' . join( ' or ', @$want ) . ', but found ' . $got . ': '
                       . Voxgig::Station::Descriptor::canonical_serialize( $entry->{$key} ),
                   };
             }
@@ -377,6 +387,56 @@ sub checkfeatures {
     }
 
     return \@faults;
+}
+
+sub _istrue {
+    my ($val) = @_;
+    return 0 unless defined $val && ref $val;
+    return 0
+      unless JSON::PP::is_bool($val)
+      || ( blessed($val) && 'Voxgig::Struct::Bool' eq ref($val) );
+    return $val ? 1 : 0;
+}
+
+my %TOKEN_KIND = (
+    MAP     => 'map',     LIST    => 'list',   ARRAY   => 'list',
+    STRING  => 'string',  NUMBER  => 'number', INTEGER => 'number',
+    DECIMAL => 'number',  BOOLEAN => 'boolean', FUNCTION => 'function',
+    NULL    => 'null',    NIL     => 'null',
+);
+
+# The kinds an `optspec` type admits, or undef when it admits any.
+sub _speckinds {
+    my ($spec) = @_;
+    if ( defined $spec && !ref $spec ) {
+        return [ _kindof($spec) ] unless $spec =~ /\A`\$([A-Z]+)`\z/;
+        return exists $TOKEN_KIND{$1} ? [ $TOKEN_KIND{$1} ] : undef;
+    }
+
+    if ( _islist($spec) && @$spec && defined $spec->[0] && !ref $spec->[0] ) {
+        my ( $head, @rest ) = @$spec;
+        if ( '`$ONE`' eq $head ) {
+            my @kinds;
+            for my $alt (@rest) {
+                my $some = _speckinds($alt);
+                return undef unless defined $some;
+                for my $k (@$some) {
+                    push @kinds, $k unless grep { $_ eq $k } @kinds;
+                }
+            }
+            return \@kinds;
+        }
+        if ( '`$EXACT`' eq $head ) {
+            my @kinds;
+            for my $v (@rest) {
+                my $k = _kindof($v);
+                push @kinds, $k unless grep { $_ eq $k } @kinds;
+            }
+            return \@kinds;
+        }
+    }
+
+    return [ _kindof($spec) ];
 }
 
 # THE FEATURE kindof - deliberately NOT the shape one (which must agree
@@ -391,6 +451,7 @@ sub _kindof {
     my $r = ref $val;
     return 'list' if 'ARRAY' eq $r;
     return 'map'  if 'HASH' eq $r;
+    return 'function' if 'CODE' eq $r;
     return 'map'  if '' ne $r;
     return _isnumber($val) ? 'number' : 'string';
 }

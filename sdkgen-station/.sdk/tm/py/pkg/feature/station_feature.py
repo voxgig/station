@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from projectname_sdk.feature.base_feature import ProjectNameBaseFeature
 
-from voxgig_station import feature_binding
-
 
 # Binds this SDK to a voxgig/station control surface: registration,
 # wire-truth http events, and placeholder credential injection. Thin by
@@ -22,7 +20,10 @@ class ProjectNameStationFeature(ProjectNameBaseFeature):
         self.active = True
         self._binding = None
 
+    # Imported here rather than at module load: init runs only for an
+    # active feature, so an SDK that is never bound imports without station.
     def init(self, ctx, options):
+        from voxgig_station import feature_binding
         self._binding = feature_binding(ctx, options)
 
     def PrePoint(self, ctx):

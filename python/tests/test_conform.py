@@ -53,10 +53,13 @@ from voxgig_omni import NULLMARK, makeRunner  # noqa: E402
 from voxgig_sekreto import envkey  # noqa: E402
 
 from voxgig_station import (  # noqa: E402
+    block_of,
     canonical_serialize,
+    check_features,
     check_pin,
     envtoken,
     feature_sources,
+    instance_options,
     instance_ref,
     is_known_code,
     merge_features,
@@ -68,6 +71,7 @@ from voxgig_station import (  # noqa: E402
     secretname_default,
     validate_config,
 )
+from voxgig_station.secrets import substitute  # noqa: E402
 # omnihome lives beside the tests, NOT in voxgig_station: `[tool.setuptools]
 # packages = ["voxgig_station"]` ships that whole directory, so a PyPI
 # consumer of voxgig-station was receiving a module whose only job is to
@@ -101,10 +105,15 @@ def _secretname(vin):
 
 def _feature(vin):
     """design 8's pure half (10.1): the three-level merge with its depth
-    boundary, and the 8.4 order resolution. ONE DRIVER, TWO ENTRY SHAPES
-    - `merged` selects the resolver, anything else the merge - because a
-    port that guessed from looser cues would run the wrong subject on a
-    mistyped entry."""
+    boundary, the 8.4 order resolution, and the 8.5 option checker. ONE
+    DRIVER, THREE ENTRY SHAPES - `check` selects the checker, `merged`
+    the resolver, anything else the merge - because a port that guessed
+    from looser cues would run the wrong subject on a mistyped entry."""
+    if vin.get('check') is not None:
+        faults = check_features(denull(vin['check']),
+                                {'features': denull(vin['features'])})
+        return [{k: f[k] for k in ('code', 'feature', 'key') if k in f}
+                for f in faults]
     if vin.get('merged') is not None:
         ordered = resolve_order(denull(vin['merged']))
         check_pin(ordered)
@@ -112,6 +121,14 @@ def _feature(vin):
     return merge_features(feature_sources(
         denull(vin.get('base')), denull(vin.get('overlay')),
         vin.get('api'), vin.get('ref')))
+
+
+def _instance(vin):
+    profile = resolve_profile(denull(vin['config']), vin['profile'])
+    if vin.get('ref') is None:
+        return profile
+    return instance_options(block_of(profile, vin['ref']),
+                            denull(vin.get('opts')))
 
 
 # One driver per section this port RUNS, keyed by the corpus section
@@ -122,6 +139,9 @@ DRIVERS = {
     'secretname': _secretname,
 
     'placeholder': placeholder_for,
+
+    'substitute': lambda vin: substitute(
+        vin['url'], vin['headers'], vin['placeholder'], vin['value']),
 
     'descriptor': lambda vin: normalize_descriptor(
         vin['config'], vin['feature'])[0],
@@ -137,9 +157,9 @@ DRIVERS = {
     # to validate the wrong form.
     'config': lambda vin: validate_config(normalize_config(denull(vin))),
 
-    # The 3.3 merge, and the whole of this port's profile contract.
-    'instance': lambda vin: resolve_profile(denull(vin['config']),
-                                            vin['profile']),
+    # The 3.3 merge, and the whole of this port's profile contract. A
+    # `ref` asks for the options that named instance is constructed with.
+    'instance': _instance,
 
     'feature': _feature,
 
