@@ -106,37 +106,51 @@ static voxgig_value* shallow_copy_map(voxgig_value* m) {
   return out;
 }
 
-// Literal replace-all of `find` in `s`; malloc'd.
-static char* str_replace_all(const char* s, const char* find, const char* rep) {
-  size_t flen = strlen(find);
-  size_t rlen = strlen(rep);
-  size_t cap = strlen(s) + 1;
-  char* out;
-  size_t len = 0;
-  const char* p = s;
-  if (0 == flen) {
-    out = (char*)malloc(cap);
-    memcpy(out, s, cap);
-    return out;
-  }
-  out = (char*)malloc(cap);
-  while (1) {
-    const char* hit = strstr(p, find);
-    size_t take = hit ? (size_t)(hit - p) : strlen(p);
-    size_t need = len + take + (hit ? rlen : 0) + 1;
-    if (need > cap) {
-      while (need > cap) cap *= 2;
-      out = (char*)realloc(out, cap);
+// The placeholder swapped in through vxstn_substitute: header values and
+// the query of the request URL and of the fetchdef's url. `senddef` is
+// already a copy; returns the URL to send, malloc'd, and sets *placed when
+// either URL now carries the value.
+static char* station_inject(voxgig_value* senddef, const char* url, const char* slug,
+                            const char* value, bool* placed) {
+  char* placeholder = vxstn_placeholder(slug);
+  voxgig_value* headers = shallow_copy_map(getp(senddef, "headers"));
+  voxgig_value* defurl = getp(senddef, "url");
+  voxgig_map* hm = voxgig_as_map(headers);
+  vxstn_val* strings = vxstn_map();
+  vxstn_val* sent;
+  vxstn_val* swapped;
+  char* sendurl;
+
+  for (size_t i = 0; i < hm->len; i++) {
+    voxgig_value* hv = hm->entries[i].value;
+    if (voxgig_is_string(hv)) {
+      vxstn_map_set(strings, hm->entries[i].key, vxstn_str(voxgig_as_string(hv)));
     }
-    memcpy(out + len, p, take);
-    len += take;
-    if (!hit) break;
-    memcpy(out + len, rep, rlen);
-    len += rlen;
-    p = hit + flen;
   }
-  out[len] = '\0';
-  return out;
+  sent = vxstn_substitute(url, strings, placeholder, value);
+  swapped = vxstn_map_get(sent, "headers");
+  for (size_t i = 0; i < swapped->mlen; i++) {
+    const char* hv = vxstn_strval(swapped->vals[i]);
+    if (0 != strcmp(hv, vxstn_strval(vxstn_map_get(strings, swapped->keys[i])))) {
+      setp(headers, swapped->keys[i], v_str(hv));
+    }
+  }
+  setp(senddef, "headers", headers);
+  sendurl = strdup(vxstn_strval(vxstn_map_get(sent, "url")));
+  *placed = 0 != strcmp(sendurl, url);
+
+  if (voxgig_is_string(defurl)) {
+    vxstn_val* sentdef = vxstn_substitute(voxgig_as_string(defurl), NULL, placeholder, value);
+    const char* placeddef = vxstn_strval(vxstn_map_get(sentdef, "url"));
+    *placed = *placed || 0 != strcmp(placeddef, voxgig_as_string(defurl));
+    setp(senddef, "url", v_str(placeddef));
+    vxstn_val_free(sentdef);
+  }
+
+  vxstn_val_free(strings);
+  vxstn_val_free(sent);
+  free(placeholder);
+  return sendurl;
 }
 
 // The client's options.feature reduced to {name: {active}} JSON - the
@@ -180,6 +194,8 @@ static voxgig_value* station_fetch(Fetcher* self, Context* ctx, const char* url,
   const char* corr;
   int64_t started;
   voxgig_value* senddef = fetchdef;
+  char* sendurl = NULL;
+  bool placed = false;
   bool live;
   bool has_policy = false;
   PNError* e = NULL;
@@ -246,36 +262,26 @@ static voxgig_value* station_fetch(Fetcher* self, Context* ctx, const char* url,
       vxstn_error_free(serr);
       return NULL;
     }
-    {
-      char* placeholder = vxstn_placeholder(sf->slug);
-      voxgig_value* headers;
-      if (senddef == fetchdef) {
-        senddef = shallow_copy_map(senddef);
-      }
-      headers = shallow_copy_map(getp(senddef, "headers"));
-      if (voxgig_is_map(headers)) {
-        voxgig_map* hm = voxgig_as_map(headers);
-        for (size_t i = 0; i < hm->len; i++) {
-          voxgig_value* hv = hm->entries[i].value;
-          if (voxgig_is_string(hv) && NULL != strstr(voxgig_as_string(hv), placeholder)) {
-            char* swapped = str_replace_all(voxgig_as_string(hv), placeholder, value);
-            setp(headers, hm->entries[i].key, v_str(swapped));
-            free(swapped);
-          }
-        }
-      }
-      setp(senddef, "headers", headers);
-      free(placeholder);
+    if (senddef == fetchdef) {
+      senddef = shallow_copy_map(senddef);
     }
+    sendurl = station_inject(senddef, url, sf->slug, value, &placed);
   }
 
   started = vxstn_now_ms();
-  out = link->inner->fn(link->inner, ctx, url, senddef, &e);
+  out = link->inner->fn(link->inner, ctx, sendurl ? sendurl : url, senddef, &e);
 
   if (e) {
     // One http event per attempt, wire truth even for failures.
     vxstn_emit_http(st, sf->slug, corr, get_str(senddef, "method"), url, 0, started, 0);
     vxstn_emit_err(st, sf->slug, corr, e->code, e->msg);
+    // A transport error may quote its URL, which carries a query-placed value.
+    if (placed) {
+      char* msg = vxstn_redact(st, e->msg);
+      free(e->msg);
+      e->msg = msg;
+    }
+    free(sendurl);
     *err = e;
     return out;
   }
@@ -291,6 +297,7 @@ static voxgig_value* station_fetch(Fetcher* self, Context* ctx, const char* url,
                     status, started, bytes);
   }
 
+  free(sendurl);
   return out;
 }
 

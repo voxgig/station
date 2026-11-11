@@ -134,7 +134,7 @@ char* vxstn_check_ref(const char* ref, vxstn_error** err) {
     vxstn_sb_put(&msg, "\" in ref \"");
     vxstn_sb_put(&msg, ref);
     vxstn_sb_put(&msg, "\": a name starts with a letter or `@` and uses "
-                       "`[a-zA-Z0-9.~_-/]`, max 1024 (design 6.1)");
+                       "`[a-zA-Z0-9.~_-/]`, max 1024 (§6.1)");
     vxstn_seterr(err, "station_instance_api", msg.buf);
     free(msg.buf);
     free(name);
@@ -146,7 +146,7 @@ char* vxstn_check_ref(const char* ref, vxstn_error** err) {
     vxstn_sb_put(&msg, tag);
     vxstn_sb_put(&msg, "\" in ref \"");
     vxstn_sb_put(&msg, ref);
-    vxstn_sb_put(&msg, "\": a tag uses `[a-zA-Z0-9.~_-]`, max 1024 (design 6.1)");
+    vxstn_sb_put(&msg, "\": a tag uses `[a-zA-Z0-9.~_-]`, max 1024 (§6.1)");
     vxstn_seterr(err, "station_instance_api", msg.buf);
     free(msg.buf);
     free(name);
@@ -176,7 +176,7 @@ static bool checkapi(const char* api, const char* ref, vxstn_error** err) {
   vxstn_sb_put(&msg, named);
   vxstn_sb_put(&msg, "\", but the SDK passed is api \"");
   vxstn_sb_put(&msg, NULL == api ? "" : api);
-  vxstn_sb_put(&msg, "\"; `as` is a tag, not a free name (design 6.1)");
+  vxstn_sb_put(&msg, "\"; `as` is a tag, not a free name (§6.1)");
   vxstn_seterr(err, "station_instance_api", msg.buf);
   free(msg.buf);
   free(named);
@@ -232,7 +232,7 @@ char* vxstn_instance_ref(const char* api, const vxstn_val* fopts, vxstn_error** 
     vxstn_sb_put(&msg, "invalid instance name \"");
     vxstn_sb_put(&msg, api);
     vxstn_sb_put(&msg, "\": a name starts with a letter or `@` and uses "
-                       "`[a-zA-Z0-9.~_-/]`, max 1024 (design 6.1)");
+                       "`[a-zA-Z0-9.~_-/]`, max 1024 (§6.1)");
     vxstn_seterr(err, "station_instance_api", msg.buf);
     free(msg.buf);
     return NULL;

@@ -264,7 +264,7 @@ def _renamehint(cfg):
         return ''
     return ('; rename `plugin` to `sdk` in ' +
             ', '.join('profiles.' + p for p in hit) +
-            ' - the keys are unchanged, an untagged ref IS an api slug (3.4)')
+            ' - the keys are unchanged, an untagged ref IS an api slug (§3.4)')
 
 
 def _scan_config(cfg):
@@ -423,7 +423,7 @@ def _scan(node, path, secrets, reserved):
         if _credentialkey(key):
             secrets.append(
                 kpath + ' is a credential-shaped key: station.json holds '
-                'secret NAMES, never values (5.2)')
+                'secret NAMES, never values (§5.2)')
             continue
 
         _scan(val, kpath, secrets, reserved)
@@ -475,7 +475,7 @@ def _userinfo(val, path, secrets):
         secrets.append(
             path + ' is a URL carrying userinfo, which puts a credential in '
             'the config file; use the proxy feature\'s `fromEnv` option '
-            'instead (8.6)')
+            'instead (§8.6)')
 
 
 def _kindof(v):

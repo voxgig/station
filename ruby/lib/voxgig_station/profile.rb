@@ -204,7 +204,7 @@ module VoxgigStation
           'profile "' + profile_name + '": instances "' + prior[0] + '" and "' +
           ref + '" both resolve to secret name "' + name +
           '", so they would share one credential; name it explicitly on ' +
-          'each, or at the api level to share it deliberately (5.1)')
+          'each, or at the api level to share it deliberately (§5.1)')
       end
       seen[name] = [ref, derived] if prior.nil?
     end
@@ -216,5 +216,20 @@ module VoxgigStation
 
     p = secrets['providers']
     p.is_a?(Array) ? p : nil
+  end
+
+  # The block that governs an instance: its own, else its api's.
+  def block_of(profile, ref)
+    block = profile['sdk'][ref]
+    block.nil? ? profile['api'][refapi(ref)] : block
+  end
+
+  # 3.5 for a named instance: the block's `options`, then its `base`
+  # (steps 3-6), under the caller's options (step 9), per top-level key.
+  def instance_options(block, opts = nil)
+    block = {} unless block.is_a?(Hash)
+    out = block['options'].is_a?(Hash) ? block['options'].dup : {}
+    out['base'] = block['base'] unless block['base'].nil?
+    out.merge(opts.is_a?(Hash) ? opts : {})
   end
 end

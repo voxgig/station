@@ -38,6 +38,8 @@ import java.util.regex.Pattern;
 @SuppressWarnings({"unchecked"})
 public class Station {
 
+  public static final String VERSION = "0.2.0";
+
   /** The inner transport a station wrap delegates to. */
   @FunctionalInterface
   public interface Transport {
@@ -269,6 +271,27 @@ public class Station {
   }
 
   /**
+   * The ref a caller names before construction: an explicit instance, or
+   * an `as` that is a full ref. A bare tag needs the SDK's api, and an
+   * invalid name is left for registration to refuse.
+   */
+  static String namedRef(Map<String, Object> fopts) {
+    Object explicit = Descriptor.getprop(fopts, "instance");
+    Object as = Descriptor.getprop(fopts, "as");
+    String name = explicit instanceof String && !((String) explicit).isEmpty()
+        ? (String) explicit
+        : as instanceof String && ((String) as).contains("$") ? (String) as : null;
+    if (null == name) {
+      return null;
+    }
+    try {
+      return checkref(name);
+    } catch (StationError err) {
+      return null;
+    }
+  }
+
+  /**
    * Validate a ref against the joint grammar and return its CANONICAL
    * spelling: a trailing `$` (empty tag) is never kept, so `stripe$` and
    * `stripe` are ONE registry key rather than two.
@@ -281,12 +304,12 @@ public class Station {
       throw new StationError("station_instance_api",
           "invalid instance name \"" + name + "\" in ref \"" + ref + "\": a name "
               + "starts with a letter or `@` and uses `[a-zA-Z0-9.~_-/]`, "
-              + "max 1024 (6.1)");
+              + "max 1024 (§6.1)");
     }
     if (!checkInstanceTag(tag)) {
       throw new StationError("station_instance_api",
           "invalid instance tag \"" + tag + "\" in ref \"" + ref + "\": a tag "
-              + "uses `[a-zA-Z0-9.~_-]`, max 1024 (6.1)");
+              + "uses `[a-zA-Z0-9.~_-]`, max 1024 (§6.1)");
     }
     return tag.isEmpty() ? name : ref;
   }
@@ -296,7 +319,7 @@ public class Station {
       throw new StationError("station_instance_api",
           "instance \"" + ref + "\" names api \"" + Profile.refapi(ref)
               + "\", but the SDK passed is api \"" + api
-              + "\"; `as` is a tag, not a free name (6.1)");
+              + "\"; `as` is a tag, not a free name (§6.1)");
     }
     return ref;
   }
@@ -331,7 +354,7 @@ public class Station {
       if (!checkInstanceName(api)) {
         throw new StationError("station_instance_api",
             "invalid instance name \"" + api + "\": a name starts with a letter "
-                + "or `@` and uses `[a-zA-Z0-9.~_-/]`, max 1024 (6.1)");
+                + "or `@` and uses `[a-zA-Z0-9.~_-/]`, max 1024 (§6.1)");
       }
       return api;
     }
@@ -362,8 +385,26 @@ public class Station {
   }
 
   public Map<String, Object> options(String instance, Map<String, Object> extra) {
-    Map<String, Object> calleropts = null == extra ? new LinkedHashMap<>() : extra;
+    Map<String, Object> names = new LinkedHashMap<>();
+    for (String key : List.of("as", "instance")) {
+      Object val = Descriptor.getprop(extra, key);
+      if (null != val) {
+        names.put(key, val);
+      }
+    }
+    if (null != instance && !instance.isEmpty()) {
+      names.put("instance", instance);
+    }
+    Map<String, Object> named = new LinkedHashMap<>(Descriptor.asmap(
+        Descriptor.getprop(Descriptor.getprop(extra, "feature"), "station")));
+    named.putAll(names);
+    String ref = namedRef(named);
+    Map<String, Object> given = null == extra ? new LinkedHashMap<>() : extra;
+    Map<String, Object> calleropts =
+        null == ref ? given : Profile.instanceOptions(blockFor(ref), given);
     Map<String, Object> out = new LinkedHashMap<>(calleropts);
+    out.remove("as");
+    out.remove("instance");
 
     Map<String, Object> fmap = new LinkedHashMap<>(
         Descriptor.asmap(out.get("feature")));
@@ -372,9 +413,7 @@ public class Station {
     entry.put("active", true);
     entry.put("station", this);
     entry.put("calleropts", calleropts);
-    if (null != instance && !instance.isEmpty()) {
-      entry.put("instance", instance);
-    }
+    entry.putAll(names);
     fmap.put("station", entry);
     out.put("feature", fmap);
 
@@ -431,7 +470,7 @@ public class Station {
     if (registry.containsKey(name)) {
       throw new StationError("station_bound_twice",
           "instance \"" + name + "\" is already registered; binding one client "
-              + "twice is an error (design 10.2)");
+              + "twice is an error (§10.2)");
     }
 
     Map<String, Object> block = blockFor(name);
@@ -599,12 +638,7 @@ public class Station {
    * came apart in the first place.
    */
   public Map<String, Object> blockFor(String name) {
-    Object own = Descriptor.getprop(profile.get("sdk"), declaredRef(name));
-    if (own instanceof Map) {
-      return (Map<String, Object>) own;
-    }
-    return Descriptor.asmap(
-        Descriptor.getprop(profile.get("api"), Profile.refapi(name)));
+    return Profile.blockOf(profile, declaredRef(name));
   }
 
   /**
@@ -705,6 +739,8 @@ public class Station {
     }
 
     Map<String, Object> senddef = fetchdef;
+    String sendurl = fullurl;
+    boolean placed = false;
     if (hosts instanceof List && live) {
       senddef = new LinkedHashMap<>(senddef);
       senddef.put("redirect", "manual");
@@ -732,27 +768,30 @@ public class Station {
         throw err;
       }
 
+      SecretBroker.Substituted sent = SecretBroker.substitute(fullurl,
+          Descriptor.asmap(senddef.get("headers")), placeholder, value);
+      sendurl = sent.url;
       senddef = new LinkedHashMap<>(senddef);
-      Map<String, Object> headers = new LinkedHashMap<>(
-          Descriptor.asmap(senddef.get("headers")));
-      for (Map.Entry<String, Object> header : headers.entrySet()) {
-        Object v = header.getValue();
-        if (v instanceof String && ((String) v).contains(placeholder)) {
-          header.setValue(((String) v).replace(placeholder, value));
-        }
+      senddef.put("headers", sent.headers);
+      placed = !sendurl.equals(fullurl);
+      Object defurl = senddef.get("url");
+      if (defurl instanceof String) {
+        String sentdef =
+            SecretBroker.substitute((String) defurl, null, placeholder, value).url;
+        senddef.put("url", sentdef);
+        placed = placed || !sentdef.equals(defurl);
       }
-      senddef.put("headers", headers);
     }
 
     long started = System.currentTimeMillis();
 
     Object res;
     try {
-      res = inner.send(fullurl, senddef);
+      res = inner.send(sendurl, senddef);
     } catch (RuntimeException err) {
       emitHttp(name, corr, fullurl, senddef, 0, started, 0);
       emitErr(name, corr, err);
-      throw err;
+      throw scrubbed(err, placed);
     }
 
     int status = 0;
@@ -777,6 +816,22 @@ public class Station {
     return res;
   }
 
+  // A transport error may quote its URL, which carries a query-placed value.
+  // A java message cannot be rewritten, so an equivalent error stands in.
+  private RuntimeException scrubbed(RuntimeException err, boolean placed) {
+    String message = err.getMessage();
+    if (!placed || null == message) {
+      return err;
+    }
+    String clean = redact(message);
+    if (clean.equals(message)) {
+      return err;
+    }
+    RuntimeException out = new RuntimeException(clean, err.getCause());
+    out.setStackTrace(err.getStackTrace());
+    return out;
+  }
+
   /** Op events from the hook bridge (design 3 item 3). */
   public void opEvent(String name, String corr, Long start,
       String entity, String opname, String outcome) {
@@ -795,12 +850,19 @@ public class Station {
   private void emitHttp(String name, String corr, String fullurl,
       Map<String, Object> fetchdef, int status, long started, long bytes) {
     String host = "";
-    String path = "";
+    String path = fullurl;
     try {
       URI u = URI.create(fullurl);
-      String h = u.getHost();
-      host = null == h ? "" : (0 <= u.getPort() ? h + ":" + u.getPort() : h);
-      path = null == u.getPath() ? "" : u.getPath();
+      // A relative reference is reported whole, like an unparseable URL.
+      // getRawPath keeps the escapes that getPath decodes.
+      if (u.isAbsolute() && null != u.getRawAuthority()) {
+        String h = u.getHost();
+        int port = u.getPort();
+        host = null == h ? ""
+            : (0 <= port && port != defaultPort(u.getScheme()) ? h + ":" + port : h);
+        String raw = u.getRawPath();
+        path = null == raw || raw.isEmpty() ? "/" : raw;
+      }
     } catch (RuntimeException ignored) {
       path = fullurl;
     }
@@ -825,6 +887,11 @@ public class Station {
     }
     event.put("http", http);
     emit(event);
+  }
+
+  private static int defaultPort(String scheme) {
+    return "https".equalsIgnoreCase(scheme) ? 443
+        : "http".equalsIgnoreCase(scheme) ? 80 : -1;
   }
 
   private void emitErr(String name, String corr, RuntimeException err) {
@@ -971,14 +1038,7 @@ public class Station {
       fmap.put(String.valueOf(fname), rest);
     }
 
-    Map<String, Object> built = new LinkedHashMap<>();
-    built.putAll(Descriptor.asmap(block.get("options")));
-    if (null != block.get("base")) {
-      built.put("base", block.get("base"));
-    }
-    if (null != overrides) {
-      built.putAll(overrides);
-    }
+    Map<String, Object> built = Profile.instanceOptions(block, overrides);
     fmap.putAll(Descriptor.asmap(
         Descriptor.getprop(overrides, "feature")));
     built.put("feature", fmap);
@@ -1033,7 +1093,7 @@ public class Station {
             + "or call Station.provide(\"" + api + "\", ...). `package` is not "
             + "honoured in the Java port: an `import` is a compile-time name "
             + "alias that loads nothing, so there is no import-by-name at run "
-            + "time (6.3)");
+            + "time (§6.3)");
   }
 
   /**
@@ -1083,7 +1143,7 @@ public class Station {
           + "import-by-name at run time. api \"" + api + "\" must arrive by "
           + "self-registration (a META-INF/services "
           + "com.voxgig.station.Factory$Registrar entry) or Station.provide "
-          + "(6.3); everything else in this config still applies");
+          + "(§6.3); everything else in this config still applies");
     }
   }
 

@@ -161,11 +161,11 @@ repository.
 The conformance suite runs [`spec/station.json`](../spec/station.json)
 — the same file every port runs — through the Java
 [voxgig/omni](https://github.com/voxgig/omni) runner: `secretname`,
-`placeholder`, `descriptor`, `descriptorwarnings`, `canonical`, `config`,
-`instance`, `instanceref`, `feature`, and `errors`. The sections that
-need live SDK machinery (inject, order, event correlation) are covered by
-the focused unit cases here against the library's own seam, and
-end-to-end by the generated-SDK consumer suites.
+`placeholder`, `substitute`, `descriptor`, `descriptorwarnings`,
+`canonical`, `config`, `instance`, `instanceref`, `feature`, and
+`errors`. The sections that need live SDK machinery (inject, order, event
+correlation) are covered by the focused unit cases here against the
+library's own seam, and end-to-end by the generated-SDK consumer suites.
 
 **The completeness guard.** `DRIVERS` names every corpus section this
 port runs and the per-section tests are REGISTERED FROM IT, never written
@@ -175,7 +175,7 @@ with a written reason. The `sections-covered` case reads
 would hide a section it never resolved — and asserts that DRIVERS +
 PENDING exactly equals the sections the corpus carries, so a section
 added upstream fails loudly here instead of silently not running, and a
-driver left behind by a rename fails the other way. All ten sections run;
+driver left behind by a rename fails the other way. All eleven sections run;
 `PENDING` is empty.
 
 ## Where Java differs from the canonical library
@@ -191,6 +191,11 @@ disagree.
   generated SDK's own `Feature` interface, so there is no
   `connect`/`adopt` and nothing rides `extend`; the generated feature is
   the one binding path.
+- **A scrubbed transport error is a stand-in.** A Java exception's
+  message is fixed at construction, so a transport error that quotes a
+  query-placed credential comes back as an equivalent `RuntimeException`
+  carrying the scrubbed message, with the original's cause and stack
+  trace, rather than as the original object.
 - **`warm()` resolves the deduplicated set serially.** The plan is
   grouped by SECRET NAME, which is where the saving is — the broker's
   resolution cache is keyed by secret name (design §5.3), so several

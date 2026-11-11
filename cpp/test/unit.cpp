@@ -143,6 +143,64 @@ int main(int argc, char** argv) {
     check(1 == seen, "untap stops delivery");
   });
 
+  testcase("emit-http-path-keeps-the-request-escapes", [] {
+    const std::vector<std::vector<std::string>> cases = {
+        {"https://h/vault/projects%2Flaunch%20plan.md", "h",
+         "/vault/projects%2Flaunch%20plan.md"},
+        {"https://h", "h", "/"},
+        {"/vault/projects%2Flaunch%20plan.md?x=1", "",
+         "/vault/projects%2Flaunch%20plan.md?x=1"},
+    };
+    vs::StationOptions opts;
+    opts.has_config = true;
+    opts.proxy = "off";
+    vs::Station st(opts);
+    for (const auto& c : cases) {
+      st.emit_http("vault", "", c[0], "GET", 200, vs::now_ms(), 0);
+    }
+    std::vector<vs::Jval> http;
+    for (const auto& ev : st.events()) {
+      if ("http" == ev.get("kind").str_or("")) {
+        http.push_back(ev.get("http"));
+      }
+    }
+    check(cases.size() == http.size(), "one http event per request");
+    for (size_t i = 0; i < cases.size() && i < http.size(); i++) {
+      checkeq(http[i].get("host").str_or(""), cases[i][1], cases[i][0] + " host");
+      checkeq(http[i].get("path").str_or(""), cases[i][2], cases[i][0] + " path");
+    }
+  });
+
+  testcase("emit-http-host-reads-as-url-host", [] {
+    const std::vector<std::vector<std::string>> cases = {
+        {"https://h:443/x", "h", "/x"},
+        {"http://h:80/x", "h", "/x"},
+        {"https://h:8443/x", "h:8443", "/x"},
+        {"https://u:p@h/x", "h", "/x"},
+        {"https://u:p@ss@h/x", "h", "/x"},
+        {"http://[::1]:8080/x", "[::1]:8080", "/x"},
+        {"http://[::1]/x", "[::1]", "/x"},
+    };
+    vs::StationOptions opts;
+    opts.has_config = true;
+    opts.proxy = "off";
+    vs::Station st(opts);
+    for (const auto& c : cases) {
+      st.emit_http("vault", "", c[0], "GET", 200, vs::now_ms(), 0);
+    }
+    std::vector<vs::Jval> http;
+    for (const auto& ev : st.events()) {
+      if ("http" == ev.get("kind").str_or("")) {
+        http.push_back(ev.get("http"));
+      }
+    }
+    check(cases.size() == http.size(), "one http event per request");
+    for (size_t i = 0; i < cases.size() && i < http.size(); i++) {
+      checkeq(http[i].get("host").str_or(""), cases[i][1], cases[i][0] + " host");
+      checkeq(http[i].get("path").str_or(""), cases[i][2], cases[i][0] + " path");
+    }
+  });
+
   testcase("broker-env-resolution-and-miss", [] {
     setenv("UNIT_BROKER_APIKEY", "sk-live-x1", 1);
     vs::Jval providers = vs::parse_json(R"([{ "kind": "env" }])");
@@ -173,7 +231,40 @@ int main(int argc, char** argv) {
     broker.hoist("other", "hoisted-secret");
     checkeq(broker.scrub("say hoisted-secret twice hoisted-secret"),
             "say [redacted] twice [redacted]", "hoisted value scrubbed everywhere");
+    broker.hoist("query", "tok!en 1");
+    checkeq(broker.scrub("GET /x?token=tok%21en%201 for tok!en 1"),
+            "GET /x?token=[redacted] for [redacted]", "query-encoded form scrubbed too");
     unsetenv("UNIT_SCRUB_APIKEY");
+  });
+
+  testcase("broker-scrub-matches-every-form-against-the-original-text", [] {
+    vs::Jval none = vs::parse_json("[]");
+    const std::vector<std::vector<std::string>> orders = {{"%", "secret!"}, {"secret!", "%"}};
+    for (const auto& held : orders) {
+      vs::SecretBroker broker(none);
+      broker.hoist("a", held[0]);
+      broker.hoist("b", held[1]);
+      checkeq(broker.scrub("token=secret%21"), "token=[redacted]", held[0] + " " + held[1]);
+    }
+    vs::SecretBroker broker(none);
+    broker.hoist("a", "ab!");
+    broker.hoist("b", "!c");
+    checkeq(broker.scrub("x=ab%21c&y=!c"), "x=[redacted]&y=[redacted]",
+            "forms that overlap in the text are one span");
+  });
+
+  testcase("substitute-copies-headers-and-passes-non-strings", [] {
+    vs::Jval headers = vs::parse_json(R"({ "x-api-key": "[station:k]", "content-length": 12 })");
+    vs::Substituted sent =
+        vs::substitute("http://h/x?k=%5Bstation%3Ak%5D", headers, "[station:k]", "a b");
+    checkeq(sent.url, "http://h/x?k=a%20b", "query value encoded");
+    checkeq(sent.headers.get("x-api-key").str_or("?"), "a b", "header value raw");
+    check(sent.headers.get("content-length").isnum() &&
+              12 == sent.headers.get("content-length").nval,
+          "a non-string header passes through");
+    checkeq(headers.get("x-api-key").str_or("?"), "[station:k]", "input headers untouched");
+    check(vs::substitute("http://h/x", vs::Jval::absent(), "[station:k]", "v").headers.ismap(),
+          "no headers is an empty copy");
   });
 
   testcase("broker-unsupported-kinds-env-only", [] {
@@ -712,6 +803,36 @@ int main(int argc, char** argv) {
     checkeq(thrown_code([&st] { st.sdk("gnarly-pets"); }), "station_feature_unknown",
             "sdk() does not silently ignore it");
     vs::reset_factories();
+  });
+
+  testcase("feature-options-optspec-kinds-and-strict", [] {
+    vs::Jval descriptor = vs::normalize_descriptor(vs::parse_json(R"({
+      "main": { "name": "Joplin", "slug": "joplin" },
+      "feature": {
+        "test": { "options": { "active": false },
+                  "optspec": { "entity": "`$MAP`", "net": "`$MAP`" },
+                  "strict": false, "transport": "base" },
+        "retry": { "options": { "retries": 2 }, "strict": true } } })"),
+                                                   vs::Jval::map())
+                                .descriptor;
+
+    check(vs::check_features(vs::parse_json(R"({
+      "test": { "active": true, "entity": { "note": {} }, "net": { "offline": true },
+                "seed": 1 } })"),
+                             descriptor)
+              .empty(),
+          "optspec keys are declared, and a feature that is not strict is open");
+
+    auto kind = vs::check_features(vs::parse_json(R"({ "test": { "net": "offline" } })"),
+                                   descriptor);
+    check(1 == kind.size() &&
+              std::string::npos != kind[0].message.find("expects map, but found string"),
+          "an optspec key is checked against its type");
+
+    auto typo = vs::check_features(vs::parse_json(R"({ "retry": { "retires": 5 } })"),
+                                   descriptor);
+    check(1 == typo.size() && "retires" == typo[0].key,
+          "a strict feature refuses an undeclared key");
   });
 
   // THE REGISTRY IS THE AUTHORITY: a name nobody declared or registered

@@ -346,7 +346,7 @@ function renamehint(mixed $cfg): string
         return '';
     }
     return '; rename `plugin` to `sdk` in ' . implode(', ', $hit) .
-        ' - the keys are unchanged, an untagged ref IS an api slug (3.4)';
+        ' - the keys are unchanged, an untagged ref IS an api slug (§3.4)';
 }
 
 /**
@@ -563,7 +563,7 @@ function scan(mixed $node, string $path, array &$secrets, array &$reserved): voi
 
         if (credentialkey($key)) {
             $secrets[] = $kpath . ' is a credential-shaped key: station.json ' .
-                'holds secret NAMES, never values (5.2)';
+                'holds secret NAMES, never values (§5.2)';
             continue;
         }
 
@@ -639,7 +639,7 @@ function userinfo(string $val, string $path, array &$secrets): void
     }
     $secrets[] = $path . ' is a URL carrying userinfo, which puts a ' .
         'credential in the config file; use the proxy feature\'s `fromEnv` ' .
-        'option instead (8.6)';
+        'option instead (§8.6)';
 }
 
 /**

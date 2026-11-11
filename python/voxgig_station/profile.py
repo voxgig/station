@@ -203,9 +203,27 @@ def _checksecrets(sdk, profile_name):
                 'profile "' + profile_name + '": instances "' + prior[0] +
                 '" and "' + ref + '" both resolve to secret name "' + name +
                 '", so they would share one credential; name it explicitly '
-                'on each, or at the api level to share it deliberately (5.1)')
+                'on each, or at the api level to share it deliberately (§5.1)')
         if prior is None:
             seen[name] = (ref, derived)
+
+
+def block_of(profile, ref):
+    """The block that governs an instance: its own, else its api's."""
+    block = profile['sdk'].get(ref)
+    if block is None:
+        block = profile['api'].get(refapi(ref))
+    return block
+
+
+def instance_options(block, opts=None):
+    """3.5 for a named instance: the block's `options`, then its `base`
+    (steps 3-6), under the caller's options (step 9), per top-level key."""
+    out = dict((block or {}).get('options') or {})
+    if (block or {}).get('base') is not None:
+        out['base'] = block['base']
+    out.update(opts or {})
+    return out
 
 
 def _providers_of(profile):

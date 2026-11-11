@@ -7,10 +7,13 @@
 # A port of typescript/src/secrets.ts, which is canonical.
 
 require 'voxgig_sekreto'
+require 'voxgig_sekreto/plugins'
 
 require_relative 'error'
 
 module VoxgigStation
+  HEXPAIR_RE = /\A[0-9A-Fa-f]{2}\z/.freeze
+
   module_function
 
   # Keyed by INSTANCE (design station.md 7.2). Two live instances of one
@@ -21,9 +24,100 @@ module VoxgigStation
     '[station:' + name.to_s + ']'
   end
 
+  # Every UTF-8 byte outside RFC 3986's unreserved set becomes upper-case %XX.
+  def encode_query_value(value)
+    value.to_s.b.gsub(/[^A-Za-z0-9\-._~]/n) { |c| format('%%%02X', c.ord) }
+      .force_encoding(Encoding::UTF_8)
+  end
+
+  def query_match_at(text, at, stop, placeholder)
+    i = at
+    placeholder.each_char do |ch|
+      if i < stop && text[i] == ch
+        i += 1
+      elsif i + 3 <= stop && '%' == text[i] && HEXPAIR_RE.match?(text[i + 1, 2]) &&
+            text[i + 1, 2].to_i(16) == ch.ord
+        i += 3
+      else
+        return -1
+      end
+    end
+    i - at
+  end
+
+  # The placeholder becomes the value in header values and in the URL query,
+  # where an SDK percent-encodes it (any hex case) and the value is encoded in
+  # turn. The path and fragment are never touched; the headers are a copy.
+  def substitute(url, headers, placeholder, value)
+    out = headers.is_a?(Hash) ? headers.dup : {}
+    return { 'url' => url, 'headers' => out } if '' == placeholder
+
+    out.each do |h, v|
+      out[h] = v.split(placeholder, -1).join(value) if v.is_a?(String) && v.include?(placeholder)
+    end
+
+    q = url.index('?')
+    hash_at = url.index('#')
+    return { 'url' => url, 'headers' => out } if q.nil? || (!hash_at.nil? && hash_at < q)
+
+    stop = hash_at.nil? ? url.length : hash_at
+    encoded = encode_query_value(value)
+    query = +''
+    i = q + 1
+    while i < stop
+      n = query_match_at(url, i, stop, placeholder)
+      if n.positive?
+        query << encoded
+        i += n
+      else
+        query << url[i]
+        i += 1
+      end
+    end
+    { 'url' => url[0..q] + query + url[stop..], 'headers' => out }
+  end
+
+  # Every form of every value is matched against the original text and the
+  # union of the matches redacted, so no replacement can hide another form.
+  # Bytes, not characters: indexing a multibyte string by character is linear.
+  def redact_values(text, values)
+    forms = values.map(&:to_s).reject(&:empty?).flat_map { |v| [v.b, encode_query_value(v).b] }.uniq
+    bytes = text.b
+    reach = lambda do |at|
+      forms.reduce(at) do |stop, form|
+        size = form.bytesize
+        at + size > stop && bytes.byteslice(at, size) == form ? at + size : stop
+      end
+    end
+
+    out = String.new(encoding: Encoding::BINARY)
+    copied = 0
+    at = 0
+    while at < bytes.bytesize
+      stop = reach.call(at)
+      if stop == at
+        at += 1
+        next
+      end
+      j = at + 1
+      while j < stop
+        stop = [stop, reach.call(j)].max
+        j += 1
+      end
+      out << bytes.byteslice(copied, at - copied) << '[redacted]'
+      copied = at = stop
+    end
+    (out << bytes.byteslice(copied, bytes.bytesize - copied)).force_encoding(text.encoding)
+  end
+
   class SecretBroker
     def initialize(providers)
-      @sekreto = VoxgigSekreto::Sekreto.new('providers' => providers)
+      # Plugins::ALL, because the profile, not station, chooses the chain:
+      # sekreto keeps every kind but dotenv/env/file/memory behind a plugin
+      # definition the caller passes in, so without it a profile naming
+      # hashicorp or minivault fails at open() with "unknown provider kind".
+      @sekreto = VoxgigSekreto::Sekreto.new('plugins' => VoxgigSekreto::Plugins::ALL,
+                                            'providers' => providers)
       # Values hoisted by adopt() from resident options apikey
       # (design station.md 3.1).
       @overrides = {}
@@ -84,17 +178,12 @@ module VoxgigStation
     # Exact-value scrub, deliberately WITHOUT sekreto's four-character
     # readability floor (design station.md 7 as revised): on boundaries
     # where the promise is absolute, every held value is scrubbed
-    # whatever its length. sekreto's own redact() runs too, covering
-    # values resolved by the underlying instance that station never held.
+    # whatever its length. sekreto's own redact() runs after, covering
+    # values resolved by the underlying instance that station never held;
+    # run first, its raw-value replacement could split an encoded form.
     def scrub(text)
-      out = @sekreto.redact(text.to_s)
       held = @mutex.synchronize { @held.dup }
-      held.each do |value|
-        next if '' == value.to_s
-
-        out = out.split(value, -1).join('[redacted]')
-      end
-      out
+      @sekreto.redact(VoxgigStation.redact_values(text.to_s, held))
     end
 
     # Drop caches so the next resolve asks the stores again (rotation

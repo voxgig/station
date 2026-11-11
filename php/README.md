@@ -107,7 +107,7 @@ reason written down. The per-section tests are registered by iterating
 `sections-covered` test reads `spec/station.json` directly and asserts
 that the two tables' keys exactly cover the corpus's own. A section
 added upstream and not picked up here fails loudly; so does a stale
-driver or a stale pin. All ten corpus sections run; `$PENDING` is
+driver or a stale pin. All eleven corpus sections run; `$PENDING` is
 empty.
 
 ## Notes

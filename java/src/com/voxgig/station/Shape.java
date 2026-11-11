@@ -420,7 +420,7 @@ public final class Shape {
       return "";
     }
     return "; rename `plugin` to `sdk` in " + String.join(", ", hit)
-        + " - the keys are unchanged, an untagged ref IS an api slug (3.4)";
+        + " - the keys are unchanged, an untagged ref IS an api slug (§3.4)";
   }
 
   // The three collections the scans fill. COLLECT, never throw -
@@ -628,7 +628,7 @@ public final class Shape {
 
       if (credentialkey(key)) {
         scan.secrets.add(kpath + " is a credential-shaped key: station.json "
-            + "holds secret NAMES, never values (5.2)");
+            + "holds secret NAMES, never values (§5.2)");
         continue;
       }
 
@@ -698,7 +698,7 @@ public final class Shape {
     if (0 < last) {
       scan.secrets.add(path + " is a URL carrying userinfo, which puts a "
           + "credential in the config file; use the proxy feature's "
-          + "`fromEnv` option instead (8.6)");
+          + "`fromEnv` option instead (§8.6)");
     }
   }
 

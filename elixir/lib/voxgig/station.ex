@@ -153,7 +153,7 @@ defmodule Voxgig.Station do
               "no elixir sekreto port: provider kind(s) " <>
                 Enum.join(kinds, ", ") <>
                 " are unavailable in solo mode - secrets are env-only " <>
-                "(station.md 2.2), and resolution reaching such a provider " <>
+                "(§2.2), and resolution reaching such a provider " <>
                 "fails rather than falling through"
           }
         })
@@ -193,7 +193,40 @@ defmodule Voxgig.Station do
       Error.fail("station_no_plugin", "station is closed")
     end
 
-    sdk_module.new(Voxgig.Station.Adapter.construct_options(station, opts))
+    options = Voxgig.Station.Adapter.construct_options(station, opts)
+    named = Voxgig.Station.Adapter.named_ref(options)
+    client = sdk_module.new(options)
+    if nil == named, do: warn_unapplied(station, client, options)
+    client
+  end
+
+  # An unnamed connect learns its api from the SDK's config during
+  # construction: too late for the block's options to reach the SDK.
+  defp warn_unapplied(station, client, options) do
+    entry = bound_entry(station, client)
+    declared = if nil == entry, do: nil, else: (block_for(station, entry.slug) || %{})["options"]
+
+    missed =
+      if is_map(declared),
+        do: Voxgig.Station.Adapter.absent_keys(options, Enum.map(Map.keys(declared), &to_string/1)),
+        else: []
+
+    if [] != missed do
+      emit(station, %{
+        "t" => now_ms(),
+        "kind" => "station",
+        "plugin" => entry.slug,
+        "meta" => %{
+          "warn" =>
+            "instance \"" <>
+              entry.slug <>
+              "\" declares options [" <>
+              Enum.join(Enum.sort(missed), ", ") <>
+              "] that reach the SDK only when the instance is named before " <>
+              "construction; pass { instance: \"" <> entry.slug <> "\" }"
+        }
+      })
+    end
   end
 
   # Inverted binding: the plain options map a generated constructor
@@ -236,7 +269,7 @@ defmodule Voxgig.Station do
         "station_bound_twice",
         "plugin \"" <>
           slug <>
-          "\" is already registered; binding one client twice is an error (10.2)"
+          "\" is already registered; binding one client twice is an error (§10.2)"
       )
     end
 
@@ -327,6 +360,9 @@ defmodule Voxgig.Station do
 
   @doc false
   def profile_plugin(station, slug), do: state!(station).profile["sdk"][slug]
+
+  @doc false
+  def block_for(station, ref), do: Profile.block_of(state!(station).profile, ref)
 
   # Resolve the plugin's secret value through the env-only broker,
   # re-applying the name precedence on every call (override beats
@@ -622,10 +658,10 @@ defmodule Voxgig.Station do
   def now_ms, do: System.system_time(:millisecond)
 
   # ( host-with-port, hostname, path ) from a URL. Mirrors ts URL
-  # semantics: host keeps a non-default port, hostname strips it, an
-  # empty path reads as '/'. IPv6 literals are out of scope for the solo
-  # library (a bracketed host parses as-is). A non-URL yields the ts
-  # catch-branch's {'', '', fullurl}.
+  # semantics: the host follows the LAST '@' and keeps an IPv6 literal's
+  # brackets and a non-default port, hostname strips the port, and an
+  # empty path reads as '/'. A non-URL yields the ts catch-branch's
+  # {'', '', fullurl}.
   @doc false
   def parse_url(fullurl) do
     url = if is_binary(fullurl), do: fullurl, else: ""
@@ -633,7 +669,7 @@ defmodule Voxgig.Station do
     case Regex.run(~r{^([A-Za-z][A-Za-z0-9+.\-]*)://([^/?\#]*)([^?\#]*)}, url) do
       [_, scheme, authority, path] ->
         scheme = String.downcase(scheme)
-        authority = Regex.replace(~r/^[^@]*@/, authority, "")
+        authority = authority |> String.split("@") |> List.last()
 
         {hostname, port} =
           case Regex.run(~r/^(.*?)(?::(\d+))?$/, authority) do
