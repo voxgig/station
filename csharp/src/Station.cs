@@ -206,13 +206,13 @@ namespace Voxgig.Station
             {
                 throw new StationError("station_instance_api",
                     "invalid instance name \"" + name + "\" in ref \"" + ref_ + "\": a name "
-                    + "starts with a letter or `@` and uses `[a-zA-Z0-9.~_-/]`, max 1024 (6.1)");
+                    + "starts with a letter or `@` and uses `[a-zA-Z0-9.~_-/]`, max 1024 (§6.1)");
             }
             if (!CheckInstanceTag(tag))
             {
                 throw new StationError("station_instance_api",
                     "invalid instance tag \"" + tag + "\" in ref \"" + ref_ + "\": a tag "
-                    + "uses `[a-zA-Z0-9.~_-]`, max 1024 (6.1)");
+                    + "uses `[a-zA-Z0-9.~_-]`, max 1024 (§6.1)");
             }
             return 0 == tag.Length ? name : ref_;
         }
@@ -224,7 +224,7 @@ namespace Voxgig.Station
                 throw new StationError("station_instance_api",
                     "instance \"" + ref_ + "\" names api \"" + Profile.RefApi(ref_)
                     + "\", but the SDK passed is api \"" + api
-                    + "\"; `as` is a tag, not a free name (6.1)");
+                    + "\"; `as` is a tag, not a free name (§6.1)");
             }
             return ref_;
         }
@@ -251,7 +251,7 @@ namespace Voxgig.Station
                 {
                     throw new StationError("station_instance_api",
                         "invalid instance name \"" + api + "\": a name starts with a letter "
-                        + "or `@` and uses `[a-zA-Z0-9.~_-/]`, max 1024 (6.1)");
+                        + "or `@` and uses `[a-zA-Z0-9.~_-/]`, max 1024 (§6.1)");
                 }
                 return api;
             }

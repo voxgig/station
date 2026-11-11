@@ -219,13 +219,13 @@ public final class Station {
       throw StationError(
         "station_instance_api",
         "invalid instance name \"" + name + "\" in ref \"" + ref + "\": a name "
-          + "starts with a letter or `@` and uses `[a-zA-Z0-9.~_-/]`, max 1024 (6.1)")
+          + "starts with a letter or `@` and uses `[a-zA-Z0-9.~_-/]`, max 1024 (§6.1)")
     }
     if !checkInstanceTag(tag) {
       throw StationError(
         "station_instance_api",
         "invalid instance tag \"" + tag + "\" in ref \"" + ref + "\": a tag "
-          + "uses `[a-zA-Z0-9.~_-]`, max 1024 (6.1)")
+          + "uses `[a-zA-Z0-9.~_-]`, max 1024 (§6.1)")
     }
     return tag.isEmpty ? name : ref
   }
@@ -236,7 +236,7 @@ public final class Station {
         "station_instance_api",
         "instance \"" + ref + "\" names api \"" + Profile.refapi(ref)
           + "\", but the SDK passed is api \"" + api
-          + "\"; `as` is a tag, not a free name (6.1)")
+          + "\"; `as` is a tag, not a free name (§6.1)")
     }
     return ref
   }
@@ -255,7 +255,7 @@ public final class Station {
         throw StationError(
           "station_instance_api",
           "invalid instance name \"" + api + "\": a name starts with a letter "
-            + "or `@` and uses `[a-zA-Z0-9.~_-/]`, max 1024 (6.1)")
+            + "or `@` and uses `[a-zA-Z0-9.~_-/]`, max 1024 (§6.1)")
       }
       return api
     }
