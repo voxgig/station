@@ -7,6 +7,7 @@
 # A port of typescript/src/secrets.ts, which is canonical.
 
 require 'voxgig_sekreto'
+require 'voxgig_sekreto/plugins'
 
 require_relative 'error'
 
@@ -111,7 +112,12 @@ module VoxgigStation
 
   class SecretBroker
     def initialize(providers)
-      @sekreto = VoxgigSekreto::Sekreto.new('providers' => providers)
+      # Plugins::ALL, because the profile, not station, chooses the chain:
+      # sekreto keeps every kind but dotenv/env/file/memory behind a plugin
+      # definition the caller passes in, so without it a profile naming
+      # hashicorp or minivault fails at open() with "unknown provider kind".
+      @sekreto = VoxgigSekreto::Sekreto.new('plugins' => VoxgigSekreto::Plugins::ALL,
+                                            'providers' => providers)
       # Values hoisted by adopt() from resident options apikey
       # (design station.md 3.1).
       @overrides = {}

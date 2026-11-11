@@ -30,6 +30,8 @@ require_relative 'secrets'
 require_relative 'shape'
 
 module VoxgigStation
+  VERSION = '0.2.0'
+
   # The ref grammar is the JOINT identity model's (station-and-plugin.md
   # 2, plugin design 4): a NAME is a package-ish specifier
   # (`^[a-zA-Z@][a-zA-Z0-9.~_\-/]*$`), a TAG is not

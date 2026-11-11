@@ -36,7 +36,7 @@ use JSON::PP ();
 use Scalar::Util qw(blessed refaddr reftype);
 use Time::HiRes ();
 
-our $VERSION = '0.0.1';
+our $VERSION = '0.2.0';
 
 # Self-locating bootstrap: this lib tree may sit anywhere (a checkout, a
 # vendored copy inside a generated SDK's feature container), so the lib
@@ -113,6 +113,31 @@ BEGIN {
         die 'Voxgig::Station: Voxgig::Sekreto not found - vendor it beside '
           . 'this library, install it, or set SEKRETO_HOME'
           unless $found;
+    }
+}
+
+# sekreto's plugins are a second @INC root, plugins/ beside lib/ in a
+# checkout and in the vendored payload alike: beside the copy
+# Voxgig::Sekreto loaded from, so core and plugins match, else beside
+# this library - an SDK's secrets feature loads its own sekreto core,
+# with no full-set module beside it.
+BEGIN {
+    if ( !eval { require Voxgig::Sekreto::Plugins; 1 } ) {
+        my $core = File::Basename::dirname(
+            File::Basename::dirname(
+                File::Basename::dirname( $INC{'Voxgig/Sekreto.pm'} ) ) );
+        my ($root) = grep {
+            -e File::Spec->catfile( $_, 'Voxgig', 'Sekreto', 'Plugins.pm' )
+          } (
+            File::Spec->catdir( $core,    'plugins' ),
+            File::Spec->catdir( $LIBROOT, '..', 'plugins' ),
+          );
+        die 'Voxgig::Station: Voxgig::Sekreto::Plugins not found beside '
+          . $INC{'Voxgig/Sekreto.pm'}
+          . ' - vendor sekreto\'s plugins/ tree beside its lib/'
+          unless defined $root;
+        unshift @INC, $root;
+        require Voxgig::Sekreto::Plugins;
     }
 }
 

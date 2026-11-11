@@ -7,8 +7,7 @@
 # Unlike omni this is a RUNTIME dependency: validate_config runs at
 # open(), not just under test.
 #
-# A port of javascript/src/structhome.js; typescript/src/shape.ts is
-# canonical for what it is used for.
+# typescript/src/shape.ts is canonical for what it is used for.
 
 import os
 import sys

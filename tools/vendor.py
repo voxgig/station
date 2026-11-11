@@ -162,17 +162,26 @@ def pairs():
             rel = os.path.relpath(src, perlsrc)
             out.append((src, os.path.join(perldst, rel), perl_note))
 
-    # ... and its one dependency, from the sekreto checkout.
+    # ... and its one dependency, from the sekreto checkout. sekreto keeps
+    # its plugins in a second @INC root beside lib/, and the payload keeps
+    # that layout, which is where Station.pm's bootstrap looks; SecretBroker
+    # passes the full plugin set, so a payload without the tree dies at load.
     home = sekreto_home()
     if home:
-        seksrc = os.path.join(home, 'perl', 'lib', 'Voxgig')
-        for root, _dirs, files in os.walk(seksrc):
-            for name in sorted(files):
-                if not name.endswith('.pm'):
-                    continue
-                src = os.path.join(root, name)
-                rel = os.path.relpath(src, seksrc)
-                out.append((src, os.path.join(perldst, rel), identity))
+        for tree in ('lib', 'plugins'):
+            seksrc = os.path.join(home, 'perl', tree, 'Voxgig')
+            if not os.path.isdir(seksrc):
+                raise SystemExit('vendor: %s not found - the perl payload '
+                                 "carries sekreto's perl/%s tree."
+                                 % (seksrc, tree))
+            sekdst = os.path.join(perlfeat, tree, 'Voxgig')
+            for root, _dirs, files in os.walk(seksrc):
+                for name in sorted(files):
+                    if not name.endswith('.pm'):
+                        continue
+                    src = os.path.join(root, name)
+                    rel = os.path.relpath(src, seksrc)
+                    out.append((src, os.path.join(sekdst, rel), identity))
 
     # ... and the config shape, which the perl port reads from DISK at
     # open() rather than mirroring into code: Shape.pm walks up from its

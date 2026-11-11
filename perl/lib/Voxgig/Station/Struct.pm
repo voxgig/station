@@ -21,8 +21,7 @@ package Voxgig::Station::Struct;
 # insertion order for a tied map, sorted keys for a plain one, which is
 # the only stable answer where there is no order to read.
 #
-# A port of javascript/src/structhome.js; typescript/src/shape.ts is
-# canonical for what it is used for.
+# typescript/src/shape.ts is canonical for what it is used for.
 
 use strict;
 use warnings;

@@ -1,11 +1,14 @@
 # Design: declarative station config and dynamic SDK instances
 
-Status: **implemented in the canonical** (2026-08-24; proposed
-2026-08-22). An extension of [`station.md`](./station.md), not a
-replacement. Stages 1–3b of §12 are merged in TypeScript, Stage 4 is
-partial (the feature model declares `transport` and `instance`;
-adapter self-registration waits on sdkgen's injection machinery), and
-all eleven CI ports speak the §3 grammar — Stage 5's first tranche.
+Status: **implemented in eleven ports** (state refreshed 2026-11-10;
+implemented in the canonical 2026-08-24; proposed 2026-08-22). An
+extension of [`station.md`](./station.md), not a replacement. Stages
+1–3b of §12 are merged in TypeScript; Stage 4 is partial (the feature
+model declares `transport` and `instance`, and sdkgen generates adapter
+self-registration for ts and js only); and Stage 5 has carried the
+front door to ten more ports. All sixteen ports speak the §3 grammar,
+and five — csharp, swift, dart, elixir, lua — have yet to take the
+front door. The live register is [`docs/plan/`](../plan/README.md).
 §1's inventory describes the shipped system as it stood before this
 work — the posture the design set out to change, kept as the record
 of why.

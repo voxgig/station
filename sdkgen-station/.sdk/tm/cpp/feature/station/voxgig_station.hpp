@@ -109,7 +109,7 @@
 
 namespace vstation {
 
-inline const char* VERSION = "0.0.1";
+inline const char* VERSION = "0.2.0";
 
 // ---------------------------------------------------------------------
 // Jval - the library's own small JSON value. The station core must
