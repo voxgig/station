@@ -254,6 +254,29 @@ defmodule Voxgig.Station.Profile do
     nil
   end
 
+  # The block that governs an instance: its own, else its api's.
+  def block_of(profile, ref) do
+    case mget(mmap(mget(profile, "sdk")), ref) do
+      nil -> mget(mmap(mget(profile, "api")), refapi(ref))
+      block -> block
+    end
+  end
+
+  # station.md 3.5 for a named instance: the block's `options`, then its
+  # `base` (steps 3-6), under the caller's options (step 9), per
+  # top-level key.
+  def instance_options(block, opts) do
+    out = mmap(mget(block, "options"))
+
+    out =
+      case mget(block, "base") do
+        nil -> out
+        base -> Map.put(out, "base", base)
+      end
+
+    Map.merge(out, mmap(opts))
+  end
+
   defp providers_of(profile) do
     secrets = mmap(mget(profile, "secrets"))
     providers = secrets["providers"]

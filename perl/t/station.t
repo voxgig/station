@@ -141,8 +141,11 @@ sub reset_env {
             target  => 'perl',
         },
         feature => {
-            retry => { options => { retries => 1, wait => 100 } },
-            test  => {},
+            retry => {
+                options => { retries => 1, wait => 100 },
+                strict  => JSON::PP::true
+            },
+            test => {},
         },
         options => {
             base   => 'http://localhost:8903',
@@ -807,6 +810,279 @@ subtest 'connect keeps as and instance out of the SDK options' => sub {
         'no station-only keys' );
     is( $sdk->{options}{feature}{station}{instance},
         'gnarly-pets$spare', 'the ref rides the station entry' );
+};
+
+subtest 'options() hands a named instance its declared options' => sub {
+    reset_env();
+    my $st = Voxgig::Station->new(
+        {
+            config => {
+                station  => 1,
+                profiles => {
+                    default => {
+                        sdk => {
+                            notes => {
+                                base    => 'http://127.0.0.1:9',
+                                options => {
+                                    headers => { 'x-api-version' => '2022-06-28' },
+                                    prefix  => '/v1'
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    );
+    my %named = %{ $st->options( 'notes', { suffix => '.json' } ) };
+    delete $named{feature};
+    is_deeply(
+        \%named,
+        {
+            base    => 'http://127.0.0.1:9',
+            headers => { 'x-api-version' => '2022-06-28' },
+            prefix  => '/v1',
+            suffix  => '.json'
+        },
+        'the block options sit under the caller'
+    );
+    my %unnamed = %{ $st->options( { suffix => '.json' } ) };
+    delete $unnamed{feature};
+    is_deeply( \%unnamed, { suffix => '.json' }, 'an unnamed call is untouched' );
+};
+
+subtest 'options() names the instance from a top-level instance or as' => sub {
+    for my $named ( { instance => 'gnarly-pets$eu' }, { as => 'gnarly-pets$eu' } ) {
+        reset_env();
+        my $st = Voxgig::Station->new(
+            {
+                config => {
+                    station  => 1,
+                    profiles => {
+                        default => {
+                            sdk => {
+                                'gnarly-pets' =>
+                                  { options => { headers => { 'x-api-version' => '1' } } },
+                                'gnarly-pets$eu' => { options => { prefix => '/eu' } },
+                            }
+                        }
+                    }
+                }
+            }
+        );
+        my $built   = $st->options( { %$named, suffix => '.json' } );
+        my %sdkopts = %$built;
+        delete $sdkopts{feature};
+        is_deeply( \%sdkopts, { prefix => '/eu', suffix => '.json' }, 'merged, names stripped' );
+
+        my $client = { mode => 'live', features => [], options => undef };
+        my $ctx    = {
+            client  => $client,
+            utility => { fetcher => sub { return; } },
+            options => {%$built},
+            config  => {%$CONFIG},
+        };
+        my $feature = adapter_feature( $st, {} );
+        push @{ $client->{features} }, $feature;
+        $feature->init( $ctx, { %{ $built->{feature}{station} } } );
+        is_deeply( [ map { $_->{name} } @{ $st->plugins } ],
+            ['gnarly-pets$eu'], 'registered under the named ref' );
+    }
+};
+
+subtest 'connect and adopt hand a named instance its declared options' => sub {
+    reset_env();
+    my $st = Voxgig::Station->new(
+        {
+            config => {
+                station  => 1,
+                profiles => {
+                    default => {
+                        sdk => {
+                            notes => {
+                                base    => 'http://127.0.0.1:9',
+                                options => {
+                                    headers => { 'x-api-version' => '2022-06-28' },
+                                    prefix  => '/v1'
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    );
+    my $want = {
+        base    => 'http://127.0.0.1:9',
+        headers => { 'x-api-version' => '2022-06-28' },
+        prefix  => '/v1',
+    };
+    my $plain = sub {
+        my %o = %{ $_[0]{options} };
+        delete @o{qw(feature extend)};
+        return \%o;
+    };
+
+    is_deeply( $plain->( $st->connect( 'ClosedSDK', { instance => 'notes' } ) ),
+        $want, 'connect' );
+    is_deeply( $plain->( $st->adopt( 'ClosedSDK', { instance => 'notes' } ) ),
+        $want, 'adopt' );
+    is_deeply(
+        $plain->(
+            $st->connect( 'ClosedSDK',
+                { feature => { station => { instance => 'notes' } } } )
+        ),
+        $want,
+        'the station entry names it too'
+    );
+
+    is_deeply(
+        $plain->(
+            $st->connect(
+                'ClosedSDK',
+                {
+                    as      => 'notes$',
+                    headers => { 'x-caller' => 'yes' },
+                    suffix  => '.json'
+                }
+            )
+        ),
+        {
+            base    => 'http://127.0.0.1:9',
+            headers => { 'x-caller' => 'yes' },
+            prefix  => '/v1',
+            suffix  => '.json'
+        },
+        'the caller wins per top-level key, as in build()'
+    );
+};
+
+subtest 'an unnamed connect warns that declared options cannot reach' => sub {
+    reset_env();
+    my $st = Voxgig::Station->new(
+        {
+            config => {
+                station  => 1,
+                profiles => {
+                    default => {
+                        sdk => {
+                            'gnarly-pets' =>
+                              { options => { headers => { 'x-api-version' => '1' } } }
+                        }
+                    }
+                }
+            }
+        }
+    );
+    my $client = $st->connect( 'StubSDK', { prefix => '/mine' } );
+    ok( !exists $client->{options}{headers}, 'not applied' );
+
+    my @warns = map { $_->{meta}{warn} }
+      grep { 'gnarly-pets' eq ( $_->{plugin} // '' ) && defined $_->{meta}{warn} }
+      @{ $st->events };
+    is( scalar @warns, 1, 'one warning' );
+    ok( 0 <= index( $warns[0], '[headers]' ),                    'names the options' );
+    ok( 0 <= index( $warns[0], '{ instance: "gnarly-pets" }' ), 'names the fix' );
+};
+
+subtest 'feature options: optspec keys, kinds, and strict' => sub {
+    reset_env();
+    my $test = {
+        features => [
+            {
+                name    => 'test',
+                active  => JSON::PP::false,
+                options => { active => JSON::PP::false },
+                optspec => { entity => '`$MAP`', net => '`$MAP`' },
+                strict  => JSON::PP::false,
+            }
+        ]
+    };
+    is_deeply(
+        checkfeatures(
+            { test => { entity => { note => {} }, net => { offline => JSON::PP::true } } },
+            $test
+        ),
+        [],
+        'an optspec key is declared'
+    );
+    my $faults = checkfeatures( { test => { net => 'offline' } }, $test );
+    ok( 0 <= index( $faults->[0]{message}, 'expects map, but found string' ),
+        'and checked against its type' );
+
+    is_deeply( checkfeatures( { test => { seed => 1 } }, $test ),
+        [], 'a feature that is not strict accepts what its SDK accepts' );
+
+    my ($descriptor) =
+      Voxgig::Station::Descriptor::normalize_descriptor( $StubSDK::CONFIG, undef );
+    $faults = checkfeatures( { retry => { retires => 5 } }, $descriptor );
+    is( scalar @$faults, 1, 'a strict feature refuses an undeclared key' );
+};
+
+subtest 'a native callable is a function option' => sub {
+    my $d = {
+        features => [
+            {
+                name    => 'retry',
+                active  => JSON::PP::false,
+                options => { active => JSON::PP::false },
+                optspec => { sleep => '`$FUNCTION`', label => '`$STRING`' },
+                strict  => JSON::PP::false,
+            }
+        ]
+    };
+    is_deeply( checkfeatures( { retry => { sleep => sub { return; } } }, $d ),
+        [], 'an anonymous sub' );
+    is_deeply( checkfeatures( { retry => { sleep => \&reset_env } }, $d ),
+        [], 'a named sub' );
+    is( scalar @{ checkfeatures( { retry => { sleep => 'fast' } }, $d ) },
+        1, 'a string is not a function' );
+    is( scalar @{ checkfeatures( { retry => { label => sub { return; } } }, $d ) },
+        1, 'a sub is not a string' );
+};
+
+subtest 'sdk() takes the test feature options its optspec declares' => sub {
+    reset_env();
+    my $config = {
+        %$StubSDK::CONFIG,
+        main    => { %{ $StubSDK::CONFIG->{main} }, slug => 'joplin' },
+        feature => {
+            test => {
+                options   => { active => JSON::PP::false },
+                optspec   => { entity => '`$MAP`', net => '`$MAP`' },
+                strict    => JSON::PP::false,
+                transport => 'base',
+            }
+        },
+    };
+    provide( 'joplin',
+        { construct => sub { return ClosedSDK->new( $_[0] ) }, config => $config } );
+
+    my $station = sub {
+        return Voxgig::Station->new(
+            {
+                config => {
+                    station  => 1,
+                    profiles => {
+                        default => { sdk => { joplin => { feature => { test => $_[0] } } } }
+                    }
+                }
+            }
+        );
+    };
+    ok( $station->( { active => JSON::PP::true, entity => { note => {} } } )->sdk('joplin'),
+        'entity' );
+    ok( $station->( { active => JSON::PP::true, net => { offline => JSON::PP::true } } )
+          ->sdk('joplin'),
+        'net' );
+
+    my $err = do {
+        local $@;
+        eval { $station->( { entity => 'note' } )->sdk('joplin') };
+        $@;
+    };
+    ok( ref $err && 0 <= index( $err->message, 'expects map, but found string' ),
+        'a wrong kind is refused' );
 };
 
 # --- events (design station.md 6) ---

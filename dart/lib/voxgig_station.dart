@@ -15,8 +15,8 @@ export 'src/descriptor.dart'
 export 'src/error.dart' show CODES, ScrubbedError, StationError, isKnownCode;
 export 'src/events.dart' show EventBuffer, TapFn;
 export 'src/profile.dart'
-    show MERGE_SENSITIVE, findConfigFile, loadConfig, refapi, resolveProfile,
-        selectProfile;
+    show MERGE_SENSITIVE, blockOf, findConfigFile, instanceOptions, loadConfig,
+        refapi, resolveProfile, selectProfile;
 export 'src/secrets.dart'
     show SecretBroker, Substituted, encodeQueryValue, envkey, placeholderFor,
         substitute, validname;

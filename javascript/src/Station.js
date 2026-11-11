@@ -14,7 +14,8 @@ const { StationError } = require('./error')
 const { EventBuffer } = require('./events')
 const { canonicalSerialize, secretnameDefault, normalizeDescriptor } = require('./descriptor')
 const {
-  configScope, loadConfig, refapi, resolveProfile, selectProfile,
+  blockOf, configScope, instanceOptions, loadConfig, refapi, resolveProfile,
+  selectProfile,
 } = require('./profile')
 const { factoryFor, provide } = require('./factory')
 const { loadAsync, loadSync } = require('./loader')
@@ -81,6 +82,16 @@ function instanceRef(api, fopts) {
   // different values. Someone who wants the untagged instance passes no
   // `as` at all, which is the documented spelling for it.
   return checkref(-1 === as.indexOf('$') ? api + '$' + as : checkapi(api, as))
+}
+
+// The ref a caller names before construction: an explicit instance, or
+// an `as` that is a full ref. A bare tag needs the SDK's api, so not.
+function namedRef(fopts) {
+  const explicit = firstNonEmpty(fopts?.instance)
+  if (null != explicit) { return checkref(explicit) }
+
+  const as = firstNonEmpty(fopts?.as)
+  return null != as && -1 !== as.indexOf('$') ? checkref(as) : undefined
 }
 
 // The ref grammar is the JOINT identity model's (station-and-plugin.md
@@ -270,11 +281,19 @@ class Station {
       throw new StationError('station_no_plugin', 'station is closed')
     }
     opts = opts || {}
-    const { as, instance, ...sdkopts } = opts
+
+    const ref = namedRef({
+      ...(opts.feature?.station || {}),
+      ...(null == opts.as ? {} : { as: opts.as }),
+      ...(null == opts.instance ? {} : { instance: opts.instance }),
+    })
+    const calleropts = null == ref ? opts : instanceOptions(this.blockFor(ref), opts)
+
+    const { as, instance, ...sdkopts } = calleropts
     const fmap = { ...(sdkopts.feature || {}) }
     fmap['station'] = {
       ...(fmap['station'] || {}),
-      active: true, station: this, calleropts: opts,
+      active: true, station: this, calleropts,
       // §6.1: `as` is a tag, resolved against the SDK's api in _register.
       ...(null == as ? {} : { as }),
       ...(null == instance ? {} : { instance }),
@@ -286,9 +305,32 @@ class Station {
       // the station feature; when the generated class exists the
       // constructor uses it and the extend copy is skipped by name
       // (both delegate to featureBinding, so behavior is identical).
-      extend: [...(sdkopts.extend || []), adapterFeature(this, opts)],
+      extend: [...(sdkopts.extend || []), adapterFeature(this, calleropts)],
     }
-    return new SDK(options)
+    const client = new SDK(options)
+    if (null == ref) { this.warnUnapplied(client, sdkopts) }
+    return client
+  }
+
+  // An unnamed connect learns its api from the SDK's config during
+  // construction: too late for the block's options to reach the SDK.
+  warnUnapplied(client, sdkopts) {
+    const entry = this._boundEntry(client)
+    const declared = null == entry ? undefined : this.blockFor(entry.name)?.options
+    if (null == entry || null == declared || 'object' !== typeof declared) {
+      return
+    }
+    const missed = Object.keys(declared).filter((k) => undefined === sdkopts[k])
+    if (0 === missed.length) { return }
+    this.emit({
+      t: Date.now(), kind: 'station', plugin: entry.name, api: entry.api,
+      meta: {
+        warn: 'instance "' + entry.name + '" declares options [' +
+          missed.sort().join(', ') + '] that reach the SDK only when the ' +
+          'instance is named before construction; pass { instance: "' +
+          entry.name + '" }',
+      },
+    })
   }
 
   // Inverted binding (design §3.1): build the plain options map a
@@ -301,15 +343,22 @@ class Station {
   // which instance they are building without a second method.
   options(a, b) {
     const named = 'string' === typeof a
-    const instance = named ? a : undefined
-    const extra = (named ? b : a) || {}
-    const fmap = { ...(extra.feature || {}) }
+    const given = (named ? b : a) || {}
+    const names = {
+      ...(null == given.as ? {} : { as: given.as }),
+      ...(null == given.instance ? {} : { instance: given.instance }),
+      ...(named ? { instance: a } : {}),
+    }
+    const ref = namedRef({ ...(given.feature?.station || {}), ...names })
+    const calleropts = null == ref ? given : instanceOptions(this.blockFor(ref), given)
+
+    const { as: _as, instance: _instance, ...sdkopts } = calleropts
+    const fmap = { ...(sdkopts.feature || {}) }
     fmap['station'] = {
       ...(fmap['station'] || {}),
-      active: true, station: this, calleropts: extra,
-      ...(null == instance ? {} : { instance }),
+      active: true, station: this, calleropts, ...names,
     }
-    return { ...extra, feature: fmap }
+    return { ...sdkopts, feature: fmap }
   }
 
   // --- registration (design §3 item 1, called by the adapter) ---
@@ -344,8 +393,7 @@ class Station {
   // here, because they disagreeing is how the credential and the
   // allowlist came apart in the first place.
   blockFor(name) {
-    return this.profile.sdk[this.declaredRef(name)] ??
-      this.profile.api[refapi(name)]
+    return blockOf(this.profile, this.declaredRef(name))
   }
 
   // The DECLARED instance an assigned tag stands for, or the name
@@ -804,9 +852,7 @@ class Station {
     }
 
     const opts = {
-      ...(block.options || {}),
-      ...(null == block.base ? {} : { base: block.base }),
-      ...(overrides || {}),
+      ...instanceOptions(block, overrides),
       feature: { ...fmap, ...((overrides || {}).feature || {}) },
     }
 
@@ -1255,4 +1301,5 @@ module.exports = {
   checkInstanceName,
   checkInstanceTag,
   instanceRef,
+  namedRef,
 }

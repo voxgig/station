@@ -194,6 +194,12 @@ public final class Descriptor {
       if (fdef.get("options") instanceof Map) {
         feature.put("options", fdef.get("options"));
       }
+      if (fdef.get("optspec") instanceof Map) {
+        feature.put("optspec", fdef.get("optspec"));
+      }
+      if (fdef.get("strict") instanceof Boolean) {
+        feature.put("strict", fdef.get("strict"));
+      }
       Object transport = fdef.get("transport");
       if (null != transport && !"".equals(String.valueOf(transport))) {
         feature.put("transport", String.valueOf(transport));

@@ -87,6 +87,38 @@ func bind(
     .map([:]), featureOpts, residentApikey)
 }
 
+// The station entry of options() output as the Json the generated
+// adapter hands featureBinding: the handle dropped, as its
+// stationValueJson drops native values.
+func entryJson(_ options: [String: Any?]) -> SJson {
+  let fmap = options["feature"] as? [String: Any?]
+  return nativeJson(fmap?["station"] ?? nil)
+}
+
+func nativeJson(_ val: Any?) -> SJson {
+  guard let val = val else {
+    return .null
+  }
+  switch val {
+  case let text as String:
+    return .str(text)
+  case let flag as Bool:
+    return .bool(flag)
+  case let num as Double:
+    return .num(num)
+  case let items as [Any?]:
+    return .list(items.map(nativeJson))
+  case let entries as [String: Any?]:
+    var out: [String: SJson] = [:]
+    for (key, entry) in entries where !(entry is Station) {
+      out[key] = nativeJson(entry)
+    }
+    return .map(out)
+  default:
+    return .null
+  }
+}
+
 // A transport failure that quotes the URL it was sent to.
 struct WireError: Error, CustomStringConvertible {
   let description: String
@@ -238,6 +270,76 @@ final class StationTest: XCTestCase {
     XCTAssertTrue(st === (entry?["station"] as? Station), "handle rides the options")
     XCTAssertEqual("http://x:1", options["base"] as? String, "caller opts kept")
     XCTAssertNotNil(entry?["calleropts"] as? [String: Any?], "calleropts marker")
+  }
+
+  func testOptionsNamedInstanceIsConstructedWithItsBlockOptions() throws {
+    setenv("TEST_PLUG_EU_APIKEY", "eu-key", 1)
+    defer { unsetenv("TEST_PLUG_EU_APIKEY") }
+    let st = try memStation(
+      .map([
+        "test-plug": .map(["options": .map(["prefix": .str("/default")])]),
+        "test-plug$eu": .map([
+          "base": .str("http://eu.example:1"),
+          "options": .map(["prefix": .str("/eu"), "suffix": .str(".json")]),
+        ]),
+      ]))
+
+    let options = st.options("test-plug$eu", ["suffix": ".xml"])
+    XCTAssertEqual("/eu", options["prefix"] as? String, "the block's options reach the SDK")
+    XCTAssertEqual(".xml", options["suffix"] as? String, "the caller's options win, key by key")
+    XCTAssertEqual("http://eu.example:1", options["base"] as? String, "the block's base")
+
+    let bound = try bind(st, NSObject(), entryJson(options))
+    XCTAssertEqual("test-plug$eu", bound?.binding.slug, "registered under the named ref")
+    XCTAssertEqual("[station:test-plug$eu]", bound?.placeholder, "the instance's placeholder")
+    XCTAssertNil(bound?.base, "the base already rides the options")
+
+    var sent: String? = nil
+    let res: [String: Any] = try bound!.binding.transport(
+      nil, true, "http://eu.example:1/api/todo", "GET",
+      ["authorization": "[station:test-plug$eu]"],
+      { _, injected, _ in
+        sent = injected?["authorization"]
+        return ["status": 200]
+      },
+      { _ in (200, 0) })
+    XCTAssertEqual(200, res["status"] as? Int, "response returned")
+    XCTAssertEqual("eu-key", sent, "the instance's credential on the wire")
+
+    XCTAssertEqual(
+      "test-plug", try bind(st, NSObject(), entryJson(st.options()))?.binding.slug,
+      "the default instance keeps its slug")
+  }
+
+  func testOptionsTopLevelInstanceOrFullRefAsNamesTheInstance() throws {
+    let st = try memStation(
+      .map(["test-plug$eu": .map(["options": .map(["prefix": .str("/eu")])])]))
+
+    for key in ["instance", "as"] {
+      let options = st.options([key: "test-plug$eu"])
+      XCTAssertEqual("/eu", options["prefix"] as? String, "named by " + key)
+      XCTAssertNil(options["instance"] ?? nil, key + ": instance is not an SDK option")
+      XCTAssertNil(options["as"] ?? nil, key + ": as is not an SDK option")
+      XCTAssertEqual(
+        "test-plug$eu", entryJson(options).get(key).asStr, key + " rides the station entry")
+    }
+
+    let lead = st.options("test-plug$eu", ["instance": "test-plug$us"])
+    XCTAssertEqual(
+      "/eu", lead["prefix"] as? String, "the leading name outranks a top-level instance")
+
+    let tagged = st.options(["as": "eu"])
+    XCTAssertNil(tagged["prefix"] ?? nil, "a bare tag waits for the SDK's api")
+    XCTAssertEqual(
+      "test-plug$eu", try bind(st, NSObject(), entryJson(tagged))?.binding.slug,
+      "and resolves against it at binding")
+
+    do {
+      _ = try bind(st, NSObject(), entryJson(st.options("other$eu")))
+      XCTFail("a ref naming another api must fail")
+    } catch let err as StationError {
+      XCTAssertEqual("station_instance_api", err.code, "instance api code")
+    }
   }
 
   func testBindingRegistersPlantsPlaceholderHoistsResident() throws {

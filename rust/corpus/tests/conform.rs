@@ -6,9 +6,10 @@ use std::rc::Rc;
 use voxgig_omni::{make_runner, Json as OJson, Provider, Subject, NULLMARK};
 
 use voxgig_station::{
-    canonical_serialize, check_pin, envtoken, feature_names, feature_sources, instance_ref,
-    is_known_code, merge_features, normalize_config, normalize_descriptor, placeholder_for,
-    resolve_order, resolve_profile, secretname_default, validate_config, Json,
+    block_of, canonical_serialize, check_features, check_pin, envtoken, feature_names,
+    feature_sources, instance_options, instance_ref, is_known_code, merge_features,
+    normalize_config, normalize_descriptor, placeholder_for, resolve_order, resolve_profile,
+    secretname_default, validate_config, Json,
 };
 
 // Find the shared spec by walking up from this crate (the station repo
@@ -168,6 +169,14 @@ fn drivers() -> Vec<(&'static str, Subject)> {
             .to_string();
         match resolve_profile(config.as_ref(), &name) {
             Err(err) => Err(err.to_string()),
+            // A `ref` asks for the options that named instance is
+            // constructed with.
+            Ok(resolved) if args[0].get("ref").asstr().is_some() => {
+                let reference = args[0].get("ref").asstr().unwrap_or("").to_string();
+                let opts = o2sopt(&args[0].get("opts"));
+                let block = block_of(&resolved, &reference);
+                Ok(s2o(&Json::Map(instance_options(&block, opts.as_ref()))))
+            }
             Ok(resolved) => {
                 let mut api = std::collections::BTreeMap::new();
                 for (slug, val) in resolved.api.iter() {
@@ -201,7 +210,29 @@ fn drivers() -> Vec<(&'static str, Subject)> {
         }
     });
 
+    // `check` selects the §8.5 checker, `merged` the resolver, anything
+    // else the merge.
     let feature: Subject = Rc::new(|args: &[OJson]| {
+        if let Some(check) = o2sopt(&args[0].get("check")) {
+            let mut descriptor = BTreeMap::new();
+            descriptor.insert("features".to_string(), o2s(&args[0].get("features")));
+            let faults = check_features(&check, &Json::Map(descriptor));
+            return Ok(OJson::List(
+                faults
+                    .iter()
+                    .map(|fault| {
+                        let mut one = vec![
+                            ("code", OJson::Str(fault.code.clone())),
+                            ("feature", OJson::Str(fault.feature.clone())),
+                        ];
+                        if let Some(key) = &fault.key {
+                            one.push(("key", OJson::Str(key.clone())));
+                        }
+                        OJson::map(one)
+                    })
+                    .collect(),
+            ));
+        }
         if let Some(merged) = o2sopt(&args[0].get("merged")) {
             let ordered = resolve_order(&merged, &[]).map_err(|err| err.to_string())?;
             check_pin(&ordered).map_err(|err| err.to_string())?;

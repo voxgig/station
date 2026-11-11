@@ -199,11 +199,17 @@ const omni::Subject CANONICAL = [](const std::vector<omni::Json>& args) {
   return omni::Json::str(vs::canonical_serialize(to_station(args[0], true)));
 };
 
-// The 3.3 merge, and the whole of this port's profile contract.
+// The 3.3 merge, and the whole of this port's profile contract. A `ref`
+// asks for the options that named instance is constructed with.
 const omni::Subject INSTANCE = [](const std::vector<omni::Json>& args) {
   vs::Jval config = to_station(args[0].get("config"), false);
   std::string profile = args[0].get("profile").strval;
   vs::ResolvedProfile resolved = vs::resolve_profile(config, profile);
+  if (args[0].has("ref")) {
+    vs::Jval opts = to_station(args[0].get("opts"), false);
+    return to_omni(
+        vs::instance_options(vs::block_of(resolved, args[0].get("ref").strval), opts));
+  }
   omni::Json out = omni::Json::map();
   out.set("name", omni::Json::str(resolved.name));
   out.set("api", to_omni(resolved.api));
@@ -236,11 +242,27 @@ const omni::Subject INSTANCEREF = [](const std::vector<omni::Json>& args) {
 };
 
 // Design 8's pure half (design 10.1): the three-level merge with its
-// depth boundary, and the 8.4 order resolution. ONE DRIVER, TWO ENTRY
-// SHAPES - `merged` selects the resolver, anything else the merge -
-// because a port that guessed from looser cues would run the wrong
-// subject on a mistyped entry.
+// depth boundary, the 8.4 order resolution, and the 8.5 option checker.
+// ONE DRIVER, THREE ENTRY SHAPES - `check` selects the checker, `merged`
+// the resolver, anything else the merge - because a port that guessed
+// from looser cues would run the wrong subject on a mistyped entry.
 const omni::Subject FEATURE = [](const std::vector<omni::Json>& args) {
+  if (args[0].has("check")) {
+    vs::Jval descriptor = vs::Jval::map();
+    descriptor.set("features", to_station(args[0].get("features"), true));
+    omni::Json faults = omni::Json::list();
+    for (const auto& fault :
+         vs::check_features(to_station(args[0].get("check"), true), descriptor)) {
+      omni::Json one = omni::Json::map();
+      one.set("code", omni::Json::str(fault.code));
+      one.set("feature", omni::Json::str(fault.feature));
+      if (!fault.key.empty()) {
+        one.set("key", omni::Json::str(fault.key));
+      }
+      faults.push(one);
+    }
+    return faults;
+  }
   if (args[0].has("merged")) {
     vs::Jval merged = to_station(args[0].get("merged"), false);
     std::vector<vs::Ordered> ordered = vs::resolve_order(merged);

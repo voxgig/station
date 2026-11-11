@@ -150,7 +150,7 @@ SOLAR_CONFIG = {
   'feature' => {
     'debug' => { 'options' => { 'level' => 0 } },
     'ratelimit' => { 'options' => { 'rate' => 1, 'burst' => 1 } },
-    'retry' => { 'options' => { 'max' => 1, 'wait' => 100 } },
+    'retry' => { 'options' => { 'max' => 1, 'wait' => 100 }, 'strict' => true },
     'test' => { 'transport' => 'base' },
   },
   'options' => {
@@ -175,6 +175,23 @@ class SolarSDK
     (options['extend'] || []).each do |f|
       @client.features << f
       f.init(@ctx, fopts)
+    end
+  end
+end
+
+# A generated SDK is its own client, so the registry holds what
+# connect returns.
+class SelfSolarSDK < FakeClient
+  def initialize(options)
+    super()
+    @options = options
+    utility = FakeUtility.new
+    utility.fetcher = ->(_c, _u, _d) { [{ 'status' => 200 }, nil] }
+    ctx = FakeCtx.new(self, utility, options, SOLAR_CONFIG)
+    fopts = (options['feature'] || {})['station'] || {}
+    (options['extend'] || []).each do |f|
+      @features << f
+      f.init(ctx, fopts)
     end
   end
 end
@@ -777,6 +794,44 @@ class TestStation < Minitest::Test
     testrow = d['features'].find { |f| 'test' == f['name'] }
     assert_equal 'base', testrow['transport']
     refute testrow.key?('options')
+
+    assert_equal true, retryrow['strict']
+    refute testrow.key?('strict')
+  end
+
+  def test_an_undeclared_key_is_refused_only_when_strict
+    d = VoxgigStation.normalize_descriptor(SOLAR_CONFIG, nil)[:descriptor]
+    faults = VoxgigStation.check_features({ 'retry' => { 'retires' => 5 } }, d)
+    assert_equal ['retires'], faults.map { |f| f['key'] }
+
+    # ratelimit carries no `strict`, which sdkgen reads as false.
+    assert_equal [], VoxgigStation.check_features({ 'ratelimit' => { 'rat' => 5 } }, d)
+  end
+
+  def test_a_native_callable_is_a_function_option
+    d = { 'features' => [{
+      'name' => 'retry', 'active' => false, 'options' => { 'active' => false },
+      'optspec' => { 'sleep' => '`$FUNCTION`', 'label' => '`$STRING`' }, 'strict' => false,
+    }] }
+    [proc { |ms| ms }, ->(ms) { ms }, 1.method(:+)].each do |sleep|
+      assert_equal [], VoxgigStation.check_features({ 'retry' => { 'sleep' => sleep } }, d),
+                   sleep.class.name
+    end
+    assert_equal 1, VoxgigStation.check_features({ 'retry' => { 'sleep' => 'fast' } }, d).length
+    assert_equal 1, VoxgigStation.check_features({ 'retry' => { 'label' => -> {} } }, d).length
+  end
+
+  def test_an_optspec_key_is_declared_and_type_checked
+    d = { 'features' => [{
+      'name' => 'test', 'active' => false, 'options' => { 'active' => false },
+      'optspec' => { 'entity' => '`$MAP`', 'net' => '`$MAP`' }, 'strict' => false,
+    }] }
+    assert_equal [], VoxgigStation.check_features(
+      { 'test' => { 'active' => true, 'entity' => { 'note' => {} },
+                    'net' => { 'offline' => true } } }, d)
+
+    faults = VoxgigStation.check_features({ 'test' => { 'net' => 'offline' } }, d)
+    assert_includes faults[0]['message'], 'expects map, but found string'
   end
 
   # --- the ref grammar (design station.md 6.1) ---
@@ -1238,6 +1293,91 @@ class TestStation < Minitest::Test
     sdk = st.connect(RetroPackage::SDK, 'instance' => 'solar$spare')
     assert_equal %w[extend feature], sdk.options.keys.sort
     assert_equal 'solar$spare', sdk.options['feature']['station']['instance']
+  end
+
+  def test_options_hands_a_named_instance_its_declared_options
+    st = solar_station('sdk' => { 'notes' => {
+      'base' => 'http://127.0.0.1:9',
+      'options' => { 'headers' => { 'x-api-version' => '2022-06-28' }, 'prefix' => '/v1' },
+    } })
+    assert_equal({ 'base' => 'http://127.0.0.1:9',
+                   'headers' => { 'x-api-version' => '2022-06-28' }, 'prefix' => '/v1',
+                   'suffix' => '.json' },
+                 st.options('notes', 'suffix' => '.json').except('feature'))
+    assert_equal({ 'suffix' => '.json' }, st.options('suffix' => '.json').except('feature'))
+  end
+
+  def test_options_names_the_instance_from_a_top_level_instance_or_as
+    [{ 'instance' => 'solar$eu' }, { 'as' => 'solar$eu' }].each do |named|
+      st = solar_station('sdk' => {
+        'solar' => { 'options' => { 'headers' => { 'x-api-version' => '1' } } },
+        'solar$eu' => { 'options' => { 'prefix' => '/eu' } },
+      })
+      built = st.options(named.merge('suffix' => '.json'))
+      assert_equal({ 'prefix' => '/eu', 'suffix' => '.json' }, built.except('feature'))
+
+      client = FakeClient.new
+      client.features << VoxgigStation.adapter_feature(st, {})
+      ctx = FakeCtx.new(client, FakeUtility.new, built.dup, SOLAR_CONFIG)
+      VoxgigStation.feature_binding(ctx, built['feature']['station'])
+      assert_equal ['solar$eu'], st.plugins.map { |p| p['name'] }
+    end
+  end
+
+  def test_connect_and_adopt_hand_a_named_instance_its_options
+    st = solar_station('sdk' => { 'notes' => {
+      'base' => 'http://127.0.0.1:9',
+      'options' => { 'headers' => { 'x-api-version' => '2022-06-28' }, 'prefix' => '/v1' },
+    } })
+    want = { 'base' => 'http://127.0.0.1:9',
+             'headers' => { 'x-api-version' => '2022-06-28' }, 'prefix' => '/v1' }
+
+    [st.connect(RetroPackage::SDK, 'instance' => 'notes'),
+     st.adopt(RetroPackage::SDK, 'instance' => 'notes'),
+     st.connect(RetroPackage::SDK, 'feature' => { 'station' => { 'instance' => 'notes' } })]
+      .each { |sdk| assert_equal want, sdk.options.except('feature', 'extend') }
+
+    # The caller wins per top-level key, as in build().
+    sdk = st.connect(RetroPackage::SDK, 'as' => 'notes$',
+                     'headers' => { 'x-caller' => 'yes' }, 'suffix' => '.json')
+    assert_equal({ 'base' => 'http://127.0.0.1:9', 'headers' => { 'x-caller' => 'yes' },
+                   'prefix' => '/v1', 'suffix' => '.json' },
+                 sdk.options.except('feature', 'extend'))
+  end
+
+  def test_an_unnamed_connect_warns_that_options_cannot_reach
+    st = solar_station('sdk' => { 'solar' => {
+      'options' => { 'headers' => { 'x-api-version' => '1' } },
+    } })
+    client = st.connect(SelfSolarSDK, 'prefix' => '/mine')
+    refute client.options.key?('headers')
+
+    warns = st.events.select { |e| 'solar' == e['plugin'] && (e['meta'] || {})['warn'] }
+                     .map { |e| e['meta']['warn'] }
+    assert_equal 1, warns.length
+    assert_includes warns[0], '[headers]'
+    assert_includes warns[0], '{ instance: "solar" }'
+  end
+
+  def test_sdk_takes_the_test_feature_options_its_optspec_declares
+    config = SOLAR_CONFIG.merge(
+      'main' => SOLAR_CONFIG['main'].merge('slug' => 'joplin', 'name' => 'Joplin'),
+      'feature' => { 'test' => {
+        'options' => { 'active' => false },
+        'optspec' => { 'entity' => '`$MAP`', 'net' => '`$MAP`' },
+        'strict' => false, 'transport' => 'base',
+      } })
+    VoxgigStation::Station.provide('joplin',
+      'construct' => ->(o) { RetroPackage::SDK.new(o) }, 'config' => config)
+
+    [{ 'active' => true, 'entity' => { 'note' => {} } },
+     { 'active' => true, 'net' => { 'offline' => true } }].each do |test|
+      solar_station('sdk' => { 'joplin' => { 'feature' => { 'test' => test } } }).sdk('joplin')
+    end
+
+    st = solar_station('sdk' => { 'joplin' => { 'feature' => { 'test' => { 'entity' => 'note' } } } })
+    err = assert_raises(VoxgigStation::StationError) { st.sdk('joplin') }
+    assert_includes err.message, 'expects map, but found string'
   end
 
   def test_policy_allow_is_enforcement_and_reaches_the_sdk_options

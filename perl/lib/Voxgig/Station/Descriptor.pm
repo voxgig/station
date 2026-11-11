@@ -64,6 +64,13 @@ sub _str {
     return defined $val && !ref $val ? "$val" : '';
 }
 
+sub _isbool {
+    my ($val) = @_;
+    return 0 unless defined $val && ref $val;
+    return JSON::PP::is_bool($val)
+      || ( blessed($val) && 'Voxgig::Struct::Bool' eq ref($val) ) ? 1 : 0;
+}
+
 # Is this value boolean-true? Handles JSON::PP booleans, the vendored
 # struct utility's blessed booleans (both overload 'bool'), and plain
 # scalars; non-boolean references never count as true.
@@ -159,8 +166,9 @@ sub normalize_descriptor {
     # The features list gains `options` and `transport` (design station.md
     # 8.5, 8.4), because it was throwing away what the SDK already
     # embeds: `config.feature[name].options` is the feature's own
-    # declared key set WITH TYPED DEFAULTS, which is the schema 8.5
-    # validates against, and `transport` is the role 8.4 orders by.
+    # declared key set WITH TYPED DEFAULTS, which with `optspec` (typed
+    # keys with no default) and `strict` is the schema 8.5 validates
+    # against, and `transport` is the role 8.4 orders by.
     #
     # Both are already inside the SDK; the descriptor stops discarding
     # them. ADDITIVE, so descriptor v1 consumers are unaffected and the
@@ -183,6 +191,8 @@ sub normalize_descriptor {
             : JSON::PP::false,
         };
         $row->{options} = $fdef->{options} if _ismap( $fdef->{options} );
+        $row->{optspec} = $fdef->{optspec} if _ismap( $fdef->{optspec} );
+        $row->{strict}  = $fdef->{strict}  if _isbool( $fdef->{strict} );
         $row->{transport} = _str( $fdef->{transport} )
           if defined $fdef->{transport} && '' ne _str( $fdef->{transport} );
         push @features, $row;

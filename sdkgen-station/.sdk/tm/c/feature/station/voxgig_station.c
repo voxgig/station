@@ -1335,25 +1335,24 @@ vxstn_val* vxstn_normalize_descriptor(const vxstn_val* config,
     const vxstn_val* activev = vxstn_getk(fopts, "active");
     const vxstn_val* fdef = vxstn_getk(fdefs, keys[i]);
     const vxstn_val* declared = vxstn_getk(fdef, "options");
+    const vxstn_val* optspec = vxstn_getk(fdef, "optspec");
+    const vxstn_val* strict = vxstn_getk(fdef, "strict");
     const vxstn_val* transport = vxstn_getk(fdef, "transport");
     bool active = NULL != activev && VXSTN_BOOL == activev->kind && activev->b;
     vxstn_map_set(entry, "name", vxstn_str(keys[i]));
     vxstn_map_set(entry, "active", vxstn_bool(active));
 
-    /* Stage 5 (design 7.4): the feature row stops discarding two fields
-       the SDK already embeds. `options` is the feature's own declared
-       key set WITH TYPED DEFAULTS - the schema design 8.5 validates
-       against - and `transport` is the role 8.4 orders by. Both are
-       ADDITIVE, so descriptor v1 consumers are unaffected and the
-       `descriptor` corpus section passes unchanged (its fixtures carry
-       neither).
-
-       `transport` is CARRIED rather than inferred: the obvious signal,
-       an empty `hook: {}`, is wrong for station, which both wraps AND
-       dispatches hooks. Until sdkgen emits it, the role checks degrade
-       to nothing rather than guessing. */
+    /* design 7.4: the row carries the feature's declared schema
+       (`options`, `optspec`, `strict`) and its `transport` role, which
+       is carried rather than inferred. */
     if (vxstn_is_map(declared)) {
       vxstn_map_set(entry, "options", vxstn_clone(declared));
+    }
+    if (vxstn_is_map(optspec)) {
+      vxstn_map_set(entry, "optspec", vxstn_clone(optspec));
+    }
+    if (NULL != strict && VXSTN_BOOL == strict->kind) {
+      vxstn_map_set(entry, "strict", vxstn_bool(strict->b));
     }
     if (NULL != transport) {
       char* role = vxstn_val_to_string(transport);
@@ -2611,19 +2610,39 @@ const char* vxstn_declared_ref(vxstn_station* st, const char* name) {
    allowlist came apart in the first place. Borrowed; NULL when neither
    level declares anything. */
 const vxstn_val* vxstn_block_for(vxstn_station* st, const char* name) {
-  const vxstn_val* block;
-  char* api;
   if (NULL == st) {
     return NULL;
   }
-  block = vxstn_getk(vxstn_map_get(st->profile, "sdk"), vxstn_declared_ref(st, name));
+  return vxstn_block_of(st->profile, vxstn_declared_ref(st, name));
+}
+
+const vxstn_val* vxstn_block_of(const vxstn_val* profile, const char* ref) {
+  const vxstn_val* block = vxstn_getk(vxstn_map_get(profile, "sdk"), ref);
+  char* api;
   if (NULL != block) {
     return block;
   }
-  api = vxstn_refapi(name);
-  block = vxstn_getk(vxstn_map_get(st->profile, "api"), api);
+  api = vxstn_refapi(ref);
+  block = vxstn_getk(vxstn_map_get(profile, "api"), api);
   free(api);
   return block;
+}
+
+vxstn_val* vxstn_instance_options(const vxstn_val* block, const vxstn_val* opts) {
+  vxstn_val* out = vxstn_map();
+  const vxstn_val* blockopts = vxstn_getk(block, "options");
+  const vxstn_val* base = vxstn_getk(block, "base");
+  size_t k;
+  for (k = 0; vxstn_is_map(blockopts) && k < blockopts->mlen; k++) {
+    vxstn_map_set(out, blockopts->keys[k], vxstn_clone(blockopts->vals[k]));
+  }
+  if (NULL != base) {
+    vxstn_map_set(out, "base", vxstn_clone(base));
+  }
+  for (k = 0; vxstn_is_map(opts) && k < opts->mlen; k++) {
+    vxstn_map_set(out, opts->keys[k], vxstn_clone(opts->vals[k]));
+  }
+  return out;
 }
 
 bool vxstn_bound(vxstn_station* st, void* client) {
@@ -3381,14 +3400,57 @@ static void client_set(vxstn_station* st, const char* name, void* client) {
    holds JSON and not pointers: the generated station feature binds to
    the ambient instance (vxstn_current) or to a handle the host gave it,
    which is what design 3.1 already says about C. Owned. */
+/* The ref a caller names before construction: an explicit instance, or
+   an `as` that is a full ref. A bare tag needs the SDK's api, and an
+   invalid name is left for registration to refuse. Owned, or NULL. */
+static char* named_ref(const char* instance, const vxstn_val* extra, const vxstn_val* entry) {
+  const char* top = vxstn_strval(vxstn_getk(extra, "instance"));
+  const char* given = vxstn_strval(vxstn_getk(entry, "instance"));
+  const char* as = vxstn_strval(vxstn_getk(extra, "as"));
+  const char* name = NULL;
+  vxstn_error* err = NULL;
+  char* ref;
+  if ('\0' == as[0]) {
+    as = vxstn_strval(vxstn_getk(entry, "as"));
+  }
+  if (NULL != instance && '\0' != instance[0]) {
+    name = instance;
+  } else if ('\0' != top[0]) {
+    name = top;
+  } else if ('\0' != given[0]) {
+    name = given;
+  } else if (NULL != strchr(as, '$')) {
+    name = as;
+  }
+  if (NULL == name) {
+    return NULL;
+  }
+  ref = vxstn_check_ref(name, &err);
+  vxstn_error_free(err);
+  return ref;
+}
+
 vxstn_val* vxstn_options(vxstn_station* st, const char* instance,
                          const vxstn_val* extra) {
-  vxstn_val* out = vxstn_is_map(extra) ? vxstn_clone(extra) : vxstn_map();
   const vxstn_val* infeature = vxstn_getk(extra, "feature");
+  char* ref = NULL == st ? NULL : named_ref(instance, extra, vxstn_getk(infeature, "station"));
+  vxstn_val* given = vxstn_map();
+  vxstn_val* out;
   vxstn_val* fmap = vxstn_is_map(infeature) ? vxstn_clone(infeature) : vxstn_map();
   const vxstn_val* prior = vxstn_getk(fmap, "station");
   vxstn_val* entry = vxstn_is_map(prior) ? vxstn_clone(prior) : vxstn_map();
-  (void)st;
+  size_t k;
+
+  for (k = 0; vxstn_is_map(extra) && k < extra->mlen; k++) {
+    if (0 == strcmp("as", extra->keys[k]) || 0 == strcmp("instance", extra->keys[k])) {
+      vxstn_map_set(entry, extra->keys[k], vxstn_clone(extra->vals[k]));
+    } else {
+      vxstn_map_set(given, extra->keys[k], vxstn_clone(extra->vals[k]));
+    }
+  }
+  out = NULL != ref ? vxstn_instance_options(vxstn_block_for(st, ref), given) : vxstn_clone(given);
+  vxstn_val_free(given);
+  free(ref);
 
   vxstn_map_set(entry, "active", vxstn_bool(true));
   if (NULL != instance && '\0' != instance[0]) {
@@ -3910,31 +3972,15 @@ static void* build(vxstn_station* st, const char* name, const char* as,
   }
   vxstn_val_free(composed);
 
-  opts = vxstn_map();
+  opts = vxstn_instance_options(block, overrides);
   {
-    const vxstn_val* blockopts = vxstn_getk(block, "options");
-    const vxstn_val* base = vxstn_getk(block, "base");
+    const vxstn_val* overfeature = vxstn_getk(overrides, "feature");
     size_t k;
-    for (k = 0; vxstn_is_map(blockopts) && k < blockopts->mlen; k++) {
-      vxstn_map_set(opts, blockopts->keys[k], vxstn_clone(blockopts->vals[k]));
+    for (k = 0; vxstn_is_map(overfeature) && k < overfeature->mlen; k++) {
+      vxstn_map_set(fmap, overfeature->keys[k], vxstn_clone(overfeature->vals[k]));
     }
-    if (NULL != base) {
-      vxstn_map_set(opts, "base", vxstn_clone(base));
-    }
-    for (k = 0; vxstn_is_map(overrides) && k < overrides->mlen; k++) {
-      if (0 == strcmp("feature", overrides->keys[k])) {
-        continue;
-      }
-      vxstn_map_set(opts, overrides->keys[k], vxstn_clone(overrides->vals[k]));
-    }
-    {
-      const vxstn_val* overfeature = vxstn_getk(overrides, "feature");
-      for (k = 0; vxstn_is_map(overfeature) && k < overfeature->mlen; k++) {
-        vxstn_map_set(fmap, overfeature->keys[k], vxstn_clone(overfeature->vals[k]));
-      }
-    }
-    vxstn_map_set(opts, "feature", fmap);
   }
+  vxstn_map_set(opts, "feature", fmap);
 
   /* THE ALIAS IS RECORDED, NOT THE FIELDS (design 5.3). Carrying the
      declared `secret` through the feature options and stopping there

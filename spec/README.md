@@ -18,10 +18,11 @@ carries, so a section added here cannot silently go untested.
 
 Two gaps follow from that, both real:
 
-- `csharp`, `dart`, `elixir`, `lua` and `swift` run EIGHT sections. They
-  crossed the `plugin` -> `sdk` rename and took `substitute`, but not the
-  later tranche, so `config`, `instanceref` and `feature` are not opted in
-  there yet.
+- `dart`, `elixir` and `lua` run EIGHT sections, and `csharp` and
+  `swift` NINE. They crossed the `plugin` -> `sdk` rename and took
+  `substitute`, but not the later tranche, so `config` and `feature` are
+  not opted in there yet, nor `instanceref` outside `csharp` and `swift`,
+  which took it with their named instances.
 - `typescript` - the canonical port - has NO completeness guard. It
   hand-writes one test per section rather than deriving them from a
   table, so a section added here would silently not run in the very port
@@ -42,9 +43,16 @@ three-level merge with its depth boundary (a map-valued option replaces
 wholesale) and the defaults-after-merge guard one level down, plus the
 §8.4 order resolution - constraints, bands, vacuous absence, the cycle
 rejection, and the pinned `station` wrap - the set station holds itself
-to under C4. One driver, two entry shapes: `merged` selects the
-resolver, anything else the merge. Feature *option* checking is
-descriptor-dependent and stays in the integration suites.
+to under C4, and the §8.5 option checker. One driver, three entry
+shapes: `check` selects the checker, run against the descriptor feature
+rows in `features` and answered as the faults' `code`, `feature` and
+`key`; `merged` selects the resolver; anything else the merge.
+
+`instance` is the §3.3 merge. An entry with a `ref` asks instead for the
+options that instance is constructed with: its block's `options` and
+`base` under the entry's `opts`, one top-level key at a time, which is
+what `sdk(name)`, `create`, and a named `connect`, `adopt` or
+`options(name, extra)` all hand the SDK.
 
 The sections that need live SDK machinery - `inject` (copy-on-inject,
 placeholder-safe `ctrl.explain`), `order` (wrap position, retry

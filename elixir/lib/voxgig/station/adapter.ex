@@ -52,6 +52,7 @@ defmodule Voxgig.Station.Adapter do
 
   alias Voxgig.Station
   alias Voxgig.Station.Error
+  alias Voxgig.Station.Profile
   alias Voxgig.Station.Secrets
 
   alias Voxgig.Struct, as: S
@@ -76,8 +77,8 @@ defmodule Voxgig.Station.Adapter do
   # Station.bound_entry, so behavior is identical either way.
   def construct_options(station, opts \\ nil) do
     opts_node = to_node(opts)
-    calleropts = if S.ismap(opts_node), do: opts_node, else: S.jm([])
-    out = if S.ismap(opts_node), do: S.clone(opts_node), else: S.jm([])
+    calleropts = if S.ismap(opts_node), do: declared(station, opts_node), else: S.jm([])
+    out = S.clone(calleropts)
     activate(out, station, calleropts)
     station_keys(out)
 
@@ -92,6 +93,43 @@ defmodule Voxgig.Station.Adapter do
 
     out
   end
+
+  # station.md 3.5: a named instance's block sits under the caller's
+  # options, per top-level key.
+  defp declared(station, opts) do
+    case named_ref(opts) do
+      nil ->
+        opts
+
+      ref ->
+        merged = to_node(Profile.instance_options(Station.block_for(station, ref), nil))
+        Enum.each(S.keysof(opts), fn key -> S.setprop(merged, key, S.getprop(opts, key)) end)
+        merged
+    end
+  end
+
+  # The ref a caller names before construction: an explicit instance, or
+  # an `as` that is a full ref. A bare tag needs the SDK's api, so not.
+  def named_ref(opts) do
+    entry = S.getprop(S.getprop(opts, "feature"), "station")
+    pick = fn key -> Enum.find([S.getprop(opts, key), S.getprop(entry, key)], &textual?/1) end
+    explicit = pick.("instance")
+    as = pick.("as")
+
+    ref =
+      cond do
+        nil != explicit -> explicit
+        nil != as and String.contains?(as, "$") -> as
+        true -> nil
+      end
+
+    if is_binary(ref), do: String.trim_trailing(ref, "$"), else: nil
+  end
+
+  defp textual?(val), do: is_binary(val) and "" != val
+
+  @doc false
+  def absent_keys(options, keys), do: Enum.reject(keys, &(nil != S.getprop(options, &1)))
 
   defp activate(options, station, calleropts) do
     fmap = ensure_map(options, "feature")
@@ -615,6 +653,10 @@ defmodule Voxgig.Station.Adapter do
         v
 
       is_map(v) and not is_struct(v) ->
+        S.jm(Enum.flat_map(v, fn {k, x} -> [to_string(k), to_node(x)] end))
+
+      # A keyword list is options, as Station.new reads one; [] stays a list.
+      is_list(v) and [] != v and Keyword.keyword?(v) ->
         S.jm(Enum.flat_map(v, fn {k, x} -> [to_string(k), to_node(x)] end))
 
       is_list(v) ->

@@ -205,12 +205,18 @@ testcase('canonical', function()
   end)
 end)
 
--- The 3.3 merge, and the whole of this port's profile contract.
+-- The 3.3 merge, and the whole of this port's profile contract. A
+-- `ref` asks for the options that named instance is constructed with.
 testcase('instance', function()
   R.runset(R.set('instance'), function(vin)
     local config = tostation(u.get(vin, 'config'), false)
-    local profile = u.get(vin, 'profile')
-    return toomni(st.resolve_profile(config, profile))
+    local profile = st.resolve_profile(config, u.get(vin, 'profile'))
+    local ref = u.get(vin, 'ref')
+    if type(ref) ~= 'string' then
+      return toomni(profile)
+    end
+    local opts = tostation(u.get(vin, 'opts'), false)
+    return toomni(st.instance_options(st.block_of(profile, ref), opts))
   end)
 end)
 

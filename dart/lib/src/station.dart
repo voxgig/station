@@ -34,6 +34,8 @@ class RegisterResult {
 
 int _corrSeq = 0;
 
+dynamic _mget(dynamic m, String k) => m is Map ? m[k] : null;
+
 class Station {
   static Station? _ambient;
   static String? _ambientKey;
@@ -141,7 +143,11 @@ class Station {
     if (_closed) {
       throw StationError('station_no_plugin', 'station is closed');
     }
-    final calleropts = _copy(opts);
+    var calleropts = _copy(opts);
+    final ref = _namedRef(calleropts);
+    if (null != ref) {
+      calleropts = instanceOptions(blockOf(_profile, ref), calleropts);
+    }
     final options = _withActivation(calleropts);
 
     // `as` and `instance` are station's own: they ride the feature entry,
@@ -164,7 +170,62 @@ class Station {
     // featureBinding, so behavior is identical).
     extend.add(adapterFeature(this, calleropts));
     options['extend'] = extend;
-    return sdk(options);
+    final client = sdk(options);
+    if (null == ref) {
+      _warnUnapplied(client, options);
+    }
+    return client;
+  }
+
+  // The ref a caller names before construction: an explicit instance, or
+  // an `as` that is a full ref. A bare tag needs the SDK's api, so not.
+  static String? _namedRef(Map<String, dynamic> opts) {
+    final sopts = _mget(_mget(opts, 'feature'), 'station');
+    String? pick(String key) {
+      final val = opts[key] ?? _mget(sopts, key);
+      return val is String && '' != val ? val : null;
+    }
+
+    final explicit = pick('instance');
+    final as = pick('as');
+    final ref = explicit ?? (null != as && as.contains(r'$') ? as : null);
+    return null != ref && ref.endsWith(r'$')
+        ? ref.substring(0, ref.length - 1)
+        : ref;
+  }
+
+  // An unnamed connect learns its api from the SDK's config during
+  // construction: too late for the block's options to reach the SDK.
+  void _warnUnapplied(dynamic client, Map<String, dynamic> options) {
+    final entry = boundEntry(client);
+    final declared =
+        null == entry ? null : _mget(blockOf(_profile, entry.slug), 'options');
+    if (null == entry || declared is! Map) {
+      return;
+    }
+    final missed = declared.keys
+        .map((k) => k.toString())
+        .where((k) => !options.containsKey(k))
+        .toList()
+      ..sort();
+    if (missed.isEmpty) {
+      return;
+    }
+    emit(<String, dynamic>{
+      't': _now(),
+      'kind': 'station',
+      'plugin': entry.slug,
+      'meta': {
+        'warn': 'instance "' +
+            entry.slug +
+            '" declares options [' +
+            missed.join(', ') +
+            '] that reach the SDK only when the instance is named before ' +
+            'construction; pass { instance: "' +
+            entry.slug +
+            '" }',
+      },
+    });
   }
 
   // Inverted binding (design station.md 3.1): build the plain options

@@ -747,6 +747,36 @@ int main(int argc, char** argv) {
     vs::reset_factories();
   });
 
+  testcase("feature-options-optspec-kinds-and-strict", [] {
+    vs::Jval descriptor = vs::normalize_descriptor(vs::parse_json(R"({
+      "main": { "name": "Joplin", "slug": "joplin" },
+      "feature": {
+        "test": { "options": { "active": false },
+                  "optspec": { "entity": "`$MAP`", "net": "`$MAP`" },
+                  "strict": false, "transport": "base" },
+        "retry": { "options": { "retries": 2 }, "strict": true } } })"),
+                                                   vs::Jval::map())
+                                .descriptor;
+
+    check(vs::check_features(vs::parse_json(R"({
+      "test": { "active": true, "entity": { "note": {} }, "net": { "offline": true },
+                "seed": 1 } })"),
+                             descriptor)
+              .empty(),
+          "optspec keys are declared, and a feature that is not strict is open");
+
+    auto kind = vs::check_features(vs::parse_json(R"({ "test": { "net": "offline" } })"),
+                                   descriptor);
+    check(1 == kind.size() &&
+              std::string::npos != kind[0].message.find("expects map, but found string"),
+          "an optspec key is checked against its type");
+
+    auto typo = vs::check_features(vs::parse_json(R"({ "retry": { "retires": 5 } })"),
+                                   descriptor);
+    check(1 == typo.size() && "retires" == typo[0].key,
+          "a strict feature refuses an undeclared key");
+  });
+
   // THE REGISTRY IS THE AUTHORITY: a name nobody declared or registered
   // is a MISS, not a lookup - a wider fallback would let a typo derive a
   // secret name, call the provider, and report a nonexistent instance

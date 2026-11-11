@@ -82,9 +82,16 @@ dynamic DESCRIPTORWARNINGS(List<dynamic> args) {
 
 dynamic CANONICAL(List<dynamic> args) => canonicalSerialize(denull(args[0]));
 
+// A `ref` asks for the options that named instance is constructed with.
 dynamic INSTANCE(List<dynamic> args) {
   final vin = args[0];
-  return resolveProfile(denull(vin['config']), vin['profile'].toString());
+  final profile =
+      resolveProfile(denull(vin['config']), vin['profile'].toString());
+  final ref = vin['ref'];
+  if (ref is! String) {
+    return profile;
+  }
+  return instanceOptions(blockOf(profile, ref), denull(vin['opts']));
 }
 
 dynamic ERRORS(List<dynamic> args) => isKnownCode(args[0]);

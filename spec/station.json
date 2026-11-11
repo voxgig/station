@@ -1399,6 +1399,98 @@
       }
      },
      {
+      "doc": true,
+      "id": "descriptor#feature-schema",
+      "in": {
+       "config": {
+        "entity": {},
+        "feature": {
+         "retry": {
+          "options": {
+           "active": false,
+           "retries": 2
+          },
+          "optspec": {
+           "jitter": "`$BOOLEAN`"
+          },
+          "strict": true,
+          "transport": "wrap"
+         },
+         "test": {
+          "options": {
+           "active": false
+          },
+          "optspec": {
+           "entity": "`$MAP`",
+           "net": "`$MAP`"
+          },
+          "strict": false,
+          "transport": "base"
+         }
+        },
+        "main": {
+         "name": "Joplin",
+         "slug": "joplin",
+         "target": "ts",
+         "version": "0.0.1"
+        },
+        "options": {
+         "base": "http://localhost:41184",
+         "entity": {}
+        }
+       },
+       "feature": {
+        "test": {
+         "active": true
+        }
+       }
+      },
+      "out": {
+       "auth": {
+        "active": false,
+        "prefix": "",
+        "secretname": "joplin.apikey"
+       },
+       "base": "http://localhost:41184",
+       "entities": {},
+       "envtoken": "JOPLIN",
+       "features": [
+        {
+         "active": false,
+         "name": "retry",
+         "options": {
+          "active": false,
+          "retries": 2
+         },
+         "optspec": {
+          "jitter": "`$BOOLEAN`"
+         },
+         "strict": true,
+         "transport": "wrap"
+        },
+        {
+         "active": true,
+         "name": "test",
+         "options": {
+          "active": false
+         },
+         "optspec": {
+          "entity": "`$MAP`",
+          "net": "`$MAP`"
+         },
+         "strict": false,
+         "transport": "base"
+        }
+       ],
+       "name": "Joplin",
+       "server": [],
+       "slug": "joplin",
+       "station": 1,
+       "target": "ts",
+       "version": "0.0.1"
+      }
+     },
+     {
       "id": "descriptor#legacy",
       "in": {
        "config": {
@@ -2202,6 +2294,601 @@
       "out": [
        "a"
       ]
+     },
+     {
+      "doc": true,
+      "id": "feature#check-optspec-keys-are-declared",
+      "in": {
+       "check": {
+        "test": {
+         "active": true,
+         "entity": {
+          "note": {}
+         },
+         "net": {
+          "offline": true
+         }
+        }
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "test",
+         "options": {
+          "active": false
+         },
+         "optspec": {
+          "entity": "`$MAP`",
+          "net": "`$MAP`"
+         },
+         "strict": false
+        }
+       ]
+      },
+      "out": []
+     },
+     {
+      "id": "feature#check-optspec-type-is-a-kind",
+      "in": {
+       "check": {
+        "test": {
+         "entity": "notes"
+        }
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "test",
+         "options": {
+          "active": false
+         },
+         "optspec": {
+          "entity": "`$MAP`",
+          "net": "`$MAP`"
+         },
+         "strict": false
+        }
+       ]
+      },
+      "out": [
+       {
+        "code": "station_feature_option",
+        "feature": "test",
+        "key": "entity"
+       }
+      ]
+     },
+     {
+      "id": "feature#check-default-is-a-kind",
+      "in": {
+       "check": {
+        "retry": {
+         "retries": "three"
+        }
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "retry",
+         "options": {
+          "active": false,
+          "retries": 2
+         },
+         "optspec": {
+          "jitter": "`$BOOLEAN`",
+          "sleep": "`$FUNCTION`"
+         },
+         "strict": false
+        }
+       ]
+      },
+      "out": [
+       {
+        "code": "station_feature_option",
+        "feature": "retry",
+        "key": "retries"
+       }
+      ]
+     },
+     {
+      "doc": true,
+      "id": "feature#check-type-outranks-default",
+      "in": {
+       "check": {
+        "netsim": {
+         "latency": {
+          "max": 50,
+          "min": 10
+         }
+        }
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "netsim",
+         "options": {
+          "active": false,
+          "latency": 0
+         },
+         "optspec": {
+          "latency": [
+           "`$ONE`",
+           "`$NUMBER`",
+           "`$MAP`"
+          ]
+         },
+         "strict": false
+        }
+       ]
+      },
+      "out": []
+     },
+     {
+      "id": "feature#check-one-of-admits-each-kind",
+      "in": {
+       "check": {
+        "netsim": {
+         "latency": "slow"
+        }
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "netsim",
+         "options": {
+          "active": false,
+          "latency": 0
+         },
+         "optspec": {
+          "latency": [
+           "`$ONE`",
+           "`$NUMBER`",
+           "`$MAP`"
+          ]
+         },
+         "strict": false
+        }
+       ]
+      },
+      "out": [
+       {
+        "code": "station_feature_option",
+        "feature": "netsim",
+        "key": "latency"
+       }
+      ]
+     },
+     {
+      "id": "feature#check-exact-is-a-kind",
+      "in": {
+       "check": {
+        "validate": {
+         "mode": 5
+        }
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "validate",
+         "options": {
+          "active": false
+         },
+         "optspec": {
+          "mode": [
+           "`$ONE`",
+           [
+            "`$EXACT`",
+            "throw"
+           ],
+           [
+            "`$EXACT`",
+            "report"
+           ]
+          ]
+         },
+         "strict": false
+        }
+       ]
+      },
+      "out": [
+       {
+        "code": "station_feature_option",
+        "feature": "validate",
+        "key": "mode"
+       }
+      ]
+     },
+     {
+      "id": "feature#check-exact-checks-kind-not-value",
+      "in": {
+       "check": {
+        "validate": {
+         "mode": "loud"
+        }
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "validate",
+         "options": {
+          "active": false
+         },
+         "optspec": {
+          "mode": [
+           "`$ONE`",
+           [
+            "`$EXACT`",
+            "throw"
+           ],
+           [
+            "`$EXACT`",
+            "report"
+           ]
+          ]
+         },
+         "strict": false
+        }
+       ]
+      },
+      "out": []
+     },
+     {
+      "id": "feature#check-any-admits-anything",
+      "in": {
+       "check": {
+        "log": {
+         "logger": 5
+        }
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "log",
+         "options": {
+          "active": false
+         },
+         "optspec": {
+          "logger": "`$ANY`"
+         },
+         "strict": false
+        }
+       ]
+      },
+      "out": []
+     },
+     {
+      "doc": true,
+      "id": "feature#check-null-is-admitted-for-a-default",
+      "in": {
+       "check": {
+        "retry": {
+         "retries": null
+        }
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "retry",
+         "options": {
+          "active": false,
+          "retries": 2
+         },
+         "optspec": {
+          "jitter": "`$BOOLEAN`",
+          "sleep": "`$FUNCTION`"
+         },
+         "strict": false
+        }
+       ]
+      },
+      "out": []
+     },
+     {
+      "doc": true,
+      "id": "feature#check-null-is-admitted-for-a-type",
+      "in": {
+       "check": {
+        "retry": {
+         "sleep": null
+        }
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "retry",
+         "options": {
+          "active": false,
+          "retries": 2
+         },
+         "optspec": {
+          "jitter": "`$BOOLEAN`",
+          "sleep": "`$FUNCTION`"
+         },
+         "strict": false
+        }
+       ]
+      },
+      "out": []
+     },
+     {
+      "doc": true,
+      "id": "feature#check-null-default-admits-any-value",
+      "in": {
+       "check": {
+        "retry": {
+         "policy": {
+          "a": 1
+         },
+         "retries": 3
+        }
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "retry",
+         "options": {
+          "active": false,
+          "policy": null,
+          "retries": null
+         },
+         "optspec": {
+          "jitter": "`$BOOLEAN`",
+          "sleep": "`$FUNCTION`"
+         },
+         "strict": false
+        }
+       ]
+      },
+      "out": []
+     },
+     {
+      "id": "feature#check-type-outranks-a-null-default",
+      "in": {
+       "check": {
+        "netsim": {
+         "latency": "slow"
+        }
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "netsim",
+         "options": {
+          "active": false,
+          "latency": null
+         },
+         "optspec": {
+          "latency": "`$NUMBER`"
+         },
+         "strict": false
+        }
+       ]
+      },
+      "out": [
+       {
+        "code": "station_feature_option",
+        "feature": "netsim",
+        "key": "latency"
+       }
+      ]
+     },
+     {
+      "id": "feature#check-function-type-refuses-data",
+      "in": {
+       "check": {
+        "retry": {
+         "sleep": "fast"
+        }
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "retry",
+         "options": {
+          "active": false,
+          "retries": 2
+         },
+         "optspec": {
+          "jitter": "`$BOOLEAN`",
+          "sleep": "`$FUNCTION`"
+         },
+         "strict": false
+        }
+       ]
+      },
+      "out": [
+       {
+        "code": "station_feature_option",
+        "feature": "retry",
+        "key": "sleep"
+       }
+      ]
+     },
+     {
+      "doc": true,
+      "id": "feature#check-undeclared-key-when-not-strict",
+      "in": {
+       "check": {
+        "retry": {
+         "retires": 5
+        }
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "retry",
+         "options": {
+          "active": false,
+          "retries": 2
+         },
+         "optspec": {
+          "jitter": "`$BOOLEAN`",
+          "sleep": "`$FUNCTION`"
+         },
+         "strict": false
+        }
+       ]
+      },
+      "out": []
+     },
+     {
+      "id": "feature#check-undeclared-key-when-strict-absent",
+      "in": {
+       "check": {
+        "retry": {
+         "retires": 5
+        }
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "retry",
+         "options": {
+          "active": false,
+          "retries": 2
+         },
+         "optspec": {
+          "jitter": "`$BOOLEAN`",
+          "sleep": "`$FUNCTION`"
+         }
+        }
+       ]
+      },
+      "out": []
+     },
+     {
+      "doc": true,
+      "id": "feature#check-undeclared-key-when-strict",
+      "in": {
+       "check": {
+        "retry": {
+         "retires": 5
+        }
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "retry",
+         "options": {
+          "active": false,
+          "retries": 2
+         },
+         "optspec": {
+          "jitter": "`$BOOLEAN`",
+          "sleep": "`$FUNCTION`"
+         },
+         "strict": true
+        }
+       ]
+      },
+      "out": [
+       {
+        "code": "station_feature_option",
+        "feature": "retry",
+        "key": "retires"
+       }
+      ]
+     },
+     {
+      "id": "feature#check-unknown-feature",
+      "in": {
+       "check": {
+        "nosuch": {}
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "retry",
+         "options": {
+          "active": false,
+          "retries": 2
+         },
+         "optspec": {
+          "jitter": "`$BOOLEAN`",
+          "sleep": "`$FUNCTION`"
+         },
+         "strict": true
+        }
+       ]
+      },
+      "out": [
+       {
+        "code": "station_feature_unknown",
+        "feature": "nosuch"
+       }
+      ]
+     },
+     {
+      "id": "feature#check-reserved-keys-are-not-options",
+      "in": {
+       "check": {
+        "retry": {
+         "active": true,
+         "order": {
+          "band": 1
+         }
+        }
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "retry",
+         "options": {
+          "active": false,
+          "retries": 2
+         },
+         "optspec": {
+          "jitter": "`$BOOLEAN`",
+          "sleep": "`$FUNCTION`"
+         },
+         "strict": true
+        }
+       ]
+      },
+      "out": []
+     },
+     {
+      "id": "feature#check-faults-sorted-by-feature-then-key",
+      "in": {
+       "check": {
+        "nosuch": {},
+        "retry": {
+         "retires": 5,
+         "retries": "x"
+        }
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "retry",
+         "options": {
+          "active": false,
+          "retries": 2
+         },
+         "optspec": {
+          "jitter": "`$BOOLEAN`",
+          "sleep": "`$FUNCTION`"
+         },
+         "strict": true
+        }
+       ]
+      },
+      "out": [
+       {
+        "code": "station_feature_unknown",
+        "feature": "nosuch"
+       },
+       {
+        "code": "station_feature_option",
+        "feature": "retry",
+        "key": "retires"
+       },
+       {
+        "code": "station_feature_option",
+        "feature": "retry",
+        "key": "retries"
+       }
+      ]
      }
     ]
    },
@@ -2801,6 +3488,179 @@
         "station": 1
        },
        "profile": "default"
+      }
+     },
+     {
+      "doc": true,
+      "id": "instance#declared-options-reach-a-named-instance",
+      "in": {
+       "config": {
+        "profiles": {
+         "default": {
+          "sdk": {
+           "notes": {
+            "base": "http://127.0.0.1:9",
+            "options": {
+             "headers": {
+              "x-api-version": "2022-06-28"
+             },
+             "prefix": "/v1"
+            }
+           }
+          }
+         }
+        },
+        "station": 1
+       },
+       "opts": {},
+       "profile": "default",
+       "ref": "notes"
+      },
+      "out": {
+       "base": "http://127.0.0.1:9",
+       "headers": {
+        "x-api-version": "2022-06-28"
+       },
+       "prefix": "/v1"
+      }
+     },
+     {
+      "doc": true,
+      "id": "instance#the-caller-wins-per-top-level-key",
+      "in": {
+       "config": {
+        "profiles": {
+         "default": {
+          "sdk": {
+           "notes": {
+            "base": "http://127.0.0.1:9",
+            "options": {
+             "headers": {
+              "x-api-version": "2022-06-28"
+             },
+             "prefix": "/v1"
+            }
+           }
+          }
+         }
+        },
+        "station": 1
+       },
+       "opts": {
+        "base": "http://caller:1",
+        "headers": {
+         "x-caller": "yes"
+        },
+        "suffix": ".json"
+       },
+       "profile": "default",
+       "ref": "notes"
+      },
+      "out": {
+       "base": "http://caller:1",
+       "headers": {
+        "x-caller": "yes"
+       },
+       "prefix": "/v1",
+       "suffix": ".json"
+      }
+     },
+     {
+      "id": "instance#block-base-beats-its-own-options-base",
+      "in": {
+       "config": {
+        "profiles": {
+         "default": {
+          "sdk": {
+           "notes": {
+            "base": "http://block:1",
+            "options": {
+             "base": "http://options:1"
+            }
+           }
+          }
+         }
+        },
+        "station": 1
+       },
+       "opts": {},
+       "profile": "default",
+       "ref": "notes"
+      },
+      "out": {
+       "base": "http://block:1"
+      }
+     },
+     {
+      "doc": true,
+      "id": "instance#api-options-reach-an-undeclared-instance",
+      "in": {
+       "config": {
+        "profiles": {
+         "default": {
+          "api": {
+           "notes": {
+            "options": {
+             "headers": {
+              "x-api-version": "2022-06-28"
+             }
+            }
+           }
+          }
+         }
+        },
+        "station": 1
+       },
+       "opts": {
+        "prefix": "/eu"
+       },
+       "profile": "default",
+       "ref": "notes$eu"
+      },
+      "out": {
+       "headers": {
+        "x-api-version": "2022-06-28"
+       },
+       "prefix": "/eu"
+      }
+     },
+     {
+      "id": "instance#overlay-options-replace-wholesale",
+      "in": {
+       "config": {
+        "profiles": {
+         "default": {
+          "sdk": {
+           "notes": {
+            "base": "http://127.0.0.1:9",
+            "options": {
+             "headers": {
+              "x-api-version": "2022-06-28"
+             },
+             "prefix": "/v1"
+            }
+           }
+          }
+         },
+         "prod": {
+          "sdk": {
+           "notes": {
+            "options": {
+             "suffix": ".json"
+            }
+           }
+          }
+         }
+        },
+        "station": 1
+       },
+       "opts": {},
+       "profile": "prod",
+       "ref": "notes"
+      },
+      "out": {
+       "base": "http://127.0.0.1:9",
+       "suffix": ".json"
       }
      }
     ]

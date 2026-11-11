@@ -7,6 +7,7 @@
 # miniature of the py SDK's seams. Integration against a REAL generated
 # SDK lives in the consumer validation flow, not here.
 
+import functools
 import json
 import os
 import shutil
@@ -581,7 +582,7 @@ class TestBinding(unittest.TestCase):
 PAD_CONFIG = {
     'main': {'name': 'Pad', 'slug': 'pad', 'version': '2.0.0', 'target': 'py'},
     'feature': {
-        'retry': {'options': {'retries': 1, 'wait': 100}},
+        'retry': {'options': {'retries': 1, 'wait': 100}, 'strict': True},
         'ratelimit': {'options': {'rate': 1, 'burst': 1}},
         'test': {},
     },
@@ -934,6 +935,102 @@ class TestDeclarative(unittest.TestCase):
         self.assertIn('declares no option "retires"', str(caught.exception))
         st.close()
 
+    def test_options_hands_a_named_instance_its_declared_options(self):
+        notes = {'base': 'http://127.0.0.1:9',
+                 'options': {'headers': {'x-api-version': '2022-06-28'},
+                             'prefix': '/v1'}}
+        st = Station({'config': cfg(sdk={'notes': notes}), 'proxy': 'off'})
+        named = st.options('notes', {'suffix': '.json'})
+        named.pop('feature')
+        self.assertEqual({'base': 'http://127.0.0.1:9',
+                          'headers': {'x-api-version': '2022-06-28'},
+                          'prefix': '/v1', 'suffix': '.json'}, named)
+        unnamed = st.options({'suffix': '.json'})
+        unnamed.pop('feature')
+        self.assertEqual({'suffix': '.json'}, unnamed)
+        st.close()
+
+    def test_options_names_the_instance_from_a_top_level_instance_or_as(self):
+        blocks = {'gnarly-pets': {'options': {'headers': {'x-api-version': '1'}}},
+                  'gnarly-pets$eu': {'options': {'prefix': '/eu'}}}
+        for named in ({'instance': 'gnarly-pets$eu'}, {'as': 'gnarly-pets$eu'}):
+            st = Station({'config': cfg(sdk=blocks), 'proxy': 'off'})
+            built = st.options(dict(named, suffix='.json'))
+            sdkopts = {k: v for k, v in built.items() if 'feature' != k}
+            self.assertEqual({'prefix': '/eu', 'suffix': '.json'}, sdkopts)
+
+            client = FakeClient()
+            client.features.append(adapter_feature(st, None))
+            ctx = FakeCtx(client, FakeUtility(base_fetcher([])), dict(built))
+            feature_binding(ctx, built['feature']['station'])
+            self.assertEqual(['gnarly-pets$eu'], [p['name'] for p in st.plugins()])
+            st.close()
+
+    def test_connect_and_adopt_hand_a_named_instance_its_options(self):
+        notes = {'base': 'http://127.0.0.1:9',
+                 'options': {'headers': {'x-api-version': '2022-06-28'},
+                             'prefix': '/v1'}}
+        st = Station({'config': cfg(sdk={'notes': notes}), 'proxy': 'off'})
+        seen = []
+
+        class NotesSDK:
+            def __init__(self, o):
+                seen.append({k: v for k, v in o.items()
+                             if k not in ('feature', 'extend')})
+
+        st.connect(NotesSDK, {'instance': 'notes'})
+        st.adopt(NotesSDK, {'instance': 'notes'})
+        st.connect(NotesSDK, {'feature': {'station': {'instance': 'notes'}}})
+        want = {'base': 'http://127.0.0.1:9',
+                'headers': {'x-api-version': '2022-06-28'}, 'prefix': '/v1'}
+        self.assertEqual([want, want, want], seen)
+
+        # The caller wins per top-level key, as in build().
+        st.connect(NotesSDK, {'as': 'notes$', 'headers': {'x-caller': 'yes'},
+                              'suffix': '.json'})
+        self.assertEqual({'base': 'http://127.0.0.1:9',
+                          'headers': {'x-caller': 'yes'}, 'prefix': '/v1',
+                          'suffix': '.json'}, seen[3])
+        st.close()
+
+    def test_an_unnamed_connect_warns_that_options_cannot_reach(self):
+        st = Station({'config': cfg(sdk={'pad': {
+            'options': {'headers': {'x-api-version': '1'}}}})})
+        client = st.connect(FakeSDK, {'prefix': '/mine'})
+        self.assertNotIn('headers', client.options)
+        warns = [e['meta']['warn'] for e in st.events()
+                 if 'pad' == e.get('plugin') and 'warn' in (e.get('meta') or {})]
+        self.assertEqual(1, len(warns))
+        self.assertIn('[headers]', warns[0])
+        self.assertIn('{ instance: "pad" }', warns[0])
+        st.close()
+
+    def test_sdk_takes_the_test_feature_options_its_optspec_declares(self):
+        config = dict(PAD_CONFIG)
+        config['main'] = dict(PAD_CONFIG['main'], slug='joplin', name='Joplin')
+        config['feature'] = {'test': {
+            'options': {'active': False},
+            'optspec': {'entity': '`$MAP`', 'net': '`$MAP`'},
+            'strict': False, 'transport': 'base'}}
+
+        class JoplinSDK(FakeSDK):
+            pass
+        JoplinSDK.config = config
+        provide('joplin', {'construct': JoplinSDK, 'config': config})
+
+        for test in ({'active': True, 'entity': {'note': {}}},
+                     {'active': True, 'net': {'offline': True}}):
+            st = Station({'config': cfg(sdk={'joplin': {'feature': {'test': test}}})})
+            st.sdk('joplin')
+            st.close()
+
+        st = Station({'config': cfg(sdk={'joplin': {'feature': {
+            'test': {'entity': 'note'}}}})})
+        with self.assertRaises(StationError) as caught:
+            st.sdk('joplin')
+        self.assertIn('expects map, but found string', str(caught.exception))
+        st.close()
+
     def test_an_unknown_feature_fails_the_build(self):
         st = Station({'config': cfg(sdk={'pad': {'feature': {
             'nosuch': {'x': 1}}}})})
@@ -1120,6 +1217,38 @@ class TestFeatureChecker(unittest.TestCase):
         faults = check_features({'zzz': {}, 'aaa': {}}, self.descriptor())
         # Sorted, so the report reads the same in every port.
         self.assertEqual(['aaa', 'zzz'], [f['feature'] for f in faults])
+
+    def test_an_undeclared_key_is_refused_only_when_strict(self):
+        faults = check_features({'retry': {'retires': 5}}, self.descriptor())
+        self.assertEqual(['retires'], [f['key'] for f in faults])
+        self.assertIn('declares [retries, wait]', faults[0]['message'])
+        # ratelimit carries no `strict`, which sdkgen reads as false.
+        self.assertEqual([], check_features({'ratelimit': {'rat': 5}},
+                                            self.descriptor()))
+
+    def test_a_native_callable_is_a_function_option(self):
+        descriptor = {'features': [{
+            'name': 'retry', 'active': False, 'options': {'active': False},
+            'optspec': {'sleep': '`$FUNCTION`', 'label': '`$STRING`'}, 'strict': False,
+        }]}
+        for sleep in (lambda ms: ms, len, [].append, functools.partial(max, 0)):
+            self.assertEqual([], check_features({'retry': {'sleep': sleep}}, descriptor),
+                             repr(sleep))
+        self.assertEqual(1, len(check_features({'retry': {'sleep': 'fast'}}, descriptor)))
+        # A value JSON cannot render is reported, not raised.
+        self.assertEqual(1, len(check_features({'retry': {'label': len}}, descriptor)))
+        self.assertEqual(1, len(check_features({'retry': {'sleep': {1, 2}}}, descriptor)))
+
+    def test_an_optspec_key_is_declared_and_type_checked(self):
+        descriptor = {'features': [{
+            'name': 'test', 'active': False, 'options': {'active': False},
+            'optspec': {'entity': '`$MAP`', 'net': '`$MAP`'}, 'strict': False,
+        }]}
+        self.assertEqual([], check_features(
+            {'test': {'active': True, 'entity': {'note': {}},
+                      'net': {'offline': True}}}, descriptor))
+        faults = check_features({'test': {'net': 'offline'}}, descriptor)
+        self.assertIn('expects map, but found string', faults[0]['message'])
 
 
 class TestConfigShape(unittest.TestCase):

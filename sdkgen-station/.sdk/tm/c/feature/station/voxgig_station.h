@@ -242,6 +242,15 @@ vxstn_val* vxstn_resolve_profile(const vxstn_val* config,
                                  const char* profile_name,
                                  vxstn_error** err);
 
+/* The block that governs an instance in a resolved profile: its own,
+ * else its api's. Borrowed; NULL when neither level declares one. */
+const vxstn_val* vxstn_block_of(const vxstn_val* profile, const char* ref);
+
+/* design 3.5 for a named instance: the block's `options`, then its
+ * `base` (steps 3-6), under the caller's `opts` (step 9), per top-level
+ * key. Owned. */
+vxstn_val* vxstn_instance_options(const vxstn_val* block, const vxstn_val* opts);
+
 /* =========================================================================
  * The config grammar, as data (design station.md 4). Stage 5.
  *
@@ -751,7 +760,8 @@ const char* vxstn_declared_ref(vxstn_station* st, const char* name);
 
 /* The inverted binding (design 3.1): the options map a generated
  * constructor accepts, with the station activation entry and the
- * instance name in it. `instance` is OPTIONAL (NULL) and LEADING.
+ * instance name in it. `instance` is OPTIONAL (NULL) and LEADING; a
+ * named instance's block options sit under `extra` (design 3.5).
  * The station HANDLE does not ride the map - a C value tree holds JSON,
  * not pointers - so the generated feature binds to the ambient instance
  * or to a handle the host gives it. Owned. */

@@ -554,6 +554,24 @@ merged instance**, never per layer — a synthesized default in an
 overlay block would silently re-enable an integration the base
 declared inactive.
 
+**Every construction path takes the block's options.** `sdk(name)` and
+`create(name, overrides)` construct with the merged block's `options`,
+then its `base`, under the caller's options, one top-level key at a
+time: a caller's `headers` replaces the block's `headers` whole, which
+is the shallow rule again. `connect(SDK, opts)`, `adopt(SDK, opts)` and
+the inverted binding `options(name, extra)` apply the same merge when
+the caller names the instance before construction — the leading name,
+`instance`, or an `as` that is a full ref, at the top of `opts` or in
+`feature.station`. A bare tag, or no name, leaves the instance unknown
+until the SDK's own config is read during construction, which is too
+late to change what the SDK was constructed with; when that instance
+declares `options` the caller did not pass, `connect` and `adopt` emit
+one `station` warning naming the keys and the fix,
+`{ instance: "<ref>" }`. An unnamed `options(extra)` constructs nothing
+itself, so it has no moment to warn. An `instance` corpus entry with a
+`ref` pins the merge: it asks for the options that instance is
+constructed with.
+
 `station.json` is looked up from cwd upward to the repo root, then
 `~/.voxgig/station.json`. The profile is `Station.open({profile})`,
 else `VOXGIG_STATION_PROFILE`, else `default` — the explicit option

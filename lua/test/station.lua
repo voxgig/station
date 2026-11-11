@@ -523,6 +523,80 @@ testcase('connect-keeps-station-keys', function()
     'instance rides the feature entry')
 end)
 
+local NOTES_CONFIG = {
+  station = 1,
+  profiles = { default = { sdk = { notes = {
+    base = 'http://127.0.0.1:9',
+    options = { headers = { ['x-api-version'] = '2022-06-28' }, prefix = '/v1' },
+  } } } },
+}
+
+testcase('connect-applies-declared-options', function()
+  local station = st.new({ config = NOTES_CONFIG, proxy = 'off' })
+  local seen = {}
+  local SDK = { new = function(options)
+    local plain = {}
+    for k, v in pairs(options) do
+      if k ~= 'feature' and k ~= 'extend' then
+        plain[k] = v
+      end
+    end
+    seen[#seen + 1] = plain
+    return plain
+  end }
+
+  station:connect(SDK, { instance = 'notes' })
+  station:adopt(SDK, { instance = 'notes' })
+  station:connect(SDK, { feature = { station = { instance = 'notes' } } })
+  checkeq(#seen, 3, 'three constructions')
+  for _, one in ipairs(seen) do
+    checkeq(keylist(one), 'base,headers,prefix', 'the block options reach the SDK')
+    checkeq(one.base, 'http://127.0.0.1:9')
+    checkeq(one.headers['x-api-version'], '2022-06-28')
+    checkeq(one.prefix, '/v1')
+  end
+
+  -- The caller wins per top-level key, as in a declared build.
+  station:connect(SDK, { as = 'notes$', headers = { ['x-caller'] = 'yes' },
+    suffix = '.json' })
+  checkeq(keylist(seen[4]), 'base,headers,prefix,suffix', 'merged keys')
+  checkeq(keylist(seen[4].headers), 'x-caller', 'a map value replaces wholesale')
+  checkeq(seen[4].suffix, '.json')
+end)
+
+testcase('connect-unnamed-warns', function()
+  local station = st.new({
+    config = { station = 1, profiles = { default = { sdk = { taskpad = {
+      options = { headers = { ['x-api-version'] = '1' } },
+    } } } } },
+    proxy = 'off',
+  })
+  -- A generated SDK runs its extend features as it constructs, so the
+  -- registry holds the client connect returns.
+  local SDK = { new = function(options)
+    local client = { mode = 'live', features = { { name = 'test' } }, options = options }
+    local ctx = { client = client, options = options, config = make_config(),
+      utility = { fetcher = function() return { status = 200 }, nil end } }
+    for _, f in ipairs(options.extend) do
+      client.features[#client.features + 1] = f
+      f:init(ctx, options.feature.station)
+    end
+    return client
+  end }
+
+  local client = station:connect(SDK, { prefix = '/mine' })
+  check(station:_bound_entry(client) ~= nil, 'bound')
+  local warns = {}
+  for _, ev in ipairs(station:events()) do
+    if ev.plugin == 'taskpad' and ev.meta ~= nil and ev.meta.warn ~= nil then
+      warns[#warns + 1] = ev.meta.warn
+    end
+  end
+  checkeq(#warns, 1, 'one warning')
+  check(string.find(warns[1], '[headers]', 1, true) ~= nil, warns[1])
+  check(string.find(warns[1], '{ instance: "taskpad" }', 1, true) ~= nil, warns[1])
+end)
+
 testcase('mock-no-inject', function()
   local station = st.new({ config = st.NULL, proxy = 'off' })
   local b = bind(station, {

@@ -31,6 +31,7 @@ use Voxgig\Station\StationError;
 use Voxgig\Station\TransportWrap;
 
 use function Voxgig\Station\adapter_feature;
+use function Voxgig\Station\block_of;
 use function Voxgig\Station\camelify;
 use function Voxgig\Station\canonical_serialize;
 use function Voxgig\Station\check_features;
@@ -42,6 +43,7 @@ use function Voxgig\Station\envtoken;
 use function Voxgig\Station\factory_for;
 use function Voxgig\Station\factory_from_module;
 use function Voxgig\Station\feature_sources;
+use function Voxgig\Station\instance_options;
 use function Voxgig\Station\instance_ref;
 use function Voxgig\Station\known_code;
 use function Voxgig\Station\merge_features;
@@ -221,15 +223,29 @@ $DRIVERS = [
     // to validate the wrong form.
     'config' => fn($vin) => validate_config(normalize_config(denull($vin))),
 
-    // The 3.3 merge, and the whole of this port's profile contract.
-    'instance' => fn($vin) => resolve_profile(denull($vin['config']), $vin['profile']),
+    // The 3.3 merge, and the whole of this port's profile contract. A
+    // `ref` asks for the options that named instance is constructed with.
+    'instance' => function ($vin) {
+        $profile = resolve_profile(denull($vin['config']), $vin['profile']);
+        if (null === ($vin['ref'] ?? null)) {
+            return $profile;
+        }
+        return instance_options(block_of($profile, $vin['ref']),
+            denull($vin['opts'] ?? null));
+    },
 
     // Design 8's pure half (10.1): the three-level merge with its depth
-    // boundary, and the 8.4 order resolution. ONE driver, TWO entry
-    // shapes - `merged` selects the resolver, anything else the merge -
-    // because a port that guessed from looser cues would run the wrong
-    // subject on a mistyped entry.
+    // boundary, the 8.4 order resolution, and the 8.5 option checker. ONE
+    // driver, THREE entry shapes - `check` selects the checker, `merged`
+    // the resolver, anything else the merge - because a port that guessed
+    // from looser cues would run the wrong subject on a mistyped entry.
     'feature' => function ($vin) {
+        if (null !== ($vin['check'] ?? null)) {
+            return array_map(
+                fn($f) => array_intersect_key($f, ['code' => 1, 'feature' => 1, 'key' => 1]),
+                check_features(denull($vin['check']),
+                    ['features' => denull($vin['features'])]));
+        }
         if (null !== ($vin['merged'] ?? null)) {
             $ordered = resolve_order(denull($vin['merged']));
             check_pin($ordered);
@@ -951,7 +967,7 @@ const SDKCONFIG = [
     'main' => ['name' => 'Solar', 'slug' => 'solar',
         'version' => '1.0.0', 'target' => 'php'],
     'feature' => [
-        'retry' => ['options' => ['retries' => 3, 'wait' => 100]],
+        'retry' => ['options' => ['retries' => 3, 'wait' => 100], 'strict' => true],
         'test' => [],
     ],
     'options' => ['base' => 'http://solar:1', 'auth' => ['prefix' => 'Bearer']],
@@ -1392,6 +1408,167 @@ testcase('connect_keeps_as_and_instance_out_of_the_sdk_options', function () {
     sort($keys);
     eq(['extend', 'feature'], $keys);
     eq('solar$spare', $sdk->options['feature']['station']['instance']);
+});
+
+// A generated SDK is its own client, so the registry holds what connect
+// returns.
+#[\AllowDynamicProperties]
+class SelfBoundSDK extends FakeClient
+{
+    public function __construct(array $options)
+    {
+        $this->options = $options;
+        $utility = new FakeUtility();
+        $utility->fetcher = fn($_c, $_u, $_d) => [okres(), null];
+        $ctx = new FakeCtx($this, $utility, $options, SDKCONFIG);
+        $fopts = is_array($options['feature']['station'] ?? null)
+            ? $options['feature']['station'] : [];
+        foreach (($options['extend'] ?? []) as $f) {
+            $this->features[] = $f;
+            $f->init($ctx, $fopts);
+        }
+    }
+}
+
+const NOTES = [
+    'base' => 'http://127.0.0.1:9',
+    'options' => ['headers' => ['x-api-version' => '2022-06-28'], 'prefix' => '/v1'],
+];
+
+function sdk_options(object $sdk): array
+{
+    $o = $sdk->options;
+    unset($o['feature'], $o['extend']);
+    return $o;
+}
+
+testcase('options_hands_a_named_instance_its_declared_options', function () {
+    $st = new Station(['config' => solarconfig(['notes' => NOTES])]);
+    $named = $st->options('notes', ['suffix' => '.json']);
+    unset($named['feature']);
+    ksort($named);
+    eq(['base' => 'http://127.0.0.1:9', 'headers' => ['x-api-version' => '2022-06-28'],
+        'prefix' => '/v1', 'suffix' => '.json'], $named);
+    $unnamed = $st->options(['suffix' => '.json']);
+    unset($unnamed['feature']);
+    eq(['suffix' => '.json'], $unnamed);
+});
+
+testcase('options_names_the_instance_from_a_top_level_instance_or_as', function () {
+    foreach ([['instance' => 'solar$eu'], ['as' => 'solar$eu']] as $named) {
+        $st = new Station(['config' => solarconfig([
+            'solar' => ['options' => ['headers' => ['x-api-version' => '1']]],
+            'solar$eu' => ['options' => ['prefix' => '/eu']],
+        ])]);
+        $built = $st->options(array_merge($named, ['suffix' => '.json']));
+        $sdkopts = $built;
+        unset($sdkopts['feature']);
+        ksort($sdkopts);
+        eq(['prefix' => '/eu', 'suffix' => '.json'], $sdkopts);
+
+        $client = new FakeClient();
+        $ctx = new FakeCtx($client, new FakeUtility(), $built, SDKCONFIG);
+        $feature = adapter_feature($st, []);
+        $client->features[] = $feature;
+        $feature->init($ctx, $built['feature']['station']);
+        eq(['solar$eu'], array_map(fn($p) => $p['name'], $st->plugins()));
+    }
+});
+
+testcase('connect_and_adopt_hand_a_named_instance_its_options', function () {
+    $st = new Station(['config' => solarconfig(['notes' => NOTES])]);
+    $want = ['base' => 'http://127.0.0.1:9',
+        'headers' => ['x-api-version' => '2022-06-28'], 'prefix' => '/v1'];
+    foreach ([
+        $st->connect(ClosedSDK::class, ['instance' => 'notes']),
+        $st->adopt(ClosedSDK::class, ['instance' => 'notes']),
+        $st->connect(ClosedSDK::class, ['feature' => ['station' => ['instance' => 'notes']]]),
+    ] as $sdk) {
+        $got = sdk_options($sdk);
+        ksort($got);
+        eq($want, $got);
+    }
+
+    // The caller wins per top-level key, as in build().
+    $got = sdk_options($st->connect(ClosedSDK::class, [
+        'as' => 'notes$', 'headers' => ['x-caller' => 'yes'], 'suffix' => '.json']));
+    ksort($got);
+    eq(['base' => 'http://127.0.0.1:9', 'headers' => ['x-caller' => 'yes'],
+        'prefix' => '/v1', 'suffix' => '.json'], $got);
+});
+
+testcase('an_unnamed_connect_warns_that_options_cannot_reach', function () {
+    $st = new Station(['config' => solarconfig(['solar' => [
+        'options' => ['headers' => ['x-api-version' => '1']]]])]);
+    $client = $st->connect(SelfBoundSDK::class, ['prefix' => '/mine']);
+    ok(!array_key_exists('headers', $client->options));
+
+    $warns = [];
+    foreach ($st->events() as $e) {
+        if ('solar' === ($e['plugin'] ?? null) && isset($e['meta']['warn'])) {
+            $warns[] = $e['meta']['warn'];
+        }
+    }
+    eq(1, count($warns));
+    ok(str_contains($warns[0], '[headers]'), $warns[0]);
+    ok(str_contains($warns[0], '{ instance: "solar" }'), $warns[0]);
+});
+
+testcase('an_undeclared_key_is_refused_only_when_strict', function () {
+    $faults = check_features(['retry' => ['retires' => 5]],
+        normalize_descriptor(SDKCONFIG, null)['descriptor']);
+    eq(['retires'], array_map(fn($f) => $f['key'], $faults));
+
+    $loose = ['features' => [['name' => 'retry', 'active' => false,
+        'options' => ['retries' => 3], 'strict' => false]]];
+    eq([], check_features(['retry' => ['retires' => 5]], $loose));
+});
+
+testcase('an_optspec_key_is_declared_and_type_checked', function () {
+    $d = ['features' => [['name' => 'test', 'active' => false,
+        'options' => ['active' => false],
+        'optspec' => ['entity' => '`$MAP`', 'net' => '`$MAP`'], 'strict' => false]]];
+    eq([], check_features(['test' => ['active' => true,
+        'entity' => ['note' => []], 'net' => ['offline' => true]]], $d));
+    // An empty php array is an empty map as well as an empty list.
+    eq([], check_features(['test' => ['entity' => []]], $d));
+    $faults = check_features(['test' => ['net' => 'offline']], $d);
+    ok(str_contains($faults[0]['message'], 'expects map, but found string'),
+        $faults[0]['message']);
+});
+
+testcase('a_native_callable_is_a_function_option', function () {
+    $d = ['features' => [['name' => 'retry', 'active' => false,
+        'options' => ['active' => false],
+        'optspec' => ['sleep' => '`$FUNCTION`', 'label' => '`$STRING`'], 'strict' => false]]];
+    foreach ([fn($ms) => $ms, function ($ms) { return $ms; }, strlen(...), \Closure::fromCallable('strlen')] as $sleep) {
+        eq([], check_features(['retry' => ['sleep' => $sleep]], $d));
+    }
+    eq(1, count(check_features(['retry' => ['sleep' => 'fast']], $d)));
+    // A callable string is a string, as struct's typify has it.
+    eq([], check_features(['retry' => ['label' => 'strlen']], $d));
+    eq(1, count(check_features(['retry' => ['label' => fn() => null]], $d)));
+});
+
+testcase('sdk_takes_the_test_feature_options_its_optspec_declares', function () {
+    $config = SDKCONFIG;
+    $config['main']['slug'] = 'joplin';
+    $config['feature'] = ['test' => [
+        'options' => ['active' => false],
+        'optspec' => ['entity' => '`$MAP`', 'net' => '`$MAP`'],
+        'strict' => false, 'transport' => 'base']];
+    provide('joplin', ['construct' => fn(array $o) => new ClosedSDK($o), 'config' => $config]);
+
+    foreach ([['active' => true, 'entity' => ['note' => ['id' => 'n1']]],
+              ['active' => true, 'net' => ['offline' => true]]] as $test) {
+        (new Station(['config' => solarconfig(['joplin' => ['feature' => ['test' => $test]]])]))
+            ->sdk('joplin');
+    }
+
+    $st = new Station(['config' => solarconfig(['joplin' => [
+        'feature' => ['test' => ['entity' => 'note']]]])]);
+    $e = raises(fn() => $st->sdk('joplin'), 'station_feature_option');
+    ok(str_contains($e->getMessage(), 'expects map, but found string'), $e->getMessage());
 });
 
 echo "\npass: $pass, fail: $fail\n";

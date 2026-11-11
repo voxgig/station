@@ -996,7 +996,8 @@ fn features_of_composes_the_policy_budget_into_ratelimit() {
 fn check_features_catches_unknown_features_and_options() {
     let sdkconfig = parse(
         r#"{ "main": { "name": "Pad", "slug": "pad" },
-             "feature": { "retry": { "options": { "max": 1, "spread": true } } } }"#,
+             "feature": { "retry": { "options": { "max": 1, "spread": true },
+                                     "strict": true } } }"#,
     );
     let (descriptor, _warnings) = normalize_descriptor(&sdkconfig, &Json::Null);
 
@@ -1035,6 +1036,93 @@ fn check_features_catches_unknown_features_and_options() {
     );
     // `active` and `order` are reserved: never options, never faults.
     assert!(faults.iter().all(|f| f.key.as_deref() != Some("active")));
+}
+
+#[test]
+fn check_features_reads_optspec_and_strict() {
+    let sdkconfig = parse(
+        r#"{ "main": { "name": "Joplin", "slug": "joplin" },
+             "feature": {
+               "test": { "options": { "active": false },
+                         "optspec": { "entity": "`$MAP`", "net": "`$MAP`" },
+                         "strict": false, "transport": "base" },
+               "retry": { "options": { "retries": 2 } } } }"#,
+    );
+    let (descriptor, _warnings) = normalize_descriptor(&sdkconfig, &Json::Null);
+
+    let accepted = parse(
+        r#"{ "test": { "active": true, "entity": { "note": {} }, "net": { "offline": true } },
+             "retry": { "retires": 5 } }"#,
+    );
+    assert!(
+        check_features(&accepted, &descriptor).is_empty(),
+        "optspec keys are declared, and a feature with no strict is open"
+    );
+
+    let faults = check_features(&parse(r#"{ "test": { "net": "offline" } }"#), &descriptor);
+    assert_eq!(1, faults.len());
+    assert!(
+        faults[0].message.contains("expects map, but found string"),
+        "{}",
+        faults[0].message
+    );
+}
+
+#[test]
+fn options_for_hands_a_named_instance_its_declared_options() {
+    Station::reset();
+    let station = open_station(station_config(
+        r#", "sdk": { "notes": { "base": "http://127.0.0.1:9",
+             "options": { "headers": { "x-api-version": "2022-06-28" }, "prefix": "/v1" } } }"#,
+    ));
+
+    let named = station.options_for("notes", &parse(r#"{ "suffix": ".json" }"#));
+    let mut plain = match named {
+        Json::Map(entries) => entries,
+        _ => panic!("options are a map"),
+    };
+    plain.remove("feature");
+    assert_eq!(
+        canonical_serialize(&Json::Map(plain)),
+        r#"{"base":"http://127.0.0.1:9","headers":{"x-api-version":"2022-06-28"},"prefix":"/v1","suffix":".json"}"#
+    );
+
+    let unnamed = station.options(&parse(r#"{ "suffix": ".json" }"#));
+    assert!(jget(&unnamed, "headers").is_none(), "an unnamed call is untouched");
+    Station::reset();
+}
+
+#[test]
+fn options_names_the_instance_from_a_top_level_instance_or_as() {
+    for named in [r#""instance": "taskpad$eu""#, r#""as": "taskpad$eu""#] {
+        Station::reset();
+        let station = open_station(station_config(
+            r#", "sdk": { "taskpad": { "options": { "headers": { "x-api-version": "1" } } },
+                 "taskpad$eu": { "options": { "prefix": "/eu" } } }"#,
+        ));
+        let built = station.options(&parse(&format!(r#"{{ {}, "suffix": ".json" }}"#, named)));
+        let mut sdkopts = match &built {
+            Json::Map(entries) => entries.clone(),
+            _ => panic!("options are a map"),
+        };
+        sdkopts.remove("feature");
+        assert_eq!(
+            canonical_serialize(&Json::Map(sdkopts)),
+            r#"{"prefix":"/eu","suffix":".json"}"#,
+            "{}",
+            named
+        );
+
+        let mut bound = spec(Rc::new(0u8), &["test", "station"]);
+        bound.feature_opts = jget(&built, "feature")
+            .and_then(|feature| jget(feature, "station"))
+            .cloned()
+            .expect("the station entry");
+        bind(bound).expect("bound");
+        let names: Vec<String> = station.plugins().iter().map(|p| p.name.clone()).collect();
+        assert_eq!(vec!["taskpad$eu".to_string()], names, "{}", named);
+    }
+    Station::reset();
 }
 
 #[test]
