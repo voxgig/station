@@ -407,8 +407,9 @@ at construction in each), because one shape does not fit 20 languages:
   matching `feature.station.active: true` options entry exists.
   `adopt(SDK, opts)` therefore constructs the client itself with
   `extend: [station.adapterFeature()]` plus the activation entry and
-  `__after__: 'test'` positioning, using the library's carried copy of
-  the adapter. One core prerequisite makes this work: today the
+  an anchor that places the adapter where §3.3 needs it, using the
+  library's carried copy of the adapter. One core prerequisite makes
+  this work: today the
   constructor's featureorder loop would see the activation entry and
   call `Config.makeFeature('station')` — which fails in an SDK whose
   generated `FEATURE_CLASS` has no station — *before* `extend` is
@@ -469,18 +470,20 @@ the `__before__`/`__after__` controls are unusable for
 config-constructed features (`makeFeature` builds instances without
 `_options`). So the mechanism is explicit:
 
-- `connect()`/`adopt()` pass the **ordered-array feature form** that
-  `makeOptions` already supports — built from the *complete merged*
-  feature set (the generated config's active features plus the
-  caller's), with `station` placed immediately after `test`. A
-  partial `[test, station]` array would do the opposite of its
-  intent: `makeOptions` derives `featureorder` from the array names
-  alone, so config-activated features (`log` is active by default)
-  would silently drop out of init. The library computes the full
-  order; it never hands `makeOptions` a subset;
-- for the plain map-form activation (inverted binding, hand-written
-  options), the generated `makeOptions` gains a station special case
-  mirroring test's — a required sdkgen change listed in §9.3;
+- `connect()`/`adopt()` pass the map form. A generated config activates
+  no feature by default, so the caller's map names every active one,
+  and `makeOptions` derives the order from it;
+- for any map-form activation (connect, adopt, inverted binding,
+  hand-written options), the generated `makeOptions` gains a station
+  special case mirroring test's — a required sdkgen change listed in
+  §9.3. It places a *generated* station feature;
+- an SDK generated without the feature has no station to place, and
+  the constructor adds the `extend`-carried adapter after every other
+  feature, at the adapter's anchor or else last. So the adapter
+  computes its anchor from the caller's feature map: immediately after
+  `test` when `test` is active, otherwise before the first active
+  feature by name, which is the one `makeOptions` puts first. A feature
+  the caller supplies through `extend` is not counted;
 - the adapter verifies its position at runtime (mark the fetchdef,
   detect an unmarked inner wrapper) and fails loudly with
   `station_wrap_order` rather than silently reporting non-wire

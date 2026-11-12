@@ -199,12 +199,8 @@ module VoxgigStation
       @station = station
       @calleropts = calleropts
       @_binding = nil
-      # feature_add reads _options for positioning: immediately after
-      # the test feature's base transport (design station.md 3.3). When
-      # test is absent from the add order this is a no-op append, which
-      # for a bare SDK still lands the wrap immediately outside the base
-      # transport.
-      @_options = { '__after__' => 'test' }
+      @_options = VoxgigStation.adapter_anchor(
+        calleropts.is_a?(Hash) ? calleropts['feature'] : nil)
     end
 
     def get_version
@@ -241,6 +237,17 @@ module VoxgigStation
 
   def adapter_feature(station, calleropts)
     AdapterFeature.new(station, calleropts)
+  end
+
+  # The generated constructor adds the active features, test first and the
+  # rest by name, and only then this adapter, at its anchor or else last.
+  def adapter_anchor(fmap)
+    return {} unless fmap.is_a?(Hash)
+    names = fmap.select do |n, v|
+      n.is_a?(String) && 'station' != n && v.is_a?(Hash) && true == v['active']
+    end.keys.sort
+    return { '__after__' => 'test' } if names.include?('test')
+    names.empty? ? {} : { '__before__' => names.first }
   end
 
   def result_outcome(ctx)

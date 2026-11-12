@@ -8,7 +8,7 @@
 
 export 'src/adapter.dart'
     show FeatureBinding, StationAdapterFeature, StationTransport,
-        adapterFeature, featureBinding;
+        adapterAnchor, adapterFeature, featureBinding;
 export 'src/descriptor.dart'
     show Normalized, canonicalSerialize, envtoken, normalizeDescriptor,
         secretnameDefault;

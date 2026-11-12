@@ -1,10 +1,10 @@
 # Status: where the next session starts
 
-Snapshot, **2026-11-12**. The code on `main` is what `9a650d4` holds;
-every commit since is documents. 0.2.0 is released on every route, and
-`main` is ahead of it: the six pull requests of W1 merged on 2026-11-11
-and changed every port's source. The seven decisions were ruled the
-same day. The register
+Snapshot, **2026-11-12**. `main` is at `8c563f2`. 0.2.0 is released on
+every route, and `main` is ahead of it: the six pull requests of W1
+merged on 2026-11-11 and changed every port's source, and on 2026-11-12
+W5.1 (the proxy builds) and W4.3 (the fixture SDKs) merged. The seven
+decisions were ruled on 2026-11-11. The register
 in [`progress.md`](progress.md) is the per-item authority, and
 [`upstream.md`](upstream.md) tracks what other repositories owe. This
 file says what is in flight, what to pick up first, and what waits on a
@@ -28,9 +28,11 @@ wrong status file is worse than none.**
   all six, in CI's layout, against omni `dcbab7a`, sekreto `32b83ac`,
   plugin `8605cdc` and struct `055ac4a`. All pass. That tree lacks
   three one-line fixes CI later asked for, in csharp and swift.
-- **Not run here.** csharp, swift, dart, elixir and lua: there was no
-  toolchain. For those five, CI is the only evidence, and on 2026-11-11
-  it was the only thing that caught two faults (W1).
+- **Not run here.** csharp and swift: there was no toolchain. For
+  those two, CI is the only evidence, and on 2026-11-11 it was the only
+  thing that caught two faults (W1). dart 3.14, elixir 1.14 and lua 5.4
+  were installed here on 2026-11-12 for W2.1, and their suites pass;
+  CI runs elixir 1.18.
 - **The gates.** `make version-check`, `vendor-check`, `comments` and
   `omni-isolation` pass on the merged tree.
 - **`make release-plan` now refuses, as it should.** It says
@@ -78,9 +80,9 @@ and `feature`: they took `instanceref` with W1.1. All sixteen read the
 generated SDKs skip in CI in every port that has them: typescript's
 `quickstart`, `gnarly-pets` and `generated-feature`, javascript's two,
 and the quickstarts of ruby, php and perl. `make fixtures` generates
-those SDKs since W4.3, and against them all eight suites pass, 56
-tests, none skipped; CI runs them once the fixture lane's patch is
-applied.
+those SDKs since W4.3. With W2.1's retrofit suites, `make
+fixtures-test` runs thirteen suites, 61 tests, none skipped, all
+passing; CI runs them once the fixture lane's patch is applied.
 
 **The other parts.**
 
@@ -94,23 +96,19 @@ applied.
 
 ## In flight
 
-Nothing. No pull request is open in voxgig/station or voxgig/likeness.
+W2.1, in review: the carried adapter's anchor, in nine ports. It also
+records two findings, W2.12 and W2.13, with no issue filed yet.
 
 
 ## Pick this up first
 
 In this order. None of it waits on the maintainer.
 
-1. **W5.1**, the proxy's build. No open change touches `proxy/`, and
-   the build fix is one file.
-2. **W4.3**, a `make` target that generates the fixture SDKs. It is new
-   files only, and it is what lets W2.1 be reproduced before it is
-   fixed.
-3. **W2a**, canonical first: W2.1, W2.2, W2.4, W2.5, W2.3. That is what
-   0.3.0 waits on, now that W1 is in.
-4. **W4.1**, a completeness guard in typescript. W1.1, which edited the
+1. **The rest of W2a**, canonical first: W2.2, W2.4, W2.5, W2.3. That
+   is what 0.3.0 waits on.
+2. **W4.1**, a completeness guard in typescript. W1.1, which edited the
    same test file, has landed.
-5. **W0.8**, the design's account of sdkgen.
+3. **W0.8**, the design's account of sdkgen.
 
 Two more can start at any time, since each begins with a document:
 **W8.1**, the design note for taking voxgig/plugin, which every later
@@ -123,7 +121,7 @@ Everything here needs the maintainer, and most of it fits one sitting.
 
 | what | why a human | rows |
 |---|---|---|
-| Apply a workflow patch, when one is on `main` in [`patch/`](patch/README.md) | A token with the `workflow` scope. A session cannot push a change under `.github/workflows/`, so it commits a patch to `main` instead. Two are pending: `proxy-ci-lane.patch`, and `fixtures-ci-lane.patch` once the fixture targets merge. They apply in either order. | W5.1 and W4.3 now; W3.11 and W4.4 when theirs are written |
+| Apply a workflow patch, when one is on `main` in [`patch/`](patch/README.md) | A token with the `workflow` scope. A session cannot push a change under `.github/workflows/`, so it commits a patch to `main` instead. Two are pending, both on `main`: `proxy-ci-lane.patch` and `fixtures-ci-lane.patch`. They apply in either order. | W5.1 and W4.3 now; W3.11 and W4.4 when theirs are written |
 | Delete eleven merged branches | The owner ruled on 2026-11-12 that they go. A session cannot do it: its push access refuses a branch deletion (HTTP 403). The list is below. | — |
 | Register `@voxgig/sdkgen-station` for trusted publishing | An npm owner | W3.11 |
 
@@ -147,6 +145,9 @@ git push origin --delete chore/comment-policy \
 
 ## Recently settled
 
+- **The proxy builds again, and the fixture SDKs generate**
+  (2026-11-12): W5.1 merged as `60dd59e` and W4.3 as `8c563f2`. Each
+  still waits on its CI lane's patch.
 - **Eleven issues are filed** (2026-11-12), for asks that had a row
   and nothing to link to: three in voxgig/sdkgen, two in
   voxgig/sekreto, one in voxgig/plugin and five here.

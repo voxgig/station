@@ -206,6 +206,9 @@ every language, and can ship in 0.3.x:
 - [#64]. The kill switch shares its error code with an allowlist miss,
   and takes effect only on restart. Ruled: it gets `station_blocked`
   now, and no solo reload yet (D-2026-11-11-3).
+- Found during W2.1, with no issue yet: `connect()` cannot take the
+  array form of `options.feature`, and the declarative path drops a
+  declared feature order the alphabet disagrees with (W2.12, W2.13).
 
 **Exit:** each issue is closed by a change that carries a corpus case
 or, where the corpus cannot see it, a pin in every port's suite. 0.3.0

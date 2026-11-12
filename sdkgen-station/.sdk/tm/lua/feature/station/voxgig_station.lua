@@ -2267,6 +2267,32 @@ end
 -- generated make_options CLONES options.extend, and the cloned table is
 -- the instance whose methods actually run. The station handle is a
 -- function field for the same reason (function refs survive the clone).
+-- The generated constructor adds the active features, test first and the
+-- rest by name, and only then the carried adapter, at its anchor or else
+-- last.
+function M.adapter_anchor(fmap)
+  if type(fmap) ~= 'table' then
+    return {}
+  end
+  local names = {}
+  for name, entry in pairs(fmap) do
+    if type(name) == 'string' and 'station' ~= name and type(entry) == 'table'
+        and entry.active == true then
+      names[#names + 1] = name
+    end
+  end
+  table.sort(names)
+  for _, name in ipairs(names) do
+    if 'test' == name then
+      return { __after__ = 'test' }
+    end
+  end
+  if #names == 0 then
+    return {}
+  end
+  return { __before__ = names[1] }
+end
+
 function M.adapter_feature(station, calleropts)
   local feature = {
     name = 'station',
@@ -2277,13 +2303,7 @@ function M.adapter_feature(station, calleropts)
       return station
     end,
     _calleropts = calleropts,
-
-    -- feature_add reads _options for positioning: immediately after the
-    -- test feature's base transport (design station.md 3.3). When test
-    -- is absent from the add order this is a no-op append, which for a
-    -- bare SDK still lands the wrap immediately outside the base
-    -- transport.
-    _options = { __after__ = 'test' },
+    _options = M.adapter_anchor(type(calleropts) == 'table' and calleropts.feature or nil),
   }
 
   function feature.get_name(self)

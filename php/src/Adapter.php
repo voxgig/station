@@ -246,16 +246,8 @@ class AdapterFeature
     public string $name = 'station';
     public bool $active = true;
 
-    /**
-     * feature_add reads _options for positioning: immediately after the
-     * test feature's base transport (design station.md 3.3). When test
-     * is absent from the add order this is a no-op append, which for a
-     * bare SDK still lands the wrap immediately outside the base
-     * transport.
-     *
-     * @var array<string, mixed>|null
-     */
-    public ?array $_options = ['__after__' => 'test'];
+    /** @var array<string, mixed>|null */
+    public ?array $_options = null;
 
     public ?FeatureBinding $_binding = null;
 
@@ -263,6 +255,8 @@ class AdapterFeature
         private Station $station,
         private mixed $calleropts,
     ) {
+        $this->_options = adapter_anchor(
+            is_array($calleropts) ? ($calleropts['feature'] ?? null) : null);
     }
 
     public function get_version(): string
@@ -307,6 +301,32 @@ class AdapterFeature
 function adapter_feature(Station $station, mixed $calleropts): AdapterFeature
 {
     return new AdapterFeature($station, $calleropts);
+}
+
+/**
+ * Where feature_add puts the carried adapter. The generated constructor
+ * adds the active features, test first and the rest by name, and only
+ * then the adapter, at its anchor or else last.
+ *
+ * @return array<string, string>
+ */
+function adapter_anchor(mixed $fmap): array
+{
+    if (!is_array($fmap)) {
+        return [];
+    }
+    $names = [];
+    foreach ($fmap as $name => $entry) {
+        if (is_string($name) && 'station' !== $name && is_array($entry)
+            && true === ($entry['active'] ?? null)) {
+            $names[] = $name;
+        }
+    }
+    sort($names, SORT_STRING);
+    if (in_array('test', $names, true)) {
+        return ['__after__' => 'test'];
+    }
+    return 0 === count($names) ? [] : ['__before__' => $names[0]];
 }
 
 function result_outcome(mixed $ctx): string

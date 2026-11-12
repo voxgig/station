@@ -159,17 +159,14 @@ class StationAdapterFeature {
   String name = 'station';
   bool active = true;
 
-  // featureAdd reads options for positioning: immediately after the test
-  // feature's base transport (design station.md 3.3). When test is
-  // absent from the add order this is a no-op append, which for a bare
-  // SDK still lands the wrap immediately outside the base transport.
-  Map<String, dynamic> options = <String, dynamic>{'__after__': 'test'};
+  Map<String, dynamic> options;
 
   final Station _station;
   final dynamic _calleropts;
   FeatureBinding? _binding;
 
-  StationAdapterFeature(this._station, this._calleropts);
+  StationAdapterFeature(this._station, this._calleropts)
+      : options = adapterAnchor(_calleropts is Map ? _calleropts['feature'] : null);
 
   dynamic init(dynamic ctx, dynamic fopts) {
     final merged = <String, dynamic>{};
@@ -200,6 +197,26 @@ class StationAdapterFeature {
         return null;
     }
   }
+}
+
+// The generated constructor adds the active features, test first and the
+// rest by name, and only then the carried adapter, at its anchor or else
+// last.
+Map<String, dynamic> adapterAnchor(dynamic fmap) {
+  if (fmap is! Map) {
+    return <String, dynamic>{};
+  }
+  final names = <String>[];
+  fmap.forEach((name, entry) {
+    if (name is String && 'station' != name && entry is Map && true == entry['active']) {
+      names.add(name);
+    }
+  });
+  names.sort();
+  if (names.contains('test')) {
+    return <String, dynamic>{'__after__': 'test'};
+  }
+  return names.isEmpty ? <String, dynamic>{} : <String, dynamic>{'__before__': names.first};
 }
 
 StationAdapterFeature adapterFeature(Station station, dynamic calleropts) {

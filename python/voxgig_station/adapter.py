@@ -180,17 +180,26 @@ def adapter_feature(station, calleropts):
     return _CarriedAdapter(station, calleropts)
 
 
+def adapter_anchor(fmap):
+    """Where feature_add puts the adapter. The generated constructor adds
+    the active features, test first and the rest by name, and only then
+    the adapter, at its anchor or else last."""
+    if not isinstance(fmap, dict):
+        return {}
+    names = sorted(n for n, v in fmap.items()
+                   if 'station' != n and isinstance(v, dict)
+                   and v.get('active') is True)
+    if 'test' in names:
+        return {'__after__': 'test'}
+    return {'__before__': names[0]} if names else {}
+
+
 class _CarriedAdapter:
     def __init__(self, station, calleropts):
         self.version = '0.0.1'
         self.name = 'station'
         self.active = True
-        # feature_add reads _options for positioning: immediately after
-        # the test feature's base transport (design station.md 3.3). When
-        # test is absent from the add order this is a no-op append, which
-        # for a bare SDK still lands the wrap immediately outside the
-        # base transport.
-        self._options = {'__after__': 'test'}
+        self._options = adapter_anchor((calleropts or {}).get('feature'))
         self._binding = None
         self._station = station
         self._calleropts = calleropts

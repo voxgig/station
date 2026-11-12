@@ -105,7 +105,7 @@ export function adapterFeature(station: Station, calleropts: any): any {
     active: true,
     _binding: null as FeatureBinding | null,
 
-    _options: { __after__: 'test' },
+    _options: adapterAnchor(calleropts?.feature),
 
     init(ctx: any, fopts: any): void {
       feature._binding = featureBinding(ctx, { ...fopts, station, calleropts })
@@ -115,6 +115,15 @@ export function adapterFeature(station: Station, calleropts: any): any {
     PreUnexpected(ctx: any): void { feature._binding?.PreUnexpected(ctx) },
   }
   return feature
+}
+
+// The generated constructor adds the active features, test first and the
+// rest by name, and only then this adapter, at its anchor or else last.
+export function adapterAnchor(fmap: any): { [k: string]: string } {
+  const names = null == fmap || 'object' !== typeof fmap || Array.isArray(fmap) ? []
+    : Object.keys(fmap).filter((n) => 'station' !== n && fmap[n]?.active).sort()
+  if (names.includes('test')) { return { __after__: 'test' } }
+  return 0 === names.length ? {} : { __before__: names[0] }
 }
 
 function resultOutcome(ctx: any): string {
