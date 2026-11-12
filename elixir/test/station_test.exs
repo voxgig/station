@@ -179,6 +179,20 @@ defmodule Voxgig.StationTest do
     assert Enum.map(cases, fn {_url, host, path} -> {host, path} end) == got
   end
 
+  test "an http event keeps no userinfo of a URL reported whole" do
+    st = Station.new(%{"config" => nil, "proxy" => "off"})
+
+    for url <- ["https://u:s3cret@h x/y", "https://u:p@h:99999/x"] do
+      Station.emit_http(st, "vault", nil, url, "GET", 200, Station.now_ms(), 0)
+    end
+
+    for %{"kind" => "http", "http" => http} <- Station.events(st) do
+      shown = http["host"] <> " " <> http["path"]
+      refute shown =~ "s3cret"
+      refute shown =~ "u:p@"
+    end
+  end
+
   test "status shape" do
     st = Station.new(%{"config" => nil, "proxy" => "off"})
     status = Station.status(st)

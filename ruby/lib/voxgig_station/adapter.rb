@@ -245,6 +245,16 @@ module VoxgigStation
     got.is_a?(Station) ? got : nil
   end
 
+  # A URL reported whole loses its userinfo first: a value the broker never
+  # held, so no scrub can find it in the event.
+  def without_userinfo(text)
+    head = %r{\A[a-zA-Z][a-zA-Z0-9+.-]*://[^/?#]*}.match(text)
+    at = head.nil? ? nil : head[0].rindex('@')
+    return text if at.nil?
+
+    text[0, text.index('://') + 3] + text[(at + 1)..]
+  end
+
   def keyless(calleropts)
     calleropts.is_a?(Hash) ? calleropts.reject { |k, _| 'apikey' == k } : calleropts
   end

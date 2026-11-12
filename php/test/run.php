@@ -1958,6 +1958,24 @@ function exposure_reaches_station(mixed $value, array &$seen = []): bool
     return false;
 }
 
+testcase('http_event_keeps_no_userinfo_of_a_url_reported_whole', function () {
+    eq('https://h x/y', \Voxgig\Station\without_userinfo('https://u:s3cret@h x/y'));
+    eq('https://h:99999/x', \Voxgig\Station\without_userinfo('https://u:p@h:99999/x'));
+    eq('https://h x/y@z', \Voxgig\Station\without_userinfo('https://h x/y@z'));
+    eq('/a@b', \Voxgig\Station\without_userinfo('/a@b'));
+
+    $st = new Station(['config' => null]);
+    $b = bind($st, fn($c, $u, $d) => [okres(), null]);
+    $b['client']->mode = 'test';
+    foreach (['https://u:s3cret@h x/y', 'https://u:p@h:99999/x'] as $url) {
+        ($b['utility']->fetcher)($b['ctx'], $url, ['method' => 'GET', 'headers' => []]);
+    }
+    $shown = json_encode(array_values(array_map(fn($e) => $e['http'],
+        array_filter($st->events(), fn($e) => 'http' === $e['kind']))));
+    ok(!str_contains($shown, 's3cret'), $shown);
+    ok(!str_contains($shown, 'u:p@'), $shown);
+});
+
 testcase('exposure_a_bound_clients_options_hold_no_secret_after_a_live_request', function () {
     putenv('TASKPAD_APIKEY=' . EXPOSURE_SECRET);
     try {

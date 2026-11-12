@@ -267,6 +267,24 @@ func TestHTTPEventPathKeepsTheRequestEscapes(t *testing.T) {
 	}
 }
 
+func TestHTTPEventKeepsNoUserinfoOfAURLReportedWhole(t *testing.T) {
+	st := newStation(t, map[string]string{})
+	h := bindOne(t, st, "fakepad", []string{"test", "station"}, okResponse(), "")
+	h.client.mode = "test"
+
+	for _, u := range []string{"https://u:s3cret@h x/y", "https://u:p@h:99999/x"} {
+		if _, err := h.client.fetcher(nil, u, map[string]any{"method": "GET"}); nil != err {
+			t.Fatal(err)
+		}
+	}
+	for _, ev := range filterEvents(st.Events(), "http") {
+		shown := ev.HTTP.Host + " " + ev.HTTP.Path
+		if strings.Contains(shown, "s3cret") || strings.Contains(shown, "u:p@") {
+			t.Errorf("the event keeps the userinfo: %s", shown)
+		}
+	}
+}
+
 func TestHTTPEventHostReadsAsURLHost(t *testing.T) {
 	st := newStation(t, map[string]string{})
 	h := bindOne(t, st, "fakepad", []string{"test", "station"}, okResponse(), "")

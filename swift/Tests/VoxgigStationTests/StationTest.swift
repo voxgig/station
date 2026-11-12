@@ -599,6 +599,22 @@ final class StationTest: XCTestCase {
     XCTAssertEqual(cases.map { $0.1 + " " + $0.2 }, got, "host and path of each request")
   }
 
+  func testTransportHttpEventKeepsNoUserinfoOfAURLReportedWhole() throws {
+    let st = try memStation()
+    let binding = (try bind(st, NSObject()))!.binding
+
+    for url in ["https://u:s3cret@h x/y", "https://u:p@h:99999/x"] {
+      _ = try binding.transport(
+        nil, false, url, "GET", [:], { _, _, _ in true }, { _ in (200, 0) })
+    }
+
+    for ev in st.events() where "http" == ev.get("kind").asStr {
+      let http = ev.get("http")
+      let shown = (http.get("host").asStr ?? "") + " " + (http.get("path").asStr ?? "")
+      XCTAssertFalse(shown.contains("s3cret") || shown.contains("u:p@"), shown)
+    }
+  }
+
   func testTransportMissingSecretFailsTheOpWithCode() throws {
     let st = try memStation()
     let binding = (try bind(st, NSObject()))!.binding

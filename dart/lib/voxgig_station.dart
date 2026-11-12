@@ -20,4 +20,4 @@ export 'src/profile.dart'
 export 'src/secrets.dart'
     show SecretBroker, Substituted, encodeQueryValue, envkey, placeholderFor,
         substitute, validname;
-export 'src/station.dart' show PluginEntry, RegisterResult, Station;
+export 'src/station.dart' show PluginEntry, RegisterResult, Station, withoutUserinfo;

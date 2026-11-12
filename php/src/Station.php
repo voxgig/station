@@ -1690,7 +1690,7 @@ class Station
             }
             $path = (string) ($parts['path'] ?? '/');
         } else {
-            $path = $fullurl;
+            $path = without_userinfo($fullurl);
         }
         $this->emit([
             't' => $started, 'kind' => 'http', 'plugin' => $name,

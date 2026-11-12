@@ -171,6 +171,25 @@ int main(int argc, char** argv) {
     }
   });
 
+  testcase("emit-http-whole-without-userinfo", [] {
+    vs::StationOptions opts;
+    opts.has_config = true;
+    opts.proxy = "off";
+    vs::Station st(opts);
+    for (const char* url : {"https://u:s3cret@h x/y", "https://u:p@h:99999/x"}) {
+      st.emit_http("vault", "", url, "GET", 200, vs::now_ms(), 0);
+    }
+    for (const auto& ev : st.events()) {
+      if ("http" == ev.get("kind").str_or("")) {
+        std::string shown = ev.get("http").get("host").str_or("") + " " +
+                            ev.get("http").get("path").str_or("");
+        check(std::string::npos == shown.find("s3cret") &&
+                  std::string::npos == shown.find("u:p@"),
+              shown);
+      }
+    }
+  });
+
   testcase("emit-http-host-reads-as-url-host", [] {
     const std::vector<std::vector<std::string>> cases = {
         {"https://h:443/x", "h", "/x"},

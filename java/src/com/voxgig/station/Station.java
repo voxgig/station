@@ -33,6 +33,7 @@ import java.util.TreeSet;
 import java.util.WeakHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 @SuppressWarnings({"unchecked"})
@@ -850,10 +851,26 @@ public class Station {
     emit(event);
   }
 
+  private static final Pattern AUTHORITY =
+      Pattern.compile("^[a-zA-Z][a-zA-Z0-9+.-]*://[^/?#]*");
+
+  /**
+   * A URL reported whole loses its userinfo first: a value the broker never
+   * held, so no scrub can find it in the event.
+   */
+  static String withoutUserinfo(String text) {
+    Matcher head = AUTHORITY.matcher(text);
+    int at = head.find() ? head.group().lastIndexOf('@') : -1;
+    if (-1 == at) {
+      return text;
+    }
+    return text.substring(0, text.indexOf("://") + 3) + text.substring(at + 1);
+  }
+
   private void emitHttp(String name, String corr, String fullurl,
       Map<String, Object> fetchdef, int status, long started, long bytes) {
     String host = "";
-    String path = fullurl;
+    String path = withoutUserinfo(fullurl);
     try {
       URI u = URI.create(fullurl);
       // A relative reference is reported whole, like an unparseable URL.
@@ -867,7 +884,7 @@ public class Station {
         path = null == raw || raw.isEmpty() ? "/" : raw;
       }
     } catch (RuntimeException ignored) {
-      path = fullurl;
+      path = withoutUserinfo(fullurl);
     }
 
     Map<String, Object> http = new LinkedHashMap<>();

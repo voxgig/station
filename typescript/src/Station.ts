@@ -499,7 +499,7 @@ export class Station {
       const u = new URL(fullurl)
       host = u.host
       path = u.pathname
-    } catch (_e) { path = fullurl }
+    } catch (_e) { path = withoutUserinfo(fullurl) }
     this.emit({
       t: started, kind: 'http', plugin: slug, api: refapi(slug), corr,
       http: {
@@ -939,6 +939,15 @@ export class Station {
   private emit(ev: StationEvent): void {
     this.buffer.emit(ev)
   }
+}
+
+// A URL that does not parse is reported whole, and its userinfo is a value
+// the broker never held, so no scrub can find it there.
+function withoutUserinfo(text: string): string {
+  const head = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^/?#]*/.exec(text)
+  const at = null == head ? -1 : head[0].lastIndexOf('@')
+  if (-1 === at) { return text }
+  return text.slice(0, text.indexOf('://') + 3) + text.slice(at + 1)
 }
 
 // The activation entry rides in the SDK's options, which an app may

@@ -642,6 +642,21 @@ testcase('http-path', function()
     'host and path of each request')
 end)
 
+testcase('http-whole-without-userinfo', function()
+  local station = st.new({ config = st.NULL, proxy = 'off' })
+  local b = bind(station, { mode = 'test' })
+  for _, url in ipairs({ 'https://u:s3cret@h x/y', 'https://u:p@h:99999/x' }) do
+    b.utility.fetcher({ client = b.client }, url, { method = 'GET', headers = {} })
+  end
+  for _, ev in ipairs(station:events()) do
+    if ev.kind == 'http' then
+      local shown = ev.http.host .. ' ' .. ev.http.path
+      check(string.find(shown, 's3cret', 1, true) == nil, shown)
+      check(string.find(shown, 'u:p@', 1, true) == nil, shown)
+    end
+  end
+end)
+
 testcase('http-host', function()
   local cases = {
     { 'https://h:443/x', 'h', '/x' },

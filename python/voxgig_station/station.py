@@ -66,6 +66,21 @@ def _keyless(opts):
     return {k: v for k, v in opts.items() if k not in ('extend', 'apikey')}
 
 
+_AUTHORITY_RE = re.compile(r'[a-zA-Z][a-zA-Z0-9+.-]*://[^/?#]*')
+
+
+def without_userinfo(text):
+    """A URL reported whole loses its userinfo first: a value the broker
+    never held, so no scrub can find it in the event."""
+    if not isinstance(text, str):
+        return text
+    head = _AUTHORITY_RE.match(text)
+    at = head.group(0).rfind('@') if head else -1
+    if -1 == at:
+        return text
+    return text[:text.index('://') + 3] + text[at + 1:]
+
+
 def _url_host(u):
     # netloc would carry the userinfo and an explicit default port, both of
     # which the canonical URL.host drops.
@@ -724,7 +739,7 @@ class Station:
 
     def _emit_http(self, name, corr, fullurl, fetchdef, status, started, nbytes):
         host = ''
-        path = fullurl
+        path = without_userinfo(fullurl)
         try:
             # urlsplit, not urlparse: urlparse cuts ;params off the path.
             # A relative reference is reported whole, like an unparseable URL.
@@ -733,7 +748,7 @@ class Station:
                 host = _url_host(u)
                 path = u.path or '/'
         except Exception:
-            path = fullurl
+            path = without_userinfo(fullurl)
         ev = {
             't': started, 'kind': 'http', 'plugin': name, 'api': refapi(name),
             'http': {

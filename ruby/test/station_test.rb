@@ -532,6 +532,23 @@ class TestStation < Minitest::Test
                  http.map { |h| [h['host'], h['path']] })
   end
 
+  def test_http_event_keeps_no_userinfo_of_a_url_reported_whole
+    assert_equal 'https://h x/y', VoxgigStation.without_userinfo('https://u:s3cret@h x/y')
+    assert_equal 'https://h:99999/x', VoxgigStation.without_userinfo('https://u:p@h:99999/x')
+    assert_equal 'https://h x/y@z', VoxgigStation.without_userinfo('https://h x/y@z')
+    assert_equal '/a@b', VoxgigStation.without_userinfo('/a@b')
+
+    st = VoxgigStation::Station.new('config' => nil)
+    b = bind(st, ->(_c, _u, _d) { [okres, nil] })
+    b[:client].mode = 'test'
+    ['https://u:s3cret@h x/y', 'https://u:p@h:99999/x', 'https://u:p@ss@h/x'].each do |url|
+      b[:utility].fetcher.call(b[:ctx], url, 'method' => 'GET', 'headers' => {})
+    end
+    shown = JSON.generate(st.events.select { |e| 'http' == e['kind'] }.map { |e| e['http'] })
+    refute_includes shown, 's3cret'
+    refute_includes shown, 'u:p@'
+  end
+
   def test_status_0_is_a_transport_failure
     ENV['GNARLY_PETS_APIKEY'] = 'status-zero-key'
     st = VoxgigStation::Station.new('config' => nil)

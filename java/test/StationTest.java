@@ -1319,6 +1319,21 @@ public final class StationTest {
       checkeq(got, want, "host and path of each request");
     });
 
+    testcase("transport: an http event keeps no userinfo of a URL reported whole", () -> {
+      Station st = memoryStation(map(), null);
+      bind(st, new Object(), st.options(map()));
+      for (String url : new String[] { "https://u:s3cret@h x/y", "https://u:p@h:99999/x" }) {
+        st.transport("test-plug", url, map("method", "GET"), false, null,
+            (u, def) -> map("status", 200));
+      }
+      for (Map<String, Object> ev : st.events()) {
+        if ("http".equals(ev.get("kind"))) {
+          String shown = String.valueOf(ev.get("http"));
+          check(!shown.contains("s3cret") && !shown.contains("u:p@"), shown);
+        }
+      }
+    });
+
     testcase("transport: a missing secret fails the op with the code", () -> {
       Station st = memoryStation(map(), null);
       bind(st, new Object(), st.options(map()));

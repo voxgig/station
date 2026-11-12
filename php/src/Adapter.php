@@ -317,6 +317,22 @@ function station_of(mixed $handle): ?Station
     return $got instanceof Station ? $got : null;
 }
 
+/**
+ * A URL reported whole loses its userinfo first: a value the broker never
+ * held, so no scrub can find it in the event.
+ */
+function without_userinfo(string $text): string
+{
+    if (1 !== preg_match('~^[a-zA-Z][a-zA-Z0-9+.\-]*://[^/?#]*~', $text, $m)) {
+        return $text;
+    }
+    $at = strrpos($m[0], '@');
+    if (false === $at) {
+        return $text;
+    }
+    return substr($text, 0, strpos($text, '://') + 3) . substr($text, $at + 1);
+}
+
 /** The caller's options as the activation entry carries them: no key. */
 function keyless(mixed $calleropts): mixed
 {
