@@ -76,7 +76,8 @@ and has no such package. A blank means it was not checked.
 | **plugin** | 0.2.0, and `-js` 0.2.0 | v0.2.0 | — | | — | | | | | |
 | **omni** | 0.2.0 | v0.2.0 | | | | | | | | |
 
-The consequence is DEC-1. Station cannot be published anywhere but npm
+The consequence is what DEC-1 ruled on, and its answer is the staged
+route (D-2026-11-11-1). Station cannot be published anywhere but npm
 until sekreto is, and sekreto's own Python package takes plugin from
 git because plugin is not on PyPI either. At `32b83ac`, sekreto's Ruby
 and PHP ports carry no gemspec and no `composer.json`.
@@ -104,7 +105,7 @@ sections were written.
 | sdkgen-12 | — | [sdkgen#430] | WATCH | It reports that a feature passed in `extend` fires its hooks whatever `active` says. Station's carried adapter rides `extend` and depends on its hooks firing. A fix there has to keep that working. |
 | sdkgen-13 | Two generated Ruby SDKs load in one process | [sdkgen#404] | OPEN | Station's premise in Ruby: many SDKs, one process. likeness proved the collisions inert for what it uses. |
 | sdkgen-14 | A TLS trust option in every transport | [sdkgen#408] | OPEN | likeness's Obsidian source. Station passes `options.tls` through and owns none of it. |
-| sdkgen-15 | Does sdkgen adopt voxgig/plugin? (plugin's design §17.2) | plugin's register, item 6.2 | DECISION NEEDED | Nothing here. It is the "second consumer" DEC-3 waits for. |
+| sdkgen-15 | Does sdkgen adopt voxgig/plugin? (plugin's design §17.2) | plugin's register, item 6.2 | DECISION NEEDED | Nothing here. It is the "second consumer" this plan wanted DEC-3 to wait for. DEC-3 was ruled without it on 2026-11-11 (D-2026-11-11-4), so until sdkgen decides, station is plugin's only consumer. |
 | sdkgen-16 | A public `client.extend()` late-attach seam (`station.md` §18) | — | NOT FILED | Nothing. It would upgrade `adopt()` beyond construction time; v1 does not need it. |
 
 

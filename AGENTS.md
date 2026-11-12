@@ -19,12 +19,21 @@ Every other repo in this family declares voxgig/omni for **tests only**, and
 register 4.13). That rule still holds here — but station additionally takes
 **voxgig/sekreto as a genuine runtime dependency** (design §10).
 
-sekreto is one of **exactly two** library dependencies a station port may
-take. The other is **voxgig/struct**, which validates `station.json` at
+sekreto is one of **exactly three** library dependencies a station port may
+take. The second is **voxgig/struct**, which validates `station.json` at
 `open()` rather than only under test (design §4, §9) — it is in
 `typescript/package.json` `dependencies`, in `javascript/package.json` as
 `@voxgig/struct-js`, and in the library `go/go.mod`, and
 `docs/design/station.md` names the pair. Do not "clean up" either one.
+
+The third is **voxgig/plugin**, accepted by the owner on 2026-11-11
+(`docs/design/decisions.md`, D-2026-11-11-4). No port takes it directly
+yet: it arrives port by port, canonical first, as workstream W8 of
+`docs/plan/plan.md`, and that workstream starts with a design note. Until
+a port's turn comes, a direct plugin dependency in it is still out of
+place. Where plugin already appears, it came through sekreto: `go/go.mod`
+lists it as indirect, and the c port builds sekreto's core on plugin's C
+host.
 
 ELEVEN of the sixteen ports take sekreto in shipped code, by seven different
 mechanisms — so a sekreto compatibility sweep has eleven places to look, not

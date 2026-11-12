@@ -1412,7 +1412,9 @@ the other is [voxgig/struct](https://github.com/voxgig/struct), which
 validates `station.json`
 ([`station-declarative-config.md`](./station-declarative-config.md)
 §4, §9) — and both are taken rather than reimplemented for the same
-reason this rule exists. In nine of the ten sekreto ports it costs
+reason this rule exists. (A third was accepted on 2026-11-11:
+voxgig/plugin, [`decisions.md`](./decisions.md) D-2026-11-11-4. No
+port takes it yet.) In nine of the ten sekreto ports it costs
 nothing against the budget: sekreto carries zero third-party
 dependencies of its own, so `station → sekreto` adds one well-tested
 library and no transitive tree at all, and struct is the same kind of

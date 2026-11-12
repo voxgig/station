@@ -10,7 +10,7 @@ already use (`doc/plan/` there), so that the family reads one way.
 
 | file | what it holds | changes when |
 |---|---|---|
-| [`plan.md`](plan.md) | The plan: the goal, the rules, eight workstreams in order with their exit criteria, the open decisions, the release train and the risks. | The plan itself changes. Rare. |
+| [`plan.md`](plan.md) | The plan: the goal, the rules, nine workstreams in order with their exit criteria, the decisions and how each was ruled, the release train and the risks. | The plan itself changes. Rare. |
 | [`progress.md`](progress.md) | The plan register: one row per item, with its status and the evidence for it. Every open issue and pull request is mapped to a row. | **In the same commit as the work it records.** |
 | [`upstream.md`](upstream.md) | The upstream register: what station pins of each dependency, one row per thing station needs from another repository, and the asks not yet filed. | An upstream issue is filed, moves or closes; a pin moves. |
 | [`status.md`](status.md) | The snapshot: the per-port matrix, what is in flight, what to pick up first, and what waits on a human. | At the end of a working session. |
@@ -51,8 +51,8 @@ note), `DECIDED-NO` (with the reason). The same six voxgig/plugin uses.
 
 ## Item names
 
-Workstreams are `W0` to `W7`, and items are `W2.3`. Open decisions are
-`DEC-1` onward; once made, each becomes a dated record in
+Workstreams are `W0` to `W8`, and items are `W2.3`. Decisions are
+`DEC-1` onward; once ruled, each becomes a dated record in
 [`../design/decisions.md`](../design/decisions.md). Upstream rows are
 named for their repository: `sdkgen-3`, `sekreto-1`.
 

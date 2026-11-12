@@ -106,9 +106,9 @@ port's suite.
 |---|---|---|
 | W2.6 [#36]: one `op` event per operation | NOT STARTED | The binding emits from every hook stage that can end an operation. The generator's double `PreUnexpected` is fixed (voxgig/sdkgen#413, closed 2026-10-17), but only a regenerated SDK carries that, and go emitted two regardless. Key the event on the operation's context so the count is one whatever generated the SDK. `sdkgen-8` changes which stages fire. Pin: one failed operation, exactly one `op` event. |
 | W2.7 [#54]: the policy's hostname | NOT STARTED | rust and swift read an IPv6 host without its brackets, so an allowlist entry `[::1]` never matches there. No port pins the policy's hostname directly: pin an allow and a deny for an IPv6 host, an explicit default port, and userinfo with a raw `@`. |
-| W2.8 [#55]: the four forms that still differ from `URL.host` | DECISION NEEDED | DEC-4. |
+| W2.8 [#55]: the four forms that still differ from `URL.host` | NOT STARTED | Ruled on 2026-11-11 (D-2026-11-11-2). Three are normalised in all sixteen ports: an ASCII host is lower-cased, an empty port is dropped, and a port is read as a number. Long-form IPv6 is reported as sent, and §6 says so beside the host rule. Pin the three in every port's suite beside the six cases W1.3 pinned. |
 | W2.9 [#61]: an unpaired surrogate escape in `station.json` | NOT STARTED | Refuse with `station_config_invalid` in every port, as I-JSON requires. go needs a scan of the raw text, since `encoding/json` has already replaced the escape. Corpus: a lone high, a lone low, and a valid pair that must still be accepted. |
-| W2.10 [#64]: the kill switch | DECISION NEEDED | DEC-5. Today mode `block` raises `station_host_allow`, the allowlist's code (`typescript/src/Station.ts:354-357`, read), and the config is read once, at construction. |
+| W2.10 [#64]: the kill switch | NOT STARTED | Ruled on 2026-11-11 (D-2026-11-11-3): add `station_blocked` to §14's catalog and to the `errors` corpus section, in every port, and add no reload to the solo library now. Live policy change is W7.2's long-poll. Whether solo mode ever gains `reload()` is left open, and nothing waits on it. Today mode `block` raises `station_host_allow`, the allowlist's code (`typescript/src/Station.ts:354-357`, read), and the config is read once, at construction. |
 | W2.11 Release 0.3.0 | NOT STARTED | After W2a. Since W1 merged, `main` differs from the 0.2.0 tags in every released port, so `make release-plan` refuses and names the fix, and a dispatch would refuse the same way (run, 2026-11-11): nothing can be released from `main` until `VERSION` moves. `make version-set V=0.3.0` in a reviewed pull request, then one dispatch of `release.yml` on that commit, which publishes typescript and javascript and pushes all three tags (W0.3). The notes name the three behaviour changes in `plan.md` §6. |
 
 
@@ -119,8 +119,8 @@ What is published where is in [`upstream.md`](upstream.md), under
 
 | Item | Status | Notes |
 |---|---|---|
-| W3.1 The route | DECISION NEEDED | DEC-1. |
-| W3.2 [#31]: the feature model writes a dependency that resolves, and an optional one where the language allows | BLOCKED | On W3.1. `sdkgen-station/.sdk/model/feature/station.aontu` names `voxgig-station` (PyPI), `voxgig_station` (RubyGems, pub.dev, Hex, crates.io), `voxgig/station` (Packagist), `com.voxgig:station` (Maven) and `Voxgig.Station` (NuGet). None exists. Its Swift entry names `https://github.com/voxgig/station-swift`, which is not a public repository. Go is done: W0.1. |
+| W3.1 The route | DONE | Ruled on 2026-11-11 (D-2026-11-11-1): staged. Station is an optional dependency of a generated SDK where the language allows; each port installs from a git pin now; a registry follows as sekreto and plugin arrive there. The calls the plan left inside it are still to make as each port is done: whether "optional" is acceptable for py, rb and php, and which registry comes first. |
+| W3.2 [#31]: the feature model writes a dependency that resolves, and an optional one where the language allows | NOT STARTED | W3.1 is ruled, so this can start. `sdkgen-station/.sdk/model/feature/station.aontu` names `voxgig-station` (PyPI), `voxgig_station` (RubyGems, pub.dev, Hex, crates.io), `voxgig/station` (Packagist), `com.voxgig:station` (Maven) and `Voxgig.Station` (NuGet). None exists. Its Swift entry names `https://github.com/voxgig/station-swift`, which is not a public repository. Go is done: W0.1. |
 | W3.3 [#39]: Python installs outside a checkout | NOT STARTED | Not gated on DEC-1: these are defects on any route. `shape.py:183` reads `spec/config-shape.json` by a checkout-relative path; ship it as package data and have `make sync-shape` keep it in step, as it does for typescript and javascript. `structhome.py` looks for a struct checkout and says struct is unpublished; `voxgig-struct` is on PyPI. `pyproject.toml` requires `voxgig-sekreto>=0.1`, which is not (`sekreto-1`). |
 | W3.4 Ruby: a gemspec | NOT STARTED | `ruby/` has none, so Bundler can take the port neither from git nor from a registry. |
 | W3.5 PHP: a manifest that states its requirements | NOT STARTED | `php/composer.json` requires only `php`; sekreto is found through `SEKRETO_HOME` or a sibling checkout. Composer reads a VCS package from a repository's root, not a subdirectory. |
@@ -154,7 +154,7 @@ What is published where is in [`upstream.md`](upstream.md), under
 | Item | Status | Notes |
 |---|---|---|
 | W5.1 [#46]: the proxy builds, scrubs in one pass, and has a CI lane | NOT STARTED | Against sekreto `32b83ac`, CI's pin: `internal/daemon/secrets.go:36:31: undefined: sekreto.MakeNamedChain` and `:41:18: undefined: sekreto.NewNamed` (run). Against sekreto `5cc462e`, the revision it was written for: it builds and `go test ./...` passes, 49 tests (run). So the port is one file: construct the broker with `sekreto.New(&sekreto.Options{…})`, as `go/station/secrets.go` does. Then the single-pass scrub from voxgig/station#28, with a test of two values that overlap. `proxy/go.mod` requires `sekreto/go v0.0.0`, the placeholder [#27] removed from the library. The CI lane is a workflow change: it follows as a patch on `main`, once the proxy builds there ([`patch/`](patch/README.md)). |
-| W5.2 Sign off the two proposed decisions | DECISION NEEDED | DEC-2. |
+| W5.2 Sign off the two proposed decisions | DONE | Both accepted by the owner on 2026-11-11: `D-2026-08-24-1`, a grant is scoped per instance, and `D-2026-08-24-2`, remote v1 serves one trust domain. `docs/design/decisions.md` carries the dates. |
 | W5.3 `voxgig-station testkit` | NOT STARTED | The proxy in deterministic mode: a fixed clock and transcript-driven upstreams (`station.md` §13). Nothing in `proxy/` is named `testkit`. |
 | W5.4 The wire's corpus sections | NOT STARTED | `envelope`, `degrade`, and the attached half of `redact`. Tier-scoped: A and B run them, C pins them as pending. |
 | W5.5 Attach in typescript | NOT STARTED | No port holds a wire client: nothing outside `proxy/` names `/v1/register`, `/v1/events` or `Station-Proof`. Today `proxy: 'auto'` records "proxy absent (not found); running solo" without probing, and `require` raises `station_no_proxy` (`typescript/src/Station.ts:171-179`, `:337-360`, read). Scope: §8.1 discovery and the proof-of-token handshake, register, events, the forward envelope with `Station-Redact`, `resolve: proxy`, and §2.1's non-blocking `open()`. |
@@ -172,10 +172,23 @@ What is published where is in [`upstream.md`](upstream.md), under
 | W6.2 SQLite capture persistence | NOT STARTED | With retention config. Encryption at rest is an open question (`station.md` §18). |
 | W6.3 OTLP export | NOT STARTED | Proxy-only, by design (§10). |
 | W6.4 Grants hardening, the revocation experience, config reload, a unix-socket listener | NOT STARTED | Each is listed as deferred in `proxy/README.md`. |
-| W7.1 Remote mode | BLOCKED | On DEC-2 and on the multi-tenancy design `station.md` §18 asks for. |
+| W7.1 Remote mode | BLOCKED | On W5, and on the multi-tenancy design `station.md` §18 asks for. Its decision record was accepted on 2026-11-11: v1 serves one trust domain. |
 | W7.2 Policy long-poll in the libraries; `station_call` write scopes | NOT STARTED | The proxy already serves `GET /v1/policy/{ref}` as a long-poll. |
 | W7.3 Adapters for scala, clojure, haskell, ocaml, zig and lean | BLOCKED | On `sdkgen-10` and `sdkgen-11`. |
 | W7.4 Secrets in the env-only ports | NOT STARTED | cpp, swift, dart, elixir and lua. c left this list with W1.6. [#58] assessed each against what sekreto ships: elixir is the easiest, cpp has C's shape, lua and dart can take sekreto's core now and wait for a mini vault, and swift is blocked on `sekreto-4`. Attached with `resolve: proxy`, a tier A or B port needs no sekreto of its own, which is W5.8's other benefit. |
+
+
+## W8. Take voxgig/plugin as a dependency
+
+Ruled on 2026-11-11 (D-2026-11-11-4). Nothing is designed or written.
+
+| Item | Status | Notes |
+|---|---|---|
+| W8.1 A design note for the adoption | NOT STARTED | What a port replaces, starting from the four sections station runs against plugin's corpus as C4 (`ref`, `config`, `lifecycle`, `order`); what stays station's; the order of the ports; and the cost per port measured on the canonical. `station-and-plugin.md` §2.1 estimated about 800 lines more per language and has not been re-measured. plugin's own first step is its register's item 3.1, the extraction against station, which is `NOT STARTED` there. |
+| W8.2 The canonical takes `@voxgig/plugin` | NOT STARTED | After W8.1. npm has 0.2.0. The C4 suite then runs plugin's corpus against the library through station: 144 pass, 0 pinned divergences and 128 skipped today, against station's own implementation. |
+| W8.3 javascript and go | NOT STARTED | After W8.2. A released plugin exists for both: `@voxgig/plugin-js` 0.2.0 on npm, and the tag `go/v0.2.0`. `go/go.mod` already lists plugin as an indirect requirement, at a pseudo-version, through sekreto. |
+| W8.4 The other thirteen ports | NOT STARTED | After W8.3, in the tiers `station.md` §2.2 gives them. Each needs plugin installable in its language. Plugin tags every port and is on no registry but npm, so this meets W3's staged route. The five ports with no toolchain outside CI are verified by CI alone. |
+| W8.5 The documents that say station builds natively | NOT STARTED | `AGENTS.md` and the plan's standing rule already say three dependencies. `station-and-plugin.md` §2.1 and `station-and-plugin-plan.md` §6 and §7 carry a note that they are superseded; each is rewritten when the canonical has moved. |
 
 
 ## Clients
@@ -183,21 +196,25 @@ What is published where is in [`upstream.md`](upstream.md), under
 | Item | Status | Notes |
 |---|---|---|
 | C.1 voxgig/likeness | BLOCKED | On `sdk-1` to `sdk-3` for the red cells of its matrix. Its own step, W0.4, is done. W1.2 (eight Go entries) and W1.6 (the C port) are on station's `main` now, and reach likeness when it pins a station that carries them: for its Go port that is a release, so 0.3.0 (W2.11), and for C it also takes regenerated C SDKs. It still waits on W2.6 and W2.9 (parity). Its Stage 3, search and writes, also needs the Joplin and Notion definitions to carry search. |
-| C.2 voxgig/station-view | DECISION NEEDED | DEC-6. The repository holds comment-policy tooling and no code. |
-| C.3 senecajs/seneca-station | DECISION NEEDED | DEC-7. The repository holds a README and a licence. |
+| C.2 voxgig/station-view | BLOCKED | Parked by the owner on 2026-11-11 until the proxy and attach have shipped, which is 0.4.0 (D-2026-11-11-5). What it reads is not decided. The repository holds comment-policy tooling and no code. |
+| C.3 senecajs/seneca-station | BLOCKED | Parked by the owner on 2026-11-11 until 0.3.0 is released, W2.11 (D-2026-11-11-6). What it is stays undecided. The repository holds a README and a licence. |
 
 
 ## Decisions
 
-| Decision | Status | Gates |
+All seven were ruled by the owner on 2026-11-11. `DONE` here means
+ruled, and the record is in `docs/design/decisions.md`. The two that
+were parked are `BLOCKED` on what they wait for.
+
+| Decision | Status | Ruling |
 |---|---|---|
-| DEC-1 How a non-JavaScript consumer gets station | DECISION NEEDED | W3.2, W3.13, and the order of W3.4 to W3.8 |
-| DEC-2 Sign off `D-2026-08-24-1` and `D-2026-08-24-2` | DECISION NEEDED | W5.2, W7.1 |
-| DEC-3 Does station take voxgig/plugin as a dependency | DECISION NEEDED | Nothing. Deferred by design. |
-| DEC-4 How far an event's host follows `URL.host` | DECISION NEEDED | W2.8 |
-| DEC-5 The kill switch's contract | DECISION NEEDED | W2.10 |
-| DEC-6 What station-view reads | DECISION NEEDED | C.2 |
-| DEC-7 What seneca-station is | DECISION NEEDED | C.3 |
+| DEC-1 How a non-JavaScript consumer gets station | DONE | Staged (D-2026-11-11-1). Unblocks W3.2, and settles the order of W3.4 to W3.8 port by port. |
+| DEC-2 Sign off `D-2026-08-24-1` and `D-2026-08-24-2` | DONE | Both accepted. W5.2 is done; W7.1 waits on W5 alone. |
+| DEC-3 Does station take voxgig/plugin as a dependency | DONE | Yes, now, port by port (D-2026-11-11-4). The plan recommended deferring. The work is W8. |
+| DEC-4 How far an event's host follows `URL.host` | DONE | Three forms normalised, long-form IPv6 named as outside the rule (D-2026-11-11-2). W2.8. |
+| DEC-5 The kill switch's contract | DONE | `station_blocked` now, no solo reload yet (D-2026-11-11-3). W2.10. |
+| DEC-6 What station-view reads | BLOCKED | Parked until 0.4.0 (D-2026-11-11-5). The plan recommended the proxy. C.2. |
+| DEC-7 What seneca-station is | BLOCKED | Parked until 0.3.0 (D-2026-11-11-6). The plan recommended a one-page design first. C.3. |
 
 
 ## Index: every open issue and pull request

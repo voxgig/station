@@ -148,6 +148,12 @@ P3 becomes an extraction from working code rather than a construction
 against a design. That is an easier proof obligation, not a harder one,
 and it gives plugin's TypeScript port a real consumer on day one.
 
+**Superseded on 2026-11-11.** The owner ruled that station's ports
+take the library, one at a time ([`decisions.md`](./decisions.md),
+D-2026-11-11-4). The first premise above no longer holds: plugin has a
+port in each of station's sixteen languages. The budget in the second
+paragraph has not been measured since it was written.
+
 ### 2.2 The credential guarantee inverts
 
 §5.2's guarantee is that station's **grammar** cannot express a

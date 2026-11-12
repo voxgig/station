@@ -287,7 +287,7 @@ coordination.
 | decision | owner | gates | current state |
 |---|---|---|---|
 | Does **sdkgen** adopt plugin? (P§17.2) | sdkgen | nested hosts *natively*; deletion of `transport`; the seventeen-model change | **open** — explicitly uncommitted; carries a propagation cost across 23 template trees |
-| Does **station take the library as a dependency**? | station | **not** the native port rollout — that resumed after P4 (§5.1). This decides only whether ports later *replace* their native implementation with the library, and the +800-lines-per-port trade | **deferred to plugin tier 3 (P5)**, by design, and explicitly **non-blocking** for native ports. P5 has begun, so the reopening point has arrived — nothing forces the answer, and the second-consumer condition (§7) still governs it |
+| Does **station take the library as a dependency**? | station | **not** the native port rollout — that resumed after P4 (§5.1). This decides only whether ports later *replace* their native implementation with the library, and the +800-lines-per-port trade | **decided on 2026-11-11: yes**, port by port, canonical first ([`decisions.md`](./decisions.md), D-2026-11-11-4; the work is W8 of `docs/plan/plan.md`). The owner ruled against the deferral this row used to record, and without the second consumer §7 asks for. Before that it was deferred to plugin tier 3 (P5), by design, and non-blocking for native ports |
 | Is **`active`** renamed? | plugin | P1's public API and its corpus fixtures | **settled** — the status is `live`, the key stays `active`; see below |
 | Does **P3b move earlier**? | plugin | only if P3 turns up a station requirement needing capabilities | **overtaken** — P3b has landed (plugin's §11 complete) ahead of P3.1's extraction run, so the question closed itself |
 
@@ -334,6 +334,14 @@ abstraction for a single consumer.** The reconciliation's answer is that
 station should not pay that cost until a second consumer exists, and
 this plan keeps that answer by never putting station's ports behind
 plugin's.
+
+**That answer was set aside on 2026-11-11.** The owner ruled that
+station takes the library now ([`decisions.md`](./decisions.md),
+D-2026-11-11-4). The risk in the last row stands as written, and no
+second consumer has appeared. What changes is the mitigation: station
+no longer avoids the cost by waiting, so the first step of the adoption
+is a design note that measures it on the canonical before any other
+port moves (`docs/plan/plan.md`, W8).
 
 
 ## 8. Tracking

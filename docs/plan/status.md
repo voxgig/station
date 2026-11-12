@@ -1,8 +1,10 @@
 # Status: where the next session starts
 
-Snapshot, **2026-11-11**, of `main` at `9a650d4`. 0.2.0 is released on
-every route. `main` is now ahead of it: the six pull requests of W1
-merged today and changed every port's source. The register
+Snapshot, **2026-11-12**. The code on `main` is what `9a650d4` holds;
+every commit since is documents. 0.2.0 is released on every route, and
+`main` is ahead of it: the six pull requests of W1 merged on 2026-11-11
+and changed every port's source. The seven decisions were ruled the
+same day. The register
 in [`progress.md`](progress.md) is the per-item authority, and
 [`upstream.md`](upstream.md) tracks what other repositories owe. This
 file says what is in flight, what to pick up first, and what waits on a
@@ -108,8 +110,9 @@ In this order. None of it waits on the maintainer.
    same test file, has landed.
 5. **W0.8**, the design's account of sdkgen.
 
-DEC-1 should be answered while 1 to 3 are under way, since all of W3
-waits on it.
+Two more can start at any time, since each begins with a document:
+**W8.1**, the design note for taking voxgig/plugin, which every later
+step of W8 waits on; and **W3.2**, now that the route is ruled.
 
 
 ## Blocked on a human
@@ -119,13 +122,37 @@ Everything here needs the maintainer, and most of it fits one sitting.
 | what | why a human | rows |
 |---|---|---|
 | Apply a workflow patch, when one is on `main` in [`patch/`](patch/README.md) | A token with the `workflow` scope. A session cannot push a change under `.github/workflows/`, so it commits a patch to `main` instead. None is pending. | W3.11, W4.3, W4.4 and W5.1, when their patches are written |
-| Seven decisions | The owner's call | DEC-1 to DEC-7 |
+| Delete eleven merged branches | The owner ruled on 2026-11-12 that they go. A session cannot do it: its push access refuses a branch deletion (HTTP 403). The list is below. | — |
 | Register `@voxgig/sdkgen-station` for trusted publishing | An npm owner | W3.11 |
 | Approve the upstream drafts for filing | They go to other repositories, and each one notifies people | [`upstream.md`](upstream.md), "Not yet filed" |
 
 
+**The eleven branches to delete.** Each is merged, so nothing is lost:
+every commit is on `main`, or is the head of a merged pull request.
+
+```sh
+# voxgig/station: the heads of the six pull requests merged 2026-11-11
+git push origin --delete claude/declared-block-options \
+  claude/event-path-escaped claude/event-host \
+  claude/agents-sekreto-ranges claude/refusal-section-sign \
+  claude/c-sekreto
+# voxgig/likeness: four merged, and chore/comment-policy, whose one
+# commit is what voxgig/likeness#4 squashed onto main
+git push origin --delete chore/comment-policy \
+  claude/adoring-archimedes-5jqzny claude/gracious-ptolemy-gkntnn \
+  claude/modest-goodall-j4t6p6 claude/upstream-needs-review
+```
+
+
 ## Recently settled
 
+- **All seven decisions are ruled** (2026-11-11), and each is a record
+  in `docs/design/decisions.md`. Four went as the plan recommended:
+  the staged route for non-JavaScript consumers, both proposed records
+  accepted, three host forms normalised, and `station_blocked`. One
+  went against it: **station takes voxgig/plugin as a dependency now**,
+  which adds W8 and makes the dependency rule three, not two. Two were
+  parked: station-view until 0.4.0, seneca-station until 0.3.0.
 - **The review queue is merged** (W1, 2026-11-11): six pull requests,
   each after CI passed on its branch brought up to `main`. Two needed
   a fix first, in ports only CI can build. Eight issues closed with

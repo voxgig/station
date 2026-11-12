@@ -75,8 +75,8 @@ the plan depends on all of them.
 - **An adapter never ships before its library** (`station.md` §9.6).
   The feature model may not name a package a consumer cannot install.
   [#31] is this rule broken.
-- **Two library dependencies, no more**: sekreto and struct. omni is
-  test-only.
+- **Three library dependencies, no more**: sekreto, struct and, since
+  the ruling of 2026-11-11, plugin (W8). omni is test-only.
 - **Station does not re-test sekreto.** Resolution is sekreto's spec;
   station tests that the right name was asked for and the value was
   placed correctly.
@@ -96,17 +96,19 @@ the plan depends on all of them.
 | **W0** | Close out 0.2.0 | `AGENTS.md`, Releasing | nothing | whoever may dispatch the release workflow |
 | **W1** | Land the review queue | — | review | review and merge rights; no new code |
 | **W2** | Make the solo library safe for live use | §3.3, §5, §6, §16 | W1 | anyone; canonical first |
-| **W3** | Installable in every language | §9.2, §9.6; Stage 4 | DEC-1; W0 for Go | anyone, plus upstream releases |
+| **W3** | Installable in every language | §9.2, §9.6; Stage 4 | nothing, since DEC-1 was ruled | anyone, plus upstream releases |
 | **W4** | One contract in every port | §13; Stage 5 | W1 | anyone; a workflow change goes in as a patch |
-| **W5** | The proxy and the agent surface | §7, §8; Phase 1 exit | DEC-2; W2 for the library half | anyone; a workflow change goes in as a patch |
+| **W5** | The proxy and the agent surface | §7, §8; Phase 1 exit | W2 for the library half | anyone; a workflow change goes in as a patch |
 | **W6** | Phase 2's remainder | §6, §17 | W5 | anyone |
 | **W7** | Phase 3 | §8.4, §9.1, §17 | W5, and upstream | anyone, plus upstream |
+| **W8** | Take voxgig/plugin as a dependency | `station-and-plugin.md`; D-2026-11-11-4 | its own design note | anyone; canonical first |
 
 ```
 W0 ──► W1 ──┬──► W2 ──► release 0.3.0 ──► W5.5 onward (attach) ──► W6 ──► W7
-            ├──► W3   (once DEC-1 is made)
+            ├──► W3
             └──► W4
 W5.1 (the proxy builds, and CI holds it) depends on nothing and can start today.
+W8 (plugin as a dependency) starts with a design note, which depends on nothing.
 ```
 
 W0 and W1 are done, but for one stale passage of the design (W0.8). W1
@@ -196,11 +198,14 @@ every language, and can ship in 0.3.x:
 - [#36]. One failed operation emits three `op` events.
 - [#54]. Rust and swift read an IPv6 policy host without its brackets,
   and no port pins the policy's hostname directly.
-- [#55]. Four URL forms still read differently from `URL.host` (DEC-4).
+- [#55]. Four URL forms still read differently from `URL.host`. Ruled:
+  three are normalised and long-form IPv6 is named as outside the rule
+  (D-2026-11-11-2).
 - [#61]. An unpaired surrogate escape in `station.json` reads three
   different ways in four ports.
 - [#64]. The kill switch shares its error code with an allowlist miss,
-  and takes effect only on restart (DEC-5).
+  and takes effect only on restart. Ruled: it gets `station_blocked`
+  now, and no solo reload yet (D-2026-11-11-3).
 
 **Exit:** each issue is closed by a change that carries a corpus case
 or, where the corpus cannot see it, a pin in every port's suite. 0.3.0
@@ -214,11 +219,11 @@ and outside npm none of those packages exists ([#31]). The cause runs
 upstream: station's ports depend on sekreto, and sekreto is published
 on npm only ([`upstream.md`](upstream.md), registries).
 
-- The route is DEC-1. The recommendation is staged: make station an
-  optional dependency of a generated SDK wherever the language allows
-  it, as it already is in TypeScript and JavaScript; give each port a
-  manifest that installs from a git pin; and publish to a registry as
-  sekreto and plugin arrive there.
+- The route is staged, by the ruling of 2026-11-11 (D-2026-11-11-1):
+  make station an optional dependency of a generated SDK wherever the
+  language allows it, as it already is in TypeScript and JavaScript;
+  give each port a manifest that installs from a git pin; and publish
+  to a registry as sekreto and plugin arrive there.
 - Make each port installable on its own terms: Python ships the config
   shape as package data and takes struct from PyPI ([#39]); Ruby gains a
   gemspec; PHP declares its requirements; Java gains a build file; Rust
@@ -275,7 +280,8 @@ attach.
 
 1. The proxy builds against the pinned sekreto, takes the single-pass
    scrub, and gets a CI lane ([#46]).
-2. The two proposed decisions are signed off (DEC-2).
+2. ~~The two proposed decisions are signed off.~~ Done on 2026-11-11:
+   both accepted.
 3. `voxgig-station testkit`: the proxy in deterministic mode, which §13
    makes the way every library tests attachment.
 4. The wire's corpus sections: `envelope`, `degrade`, and the attached
@@ -308,101 +314,69 @@ haskell, ocaml, zig and lean, each behind an sdkgen prerequisite; and
 sekreto ports for the languages that have none.
 
 
-## 5. Open decisions
+### W8. Take voxgig/plugin as a dependency
 
-Each is the owner's call. Once made, it becomes a dated record in
-[`decisions.md`](../design/decisions.md) with a revisit trigger, and its
-row in the register moves.
+Ruled on 2026-11-11 (D-2026-11-11-4), against this plan's
+recommendation to defer. Station's ports replace their native
+implementation of what plugin defines with plugin's port of their
+language.
 
-### DEC-1. How does a non-JavaScript consumer get station?
+None of it is designed yet, so the first item is the design:
 
-Gates W3, and through it every non-JS lane of every generated SDK that
-carries the feature.
+1. A design note. It says what is replaced in a port, starting from the
+   four corpus sections station already runs against plugin as C4
+   (`ref`, `config`, `lifecycle` and `order`); what stays station's;
+   the order the ports go in; and the cost per port, measured on the
+   canonical. plugin's own first step is its register's item 3.1, the
+   extraction against station.
+2. The canonical takes `@voxgig/plugin`. The C4 suite then runs
+   plugin's corpus against the library, through station.
+3. javascript and go, the other two released ports. A released plugin
+   exists for both: `@voxgig/plugin-js` on npm, and the tag
+   `go/v0.2.0`.
+4. The other thirteen ports, in the tiers §2.2 gives them. Each needs
+   plugin installable in its language, which is the question
+   D-2026-11-11-1 answers for sekreto.
 
-The facts, checked on 2026-11-10: struct is published on PyPI, RubyGems,
-crates.io, NuGet, Hex and pub.dev. sekreto and plugin are on npm only;
-plugin also has Go tags, and sekreto has none. Station's Python manifest
-requires `voxgig-sekreto`, which is not on PyPI. The Ruby port has no
-gemspec, the Java port no build file, the Rust port depends on a
-symlink, and the Swift dependency names a repository,
-`voxgig/station-swift`, that does not exist publicly.
+**Exit:** no port carries a native implementation of what plugin
+defines, every port passes station's own corpus unchanged, and the
+documents that say station builds natively say what it does now.
 
-| option | what it takes | what it costs |
-|---|---|---|
-| **A.** Publish station to each registry | sekreto and plugin published there first; a release route per registry | Waits on two other repositories, per language |
-| **B.** The feature model writes git pins | A manifest per port that installs from git | A generated SDK that is itself published cannot depend on a git reference (PyPI refuses one); Composer and SwiftPM cannot take a subdirectory of a repository; NuGet cannot take a git reference at all |
-| **C.** Staged | Station becomes an optional dependency of the SDK where the language allows it, as in ts and js; ports install from a git pin now; registries follow as sekreto and plugin arrive | Three steps, and the README of each target has to say which step it is on |
 
-**Recommended: C.** The ts, js, py and rb adapters already load station
-only when the feature initialises (`d866631`), php checks that the class
-exists, and the feature is generated inactive. So in those languages an
-SDK that never binds does not need station at all, and making the
-dependency optional removes the red lanes without waiting on anyone. Go
-links station statically, and has its tag.
+## 5. The decisions
 
-The calls inside it: whether "optional" is acceptable for py, rb and
-php; which registries come first (the issue names py, rb, php and
-java); and who publishes sekreto and plugin, which is those
-repositories' decision.
+Seven were open. All were put to the owner on 2026-11-11 and ruled that
+day. Each ruling is a dated record in
+[`decisions.md`](../design/decisions.md), with what was not chosen and
+a revisit trigger. Three went another way than this plan recommended:
+DEC-3, DEC-6 and DEC-7.
 
-### DEC-2. Sign off the two proposed decision records
+| | question | ruling | record |
+|---|---|---|---|
+| DEC-1 | How does a non-JavaScript consumer get station? | Staged: optional where the language allows, a git pin now, a registry as sekreto and plugin arrive | D-2026-11-11-1 |
+| DEC-2 | Are the two proposed decision records signed off? | Both accepted: a grant is scoped per instance, and remote v1 serves one trust domain | D-2026-08-24-1, D-2026-08-24-2 |
+| DEC-3 | Does station take voxgig/plugin as a dependency? | **Yes, now**, port by port. Recommended: keep it deferred | D-2026-11-11-4 |
+| DEC-4 | How far does an event's host follow `URL.host`? | Three forms are normalised; long-form IPv6 is named as outside the rule | D-2026-11-11-2 |
+| DEC-5 | What is the kill switch's contract? | `station_blocked` now; no solo reload yet | D-2026-11-11-3 |
+| DEC-6 | What does station-view read? | **Parked** until the proxy and attach ship. Recommended: the proxy | D-2026-11-11-5 |
+| DEC-7 | What is seneca-station? | **Parked** until 0.3.0. Recommended: a one-page design first | D-2026-11-11-6 |
 
-`D-2026-08-24-1` (a grant is scoped per instance) and `D-2026-08-24-2`
-(remote v1 serves one trust domain) are still `proposed`. The proxy's
-grant table and `/v1/grants/{ref}` are already written to the first.
-Gates W5 item 2 and W7's remote mode.
+What each ruling changes in this plan:
 
-**Recommended: accept both.** Each restates a position the design
-already takes, and each carries its own revisit trigger.
+- **DEC-1** unblocks W3. Its items no longer wait on a decision, only
+  on the work and on other repositories' releases.
+- **DEC-2** closes W5 item 2, and leaves remote mode (W7) waiting on W5
+  alone.
+- **DEC-3** adds W8, and changes a standing rule: a port may take three
+  library dependencies, not two. The facts that were put to the owner
+  are in the record: all sixteen of station's languages now have a
+  plugin port, no second consumer of plugin exists, and the cost the
+  design estimated has not been measured.
+- **DEC-4** and **DEC-5** turn [#55] and [#64] into ordinary W2b work.
+- **DEC-6** and **DEC-7** take both empty repositories out of the plan
+  until the release each one waits for.
 
-### DEC-3. Does station take voxgig/plugin as a dependency?
-
-plugin's own register holds this as `DECISION NEEDED` (its item 5.2).
-It gates nothing: it decides only whether ports later replace their
-native implementation with the library.
-
-**Recommended: keep it deferred** until a second consumer exists, which
-is the condition `station-and-plugin-plan.md` §7 sets.
-
-### DEC-4. How far does an event's host follow `URL.host`?
-
-[#55] offers two answers for the four forms that still differ:
-normalise them as `URL.host` does, or name them in §6 as outside the
-rule.
-
-**Recommended:** normalise the three that are cheap in every language
-(lower-case an ASCII host, drop an empty port, read a port as a number),
-and name long-form IPv6 as outside the rule, since compressing it needs
-an address parser most of the sixteen do not have.
-
-### DEC-5. What is the kill switch's contract?
-
-[#64] asks for a distinct error code and a way to change policy without
-a restart.
-
-**Recommended:** add `station_blocked` now. It is one more entry in
-§14's catalog and the `errors` corpus section. Treat reload as two
-answers: in attached mode it is the policy long-poll the design already
-has (W7); in solo mode it needs a decision on whether `reload()` is in
-scope at all.
-
-### DEC-6. What does station-view read?
-
-The repository has a description and no code. A viewer needs a source
-of events, and there are two: one process's in-memory ring, or the
-proxy's consolidated stream.
-
-**Recommended:** the proxy. `/v1/status`, `/v1/tap` and `/v1/traffic`
-are what a viewer needs and are already written. That makes
-station-view wait on W5 items 1 and 5.
-
-### DEC-7. What is seneca-station?
-
-The repository has a one-line README. Nothing in station's or sdkgen's
-design describes a Seneca binding. It needs a one-page design before
-any code: what a Seneca application gets from it that
-`@voxgig/station` does not already give. It depends only on the
-released TypeScript library, so nothing in this plan blocks it.
+No decision is open.
 
 
 ## 6. The release train
@@ -426,8 +400,8 @@ refuse a provider kind it used to warn about. Its release notes say so.
 | client | state | what it needs from this plan |
 |---|---|---|
 | **voxgig/likeness** | Stages 0 and 1 done; Stage 2 at 9 of 20 cells; Stage 3 not started. On station 0.2.0 in every port that pins it. CI green. | A release carrying [#51], for eight Go entries, and [#58], for the C port; [#36] and [#61] for parity. The rest is the generated SDKs: see [`upstream.md`](upstream.md). |
-| **voxgig/station-view** | Tooling only. No code, no design. | DEC-6, then W5. |
-| **senecajs/seneca-station** | A README. No code, no design. | DEC-7. |
+| **voxgig/station-view** | Tooling only. No code, no design. | Nothing now. Parked until the proxy and attach ship, which is 0.4.0 (D-2026-11-11-5). |
+| **senecajs/seneca-station** | A README. No code, no design. | Nothing now. Parked until 0.3.0 (D-2026-11-11-6). |
 
 
 ## 8. Risks
@@ -438,10 +412,10 @@ refuse a provider kind it used to warn about. Its release notes say so.
 | **Upstream moves under a floating CI.** | `plugin` and `struct` float in `build.yml`, both by decision: plugin so that drift from its corpus goes red, struct until Stage 5 completes. struct has a parity pull request open that changes behaviour across its ports. A red lane on an unrelated pull request is the likely first symptom. | A red lane is read as upstream drift first, and reported upstream. W4 pins struct when the last five ports have landed. |
 | **Code without a CI lane dies quietly.** | The proxy stopped compiling when sekreto's API moved, and nothing went red. | W5 item 1 adds the lane before anything else is built on it. |
 | **A fix skips the corpus.** | Sixteen ports make every fix expensive, and the cheap version is to fix the port that was reported. | Standing rule 2, and the exit of every W2 item. |
-| **Distribution waits on other repositories.** | sekreto and plugin are on npm only. | DEC-1's staged route does not wait for them. |
+| **Distribution waits on other repositories.** | sekreto and plugin are on npm only. | The staged route does not wait for them (D-2026-11-11-1). |
 | **Attach has one side.** | The proxy implements the wire; no library does. A protocol with one implementation has not been tested. | The testkit and the wire's corpus sections come before the first client. |
 | **Human-only steps queue up.** | Tags, merges, registry setup and applying a workflow patch all need the maintainer. | `status.md` lists them together, so they can be done in one sitting, and every workflow change arrives as a patch ready for `git am`. |
-| **The second consumer of plugin never appears.** | sdkgen's adoption is uncommitted. | DEC-3 stays deferred; no port is put behind plugin. |
+| **Station carries plugin as its only consumer.** | The owner ruled to take the dependency before a second consumer exists (D-2026-11-11-4), and sdkgen's adoption is still uncommitted. | W8 starts with a design note that measures the cost on the canonical before any other port moves. |
 
 
 ## 9. Not in this plan
