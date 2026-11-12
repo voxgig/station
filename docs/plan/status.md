@@ -85,7 +85,7 @@ repository generates the SDKs they look for (W4.3).
 | part | state |
 |---|---|
 | `sdkgen-station/` | The feature model and an adapter per target. Never published. ts and js SDKs register themselves; no other target does. |
-| `proxy/` | About 7,800 lines with tests. Does not compile against CI's sekreto pin; its 49 tests pass against the sekreto revision it was written for. No CI lane. |
+| `proxy/` | About 7,900 lines with tests. Builds against CI's sekreto pin since W5.1, with 57 tests. No CI lane until its patch is applied. |
 | attach | In no port. `proxy: 'auto'` records that the proxy is absent without looking for one. |
 | plugin conformance (C4) | Runs in the typescript lane: 144 pass, 0 pinned divergences, 128 skipped with reasons. |
 
@@ -121,7 +121,7 @@ Everything here needs the maintainer, and most of it fits one sitting.
 
 | what | why a human | rows |
 |---|---|---|
-| Apply a workflow patch, when one is on `main` in [`patch/`](patch/README.md) | A token with the `workflow` scope. A session cannot push a change under `.github/workflows/`, so it commits a patch to `main` instead. None is pending. | W3.11, W4.3, W4.4 and W5.1, when their patches are written |
+| Apply a workflow patch, when one is on `main` in [`patch/`](patch/README.md) | A token with the `workflow` scope. A session cannot push a change under `.github/workflows/`, so it commits a patch to `main` instead. One is pending once the proxy change merges: `proxy-ci-lane.patch`. | W5.1 now; W3.11, W4.3 and W4.4 when theirs are written |
 | Delete eleven merged branches | The owner ruled on 2026-11-12 that they go. A session cannot do it: its push access refuses a branch deletion (HTTP 403). The list is below. | — |
 | Register `@voxgig/sdkgen-station` for trusted publishing | An npm owner | W3.11 |
 

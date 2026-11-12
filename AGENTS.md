@@ -57,6 +57,10 @@ The remaining five — `cpp`, `swift`, `dart`, `elixir`, `lua` — do not load
 sekreto at all; they mention it only in comments. (`perl`'s vendored SDK
 payload does carry sekreto's modules — see `vendor-check` below.)
 
+The proxy daemon is a twelfth place. `proxy/go.mod` requires sekreto's Go
+module at the revision CI pins, and builds its broker the way `go/` does.
+It stopped compiling once when sekreto's API moved, and nothing noticed.
+
 So a sekreto change can reach station's *shipped* code, which is never true of
 omni. When sekreto releases, check station: `npm update @voxgig/sekreto` in
 `typescript/`, and the equivalents elsewhere — for `c`, a new

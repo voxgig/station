@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/voxgig/sekreto/go/plugins"
 	"github.com/voxgig/sekreto/go/sekreto"
 )
 
@@ -33,12 +34,15 @@ func newBroker(providers []any) (*broker, error) {
 	if err := json.Unmarshal(text, &specs); err != nil {
 		return nil, fmt.Errorf("station: invalid provider chain: %w", err)
 	}
-	chain, names, err := sekreto.MakeNamedChain(specs)
+	sek, err := sekreto.New(&sekreto.Options{
+		Plugins:   plugins.All(),
+		Providers: specs,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("station: %s", err.Error())
 	}
 	return &broker{
-		sek:   sekreto.NewNamed(chain, names, false),
+		sek:   sek,
 		cache: map[string]string{},
 	}, nil
 }
@@ -73,19 +77,14 @@ func (b *broker) value(ref string, name string) (string, *resolveErr) {
 	return found, nil
 }
 
-// scrub replaces every value this broker ever held, exact match,
-// whatever its length - plus sekreto's own Redact for values the
-// underlying instance resolved that station never saw (§7, §15).
+// scrub replaces every value this broker ever held, then sekreto's Redact
+// catches what it resolved that station never saw (§7, §15). In the other
+// order, Redact could split a held value.
 func (b *broker) scrub(text string) string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	out := b.sek.Redact(text)
-	for _, value := range b.held {
-		if value != "" {
-			out = strings.ReplaceAll(out, value, redactedMarker)
-		}
-	}
-	return out
+	out, _ := scrubText(text, b.held)
+	return b.sek.Redact(out)
 }
 
 func (b *broker) heldValues() []string {

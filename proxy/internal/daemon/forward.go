@@ -357,8 +357,8 @@ func hasUnscrubbableBodyCredential(body string, values []string) bool {
 			continue
 		}
 		covered := false
-		for _, v := range values {
-			if v != "" && strings.Contains(value, v) {
+		for _, form := range scrubForms(values) {
+			if strings.Contains(value, form) {
 				covered = true
 				break
 			}
