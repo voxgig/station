@@ -1,0 +1,98 @@
+From 3024694b1bb01a370060826a8f88cd39146984ca Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 12 Nov 2026 17:45:18 +0000
+Subject: [PATCH] ci: run the integration suites against generated SDKs
+
+The suites that drive a real generated SDK through station skip in the
+`ports` job, which generates none. This adds a `fixtures` job, after
+`ports`, that:
+
+- checks out the siblings at the revisions `ports` uses, and installs
+  and builds the typescript and javascript ports the way their lanes
+  do, since the SDKs are built against those two ports;
+- runs `make fixtures`, which generates the SDKs from test/api/ with
+  this checkout's sdkgen-station;
+- runs `make fixtures-test`, which sets STATION_REQUIRE_SDKS, so a
+  missing SDK fails instead of skipping. PLUGIN_HOME is set because the
+  perl payload does not carry voxgig/plugin yet (voxgig/station#42).
+
+It is a job of its own, appended at the end of the file, so that it
+does not conflict with the patch that adds the `proxy` job.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_0167vhgRnddZXZJm3gcM7pwk
+---
+ .github/workflows/build.yml | 60 +++++++++++++++++++++++++++++++++++++
+ 1 file changed, 60 insertions(+)
+
+diff --git a/.github/workflows/build.yml b/.github/workflows/build.yml
+index b240a16..76f3b46 100644
+--- a/.github/workflows/build.yml
++++ b/.github/workflows/build.yml
+@@ -346,3 +346,63 @@ jobs:
+             exit 1
+           fi
+           echo "all $(printf '%s\n' "$OUTCOMES" | awk 'NF' | wc -l) ports green"
++
++  # The suites that drive a real generated SDK through station skip in
++  # `ports`, which generates none. This job generates those SDKs from
++  # test/api/ with this checkout's sdkgen-station, then runs the suites
++  # against them with STATION_REQUIRE_SDKS set, so a missing SDK fails
++  # instead of skipping. The setup is the typescript and javascript lanes'
++  # own, since the SDKs are built against those two ports.
++  fixtures:
++    name: the integration suites, against generated SDKs
++    runs-on: ubuntu-latest
++    timeout-minutes: 30
++    steps:
++      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
++        with:
++          path: station
++      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
++        with:
++          repository: voxgig/omni
++          ref: dcbab7aa3f79ed99663ba8f70a79b5721fd5092d # omni#36
++          path: omni
++      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
++        with:
++          repository: voxgig/sekreto
++          ref: 32b83acba90a8e4199be96f56d0cdd5f636c5dfb # sekreto#34
++          path: sekreto
++      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
++        with:
++          repository: voxgig/plugin
++          path: plugin
++      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
++        with:
++          repository: voxgig/struct
++          path: struct
++      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
++        with:
++          node-version: 24
++      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1
++        with:
++          ruby-version: '3.3'
++      - name: install and build the typescript and javascript ports
++        run: |
++          cd station/typescript
++          npm install --no-save --no-audit --no-fund typescript @types/node
++          (cd ../../omni/typescript && npm install --no-audit --no-fund && npm run build)
++          (cd ../../sekreto/typescript && npm install --no-audit --no-fund && npm run build)
++          mkdir -p node_modules/@voxgig
++          ln -sfn ../../../../sekreto/typescript node_modules/@voxgig/sekreto
++          ln -sfn ../../../../omni/typescript node_modules/@voxgig/omni
++          npx tsc
++          cd ../javascript
++          mkdir -p node_modules/@voxgig
++          ln -sfn ../../../../sekreto/javascript node_modules/@voxgig/sekreto-js
++          ln -sfn ../../../../struct/javascript node_modules/@voxgig/struct-js
++          (cd ../../sekreto/javascript && npm install --no-audit --no-fund)
++      - name: generate the SDKs
++        run: make -C station fixtures
++      - name: run the integration suites against them
++        env:
++          PLUGIN_HOME: ${{ github.workspace }}/plugin
++        run: make -C station fixtures-test
+-- 
+2.43.0
+
