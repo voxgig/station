@@ -1252,6 +1252,28 @@ public final class StationTest {
       check(caught.getMessage().contains("[redacted]"), caught.getMessage());
     });
 
+    testcase("transport: a transport error's cause chain is scrubbed", () -> {
+      Station st = memoryStation(map("TEST_PLUG_APIKEY", "tok!en 1"), null);
+      bind(st, new Object(), st.options(map()));
+
+      RuntimeException caught = null;
+      try {
+        st.transport("test-plug", queryurl, map("headers", map()), true, null,
+            (url, def) -> {
+              throw new IllegalStateException("fetch failed",
+                  new IllegalArgumentException("bad url: " + url));
+            });
+      } catch (RuntimeException err) {
+        caught = err;
+      }
+      check(null != caught, "the transport error surfaces");
+      checkeq(caught.getMessage(), "fetch failed", "the message reads as it did");
+      check(null == caught.getCause(), "a cause quoting the URL is dropped");
+      java.io.StringWriter shown = new java.io.StringWriter();
+      caught.printStackTrace(new java.io.PrintWriter(shown));
+      check(!shown.toString().contains("tok%21en%201"), shown.toString());
+    });
+
     testcase("transport: no injection into mock transports", () -> {
       Station st = memoryStation(map("TEST_PLUG_APIKEY", "real-key-3"), null);
       bind(st, new Object(), st.options(map()));

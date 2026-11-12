@@ -728,8 +728,9 @@ namespace Voxgig.Station
         }
 
         // A transport error may quote its URL, which carries a query-placed
-        // value. Exception.Message is read-only, so an equivalent stands in,
-        // keeping the cause but never the original, which still quotes it.
+        // value, and so may any inner exception behind it. Exception.Message
+        // is read-only, so an equivalent stands in, keeping the inner
+        // exception only when its whole chain reads clean.
         private Exception Scrubbed(Exception err, bool placed)
         {
             if (!placed)
@@ -738,7 +739,25 @@ namespace Voxgig.Station
             }
             string message = err.Message ?? "";
             string clean = Redact(message);
-            return clean == message ? err : new Exception(clean, err.InnerException);
+            bool chain = ReadsClean(err.InnerException);
+            if (clean == message && chain)
+            {
+                return err;
+            }
+            return new Exception(clean, chain ? err.InnerException : null);
+        }
+
+        private bool ReadsClean(Exception link)
+        {
+            for (; null != link; link = link.InnerException)
+            {
+                string text = link.Message ?? "";
+                if (Redact(text) != text)
+                {
+                    return false;
+                }
+            }
+            return true;
         }
 
         /// <summary>Op events from the hook bridge (design 3 item 3).</summary>

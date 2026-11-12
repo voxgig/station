@@ -15,7 +15,7 @@ use warnings;
 use File::Basename qw(dirname);
 use File::Spec;
 use JSON::PP ();
-use Scalar::Util qw(refaddr);
+use Scalar::Util qw(blessed refaddr reftype);
 use Test::More;
 
 # The loader fixtures resolve by NAME from @INC, exactly as a configured
@@ -741,6 +741,8 @@ subtest 'a query-placed credential reaches the wire, and nothing else' => sub {
     use overload '""' => sub { $_[0]->{msg} }, fallback => 1;
 
     sub new { return bless { msg => $_[1] }, $_[0] }
+
+    sub with { my ( $self, $slot, $val ) = @_; $self->{$slot} = $val; return $self }
 }
 
 subtest 'a transport error quoting the URL is scrubbed' => sub {
@@ -781,6 +783,54 @@ subtest 'a transport error quoting the URL is scrubbed' => sub {
     my $died = $@;
     ok( 0 > index( $died, 'tok%21en%201' ), 'a thrown error is scrubbed' );
     ok( 0 <= index( $died, '[redacted]' ), 'and marked' );
+};
+
+{
+    # Its text is built from a slot no scrub rewrites.
+    package OpaqueError;
+
+    use overload '""' => sub { 'GET ' . ${ $_[0] } }, fallback => 1;
+
+    sub new { my $url = $_[1]; return bless \$url, $_[0] }
+}
+
+# Every string a dump of the error reaches.
+sub shows {
+    my ($v) = @_;
+    return defined $v ? $v : '' if !ref $v;
+    my $out = blessed($v) ? "$v" : '';
+    $out .= ${$v} if 'SCALAR' eq reftype($v) && defined ${$v};
+    return $out unless 'HASH' eq reftype($v);
+    return $out . join '', map { shows( $v->{$_} ) } sort keys %$v;
+}
+
+subtest 'a transport error cause chain is scrubbed' => sub {
+    reset_env();
+    local $ENV{GNARLY_PETS_APIKEY} = 'tok!en 1';
+    my $fail = sub {
+        my ($make) = @_;
+        my $b = bind_client( Voxgig::Station->new( { config => undef } ),
+            sub { return ( undef, $make->( $_[1] ) ) } );
+        my ( undef, $err ) = $b->{utility}{fetcher}
+          ->( $b->{ctx}, $QUERY_URL, { method => 'GET', headers => {} } );
+        my $shown = shows($err);
+        ok( 0 > index( $shown, 'tok%21en%201' ), "scrubbed: $shown" );
+        return $err;
+    };
+
+    my $err = $fail->( sub {
+        MsgError->new('fetch failed')->with( previous => bless { url => $_[0] }, 'UrlError' );
+    } );
+    isa_ok( $err->{previous}, 'UrlError', 'the held error is kept' );
+    ok( 0 <= index( $err->{previous}{url}, '[redacted]' ), 'and scrubbed in place' );
+
+    $err = $fail->( sub {
+        MsgError->new('fetch failed')->with( previous => OpaqueError->new( $_[0] ) );
+    } );
+    ok( !exists $err->{previous}, 'a held error that cannot be scrubbed is dropped' );
+
+    $err = $fail->( sub { OpaqueError->new( $_[0] ) } );
+    ok( !ref $err, 'an error that cannot be scrubbed comes back as its text' );
 };
 
 subtest 'an error quoting only the fetchdef url is scrubbed' => sub {

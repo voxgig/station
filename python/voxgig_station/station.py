@@ -69,6 +69,14 @@ def _keyless(opts):
 _AUTHORITY_RE = re.compile(r'[a-zA-Z][a-zA-Z0-9+.-]*://[^/?#]*')
 
 
+def _exc_text(exc):
+    """str() of an exception, which a broken __str__ can make raise."""
+    try:
+        return str(exc)
+    except Exception:
+        return type(exc).__name__
+
+
 def without_userinfo(text):
     """A URL reported whole loses its userinfo first: a value the broker
     never held, so no scrub can find it in the event."""
@@ -692,12 +700,16 @@ class Station:
         corr = st.get('corr')
         started = _now_ms()
 
+        failure = None
         try:
             res, err = inner(fctx, sendurl, senddef)
         except Exception as e:
             self._emit_http(name, corr, fullurl, senddef, 0, started, 0)
             self._emit_err(name, fctx, e)
-            raise self._scrubbed(e, placed)
+            failure = self._scrubbed(e, placed)
+        if failure is not None:
+            # Raised in the handler, an equivalent would chain the original.
+            raise failure
 
         if err is not None:
             self._emit_http(name, corr, fullurl, senddef, 0, started, 0)
@@ -724,18 +736,49 @@ class Station:
 
     def _scrubbed(self, err, placed):
         """A transport error may quote its URL, which carries a
-        query-placed value. An exception is scrubbed in place: its message
-        lives in `args`, and the SDK's own error keeps a copy in `msg`."""
+        query-placed value, and so may any exception behind it. Each is
+        scrubbed in place; one that still reads unclean is cut off its
+        holder, and a head that does comes back as an equivalent."""
         if not placed:
             return err
         if isinstance(err, str):
             return self.redact(err)
-        if isinstance(err, BaseException):
-            err.args = tuple(self.redact(a) if isinstance(a, str) else a
-                             for a in err.args)
-            if isinstance(getattr(err, 'msg', None), str):
-                err.msg = self.redact(err.msg)
+        if isinstance(err, BaseException) and not self._scrub_exc(err, {}):
+            return RuntimeError(self.redact(_exc_text(err)))
         return err
+
+    def _scrub_exc(self, exc, seen):
+        """Its string args and attributes, its notes, and every exception
+        it holds: in args or attributes, or as its cause or context."""
+        if id(exc) in seen:
+            return seen[id(exc)]
+        seen[id(exc)] = True
+        exc.args = tuple(self._scrub_held(a, seen) for a in exc.args)
+        for key, val in list(vars(exc).items()):
+            clean = self._scrub_held(val, seen)
+            if clean is not val:
+                try:
+                    setattr(exc, key, clean)
+                except (AttributeError, TypeError):
+                    pass
+        notes = getattr(exc, '__notes__', None)
+        if isinstance(notes, list):
+            exc.__notes__ = [self._scrub_held(n, seen) for n in notes]
+        for link in ('__cause__', '__context__'):
+            held = getattr(exc, link)
+            if held is not None and not self._scrub_exc(held, seen):
+                setattr(exc, link, None)
+        text = _exc_text(exc)
+        seen[id(exc)] = self.redact(text) == text
+        return seen[id(exc)]
+
+    def _scrub_held(self, val, seen):
+        if isinstance(val, str):
+            clean = self.redact(val)
+            return val if clean == val else clean
+        if isinstance(val, BaseException) and not self._scrub_exc(val, seen):
+            return self.redact(_exc_text(val))
+        return val
 
     def _emit_http(self, name, corr, fullurl, fetchdef, status, started, nbytes):
         host = ''

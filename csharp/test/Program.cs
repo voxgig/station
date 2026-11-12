@@ -600,6 +600,29 @@ internal static class Program
             Check(!EventText(st).Contains("tok%21en%201"), "events carry no value");
         });
 
+        TestCase("transport: a transport error's inner exception chain is scrubbed", () =>
+        {
+            Station st = MemoryStation(Map("TEST_PLUG_APIKEY", "tok!en 1"), null);
+            Bind(st, new object(), st.Options(Map()));
+
+            string url = "http://localhost:8000/api/todo?token=%5Bstation%3Atest-plug%5D";
+            Exception caught = null;
+            try
+            {
+                st.Transport("test-plug", url, Map("url", url, "headers", Map()), true, null,
+                    (wireurl, def) => throw new InvalidOperationException("fetch failed",
+                        new UriFormatException("bad url: " + wireurl)));
+            }
+            catch (Exception err)
+            {
+                caught = err;
+            }
+            Check(null != caught, "the transport error surfaces");
+            Check("fetch failed" == caught.Message, "the message reads as it did: " + caught.Message);
+            Check(null == caught.InnerException, "an inner exception quoting the URL is dropped");
+            Check(!caught.ToString().Contains("tok%21en%201"), "scrubbed: " + caught);
+        });
+
         TestCase("transport: an error quoting only the fetchdef url is scrubbed", () =>
         {
             Station st = MemoryStation(Map("TEST_PLUG_APIKEY", "tok!en 1"), null);

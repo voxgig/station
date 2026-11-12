@@ -72,6 +72,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -4030,6 +4031,22 @@ class Station {
 
   std::string redact(const std::string& text) const { return broker_.scrub(text); }
 
+  // what() cannot be rewritten, so a transport error that quotes a held
+  // value, or nests one that does (std::throw_with_nested), is replaced.
+  bool reads_clean(const std::exception& err) const {
+    std::string text = err.what();
+    if (redact(text) != text) {
+      return false;
+    }
+    try {
+      std::rethrow_if_nested(err);
+    } catch (const std::exception& inner) {
+      return reads_clean(inner);
+    } catch (...) {
+    }
+    return true;
+  }
+
   void refresh_secrets() { broker_.refresh(); }
 
   const ResolvedProfile& profile() const { return profile_; }
@@ -5142,11 +5159,8 @@ class Station {
     } catch (const std::exception& err) {
       emit_http(name, corr, fullurl, method, 0, started, 0);
       emit_err(name, corr, "", err.what());
-      // what() cannot be rewritten, so a message that needs scrubbing is
-      // rethrown as a new error carrying the scrubbed text.
-      std::string scrubbed = placed ? redact(err.what()) : err.what();
-      if (scrubbed != err.what()) {
-        throw std::runtime_error(scrubbed);
+      if (placed && !reads_clean(err)) {
+        throw std::runtime_error(redact(err.what()));
       }
       throw;
     }

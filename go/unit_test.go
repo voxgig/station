@@ -706,6 +706,30 @@ func TestTransportErrorQuotingOnlyTheFetchdefURLIsScrubbed(t *testing.T) {
 	}
 }
 
+// fetchFailed reads clean, and wraps the error that quotes the URL.
+type fetchFailed struct{ cause error }
+
+func (e *fetchFailed) Error() string { return "fetch failed" }
+func (e *fetchFailed) Unwrap() error { return e.cause }
+
+func TestTransportErrorChainIsScrubbed(t *testing.T) {
+	st := newStation(t, map[string]string{"FAKEPAD_APIKEY": queryValue})
+	base := func(opctx any, fullurl string, fetchdef map[string]any) (any, error) {
+		return nil, &fetchFailed{cause: errors.New("GET " + fullurl)}
+	}
+	h := bindOne(t, st, "fakepad", []string{"station"}, base, "")
+
+	_, err := h.client.fetcher(nil, queryPlaced(), map[string]any{"headers": map[string]any{}})
+	if nil == err || "fetch failed" != err.Error() {
+		t.Fatalf("transport error: %v", err)
+	}
+	for link := err; nil != link; link = errors.Unwrap(link) {
+		if strings.Contains(link.Error(), querySent) {
+			t.Fatalf("the chain still quotes the URL: %v", link)
+		}
+	}
+}
+
 // heldStation resolves each value into one station's broker, in order.
 func heldStation(t *testing.T, values ...string) *station.Station {
 	t.Helper()

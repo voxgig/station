@@ -484,12 +484,46 @@ export class Station {
     return res
   }
 
-  // A transport error may quote its URL, which carries a query-placed value.
+  // A transport error, or any cause behind it, may quote the placed URL.
   private scrubbed(err: any, placed: boolean): any {
-    if (placed && err instanceof Error) {
-      err.message = this.redact(err.message)
+    if (!placed) { return err }
+    if ('string' === typeof err) { return this.redact(err) }
+    if (null == err || 'object' !== typeof err || this.scrubChain(err)) { return err }
+    const copy: any = new Error(this.redact(String(readField(err, 'message') ?? err)))
+    const code = readField(err, 'code')
+    if (null != code) { copy.code = 'string' === typeof code ? this.redact(code) : code }
+    return copy
+  }
+
+  // A link that cannot be scrubbed is cut off; false when the head cannot be.
+  private scrubChain(err: any): boolean {
+    const seen = new Set<any>()
+    let parent: any = null
+    let link: any = err
+    while (null != link && 'object' === typeof link && !seen.has(link)) {
+      seen.add(link)
+      if (!this.scrubLink(link)) {
+        return null != parent && Reflect.deleteProperty(parent, 'cause') &&
+          undefined === readField(parent, 'cause')
+      }
+      parent = link
+      link = readField(link, 'cause')
     }
-    return err
+    return true
+  }
+
+  // Own string fields first; a getter may build the message from others.
+  private scrubLink(link: any): boolean {
+    for (const key of Reflect.ownKeys(link)) {
+      const text = readField(link, key)
+      if ('string' !== typeof text) { continue }
+      const clean = this.redact(text)
+      if (clean !== text && !(Reflect.set(link, key, clean) && clean === readField(link, key))) {
+        return false
+      }
+    }
+    const message = readField(link, 'message')
+    return 'string' !== typeof message || message === this.redact(message)
   }
 
   private emitHttp(slug: string, corr: string | undefined, fullurl: string,
@@ -939,6 +973,11 @@ export class Station {
   private emit(ev: StationEvent): void {
     this.buffer.emit(ev)
   }
+}
+
+// A getter may throw, and a field that cannot be read is not printed either.
+function readField(obj: any, key: string | symbol): any {
+  try { return obj[key] } catch (_e) { return undefined }
 }
 
 // A URL that does not parse is reported whole, and its userinfo is a value

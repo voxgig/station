@@ -212,17 +212,43 @@ public final class Binding {
     return res
   }
 
-  // A transport error may quote its URL, which carries a query-placed value.
+  // A transport error may quote its URL, which carries a query-placed value,
+  // and so may anything it holds: an underlying error, or a field its text
+  // leaves out. Swift errors cannot be rewritten, so one holding a value
+  // anywhere a Mirror reaches comes back as a ScrubbedError.
   private func scrubbed(_ err: Error, _ placed: Bool) -> Error {
     if !placed {
       return err
     }
     let text = errMessage(err)
     let clean = station.redact(text)
-    if clean == text {
+    var seen = Set<ObjectIdentifier>()
+    if clean == text && !holdsValue(err, &seen) {
       return err
     }
     return ScrubbedError(clean)
+  }
+
+  private func holdsValue(_ value: Any, _ seen: inout Set<ObjectIdentifier>) -> Bool {
+    if let text = value as? String {
+      return station.redact(text) != text
+    }
+    let mirror = Mirror(reflecting: value)
+    if mirror.displayStyle == .class,
+      !seen.insert(ObjectIdentifier(value as AnyObject)).inserted
+    {
+      return false
+    }
+    var level: Mirror? = mirror
+    while let current = level {
+      for child in current.children {
+        if holdsValue(child.value, &seen) {
+          return true
+        }
+      }
+      level = current.superclassMirror
+    }
+    return false
   }
 
   private func emitHttp(

@@ -124,6 +124,12 @@ struct WireError: Error, CustomStringConvertible {
   let description: String
 }
 
+// Reads clean, and holds the error that quotes the URL.
+struct FetchFailed: Error, CustomStringConvertible {
+  let cause: Error
+  var description: String { return "fetch failed" }
+}
+
 func eventText(_ st: Station) -> String {
   return st.events().map { Descriptor.canonicalSerialize($0) }.joined(separator: "\n")
 }
@@ -509,6 +515,29 @@ final class StationTest: XCTestCase {
       XCTAssertTrue(text.contains("[redacted]"), text)
     }
     XCTAssertFalse(eventText(st).contains("tok%21en%201"), "no encoded value in events")
+  }
+
+  func testTransportErrorHoldingThePlacedUrlIsScrubbed() throws {
+    setenv("TEST_PLUG_APIKEY", "tok!en 1", 1)
+    let st = try memStation()
+    let binding = (try bind(st, NSObject()))!.binding
+
+    let url = "http://localhost:8000/api/todo?token=%5Bstation%3Atest-plug%5D"
+    do {
+      let _: Bool = try binding.transport(
+        nil, true, url, "GET", [:],
+        { place, _, _ in
+          throw FetchFailed(cause: WireError(description: "GET " + place(url)))
+        },
+        { _ in (200, 0) })
+      XCTFail("the transport error must surface")
+    } catch {
+      var shown = ""
+      dump(error, to: &shown)
+      XCTAssertTrue(error is ScrubbedError, "a scrubbed copy: " + shown)
+      XCTAssertFalse(shown.contains("tok%21en%201"), shown)
+      XCTAssertEqual("fetch failed", "\(error)", "the text reads as it did")
+    }
   }
 
   func testTransportErrorQuotingOnlyTheFetchdefUrlIsScrubbed() throws {

@@ -1,7 +1,8 @@
 // A port of typescript/test/inject.test.ts, which is canonical.
 
 const { describe, test, beforeEach, afterEach } = require('node:test')
-const { deepStrictEqual, equal, ok, rejects } = require('node:assert')
+const { deepStrictEqual, equal, notEqual, ok, rejects } = require('node:assert')
+const { inspect } = require('node:util')
 
 const { Station } = require('../src/Station')
 const { featureBinding } = require('../src/adapter')
@@ -101,6 +102,61 @@ describe('inject', () => {
     ok(err instanceof Error)
     ok(!err.message.includes(SENT), err.message)
     ok(err.message.includes('[redacted]'), err.message)
+  })
+
+  // fetch's own failure: the message quotes the URL, and so do the
+  // cause's `input` and the head's stack.
+  test('a transport error\'s cause chain is scrubbed', async () => {
+    const { client, ctx } = liveClient('joplin', async (_f, url) => fetch(url))
+    const st = new Station({ config: null })
+    featureBinding(ctx, { station: st })
+
+    const url = 'http://bad host/notes?token=' + encodeURIComponent(ctx.options.apikey)
+    await rejects(ctx.utility.fetcher({ client }, url, { url, method: 'GET', headers: {} }),
+      (err) => {
+        equal(err.cause?.code, 'ERR_INVALID_URL', 'the cause is kept')
+        ok(err.cause.input.includes('[redacted]'), err.cause.input)
+        const shown = inspect(err, { depth: null })
+        ok(!shown.includes(SENT) && !shown.includes(VALUE), shown)
+        return true
+      })
+    ok(!JSON.stringify(st.events()).includes(SENT))
+    st.close()
+  })
+
+  async function failWith(make) {
+    const { client, ctx } = liveClient('joplin', async (_f, url) => { throw make(url) })
+    const st = new Station({ config: null })
+    featureBinding(ctx, { station: st })
+    try {
+      const url = placedUrl(ctx)
+      return await ctx.utility.fetcher({ client }, url, { url, method: 'GET', headers: {} })
+        .catch((err) => err)
+    }
+    finally { st.close() }
+  }
+
+  test('a cause that cannot be scrubbed is cut off', async () => {
+    let thrown = null
+    const err = await failWith((url) => thrown = new Error('fetch failed',
+      { cause: Object.freeze(new Error('GET ' + url)) }))
+    equal(err, thrown)
+    equal(err.cause, undefined)
+  })
+
+  test('an error that cannot be scrubbed comes back as an equivalent', async () => {
+    let thrown = null
+    const err = await failWith((url) =>
+      thrown = Object.freeze(Object.assign(new Error('GET ' + url), { code: 'E_GET' })))
+    notEqual(err, thrown)
+    equal(err.code, 'E_GET')
+    ok(err.message.includes('[redacted]'), err.message)
+    ok(!inspect(err, { depth: null }).includes(SENT))
+  })
+
+  test('a thrown string is scrubbed', async () => {
+    const err = await failWith((url) => 'GET ' + url)
+    ok('string' === typeof err && err.includes('[redacted]') && !err.includes(SENT), err)
   })
 
   test('connect keeps as and instance out of the SDK\'s own options', () => {

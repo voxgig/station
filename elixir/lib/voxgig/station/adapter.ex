@@ -453,30 +453,33 @@ defmodule Voxgig.Station.Adapter do
     end
   end
 
-  # A transport error may quote its URL, which carries a query-placed value.
-  # The error comes back as a scrubbed copy; an exception with no message
-  # field to rewrite becomes a RuntimeError carrying the scrubbed text.
-  defp scrubbed(_station, err, false), do: err
+  # A transport error may quote its URL, which carries a query-placed value,
+  # and so may an exception it holds. The error comes back as a scrubbed
+  # copy, every binary field rewritten and every exception it holds scrubbed
+  # the same way; one whose message still reads unclean becomes a
+  # RuntimeError carrying the scrubbed text.
+  @doc false
+  def scrubbed(_station, err, false), do: err
 
-  defp scrubbed(station, err, true) do
+  def scrubbed(station, err, true) do
     cond do
-      is_binary(err) ->
-        Station.redact(station, err)
-
-      is_exception(err) and is_binary(Map.get(err, :msg)) ->
-        %{err | msg: Station.redact(station, err.msg)}
-
-      is_exception(err) and is_binary(Map.get(err, :message)) ->
-        %{err | message: Station.redact(station, err.message)}
-
-      is_exception(err) ->
-        text = Exception.message(err)
-        clean = Station.redact(station, text)
-        if clean == text, do: err, else: RuntimeError.exception(clean)
-
-      true ->
-        err
+      is_binary(err) -> Station.redact(station, err)
+      is_exception(err) -> scrubbed_exception(station, err)
+      true -> err
     end
+  end
+
+  defp scrubbed_exception(station, err) do
+    copy =
+      Enum.reduce(Map.from_struct(err), err, fn
+        {key, val}, acc when is_binary(val) -> Map.put(acc, key, Station.redact(station, val))
+        {key, val}, acc when is_exception(val) -> Map.put(acc, key, scrubbed_exception(station, val))
+        _, acc -> acc
+      end)
+
+    text = Exception.message(copy)
+    clean = Station.redact(station, text)
+    if clean == text, do: copy, else: RuntimeError.exception(clean)
   end
 
   defp int_of(v) when is_integer(v), do: v

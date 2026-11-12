@@ -1800,9 +1800,10 @@ sub _op_error {
     return Voxgig::Station::StationError->new( $code, $message );
 }
 
-# A transport error may quote its URL, which carries a query-placed value.
-# A string error is a value, so its scrubbed copy is returned; a hash-based
-# error object has its message slot rewritten in place.
+# A transport error may quote its URL, which carries a query-placed value,
+# and so may an error object it holds. A string error is a value, so its
+# scrubbed copy is returned; an object that cannot be scrubbed in place
+# comes back as its scrubbed text.
 sub _scrubbed {
     my ( $self, $err, $placed ) = @_;
     return $err unless $placed && defined $err;
@@ -1810,13 +1811,35 @@ sub _scrubbed {
         my $clean = $self->redact($err);
         return $clean eq $err ? $err : $clean;
     }
-    if ( 'HASH' eq reftype($err) ) {
-        for my $slot (qw(message msg)) {
-            my $text = $err->{$slot};
-            $err->{$slot} = $self->redact($text) if defined $text && !ref $text;
+    return $err if $self->_scrub_held( $err, {} );
+    return $self->redact("$err");
+}
+
+# Every string slot of a hash-based object is rewritten in place, and every
+# object it holds is scrubbed the same way or dropped; true when it then
+# reads clean.
+sub _scrub_held {
+    my ( $self, $obj, $seen ) = @_;
+    my $addr = refaddr($obj);
+    return $seen->{$addr} if exists $seen->{$addr};
+    $seen->{$addr} = 1;
+    my $done = eval {
+        if ( 'HASH' eq reftype($obj) ) {
+            for my $slot ( keys %$obj ) {
+                my $val = $obj->{$slot};
+                if ( defined $val && !ref $val ) {
+                    my $clean = $self->redact($val);
+                    $obj->{$slot} = $clean if $clean ne $val;
+                }
+                elsif ( blessed($val) && !$self->_scrub_held( $val, $seen ) ) {
+                    delete $obj->{$slot};
+                }
+            }
         }
-    }
-    return $err;
+        1;
+    };
+    my $text = "$obj";
+    return $seen->{$addr} = $done && $self->redact($text) eq $text ? 1 : 0;
 }
 
 # A synthesized status-0 response is a transport failure, so each field the
