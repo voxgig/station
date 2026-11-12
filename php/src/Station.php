@@ -261,6 +261,18 @@ class Station
      * its options (design station.md 3.1: binding is never implicit;
      * only open() creates the ambient instance).
      */
+    /**
+     * The activation entry rides in the SDK's options, which an app may
+     * dump, and a closure bound to $this dumps it. A static closure over a
+     * StationHolder dumps as nothing, and keeps a Station that was built
+     * only for its options alive until the SDK binds.
+     */
+    private function handle(): \Closure
+    {
+        $holder = new StationHolder($this);
+        return static fn() => $holder->station;
+    }
+
     public static function current(): ?Station
     {
         return self::$ambient;
@@ -418,8 +430,8 @@ class Station
         $fmap = is_array($extra['feature'] ?? null) ? $extra['feature'] : [];
         $sf = is_array($fmap['station'] ?? null) ? $fmap['station'] : [];
         $sf['active'] = true;
-        $sf['station'] = $this;
-        $sf['calleropts'] = $extra;
+        $sf['station'] = $this->handle();
+        $sf['calleropts'] = keyless($extra);
         $fmap['station'] = array_merge($sf, $names);
         $options = $extra;
         unset($options['as'], $options['instance']);
@@ -986,7 +998,7 @@ class Station
         // delegate to feature_binding, whose already-bound check no-ops
         // a second arrival for the same client.
         $extend = is_array($opts['extend'] ?? null) ? $opts['extend'] : [];
-        $extend[] = adapter_feature($this, $opts);
+        $extend[] = adapter_feature($this, keyless($opts));
         $with_adapter = $opts;
         $with_adapter['extend'] = $extend;
 
@@ -1589,8 +1601,8 @@ class Station
         $fmap = is_array($opts['feature'] ?? null) ? $opts['feature'] : [];
         $sf = is_array($fmap['station'] ?? null) ? $fmap['station'] : [];
         $sf['active'] = true;
-        $sf['station'] = $this;
-        $sf['calleropts'] = $opts;
+        $sf['station'] = $this->handle();
+        $sf['calleropts'] = keyless($opts);
         // Design 6.1: `as` is a TAG, resolved against the api in
         // _register - the api comes from the SDK being passed and is not
         // knowable here until that SDK's config has been normalized.
@@ -1609,7 +1621,7 @@ class Station
         // constructor uses it and the extend copy's bind is made inert
         // by _bound_entry (both delegate to feature_binding, so behavior
         // is identical).
-        $extend[] = adapter_feature($this, $opts);
+        $extend[] = adapter_feature($this, keyless($opts));
 
         $options = $opts;
         unset($options['as'], $options['instance']);

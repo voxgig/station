@@ -329,7 +329,7 @@ module VoxgigStation
 
       fmap = extra['feature'].is_a?(Hash) ? extra['feature'].dup : {}
       entry = (fmap['station'].is_a?(Hash) ? fmap['station'] : {})
-        .merge('active' => true, 'station' => self, 'calleropts' => extra)
+        .merge(_activation(extra))
         .merge(names)
       fmap['station'] = entry
 
@@ -345,6 +345,14 @@ module VoxgigStation
     # construction reaches feature_binding twice - the second arrival
     # must no-op, while a genuinely second client of the same instance
     # still fails _register's key check (10.2).
+    # The activation entry rides in the SDK's options, which an app may
+    # inspect: it carries a lambda, never the Station, and no caller key.
+    def _activation(calleropts)
+      station = self
+      { 'active' => true, 'station' => -> { station },
+        'calleropts' => VoxgigStation.keyless(calleropts) }
+    end
+
     def _bound_entry(client)
       @registry_mutex.synchronize do
         @registry.each_value do |entry|
@@ -792,7 +800,7 @@ module VoxgigStation
       # second arrival for the same client.
       extend_list = opts['extend'].is_a?(Array) ? opts['extend'] : []
       with_adapter = opts.merge(
-        'extend' => extend_list + [VoxgigStation.adapter_feature(self, opts)])
+        'extend' => extend_list + [VoxgigStation.adapter_feature(self, VoxgigStation.keyless(opts))])
 
       # The instance name reaches the adapter the same way it does on the
       # imperative path, so registration has one spelling (7.5).
@@ -1259,7 +1267,7 @@ module VoxgigStation
 
       fmap = opts['feature'].is_a?(Hash) ? opts['feature'].dup : {}
       entry = (fmap['station'].is_a?(Hash) ? fmap['station'] : {})
-        .merge('active' => true, 'station' => self, 'calleropts' => opts)
+        .merge(_activation(opts))
       # 6.1: `as` is a TAG, resolved against the api in _register - the
       # api comes from the SDK being passed and is not knowable here
       # until that SDK's config has been normalized.
@@ -1275,7 +1283,7 @@ module VoxgigStation
       # (both delegate to feature_binding, so behavior is identical).
       options = opts.except('as', 'instance').merge(
         'feature' => fmap,
-        'extend' => extend_list + [VoxgigStation.adapter_feature(self, opts)])
+        'extend' => extend_list + [VoxgigStation.adapter_feature(self, VoxgigStation.keyless(opts))])
 
       client = sdk_class.new(options)
       warn_unapplied(client, options) if ref.nil?

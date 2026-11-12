@@ -5,6 +5,7 @@ build:
 test:
 	ruby test/station_test.rb
 	ruby test/placement_test.rb
+	ruby test/exposure_test.rb
 	ruby test/conform_test.rb
 	ruby test/quickstart_test.rb
 	ruby test/retrofit_test.rb

@@ -333,4 +333,19 @@ subtest 'live tap sees traffic' => sub {
     $st->close;
 };
 
+subtest 'the options hold no secret after a live request' => sub {
+    reset_env();
+    local $ENV{TASKPAD_APIKEY} = $APIKEY;
+
+    my $st  = Voxgig::Station->open( { config => undef } );
+    my $pad = $st->connect( 'TaskpadSDK', { base => $BASE } );
+    $pad->Todo->list;
+
+    require Data::Dumper;
+    my $shown = Data::Dumper->new( [ $pad->{options}, $st ] )->Indent(1)->Dump;
+    ok( 0 > index( $shown, $APIKEY ), 'no key in the options or the station' );
+
+    $st->close;
+};
+
 done_testing();

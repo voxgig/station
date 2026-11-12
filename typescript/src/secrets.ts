@@ -110,33 +110,34 @@ function redactValues(text: string, values: string[]): string {
   return out
 }
 
+// ES private fields: no serialiser or inspector reaches a held value.
 export class SecretBroker {
-  private sekreto: Sekreto
+  #sekreto: Sekreto
   // Values hoisted by adopt() from resident options.apikey (design §3.1).
-  private overrides = new Map<string, string>()
-  private cache = new Map<string, string>()
+  #overrides = new Map<string, string>()
+  #cache = new Map<string, string>()
   // Every value this broker ever held, for the exact-value scrub.
-  private held: string[] = []
+  #held: string[] = []
 
   constructor(providers: any[]) {
-    this.sekreto = new Sekreto({ plugins: allplugins, providers })
+    this.#sekreto = new Sekreto({ plugins: allplugins, providers })
   }
 
   hoist(slug: string, value: string): void {
-    this.overrides.set(slug, value)
-    this.held.push(value)
+    this.#overrides.set(slug, value)
+    this.#held.push(value)
   }
 
   async value(slug: string, name: string): Promise<string> {
-    const override = this.overrides.get(slug)
+    const override = this.#overrides.get(slug)
     if (null != override) { return override }
 
-    const cached = this.cache.get(name)
+    const cached = this.#cache.get(name)
     if (null != cached) { return cached }
 
     let value: string
     try {
-      value = await this.sekreto.get(name)
+      value = await this.#sekreto.get(name)
     }
     catch (e: any) {
       if (e instanceof SekretoError && e.message.includes('unknown secret')) {
@@ -146,23 +147,23 @@ export class SecretBroker {
       throw new StationError('station_secret_error', String(e?.message || e))
     }
 
-    this.cache.set(name, value)
-    this.held.push(value)
+    this.#cache.set(name, value)
+    this.#held.push(value)
     return value
   }
 
   // sekreto's redact runs second; run first, it could split an encoded form.
   scrub(text: string): string {
     const raw = 'string' === typeof text ? text : ''
-    return this.sekreto.redact(redactValues(raw, this.held))
+    return this.#sekreto.redact(redactValues(raw, this.#held))
   }
 
   // Drop caches so the next resolve asks the stores again (rotation
   // support rides on sekreto's refresh, design §5.3).
   refresh(): void {
-    this.cache.clear()
-    if ('function' === typeof (this.sekreto as any).refresh) {
-      ;(this.sekreto as any).refresh()
+    this.#cache.clear()
+    if ('function' === typeof (this.#sekreto as any).refresh) {
+      ;(this.#sekreto as any).refresh()
     }
   }
 }

@@ -4341,8 +4341,13 @@ class Station {
   Jval options_for(const std::string& instance, const Jval& extra) const {
     // calleropts snapshots what the CALLER passed - never the built
     // options map, which would make feature.station.calleropts a cycle
-    // the SDK's own deep clone cannot survive.
+    // the SDK's own deep clone cannot survive - less its key: the entry
+    // rides in options an app may print.
     Jval calleropts = extra.ismap() ? extra : Jval::map();
+    calleropts.mval.erase(
+        std::remove_if(calleropts.mval.begin(), calleropts.mval.end(),
+                       [](const std::pair<std::string, Jval>& kv) { return "apikey" == kv.first; }),
+        calleropts.mval.end());
     Jval out = extra.ismap() ? extra : Jval::map();
 
     Jval fmap = out.get("feature");
@@ -4934,8 +4939,9 @@ class Station {
       ::sdk::map_put(fmap, "station", entry);
     }
     ::sdk::map_put(entry, "active", ::sdk::Value(true));
-    ::sdk::map_put(entry, "calleropts",
-                   extra.is_map() ? ::sdk::Struct::clone(extra) : ::sdk::vmap());
+    ::sdk::Value callers = extra.is_map() ? ::sdk::Struct::clone(extra) : ::sdk::vmap();
+    ::sdk::map_remove(callers, "apikey");
+    ::sdk::map_put(entry, "calleropts", callers);
     for (const char* key : {"as", "instance"}) {
       if (::sdk::map_contains(extra, key)) {
         ::sdk::map_put(entry, key, ::sdk::getp(extra, key));

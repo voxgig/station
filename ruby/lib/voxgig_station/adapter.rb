@@ -64,7 +64,7 @@ module VoxgigStation
   # nothing (design station.md 3.1).
   def feature_binding(ctx, fopts)
     fopts = {} unless fopts.is_a?(Hash)
-    station = fopts['station'].is_a?(Station) ? fopts['station'] : Station.current
+    station = VoxgigStation.station_of(fopts['station']) || Station.current
     return nil if station.nil?
 
     client = ctx.client
@@ -237,6 +237,16 @@ module VoxgigStation
 
   def adapter_feature(station, calleropts)
     AdapterFeature.new(station, calleropts)
+  end
+
+  # The activation entry carries a lambda; the carried adapter, the Station.
+  def station_of(handle)
+    got = handle.respond_to?(:call) ? handle.call : handle
+    got.is_a?(Station) ? got : nil
+  end
+
+  def keyless(calleropts)
+    calleropts.is_a?(Hash) ? calleropts.reject { |k, _| 'apikey' == k } : calleropts
   end
 
   # The generated constructor adds the active features, test first and the

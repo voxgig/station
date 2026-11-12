@@ -162,6 +162,12 @@ class SecretBroker
     private array $held = [];
 
     /** @param array<int, mixed> $providers */
+    /** Held values stay out of var_dump and print_r. */
+    public function __debugInfo(): array
+    {
+        return [];
+    }
+
     public function __construct(array $providers)
     {
         // The full plugin set, because the profile, not station, chooses the

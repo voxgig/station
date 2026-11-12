@@ -370,6 +370,18 @@ internal static class Program
             Check("http://x:1".Equals(options["base"]), "caller opts kept");
         });
 
+        TestCase("options: the activation entry keeps no caller key", () =>
+        {
+            Station st = MemoryStation(Map(), null);
+            var options = st.Options(Map("apikey", "exposure-key-101"));
+            Check("exposure-key-101".Equals(options["apikey"]), "the SDK still gets its key");
+            var entry = Descriptor.AsMap(Descriptor.GetProp(options["feature"], "station"));
+            var calleropts = Descriptor.AsMap(entry["calleropts"]);
+            Check(!calleropts.ContainsKey("apikey"), "the entry keeps no key");
+            Check(!System.Text.Json.JsonSerializer.Serialize(calleropts).Contains("exposure-key-101"),
+                "the entry serialises without the key");
+        });
+
         TestCase("options: a named instance is constructed with its block's options", () =>
         {
             Station st = MemoryStation(Map("TEST_PLUG_EU_APIKEY", "eu-key"), Map(

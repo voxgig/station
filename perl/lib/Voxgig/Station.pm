@@ -490,7 +490,7 @@ sub _construct {
     # (both delegate to feature_binding, so behavior is identical).
     my $extend = ref( $opts->{extend} ) eq 'ARRAY' ? $opts->{extend} : [];
     $options->{extend} =
-      [ @$extend, Voxgig::Station::Adapter::adapter_feature( $self, $opts ) ];
+      [ @$extend, Voxgig::Station::Adapter::adapter_feature( $self, _keyless($opts) ) ];
 
     my $client = $sdk_class->new($options);
     $self->_warn_unapplied( $client, $options ) unless defined $ref;
@@ -578,6 +578,16 @@ sub _copymap {
     return $out;
 }
 
+# The activation entry rides in the SDK's options, which an app may dump:
+# it keeps no caller key.
+sub _keyless {
+    my ($opts) = @_;
+    return $opts unless ref($opts) eq 'HASH';
+    my %copy = %$opts;
+    delete $copy{apikey};
+    return \%copy;
+}
+
 sub _activation {
     my ( $self, $fmap, $calleropts, $ident ) = @_;
     $fmap = _copymap($fmap);
@@ -586,7 +596,7 @@ sub _activation {
         %{ ref( $fmap->{station} ) eq 'HASH' ? $fmap->{station} : {} },
         active     => 1,
         station    => sub { return $station },
-        calleropts => $calleropts,
+        calleropts => _keyless($calleropts),
         %{ ref($ident) eq 'HASH' ? $ident : {} },
     };
     return $fmap;
@@ -1191,7 +1201,7 @@ sub build {
     my $with_adapter = {
         %$opts,
         extend =>
-          [ @$extend, Voxgig::Station::Adapter::adapter_feature( $self, $opts ) ],
+          [ @$extend, Voxgig::Station::Adapter::adapter_feature( $self, _keyless($opts) ) ],
     };
 
     # The instance name reaches the adapter the same way it does on the

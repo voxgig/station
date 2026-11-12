@@ -82,7 +82,7 @@ defmodule Voxgig.Station.Adapter do
     activate(out, station, calleropts)
     station_keys(out)
 
-    adapter = adapter_feature(station, calleropts)
+    adapter = adapter_feature(station, keyless(calleropts))
     current = S.getprop(out, "extend")
 
     if S.islist(current) do
@@ -136,8 +136,14 @@ defmodule Voxgig.Station.Adapter do
     entry = ensure_map(fmap, "station")
     S.setprop(entry, "active", true)
     S.setprop(entry, "station", fn -> station end)
-    S.setprop(entry, "calleropts", calleropts)
+    S.setprop(entry, "calleropts", keyless(calleropts))
     options
+  end
+
+  # The activation entry rides in the SDK's options, which an app may
+  # inspect: it keeps no caller key.
+  defp keyless(calleropts) do
+    if S.ismap(calleropts), do: S.delprop(S.clone(calleropts), "apikey"), else: calleropts
   end
 
   # `as` and `instance` are station's own: they ride the feature entry,

@@ -878,6 +878,14 @@ public final class StationTest {
           "an unnamed call is untouched");
     });
 
+    testcase("front door: the activation entry keeps no caller key", () -> {
+      Station st = memoryStation(map(), map());
+      Map<String, Object> built = st.options(map("apikey", "exposure-key-101"));
+      checkeq(built.get("apikey"), "exposure-key-101", "the SDK still gets the key it is given");
+      Object entry = Descriptor.asmap(built.get("feature")).get("station");
+      check(!String.valueOf(entry).contains("exposure-key-101"), "the entry holds no key");
+    });
+
     testcase("front door: options() names the instance from a top-level instance or as", () -> {
       for (Map<String, Object> named : List.of(map("instance", "pad$eu"), map("as", "pad$eu"))) {
         Station st = memoryStation(map("PAD_APIKEY", "k"), map(

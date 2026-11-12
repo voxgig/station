@@ -107,8 +107,7 @@ class FeatureBinding
 function feature_binding(mixed $ctx, mixed $fopts): ?FeatureBinding
 {
     $fopts = is_array($fopts) ? $fopts : [];
-    $station = ($fopts['station'] ?? null) instanceof Station
-        ? $fopts['station'] : Station::current();
+    $station = station_of($fopts['station'] ?? null) ?? Station::current();
     if (null === $station) {
         return null;
     }
@@ -296,6 +295,35 @@ class AdapterFeature
     {
         $this->_binding?->PreUnexpected($ctx);
     }
+}
+
+/** The activation entry's hold on its Station, opaque to var_dump and print_r. */
+final class StationHolder
+{
+    public function __construct(public readonly Station $station)
+    {
+    }
+
+    public function __debugInfo(): array
+    {
+        return [];
+    }
+}
+
+/** The activation entry carries a closure; the carried adapter, the Station. */
+function station_of(mixed $handle): ?Station
+{
+    $got = $handle instanceof \Closure ? $handle() : $handle;
+    return $got instanceof Station ? $got : null;
+}
+
+/** The caller's options as the activation entry carries them: no key. */
+function keyless(mixed $calleropts): mixed
+{
+    if (is_array($calleropts)) {
+        unset($calleropts['apikey']);
+    }
+    return $calleropts;
 }
 
 function adapter_feature(Station $station, mixed $calleropts): AdapterFeature

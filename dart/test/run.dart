@@ -13,6 +13,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'conform.dart';
+import 'exposure.dart';
 import 'placement.dart';
 import 'station.dart';
 
@@ -34,6 +35,7 @@ Future<void> main(List<String> args) async {
   conformCases(addcase);
   stationCases(addcase);
   placementCases(addcase);
+  exposureCases(addcase);
 
   for (final entry in CASES) {
     if (null != ONLY && !entry.key.contains(ONLY!)) {

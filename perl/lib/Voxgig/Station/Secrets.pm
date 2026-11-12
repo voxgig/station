@@ -136,9 +136,16 @@ sub _redact_values {
 
 package Voxgig::Station::SecretBroker;
 
+use Hash::Util::FieldHash ();
+
+# Inside-out: the state is keyed by the broker, so a dump of the broker, or
+# of anything that holds it, shows no held value.
+Hash::Util::FieldHash::fieldhash my %STATE;
+
 sub new {
     my ( $class, $providers ) = @_;
-    return bless {
+    my $self = bless {}, $class;
+    $STATE{$self} = {
 
         # allplugins, because the profile, not station, chooses the chain:
         # sekreto keeps every kind but dotenv/env/file/memory behind a plugin
@@ -158,13 +165,14 @@ sub new {
 
         # Every value this broker ever held, for the exact-value scrub.
         held => [],
-    }, $class;
+    };
+    return $self;
 }
 
 sub hoist {
     my ( $self, $name, $value ) = @_;
-    $self->{overrides}{$name} = $value;
-    push @{ $self->{held} }, $value;
+    $STATE{$self}{overrides}{$name} = $value;
+    push @{ $STATE{$self}{held} }, $value;
     return;
 }
 
@@ -186,13 +194,13 @@ sub hoist {
 sub value {
     my ( $self, $instance, $name ) = @_;
 
-    my $override = $self->{overrides}{$instance};
+    my $override = $STATE{$self}{overrides}{$instance};
     return $override if defined $override;
 
-    my $cached = $self->{cache}{$name};
+    my $cached = $STATE{$self}{cache}{$name};
     return $cached if defined $cached;
 
-    my $value = eval { $self->{sekreto}->get($name) };
+    my $value = eval { $STATE{$self}{sekreto}->get($name) };
     if ( my $err = $@ ) {
         my $msg = "$err";
         if ( Scalar::Util::blessed($err)
@@ -204,8 +212,8 @@ sub value {
         Voxgig::Station::Error::fail( 'station_secret_error', $msg );
     }
 
-    $self->{cache}{$name} = $value;
-    push @{ $self->{held} }, $value;
+    $STATE{$self}{cache}{$name} = $value;
+    push @{ $STATE{$self}{held} }, $value;
     return $value;
 }
 
@@ -219,17 +227,17 @@ sub scrub {
     my ( $self, $text ) = @_;
     my $out = Voxgig::Station::Secrets::_redact_values(
         defined $text ? "$text" : '',
-        $self->{held}
+        $STATE{$self}{held}
     );
-    return $self->{sekreto}->redactall($out);
+    return $STATE{$self}{sekreto}->redactall($out);
 }
 
 # Drop caches so the next resolve asks the stores again (rotation support
 # rides on sekreto's refresh, design station.md 5.3).
 sub refresh {
     my ($self) = @_;
-    $self->{cache} = {};
-    $self->{sekreto}->refresh if $self->{sekreto}->can('refresh');
+    $STATE{$self}{cache} = {};
+    $STATE{$self}{sekreto}->refresh if $STATE{$self}{sekreto}->can('refresh');
     return;
 }
 

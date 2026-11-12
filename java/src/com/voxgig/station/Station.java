@@ -412,7 +412,10 @@ public class Station {
         Descriptor.asmap(fmap.get("station")));
     entry.put("active", true);
     entry.put("station", this);
-    entry.put("calleropts", calleropts);
+    // The entry rides in options an app may print: it keeps no caller key.
+    Map<String, Object> keyless = new LinkedHashMap<>(calleropts);
+    keyless.remove("apikey");
+    entry.put("calleropts", keyless);
     entry.putAll(names);
     fmap.put("station", entry);
     out.put("feature", fmap);

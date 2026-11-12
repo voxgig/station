@@ -115,7 +115,15 @@ function redactValues(text, values) {
   return out
 }
 
+// ES private fields: no serialiser or inspector reaches a held value.
 class SecretBroker {
+  #sekreto
+  // Values hoisted by adopt() from resident options.apikey (design §3.1).
+  #overrides = new Map()
+  #cache = new Map()
+  // Every value this broker ever held, for the exact-value scrub.
+  #held = []
+
   constructor(providers) {
     // allplugins, because a control surface does not get to choose the
     // chain: the profile does, at run time, and station must honour any
@@ -125,17 +133,12 @@ class SecretBroker {
     // `minivault` - fails at open() with "unknown provider kind". This is
     // the case sekreto's own plugins entry documents as its reason to
     // exist.
-    this.sekreto = new Sekreto({ plugins: allplugins, providers })
-    // Values hoisted by adopt() from resident options.apikey (design §3.1).
-    this.overrides = new Map()
-    this.cache = new Map()
-    // Every value this broker ever held, for the exact-value scrub.
-    this.held = []
+    this.#sekreto = new Sekreto({ plugins: allplugins, providers })
   }
 
   hoist(slug, value) {
-    this.overrides.set(slug, value)
-    this.held.push(value)
+    this.#overrides.set(slug, value)
+    this.#held.push(value)
   }
 
   // Resolve the value for a plugin's secret name. Misses and store
@@ -154,15 +157,15 @@ class SecretBroker {
   // Keying the cache by instance instead is the defect this replaces: at
   // 26 instances over 20 apis it turns one store round-trip into 26.
   async value(slug, name) {
-    const override = this.overrides.get(slug)
+    const override = this.#overrides.get(slug)
     if (null != override) { return override }
 
-    const cached = this.cache.get(name)
+    const cached = this.#cache.get(name)
     if (null != cached) { return cached }
 
     let value
     try {
-      value = await this.sekreto.get(name)
+      value = await this.#sekreto.get(name)
     }
     catch (e) {
       if (e instanceof SekretoError && e.message.includes('unknown secret')) {
@@ -172,8 +175,8 @@ class SecretBroker {
       throw new StationError('station_secret_error', String(e?.message || e))
     }
 
-    this.cache.set(name, value)
-    this.held.push(value)
+    this.#cache.set(name, value)
+    this.#held.push(value)
     return value
   }
 
@@ -185,15 +188,15 @@ class SecretBroker {
   // raw-value replacement could split an encoded form.
   scrub(text) {
     const raw = 'string' === typeof text ? text : ''
-    return this.sekreto.redact(redactValues(raw, this.held))
+    return this.#sekreto.redact(redactValues(raw, this.#held))
   }
 
   // Drop caches so the next resolve asks the stores again (rotation
   // support rides on sekreto's refresh, design §5.3).
   refresh() {
-    this.cache.clear()
-    if ('function' === typeof this.sekreto.refresh) {
-      this.sekreto.refresh()
+    this.#cache.clear()
+    if ('function' === typeof this.#sekreto.refresh) {
+      this.#sekreto.refresh()
     }
   }
 }

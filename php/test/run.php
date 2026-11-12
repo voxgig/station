@@ -1883,5 +1883,147 @@ testcase('placement_the_declarative_path_places_it_the_same_way', function () {
     });
 });
 
+// --- the Station out of the SDK's options (design station.md 3.1) ---
+
+const EXPOSURE_SECRET = 'exposure-key-101';
+
+/**
+ * An SDK generated without the station feature, reduced to what the
+ * carried adapter touches: the options kept as given, extend features
+ * initialised in order, and a transport that answers 200.
+ */
+#[\AllowDynamicProperties]
+class ExposureSDK
+{
+    public const CONFIG = [
+        'main' => ['name' => 'taskpad', 'slug' => 'taskpad', 'version' => '1.0.0',
+            'target' => 'php'],
+        'options' => ['base' => 'http://api.test', 'auth' => ['prefix' => '']],
+        'entity' => [],
+    ];
+
+    public string $mode = 'live';
+    public array $features = [];
+    public array $options;
+    private FakeUtility $utility;
+    private FakeCtx $ctx;
+
+    public function __construct(array $options)
+    {
+        $this->options = $options;
+        $this->utility = new FakeUtility();
+        $this->utility->fetcher = fn($c, $u, $d) => [['status' => 200, 'headers' => []], null];
+        $this->ctx = new FakeCtx($this, $this->utility, $options, self::CONFIG);
+        foreach ($options['extend'] ?? [] as $f) {
+            $this->features[] = $f;
+            $f->init($this->ctx, $options['feature'][$f->get_name()] ?? []);
+        }
+        $this->options = $this->ctx->options;
+    }
+
+    public function call(): array
+    {
+        return ($this->utility->fetcher)($this->ctx, 'http://api.test/todo',
+            ['method' => 'GET', 'headers' => ['authorization' => $this->ctx->options['apikey']]]);
+    }
+}
+
+function exposure_shows(mixed $value): string
+{
+    ob_start();
+    var_dump($value);
+    return print_r($value, true) . ob_get_clean();
+}
+
+function exposure_reaches_station(mixed $value, array &$seen = []): bool
+{
+    if ($value instanceof Station) {
+        return true;
+    }
+    if (is_object($value)) {
+        $id = spl_object_id($value);
+        if (isset($seen[$id])) {
+            return false;
+        }
+        $seen[$id] = true;
+        $value = (array) $value;
+    }
+    if (is_array($value)) {
+        foreach ($value as $v) {
+            if (exposure_reaches_station($v, $seen)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+testcase('exposure_a_bound_clients_options_hold_no_secret_after_a_live_request', function () {
+    putenv('TASKPAD_APIKEY=' . EXPOSURE_SECRET);
+    try {
+        $st = Station::open(['config' => null]);
+        $client = $st->connect(ExposureSDK::class, []);
+        [$res, $err] = $client->call();
+        eq(null, $err);
+        eq(200, $res['status']);
+
+        ok(!str_contains(exposure_shows($client->options), EXPOSURE_SECRET), 'options');
+        ok(!str_contains(exposure_shows($st), EXPOSURE_SECRET), 'station');
+        ok(!exposure_reaches_station($client->options['feature']), 'the options reach no Station');
+        $st->close();
+    } finally {
+        putenv('TASKPAD_APIKEY');
+    }
+});
+
+/** A generated SDK's station feature, reduced to its binding call. */
+#[\AllowDynamicProperties]
+class InvertedSDK
+{
+    public string $mode = 'live';
+    public array $features;
+    public mixed $binding;
+
+    public function __construct(array $options)
+    {
+        $this->features = [new FakeFeature('station')];
+        $utility = new FakeUtility();
+        $utility->fetcher = fn($c, $u, $d) => [['status' => 200, 'headers' => []], null];
+        $ctx = new FakeCtx($this, $utility, $options, ExposureSDK::CONFIG);
+        $this->binding = \Voxgig\Station\feature_binding($ctx, $options['feature']['station']);
+    }
+}
+
+testcase('exposure_a_station_built_only_for_its_options_lives_to_bind', function () {
+    $options = (function (): array {
+        return (new Station(['config' => null]))->options([]);
+    })();
+    gc_collect_cycles();
+
+    $client = new InvertedSDK($options);
+    ok(null !== $client->binding, 'the options still reach their Station');
+    ok(!str_contains(exposure_shows($options), 'broker'), 'the options dump none of its state');
+});
+
+testcase('exposure_the_callers_own_key_does_not_ride_the_activation_entry', function () {
+    $st = Station::open(['config' => null]);
+    $client = $st->adopt(ExposureSDK::class, ['apikey' => EXPOSURE_SECRET]);
+    $client->call();
+
+    ok(!str_contains(exposure_shows($client->options['feature']), EXPOSURE_SECRET), 'entry');
+    ok(!str_contains(exposure_shows($st), EXPOSURE_SECRET), 'station');
+    $st->close();
+});
+
+testcase('exposure_inverted_binding_the_activation_entry_holds_neither', function () {
+    $st = Station::open(['config' => null]);
+    $options = $st->options(['apikey' => EXPOSURE_SECRET]);
+
+    eq(EXPOSURE_SECRET, $options['apikey'], 'the SDK still gets the key it is given');
+    ok(!str_contains(exposure_shows($options['feature']['station']), EXPOSURE_SECRET), 'entry');
+    ok(!exposure_reaches_station($options), 'the options reach no Station');
+    $st->close();
+});
+
 echo "\npass: $pass, fail: $fail\n";
 exit(0 < $fail ? 1 : 0);

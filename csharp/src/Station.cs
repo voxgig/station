@@ -351,7 +351,10 @@ namespace Voxgig.Station
                 Descriptor.AsMap(fmap.GetValueOrDefault("station")));
             entry["active"] = true;
             entry["station"] = this;
-            entry["calleropts"] = calleropts;
+            // The entry rides in options an app may print: no caller key.
+            var keyless = new Dictionary<string, object>(calleropts);
+            keyless.Remove("apikey");
+            entry["calleropts"] = keyless;
             foreach (KeyValuePair<string, object> name in names)
             {
                 entry[name.Key] = name.Value;

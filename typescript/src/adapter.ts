@@ -12,8 +12,7 @@ export type FeatureBinding = {
 }
 
 export function featureBinding(ctx: any, fopts: any): FeatureBinding | null {
-  const station: Station | null =
-    (fopts?.station instanceof Station ? fopts.station : null) ?? Station.current()
+  const station: Station | null = stationOf(fopts?.station) ?? Station.current()
   if (null == station) { return null }
 
   const client = ctx.client
@@ -93,11 +92,16 @@ export function featureBinding(ctx: any, fopts: any): FeatureBinding | null {
   }
 }
 
-// The carried adapter: the retrofit path for SDKs generated without
-// the station feature (design §3.1 adopt). A duck-typed Feature whose
-// init/hooks delegate to featureBinding - it exists so connect/adopt
-// work on any regenerated SDK, and it must stay behaviorally identical
-// to the generated feature template in sdkgen-station.
+// The activation entry carries a closure; the carried adapter, the Station.
+function stationOf(handle: any): Station | null {
+  const got = 'function' === typeof handle ? handle() : handle
+  return got instanceof Station ? got : null
+}
+
+// The carried adapter: the retrofit path for SDKs generated without the
+// station feature (design §3.1 adopt). Its init and hooks delegate to
+// featureBinding, so it must stay behaviorally identical to the
+// generated feature template in sdkgen-station.
 export function adapterFeature(station: Station, calleropts: any): any {
   const feature: any = {
     name: 'station',

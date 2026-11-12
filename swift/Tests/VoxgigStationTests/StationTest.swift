@@ -272,6 +272,24 @@ final class StationTest: XCTestCase {
     XCTAssertNotNil(entry?["calleropts"] as? [String: Any?], "calleropts marker")
   }
 
+  func testOptionsActivationEntryKeepsNoCallerKey() throws {
+    let st = try memStation()
+    let options = st.options(["apikey": "exposure-key-101"])
+    XCTAssertEqual("exposure-key-101", options["apikey"] as? String, "the SDK still gets its key")
+    let fmap = options["feature"] as? [String: Any?]
+    let entry = fmap?["station"] as? [String: Any?]
+    let calleropts = entry?["calleropts"] as? [String: Any?]
+    XCTAssertFalse(calleropts?.keys.contains("apikey") ?? true, "the entry keeps no key")
+  }
+
+  func testDumpShowsNoHeldValue() {
+    let broker = SecretBroker(.null)
+    broker.hoist("test-plug", "exposure-key-101")
+    var shown = ""
+    dump(broker, to: &shown)
+    XCTAssertFalse(shown.contains("exposure-key-101"), "dump shows no held value")
+  }
+
   func testOptionsNamedInstanceIsConstructedWithItsBlockOptions() throws {
     setenv("TEST_PLUG_EU_APIKEY", "eu-key", 1)
     defer { unsetenv("TEST_PLUG_EU_APIKEY") }

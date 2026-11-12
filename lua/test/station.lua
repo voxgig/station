@@ -1145,6 +1145,43 @@ testcase('placement-alone', function()
   checkeq(placed(station:connect(SDK, { apikey = 'real-secret' })), 'station')
 end)
 
+-- Like holds, for a graph that may loop back on itself.
+local function holds_once(v, needle, seen)
+  seen = seen or {}
+  if type(v) == 'string' then
+    return string.find(v, needle, 1, true) ~= nil
+  end
+  if type(v) ~= 'table' or seen[v] then
+    return false
+  end
+  seen[v] = true
+  for k, x in pairs(v) do
+    if holds_once(k, needle, seen) or holds_once(x, needle, seen) then
+      return true
+    end
+  end
+  return false
+end
+
+testcase('exposure-adopt', function()
+  local secret = 'exposure-key-101'
+  local SDK = generated_sdk({})
+  local station = st.new({ config = st.NULL, proxy = 'off' })
+  local client = station:adopt(SDK, { apikey = secret })
+  client.list()
+
+  checkeq(client.options.feature.station.calleropts.apikey, nil, 'the entry keeps no key')
+  check(not holds_once(client.options, secret), 'the options hold no secret')
+end)
+
+testcase('exposure-inverted', function()
+  local secret = 'exposure-key-101'
+  local station = st.new({ config = st.NULL, proxy = 'off' })
+  local options = station:options({ apikey = secret })
+  checkeq(options.apikey, secret, 'the SDK still gets the key it is given')
+  check(not holds_once(options.feature.station, secret), 'the entry holds no secret')
+end)
+
 print('\n' .. PASSCOUNT .. ' passed, ' .. FAILCOUNT .. ' failed')
 
 os.exit(0 == FAILCOUNT and 0 or 1)

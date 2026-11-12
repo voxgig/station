@@ -786,6 +786,26 @@ func TestOptionsBuildsTheActivationEntry(t *testing.T) {
 	}
 }
 
+func TestOptionsActivationEntryKeepsNoCallerKey(t *testing.T) {
+	st := newStation(t, map[string]string{})
+	const secret = "exposure-key-101"
+
+	opts := st.Options(map[string]any{"apikey": secret})
+	if secret != opts["apikey"] {
+		t.Fatal("the SDK still gets the key it is given")
+	}
+	entry := opts["feature"].(map[string]any)["station"]
+	text, err := json.Marshal(entry)
+	if nil != err {
+		t.Fatal(err)
+	}
+	for _, shown := range []string{string(text), fmt.Sprintf("%+v", entry), fmt.Sprintf("%#v", entry)} {
+		if strings.Contains(shown, secret) {
+			t.Fatalf("the activation entry shows the key: %s", shown)
+		}
+	}
+}
+
 // --- base precedence (design §3.5) ---
 
 func TestProfileBaseAppliesWhenCallerSetsNone(t *testing.T) {

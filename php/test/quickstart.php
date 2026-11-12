@@ -358,5 +358,21 @@ testcase('live_tap_sees_traffic', function () use ($base) {
     $st->close();
 });
 
+testcase('the_client_and_the_station_hold_no_secret_after_a_live_request', function () use ($base) {
+    putenv('TASKPAD_APIKEY=' . APIKEY);
+
+    $station = Station::open(['config' => null]);
+    $pad = $station->connect(\TaskpadSDK::class, ['base' => $base]);
+    $pad->Todo()->list();
+
+    ok(!str_contains(print_r($pad, true), APIKEY), 'print_r of the client');
+    ok(!str_contains(print_r($station, true), APIKEY), 'print_r of the station');
+    ob_start();
+    var_dump($pad->options_map());
+    ok(!str_contains(ob_get_clean(), APIKEY), 'var_dump of the options');
+
+    $station->close();
+});
+
 echo "\npass: $pass, fail: $fail\n";
 exit(0 < $fail ? 1 : 0);

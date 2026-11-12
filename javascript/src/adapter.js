@@ -22,8 +22,7 @@ let corrSeq = 0
 // with no opened station is an inert no-op that emits nothing and
 // fails nothing (design §3.1).
 function featureBinding(ctx, fopts) {
-  const station =
-    (fopts?.station instanceof Station ? fopts.station : null) ?? Station.current()
+  const station = stationOf(fopts?.station) ?? Station.current()
   if (null == station) { return null }
 
   const client = ctx.client
@@ -139,6 +138,12 @@ function featureBinding(ctx, fopts) {
       station._opEvent(name, opctx, 'unexpected')
     },
   }
+}
+
+// The activation entry carries a closure; the carried adapter, the Station.
+function stationOf(handle) {
+  const got = 'function' === typeof handle ? handle() : handle
+  return got instanceof Station ? got : null
 }
 
 // The carried adapter: the retrofit path for SDKs generated without

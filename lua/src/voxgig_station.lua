@@ -1442,6 +1442,16 @@ end
 -- its options, and a plain-table handle could be flattened to a copy on
 -- the way through - a function passes by reference, so the handle
 -- survives (the perl port's device, for the same reason).
+-- It rides in the SDK's options, which an app may dump: no caller key.
+local function keyless(opts)
+  if type(opts) ~= 'table' then
+    return opts
+  end
+  local out = shallowcopy(opts)
+  out.apikey = nil
+  return out
+end
+
 local function activation(self, fmap, calleropts)
   local out = shallowcopy(fmap)
   local entry = shallowcopy(out.station)
@@ -1449,7 +1459,7 @@ local function activation(self, fmap, calleropts)
   entry.station = function()
     return self
   end
-  entry.calleropts = calleropts
+  entry.calleropts = keyless(calleropts)
   out.station = entry
   return out
 end
@@ -1535,7 +1545,7 @@ local function construct(self, SDK, opts)
       extend[i] = f
     end
   end
-  extend[#extend + 1] = M.adapter_feature(self, opts)
+  extend[#extend + 1] = M.adapter_feature(self, keyless(opts))
   options.extend = extend
 
   local client
