@@ -168,7 +168,7 @@ class Station {
     // station feature; when the generated class exists the constructor
     // uses it and the extend copy is skipped by name (both delegate to
     // featureBinding, so behavior is identical).
-    extend.add(adapterFeature(this, calleropts));
+    extend.add(adapterFeature(this, _keyless(calleropts)));
     options['extend'] = extend;
     final client = sdk(options);
     if (null == ref) {
@@ -245,13 +245,18 @@ class Station {
     return out;
   }
 
+  // The activation entry rides in the SDK's options, which an app may
+  // print: it keeps no caller key.
+  Map<String, dynamic> _keyless(Map<String, dynamic> calleropts) =>
+      <String, dynamic>{...calleropts}..remove('apikey');
+
   Map<String, dynamic> _withActivation(Map<String, dynamic> calleropts) {
     final options = <String, dynamic>{...calleropts};
     final fmap = _copy(options['feature']);
     final sopts = _copy(fmap['station']);
     sopts['active'] = true;
     sopts['station'] = this;
-    sopts['calleropts'] = calleropts;
+    sopts['calleropts'] = _keyless(calleropts);
     fmap['station'] = sopts;
     options['feature'] = fmap;
     return options;

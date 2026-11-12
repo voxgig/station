@@ -15,6 +15,7 @@
 # rather than fails.
 
 require 'minitest/autorun'
+require 'pp'
 
 require_relative 'helper'
 
@@ -270,6 +271,19 @@ class QuickstartRb < Minitest::Test
     assert_equal 'solo', st.status['mode']
     assert_equal [{ 'name' => 'taskpad', 'api' => 'taskpad', 'slug' => 'taskpad', 'rung' => 'R1' }],
                  st.status['plugins']
+
+    st.close
+  end
+
+  def test_the_options_hold_no_secret_after_a_live_request
+    ENV['TASKPAD_APIKEY'] = APIKEY
+
+    st = VoxgigStation::Station.open('config' => nil)
+    pad = st.connect(TaskpadSDK, 'base' => BASE)
+    pad.Todo.list
+
+    refute_includes pad.options_map.inspect, APIKEY
+    refute_includes PP.pp(pad.options_map, +''), APIKEY
 
     st.close
   end

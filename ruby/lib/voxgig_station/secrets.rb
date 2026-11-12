@@ -181,6 +181,11 @@ module VoxgigStation
     # whatever its length. sekreto's own redact() runs after, covering
     # values resolved by the underlying instance that station never held;
     # run first, its raw-value replacement could split an encoded form.
+    # Held values stay out of inspect, and of pp, which defers to it.
+    def inspect
+      "#<#{self.class.name}>"
+    end
+
     def scrub(text)
       held = @mutex.synchronize { @held.dup }
       @sekreto.redact(VoxgigStation.redact_values(text.to_s, held))

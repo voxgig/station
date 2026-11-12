@@ -6,6 +6,7 @@ import { spawn, ChildProcess } from 'node:child_process'
 import * as Path from 'node:path'
 
 import * as Fs from 'node:fs'
+import { inspect } from 'node:util'
 
 import { Station } from '../src/Station'
 
@@ -179,6 +180,25 @@ describe('quickstart', { skip: !HAVE_SDKS }, () => {
       // swapped (mode !== live), so no real value entered the mock store.
       const http = station.events().filter((e) => 'http' === e.kind)
       equal(1, http.length)
+
+      station.close()
+    }
+    finally {
+      delete process.env.TASKPAD_APIKEY
+    }
+  })
+
+  test('the options hold no secret after a live request', async () => {
+    process.env.TASKPAD_APIKEY = APIKEY
+    try {
+      const station = Station.open({ config: null })
+      const pad = station.connect(loadSDK())
+      await pad.Todo().list()
+
+      const options = pad.options()
+      ok(!JSON.stringify(options).includes(APIKEY))
+      ok(!inspect(options, { depth: Infinity, showHidden: true }).includes(APIKEY))
+      ok(!inspect(pad, { depth: Infinity, showHidden: true }).includes(APIKEY))
 
       station.close()
     }

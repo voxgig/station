@@ -59,6 +59,13 @@ def _first_non_empty(*vals):
 _DEFAULT_PORTS = {'http': 80, 'https': 443}
 
 
+def _keyless(opts):
+    """The caller's options as the activation entry carries them: the
+    entry rides in the SDK's options, which an app may serialise, so it
+    keeps no `apikey` and no `extend` instances."""
+    return {k: v for k, v in opts.items() if k not in ('extend', 'apikey')}
+
+
 def _url_host(u):
     # netloc would carry the userinfo and an explicit default port, both of
     # which the canonical URL.host drops.
@@ -336,7 +343,7 @@ class Station:
         # calleropts must survive the SDK's option pipeline (vs.clone
         # flattens arbitrary objects), so any extend instances are left
         # out of the carried copy - the binding only reads plain keys.
-        calleropts = {k: v for k, v in opts.items() if 'extend' != k}
+        calleropts = _keyless(opts)
 
         fmap = dict(opts.get('feature') or {})
         entry = dict(fmap.get('station') or {})
@@ -413,7 +420,7 @@ class Station:
         ref = named_ref(sopts)
         if ref is not None:
             extra = instance_options(self.block_for(ref), extra)
-        calleropts = {k: v for k, v in extra.items() if 'extend' != k}
+        calleropts = _keyless(extra)
         fmap = dict(extra.get('feature') or {})
         entry = dict(fmap.get('station') or {})
         entry.update({

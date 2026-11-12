@@ -306,3 +306,11 @@ public final class SecretBroker {
     return String(cString: raw)
   }
 }
+
+// Held values stay out of dump(), which reads stored properties whatever
+// their access level.
+extension SecretBroker: CustomReflectable {
+  public var customMirror: Mirror {
+    return Mirror(self, children: [:])
+  }
+}

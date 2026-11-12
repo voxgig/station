@@ -392,7 +392,10 @@ at construction in each), because one shape does not fit 20 languages:
   instance name — `st.options('stripe$eu', extra)` — so the inverted
   binding can say which instance it is building too. The generated feature reads the
   handle from its feature options and performs the same registration
-  and placement during construction. This is the *primary* binding
+  and placement during construction. The options are the app's, to
+  print or serialise, so the entry holds nothing secret: the caller's
+  options it carries keep no `apikey`, and nothing a printer reaches
+  through the handle shows a resolved value. This is the *primary* binding
   form for static languages, not a fallback. (Sweeter per-language
   sugar — functional options in go, a builder in java — would be
   generator changes to the SDK targets themselves; deliberately not

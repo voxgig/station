@@ -225,7 +225,7 @@ export class Station {
     const fmap = { ...(sdkopts.feature || {}) }
     fmap['station'] = {
       ...(fmap['station'] || {}),
-      active: true, station: this, calleropts,
+      ...activation(this, calleropts),
       // §6.1: `as` is a tag, resolved against the SDK's api in _register.
       ...(null == as ? {} : { as }),
       ...(null == instance ? {} : { instance }),
@@ -237,7 +237,7 @@ export class Station {
       // the station feature; when the generated class exists the
       // constructor uses it and the extend copy is skipped by name
       // (both delegate to featureBinding, so behavior is identical).
-      extend: [...(sdkopts.extend || []), adapterFeature(this, calleropts)],
+      extend: [...(sdkopts.extend || []), adapterFeature(this, keyless(calleropts))],
     }
     const client = new SDK(options)
     if (null == ref) { this.warnUnapplied(client, sdkopts) }
@@ -280,7 +280,7 @@ export class Station {
     const fmap = { ...(sdkopts.feature || {}) }
     fmap['station'] = {
       ...(fmap['station'] || {}),
-      active: true, station: this, calleropts, ...names,
+      ...activation(this, calleropts), ...names,
     }
     return { ...sdkopts, feature: fmap }
   }
@@ -939,6 +939,18 @@ export class Station {
   private emit(ev: StationEvent): void {
     this.buffer.emit(ev)
   }
+}
+
+// The activation entry rides in the SDK's options, which an app may
+// serialise: it carries a closure, never the Station, and no caller key.
+function activation(station: Station, calleropts: any): any {
+  return { active: true, station: () => station, calleropts: keyless(calleropts) }
+}
+
+function keyless(calleropts: any): any {
+  if (null == calleropts || 'object' !== typeof calleropts) { return calleropts }
+  const { apikey: _apikey, ...rest } = calleropts
+  return rest
 }
 
 function firstNonEmpty(...vals: (string | undefined)[]): string | undefined {

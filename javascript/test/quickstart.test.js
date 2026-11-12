@@ -16,6 +16,7 @@ const { spawn } = require('node:child_process')
 const Path = require('node:path')
 
 const Fs = require('node:fs')
+const { inspect } = require('node:util')
 
 const { Station } = require('../src/Station')
 
@@ -189,6 +190,25 @@ describe('quickstart', { skip: !HAVE_SDKS }, () => {
       // swapped (mode !== live), so no real value entered the mock store.
       const http = station.events().filter((e) => 'http' === e.kind)
       equal(1, http.length)
+
+      station.close()
+    }
+    finally {
+      delete process.env.GNARLY_PETS_APIKEY
+    }
+  })
+
+  test('the options hold no secret after a live request', async () => {
+    process.env.GNARLY_PETS_APIKEY = APIKEY
+    try {
+      const station = Station.open({ config: null })
+      const pets = station.connect(loadSDK())
+      await pets.Pet().list()
+
+      const options = pets.options()
+      ok(!JSON.stringify(options).includes(APIKEY))
+      ok(!inspect(options, { depth: Infinity, showHidden: true }).includes(APIKEY))
+      ok(!inspect(pets, { depth: Infinity, showHidden: true }).includes(APIKEY))
 
       station.close()
     }

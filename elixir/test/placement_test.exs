@@ -3,9 +3,7 @@
 #
 # A port of the adapterAnchor half of typescript/test/placement.test.ts,
 # which is canonical, plus the anchor connect() hands the carried adapter.
-# The adapter is built of Voxgig.Struct nodes, which a generated SDK
-# supplies; here the struct port is compiled from its sibling checkout,
-# the way conform_test.exs compiles omni.
+# The adapter is built of Voxgig.Struct nodes; test_helper.exs loads them.
 
 defmodule Voxgig.Station.PlacementTest do
   use ExUnit.Case, async: false
@@ -14,31 +12,8 @@ defmodule Voxgig.Station.PlacementTest do
   alias Voxgig.Station
   alias Voxgig.Station.Adapter
 
-  defp structhome do
-    here = __DIR__
-
-    candidates = [
-      System.get_env("STRUCT_HOME"),
-      Path.expand("../../../struct", here),
-      Path.expand("../../../../struct", here),
-      "/workspace/struct",
-      "/home/user/struct"
-    ]
-
-    case Enum.find(candidates, fn c ->
-           is_binary(c) and File.exists?(Path.join(c, "elixir/lib/voxgig_struct.ex"))
-         end) do
-      nil -> raise "station: voxgig/struct not found - set STRUCT_HOME"
-      found -> Path.expand(found)
-    end
-  end
-
   setup_all do
-    unless Code.ensure_loaded?(Voxgig.Struct) do
-      Code.require_file(Path.join([structhome(), "elixir", "lib", "voxgig_struct.ex"]))
-    end
-
-    :ok
+    Voxgig.Station.TestStruct.load()
   end
 
   setup do

@@ -1,9 +1,10 @@
 # Status: where the next session starts
 
-Snapshot, **2026-11-12**. `main` is at `8c563f2`. 0.2.0 is released on
+Snapshot, **2026-11-12**. `main` is at `f9f221a`. 0.2.0 is released on
 every route, and `main` is ahead of it: the six pull requests of W1
 merged on 2026-11-11 and changed every port's source, and on 2026-11-12
-W5.1 (the proxy builds) and W4.3 (the fixture SDKs) merged. The seven
+W5.1 (the proxy builds), W4.3 (the fixture SDKs) and W2.1 (the carried
+adapter's place) merged. The seven
 decisions were ruled on 2026-11-11. The register
 in [`progress.md`](progress.md) is the per-item authority, and
 [`upstream.md`](upstream.md) tracks what other repositories owe. This
@@ -96,16 +97,17 @@ passing; CI runs them once the fixture lane's patch is applied.
 
 ## In flight
 
-W2.1, in review: the carried adapter's anchor, in nine ports. It also
-records two findings, W2.12 and W2.13, with no issue filed yet.
+W2.2, in review: the Station and the caller's key out of the SDK's
+options, in fourteen ports. W2.12 and W2.13, found during W2.1, have no
+issue filed yet.
 
 
 ## Pick this up first
 
 In this order. None of it waits on the maintainer.
 
-1. **The rest of W2a**, canonical first: W2.2, W2.4, W2.5, W2.3. That
-   is what 0.3.0 waits on.
+1. **The rest of W2a**, canonical first: W2.4, W2.5, W2.3. That is
+   what 0.3.0 waits on.
 2. **W4.1**, a completeness guard in typescript. W1.1, which edited the
    same test file, has landed.
 3. **W0.8**, the design's account of sdkgen.
@@ -145,6 +147,8 @@ git push origin --delete chore/comment-policy \
 
 ## Recently settled
 
+- **connect() and adopt() bind live with retry on** (W2.1, 2026-11-12,
+  `f9f221a`), in the nine ports that carry the adapter; [#63] closed.
 - **The proxy builds again, and the fixture SDKs generate**
   (2026-11-12): W5.1 merged as `60dd59e` and W4.3 as `8c563f2`. Each
   still waits on its CI lane's patch.
@@ -197,3 +201,4 @@ Each is source or prose the plan schedules:
 
 [#24]: https://github.com/voxgig/station/issues/24
 [#27]: https://github.com/voxgig/station/issues/27
+[#63]: https://github.com/voxgig/station/issues/63

@@ -294,6 +294,19 @@ int main(int argc, char** argv) {
     check(nullptr == vs::Station::current(), "close drops the ambient");
   });
 
+  testcase("options-entry-keeps-no-caller-key", [] {
+    vs::StationOptions opts;
+    opts.has_config = true;
+    vs::Station st(opts);
+    vs::Jval extra = vs::Jval::map();
+    extra.set("apikey", vs::Jval::str("exposure-key-101"));
+    vs::Jval built = st.options_for("", extra);
+    checkeq(built.get("apikey").sval, "exposure-key-101", "the SDK still gets its key");
+    vs::Jval callers = built.get("feature").get("station").get("calleropts");
+    check(callers.ismap(), "calleropts rides the entry");
+    check(callers.get("apikey").isabsent(), "the entry keeps no key");
+  });
+
   testcase("station-solo-warning-and-env-only-honesty", [] {
     vs::StationOptions opts;
     opts.has_config = true;

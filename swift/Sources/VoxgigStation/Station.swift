@@ -355,7 +355,10 @@ public final class Station {
     var entry = (fmap["station"] as? [String: Any?]) ?? [:]
     entry["active"] = true
     entry["station"] = self
-    entry["calleropts"] = calleropts
+    // The entry rides in options an app may print: it keeps no caller key.
+    var keyless = calleropts
+    keyless.removeValue(forKey: "apikey")
+    entry["calleropts"] = keyless
     for (key, text) in names {
       entry[key] = text
     }

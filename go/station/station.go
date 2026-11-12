@@ -362,11 +362,14 @@ func (st *Station) OptionsFor(instance string, extra map[string]any) map[string]
 
 	// calleropts snapshots what the CALLER passed - never the built
 	// options map, which would make options.feature.station.calleropts
-	// a cycle the SDK's own deep clone cannot survive.
+	// a cycle the SDK's own deep clone cannot survive - less its key:
+	// the entry rides in options an app may print.
 	calleropts := map[string]any{}
 	out := map[string]any{}
 	for k, v := range extra {
-		calleropts[k] = v
+		if "apikey" != k {
+			calleropts[k] = v
+		}
 		if "as" != k && "instance" != k {
 			out[k] = v
 		}
