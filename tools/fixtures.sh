@@ -33,10 +33,12 @@ step() {
   fi
 }
 
+# <features> names sdkgen features to add; `station` is this checkout's
+# sdkgen-station package.
 generate() {
-  local name=$1 dir=$2 def=$3; shift 3
+  local name=$1 dir=$2 def=$3 features=$4; shift 4
   local log="$OUT/$dir.log"
-  echo "fixtures: $dir: generating ($*)"
+  echo "fixtures: $dir: generating ($*, with $features)"
   rm -rf "${OUT:?}/$dir" "$log"
   (cd "$OUT" && step "$log" npm create "@voxgig/sdkgen@$CREATE_SDKGEN" -- "$name" -o "$dir" -d "$def")
   (
@@ -44,9 +46,15 @@ generate() {
     for target in "$@"; do
       step "$log" npx --no-install voxgig-sdkgen target add "$target"
     done
-    mkdir -p node_modules/@voxgig
-    ln -sfn "$ROOT/sdkgen-station" node_modules/@voxgig/sdkgen-station
-    step "$log" npx --no-install voxgig-sdkgen package add @voxgig/sdkgen-station
+    for feature in $features; do
+      if [ station = "$feature" ]; then
+        mkdir -p node_modules/@voxgig
+        ln -sfn "$ROOT/sdkgen-station" node_modules/@voxgig/sdkgen-station
+        step "$log" npx --no-install voxgig-sdkgen package add @voxgig/sdkgen-station
+      else
+        step "$log" npx --no-install voxgig-sdkgen feature add "$feature"
+      fi
+    done
     step "$log" npm run generate
   )
 }
@@ -70,13 +78,19 @@ install() {
   echo "fixtures: $sdk: installed, with $package from $port"
 }
 
-generate taskpad taskpad-sdk "$ROOT/test/api/taskpad/taskpad-1.0.0-openapi-3.0.0.yaml" ts rb php perl
-generate gnarly-pets gnarly-pets-sdk "$ROOT/test/api/gnarly-pets/gnarly-pets-1.0.0-openapi-3.0.0.yaml" ts js
-generate solardemo voxgig-solardemo-sdk "$ROOT/test/api/solardemo/solardemo-1.0.0-openapi-3.0.0.yaml" ts
+TASKPAD="$ROOT/test/api/taskpad/taskpad-1.0.0-openapi-3.0.0.yaml"
+
+generate taskpad taskpad-sdk "$TASKPAD" station ts rb php perl
+generate gnarly-pets gnarly-pets-sdk "$ROOT/test/api/gnarly-pets/gnarly-pets-1.0.0-openapi-3.0.0.yaml" station ts js
+generate solardemo voxgig-solardemo-sdk "$ROOT/test/api/solardemo/solardemo-1.0.0-openapi-3.0.0.yaml" station ts
+# Without the station feature: what connect() and adopt() retrofit.
+generate taskpad taskpad-plain-sdk "$TASKPAD" retry ts js rb php perl
 
 install taskpad-sdk/ts @voxgig/station typescript
 install gnarly-pets-sdk/ts @voxgig/station typescript
 install voxgig-solardemo-sdk/ts @voxgig/station typescript
 install gnarly-pets-sdk/js @voxgig/station-js javascript
+install taskpad-plain-sdk/ts @voxgig/station typescript
+install taskpad-plain-sdk/js @voxgig/station-js javascript
 
 echo "fixtures: done; run the suites with STATION_TEST_SDKS=$OUT"

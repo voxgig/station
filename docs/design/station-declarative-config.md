@@ -1590,8 +1590,11 @@ because it is the §3.3 defect one level down.
 ### 8.4 Activation and order
 
 Station composes the merged feature map into the **ordered array form**
-and hands it to the constructor. No new seam: it is what `connect()`
-already does for station's own placement.
+and hands it to the constructor. No new seam: the generated
+`makeOptions` already takes that form. Not yet so: the declarative path
+hands over a map, which `makeOptions` orders by name, and `connect()`
+cannot take the array form at all (W2.12 and W2.13 in
+`docs/plan/progress.md`).
 
 Order matters only for the features that wrap the transport, and it
 matters a lot — nesting decides whether a cache hit skips a retry or

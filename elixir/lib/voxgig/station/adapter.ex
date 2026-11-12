@@ -596,12 +596,7 @@ defmodule Voxgig.Station.Adapter do
     S.setprop(f, "version", "0.0.1")
     S.setprop(f, "active", true)
     S.setprop(f, "options", S.jm([]))
-
-    # feature_add reads _options for positioning: immediately after the
-    # test feature's base transport (design station.md 3.3). When test is
-    # absent from the add order this is a no-op append, which for a bare
-    # SDK still lands the wrap immediately outside the base transport.
-    S.setprop(f, "_options", S.jm(["__after__", "test"]))
+    S.setprop(f, "_options", adapter_anchor(S.getprop(calleropts, "feature")))
 
     S.setprop(f, "init", fn ctx, fopts ->
       merged = if S.ismap(fopts), do: S.clone(fopts), else: S.jm([])
@@ -619,6 +614,29 @@ defmodule Voxgig.Station.Adapter do
     end)
 
     f
+  end
+
+  # The generated constructor adds the active features, test first and the
+  # rest by name, and only then the carried adapter, at its anchor or else
+  # last.
+  def adapter_anchor(fmap) do
+    names =
+      if S.ismap(fmap) do
+        S.keysof(fmap)
+        |> Enum.filter(fn name ->
+          entry = S.getprop(fmap, name)
+          "station" != name and S.ismap(entry) and true == S.getprop(entry, "active")
+        end)
+        |> Enum.sort()
+      else
+        []
+      end
+
+    cond do
+      Enum.member?(names, "test") -> S.jm(["__after__", "test"])
+      [] == names -> S.jm([])
+      true -> S.jm(["__before__", hd(names)])
+    end
   end
 
   # --- plain <-> node conversion (the struct seam's edge) ---

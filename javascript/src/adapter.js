@@ -153,11 +153,7 @@ function adapterFeature(station, calleropts) {
     active: true,
     _binding: null,
 
-    // featureAdd reads _options for positioning: immediately after the
-    // test feature's base transport (design §3.3). When test is absent
-    // from the add order this is a no-op append, which for a bare SDK
-    // still lands the wrap immediately outside the base transport.
-    _options: { __after__: 'test' },
+    _options: adapterAnchor(calleropts?.feature),
 
     init(ctx, fopts) {
       feature._binding = featureBinding(ctx, { ...fopts, station, calleropts })
@@ -169,6 +165,15 @@ function adapterFeature(station, calleropts) {
   return feature
 }
 
+// The generated constructor adds the active features, test first and the
+// rest by name, and only then this adapter, at its anchor or else last.
+function adapterAnchor(fmap) {
+  const names = null == fmap || 'object' !== typeof fmap || Array.isArray(fmap) ? []
+    : Object.keys(fmap).filter((n) => 'station' !== n && fmap[n]?.active).sort()
+  if (names.includes('test')) { return { __after__: 'test' } }
+  return 0 === names.length ? {} : { __before__: names[0] }
+}
+
 function resultOutcome(ctx) {
   const result = ctx.result
   if (null == result) { return 'unknown' }
@@ -178,6 +183,7 @@ function resultOutcome(ctx) {
 }
 
 module.exports = {
+  adapterAnchor,
   adapterFeature,
   featureBinding,
 }

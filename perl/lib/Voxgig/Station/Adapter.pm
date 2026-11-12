@@ -17,13 +17,14 @@ use strict;
 use warnings;
 
 use Hash::Util::FieldHash ();
+use JSON::PP ();
 use Scalar::Util qw(blessed);
 use Time::HiRes ();
 
 use Voxgig::Station::Error ();
 
 use Exporter 'import';
-our @EXPORT_OK = qw(adapter_feature feature_binding result_outcome);
+our @EXPORT_OK = qw(adapter_anchor adapter_feature feature_binding result_outcome);
 
 my $CORR_SEQ = 0;
 
@@ -257,13 +258,8 @@ sub feature_binding {
             station    => $station,
             calleropts => $calleropts,
             _binding   => undef,
-
-            # feature_add reads _options for positioning: immediately
-            # after the test feature's base transport (design station.md
-            # 3.3). When test is absent from the add order this is a
-            # no-op append, which for a bare SDK still lands the wrap
-            # immediately outside the base transport.
-            _options => { '__after__' => 'test' },
+            _options   => Voxgig::Station::Adapter::adapter_anchor(
+                ref($calleropts) eq 'HASH' ? $calleropts->{feature} : undef ),
         }, $class;
     }
 
@@ -307,6 +303,28 @@ sub feature_binding {
 sub adapter_feature {
     my ( $station, $calleropts ) = @_;
     return Voxgig::Station::AdapterFeature->new( $station, $calleropts );
+}
+
+# The generated constructor adds the active features, test first and the
+# rest by name, and only then the carried adapter, at its anchor or else
+# last.
+sub adapter_anchor {
+    my ($fmap) = @_;
+    return {} unless ref($fmap) eq 'HASH';
+    my @names = sort grep {
+        my $entry = $fmap->{$_};
+        'station' ne $_ && ref($entry) eq 'HASH' && _active( $entry->{active} )
+    } keys %$fmap;
+    return { '__after__' => 'test' } if grep { 'test' eq $_ } @names;
+    return @names ? { '__before__' => $names[0] } : {};
+}
+
+sub _active {
+    my ($v) = @_;
+    return 0 unless defined $v;
+    return 0 if ref $v
+      && !( JSON::PP::is_bool($v) || ( blessed($v) && 'Voxgig::Struct::Bool' eq ref($v) ) );
+    return $v ? 1 : 0;
 }
 
 sub result_outcome {

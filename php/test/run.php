@@ -30,6 +30,7 @@ use Voxgig\Station\Station;
 use Voxgig\Station\StationError;
 use Voxgig\Station\TransportWrap;
 
+use function Voxgig\Station\adapter_anchor;
 use function Voxgig\Station\adapter_feature;
 use function Voxgig\Station\block_of;
 use function Voxgig\Station\camelify;
@@ -1609,6 +1610,277 @@ testcase('sdk_takes_the_test_feature_options_its_optspec_declares', function () 
         'feature' => ['test' => ['entity' => 'note']]]])]);
     $e = raises(fn() => $st->sdk('joplin'), 'station_feature_option');
     ok(str_contains($e->getMessage(), 'expects map, but found string'), $e->getMessage());
+});
+
+// --- the carried adapter's place in a generated constructor (3.3) ---
+
+class PlacementFeature
+{
+    public function __construct(public string $name)
+    {
+    }
+
+    public function get_name(): string
+    {
+        return $this->name;
+    }
+
+    public function init(mixed $ctx, mixed $fopts): void
+    {
+        $inner = $ctx->utility->fetcher;
+        if ('test' === $this->name) {
+            $ctx->utility->fetcher = fn($c, $u, $d) => [['status' => 200, 'headers' => []], null];
+        } elseif ('retry' === $this->name) {
+            $ctx->utility->fetcher = function ($c, $u, $d) use ($inner) {
+                [$res, $err] = $inner($c, $u, $d);
+                for ($i = 0; $i < 2 && null === $err && 503 === $res['status']; $i++) {
+                    [$res, $err] = $inner($c, $u, $d);
+                }
+                return [$res, $err];
+            };
+        } else {
+            $ctx->utility->fetcher = fn($c, $u, $d) => $inner($c, $u, $d);
+        }
+    }
+}
+
+/** @return list<string> */
+function placement_order(array $fmap): array
+{
+    $names = array_values(array_filter(array_keys($fmap), 'is_string'));
+    sort($names, SORT_STRING);
+    if (in_array('test', $names, true)) {
+        $names = array_merge(['test'], array_values(array_filter($names, fn($n) => 'test' !== $n)));
+    }
+    $si = array_search('station', $names, true);
+    if (false !== $si) {
+        array_splice($names, $si, 1);
+        $ti = array_search('test', $names, true);
+        array_splice($names, false === $ti ? 0 : $ti + 1, 0, ['station']);
+    }
+    return $names;
+}
+
+function placement_add(array &$features, object $f): void
+{
+    $fopts = property_exists($f, '_options') && is_array($f->_options) ? $f->_options : [];
+    $before = $fopts['__before__'] ?? null;
+    $after = $fopts['__after__'] ?? null;
+    $replace = $fopts['__replace__'] ?? null;
+    if (null !== $before || null !== $after || null !== $replace) {
+        foreach ($features as $i => $ef) {
+            $name = property_exists($ef, 'name') ? $ef->name : null;
+            if ($before === $name) {
+                array_splice($features, $i, 0, [$f]);
+                return;
+            }
+            if ($after === $name) {
+                array_splice($features, $i + 1, 0, [$f]);
+                return;
+            }
+            if ($replace === $name) {
+                $features[$i] = $f;
+                return;
+            }
+        }
+    }
+    $features[] = $f;
+}
+
+/**
+ * What an SDK generated without the station feature does when it is
+ * constructed: make_options' feature order, the constructor's loops,
+ * feature_add's anchors and feature_init, as sdkgen's php templates
+ * write them. `$statuses` scripts the wire, one status per attempt.
+ */
+#[\AllowDynamicProperties]
+class PlacementSDK
+{
+    public const CONFIG = [
+        'main' => ['name' => 'taskpad', 'slug' => 'taskpad', 'version' => '1.0.0',
+            'target' => 'php'],
+        'feature' => ['cache' => ['strict' => false], 'retry' => ['strict' => false],
+            'test' => ['strict' => false]],
+        'options' => ['base' => 'http://api.test', 'auth' => ['prefix' => '']],
+        'entity' => [],
+    ];
+
+    /** @var list<int> */
+    public static array $statuses = [];
+
+    /** @var list<string> */
+    public static array $sent = [];
+
+    public string $mode = 'live';
+    public array $features = [];
+    public array $options;
+    private FakeUtility $utility;
+
+    public function __construct(array $options)
+    {
+        $this->options = $options;
+        $fmap = is_array($options['feature'] ?? null) ? $options['feature'] : [];
+        if (true === ($fmap['test']['active'] ?? null)) {
+            $this->mode = 'test';
+        }
+        $this->utility = new FakeUtility();
+        $this->utility->fetcher = function ($c, string $url, $def): array {
+            self::$sent[] = $url;
+            $status = self::$statuses[count(self::$sent) - 1] ?? 200;
+            return [['status' => $status, 'headers' => []], null];
+        };
+        $ctx = new FakeCtx($this, $this->utility, $options, self::CONFIG);
+
+        $extend = is_array($options['extend'] ?? null) ? $options['extend'] : [];
+        foreach (placement_order($fmap) as $fname) {
+            if (true !== ($fmap[$fname]['active'] ?? null)) {
+                continue;
+            }
+            if (!isset(self::CONFIG['feature'][$fname])) {
+                foreach ($extend as $ef) {
+                    if ($fname === $ef->get_name()) {
+                        continue 2;
+                    }
+                }
+            }
+            placement_add($this->features, new PlacementFeature($fname));
+        }
+        foreach ($extend as $f) {
+            placement_add($this->features, $f);
+        }
+        foreach ($this->features as $f) {
+            $fopts = $fmap[$f->get_name()] ?? null;
+            if (is_array($fopts) && true === ($fopts['active'] ?? null)) {
+                $f->init($ctx, $fopts);
+            }
+        }
+    }
+
+    public function list(): mixed
+    {
+        $ctx = new FakeCtx($this, $this->utility, $this->options, self::CONFIG);
+        $ctx->op = new FakeOp('todo', 'list');
+        foreach ($this->features as $f) {
+            if (method_exists($f, 'PrePoint')) {
+                $f->PrePoint($ctx);
+            }
+        }
+        [$res, $err] = ($this->utility->fetcher)($ctx, 'http://api.test/todo',
+            ['method' => 'GET', 'headers' => []]);
+        $ctx->result = new FakeResult(null === $err && 200 === $res['status'], $err);
+        foreach ($this->features as $f) {
+            if (method_exists($f, 'PreDone')) {
+                $f->PreDone($ctx);
+            }
+        }
+        return $res;
+    }
+}
+
+/** @return list<string> */
+function placement_names(object $client): array
+{
+    return array_map(fn($f) => $f->get_name(), $client->features);
+}
+
+/** @return list<array{0: string, 1: mixed}> */
+function placement_wire(Station $st): array
+{
+    $out = [];
+    foreach ($st->events() as $e) {
+        if ('http' === $e['kind']) {
+            $out[] = ['http', $e['http']['status']];
+        } elseif ('op' === $e['kind']) {
+            $out[] = ['op', $e['op']['outcome']];
+        }
+    }
+    return $out;
+}
+
+function placement_case(array $statuses, callable $body): void
+{
+    PlacementSDK::$statuses = $statuses;
+    PlacementSDK::$sent = [];
+    putenv('TASKPAD_APIKEY=taskpad-key');
+    try {
+        $body();
+    } finally {
+        putenv('TASKPAD_APIKEY');
+    }
+}
+
+testcase('adapter_anchor_after_test_when_active_else_before_the_first_by_name', function () {
+    eq([], adapter_anchor(null));
+    eq([], adapter_anchor([]));
+    eq([], adapter_anchor(['station' => ['active' => true]]));
+    eq(['__before__' => 'retry'], adapter_anchor(['retry' => ['active' => true]]));
+    eq(['__before__' => 'cache'],
+        adapter_anchor(['retry' => ['active' => true], 'cache' => ['active' => true]]));
+    eq(['__before__' => 'retry'],
+        adapter_anchor(['cache' => ['active' => false], 'retry' => ['active' => true]]));
+    eq(['__before__' => 'timeout'],
+        adapter_anchor(['station' => ['active' => true], 'timeout' => ['active' => true]]));
+    eq(['__after__' => 'test'],
+        adapter_anchor(['test' => ['active' => true], 'retry' => ['active' => true]]));
+    eq(['__before__' => 'retry'],
+        adapter_anchor(['test' => ['active' => false], 'retry' => ['active' => true]]));
+    eq([], adapter_anchor([['name' => 'retry', 'active' => true]]));
+});
+
+testcase('placement_live_with_retry_station_is_the_base_wrap', function () {
+    placement_case([503, 200], function () {
+        $st = new Station(['config' => null]);
+        $client = $st->connect(PlacementSDK::class,
+            ['feature' => ['retry' => ['active' => true]]]);
+        eq(['station', 'retry'], placement_names($client));
+        $client->list();
+        eq(2, count(PlacementSDK::$sent));
+        eq([['http', 503], ['http', 200], ['op', 'ok']], placement_wire($st));
+        $st->close();
+    });
+});
+
+testcase('placement_live_with_two_features_before_the_first_by_name', function () {
+    placement_case([], function () {
+        $st = new Station(['config' => null]);
+        $client = $st->adopt(PlacementSDK::class, ['feature' => [
+            'retry' => ['active' => true], 'cache' => ['active' => true]]]);
+        eq(['station', 'cache', 'retry'], placement_names($client));
+        $st->close();
+    });
+});
+
+testcase('placement_test_mode_station_sits_on_the_mock_transport', function () {
+    placement_case([], function () {
+        $st = new Station(['config' => null]);
+        $client = $st->connect(PlacementSDK::class, ['feature' => [
+            'test' => ['active' => true], 'retry' => ['active' => true]]]);
+        eq(['test', 'station', 'retry'], placement_names($client));
+        $st->close();
+    });
+});
+
+testcase('placement_no_other_feature_station_alone', function () {
+    placement_case([], function () {
+        $st = new Station(['config' => null]);
+        eq(['station'], placement_names($st->connect(PlacementSDK::class, [])));
+        $st->close();
+    });
+});
+
+testcase('placement_the_declarative_path_places_it_the_same_way', function () {
+    placement_case([503, 200], function () {
+        provide('taskpad', ['construct' => fn(array $o) => new PlacementSDK($o),
+            'config' => PlacementSDK::CONFIG]);
+        $st = new Station(['config' => ['station' => 1, 'profiles' => ['default' => [
+            'sdk' => ['taskpad' => ['feature' => ['retry' => ['active' => true]]]]]]]]);
+        $client = $st->sdk('taskpad');
+        eq(['station', 'retry'], placement_names($client));
+        $client->list();
+        eq(2, count(PlacementSDK::$sent));
+        eq([['http', 503], ['http', 200], ['op', 'ok']], placement_wire($st));
+        $st->close();
+    });
 });
 
 echo "\npass: $pass, fail: $fail\n";

@@ -157,11 +157,11 @@ fixtures-test: export STATION_REQUIRE_SDKS = 1
 # inside a generated perl SDK finds plugin only through PLUGIN_HOME.
 fixtures-test: export PLUGIN_HOME ?= $(abspath $(CURDIR)/../plugin)
 fixtures-test:
-	cd typescript && npx tsc && node --test --test-concurrency=1 dist/test/quickstart.test.js dist/test/generated.test.js dist/test/pets.test.js
-	cd javascript && node --test --test-concurrency=1 test/quickstart.test.js test/pets.test.js
-	cd ruby && ruby test/quickstart_test.rb
-	cd php && php test/quickstart.php
-	cd perl && prove -Ilib -It t/quickstart.t
+	cd typescript && npx tsc && node --test --test-concurrency=1 dist/test/quickstart.test.js dist/test/generated.test.js dist/test/pets.test.js dist/test/retrofit.test.js
+	cd javascript && node --test --test-concurrency=1 test/quickstart.test.js test/pets.test.js test/retrofit.test.js
+	cd ruby && ruby test/quickstart_test.rb && ruby test/retrofit_test.rb
+	cd php && php test/quickstart.php && php test/retrofit.php
+	cd perl && prove -Ilib -It t/quickstart.t t/retrofit.t
 
 .PHONY: comments comments-test hooks
 comments:

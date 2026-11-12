@@ -2,7 +2,7 @@
 #
 # A port of typescript/src/index.ts, which is canonical.
 
-from .adapter import FeatureBinding, adapter_feature, feature_binding
+from .adapter import FeatureBinding, adapter_anchor, adapter_feature, feature_binding
 from .descriptor import (
     canonical_serialize,
     envtoken,
@@ -70,6 +70,7 @@ __all__ = [
     'RESERVED_KEYS',
     'Station',
     'StationError',
+    'adapter_anchor',
     'adapter_feature',
     'block_of',
     'camelify',

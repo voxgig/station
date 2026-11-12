@@ -8,6 +8,10 @@ const http = require('node:http')
 const PORT = parseInt(process.env.TASKPAD_PORT || '8902', 10)
 const APIKEY = process.env.TASKPAD_APIKEY || 'taskpad-key-101'
 
+// The first TASKPAD_FAIL authorised requests get a 503, for a retry to
+// recover from. Readiness probes carry no key, so they spend none.
+let failures = parseInt(process.env.TASKPAD_FAIL || '0', 10)
+
 let seq = 2
 const todos = {
   t1: { id: 't1', title: 'first', done: false, due: '2026-09-01' },
@@ -40,6 +44,11 @@ const server = http.createServer(async (req, res) => {
 
   if (auth !== APIKEY) {
     return send(res, 401, { error: { code: 'no_auth', message: 'bad key' } })
+  }
+
+  if (0 < failures) {
+    failures--
+    return send(res, 503, { error: { code: 'unavailable', message: 'try again' } })
   }
 
   const m = url.pathname.match(/^\/api\/todo(?:\/([^/]+))?$/)

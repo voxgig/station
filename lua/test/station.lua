@@ -917,6 +917,234 @@ testcase('options-form', function()
   checkeq(options.feature.station.station(), station)
 end)
 
+-- What an SDK generated without the station feature does when it is
+-- constructed: make_options' feature order, the constructor's loops,
+-- feature_add's anchors and feature_init, as sdkgen's lua templates
+-- write them. The lua factory answers a name it has no class for with an
+-- inert `base` feature. `statuses` scripts the wire, one per attempt.
+local function generated_sdk(statuses)
+  local known = { cache = true, retry = true, test = true }
+  local sent = {}
+  local config = make_config()
+
+  local function make_feature(name)
+    local f = { name = known[name] and name or 'base' }
+    function f.get_name(self)
+      return self.name
+    end
+    function f.init(self, ctx)
+      local inner = ctx.utility.fetcher
+      if 'test' == self.name then
+        ctx.utility.fetcher = function()
+          return { status = 200, headers = {} }, nil
+        end
+      elseif 'retry' == self.name then
+        ctx.utility.fetcher = function(c, url, def)
+          local res, err = inner(c, url, def)
+          for _ = 1, 2 do
+            if err ~= nil or res.status ~= 503 then
+              break
+            end
+            res, err = inner(c, url, def)
+          end
+          return res, err
+        end
+      else
+        ctx.utility.fetcher = function(c, url, def)
+          return inner(c, url, def)
+        end
+      end
+    end
+    return f
+  end
+
+  local function featureorder(fmap)
+    local names = {}
+    for k, _ in pairs(fmap) do
+      if type(k) == 'string' then
+        names[#names + 1] = k
+      end
+    end
+    table.sort(names)
+    local order = {}
+    for _, n in ipairs(names) do
+      if 'test' == n then
+        order[1] = 'test'
+      end
+    end
+    for _, n in ipairs(names) do
+      if 'test' ~= n then
+        order[#order + 1] = n
+      end
+    end
+    local si, ti = nil, nil
+    for i, n in ipairs(order) do
+      if 'station' == n then
+        si = i
+      end
+    end
+    if si ~= nil then
+      table.remove(order, si)
+      for i, n in ipairs(order) do
+        if 'test' == n then
+          ti = i
+        end
+      end
+      table.insert(order, ti == nil and 1 or ti + 1, 'station')
+    end
+    return order
+  end
+
+  local function feature_add(features, f)
+    local fopts = f._options or {}
+    local before, after, replace = fopts.__before__, fopts.__after__, fopts.__replace__
+    if before or after or replace then
+      for i, ef in ipairs(features) do
+        if before == ef.name then
+          table.insert(features, i, f)
+          return
+        elseif after == ef.name then
+          table.insert(features, i + 1, f)
+          return
+        elseif replace == ef.name then
+          features[i] = f
+          return
+        end
+      end
+    end
+    features[#features + 1] = f
+  end
+
+  local SDK = {}
+  function SDK.new(options)
+    local fmap = type(options.feature) == 'table' and options.feature or {}
+    local live = not (type(fmap.test) == 'table' and fmap.test.active == true)
+    local self = { mode = live and 'live' or 'test', features = {}, options = options }
+    self.utility = { fetcher = function(_c, url)
+      sent[#sent + 1] = url
+      return { status = statuses[#sent] or 200, headers = {} }, nil
+    end }
+    local ctx = { client = self, utility = self.utility, options = options, config = config }
+
+    for _, fname in ipairs(featureorder(fmap)) do
+      if type(fmap[fname]) == 'table' and fmap[fname].active == true then
+        feature_add(self.features, make_feature(fname))
+      end
+    end
+    for _, f in ipairs(options.extend or {}) do
+      feature_add(self.features, f)
+    end
+    for _, f in ipairs(self.features) do
+      local fopts = fmap[f.name]
+      if type(fopts) == 'table' and fopts.active == true then
+        f:init(ctx, fopts)
+      end
+    end
+
+    function self.list()
+      local opctx = { client = self, utility = self.utility, options = options,
+        config = config, op = { entity = 'task', name = 'list' } }
+      for _, f in ipairs(self.features) do
+        if type(f.PrePoint) == 'function' then
+          f:PrePoint(opctx)
+        end
+      end
+      local res, err = self.utility.fetcher(opctx, 'http://localhost:8901/api/task',
+        { method = 'GET', headers = {} })
+      opctx.result = { ok = err == nil and res.status == 200, err = err }
+      for _, f in ipairs(self.features) do
+        if type(f.PreDone) == 'function' then
+          f:PreDone(opctx)
+        end
+      end
+      return res
+    end
+    return self
+  end
+
+  return SDK, sent
+end
+
+local function placed(client)
+  local names = {}
+  for _, f in ipairs(client.features) do
+    if 'base' ~= f.name then
+      names[#names + 1] = f.name
+    end
+  end
+  return table.concat(names, ',')
+end
+
+local function wire(station)
+  local out = {}
+  for _, ev in ipairs(station:events()) do
+    if 'http' == ev.kind then
+      out[#out + 1] = 'http ' .. tostring(ev.http.status)
+    elseif 'op' == ev.kind then
+      out[#out + 1] = 'op ' .. ev.op.outcome
+    end
+  end
+  return table.concat(out, ',')
+end
+
+local function anchorof(fmap)
+  local got = st.adapter_anchor(fmap)
+  local keys = {}
+  for k, v in pairs(got) do
+    keys[#keys + 1] = k .. '=' .. v
+  end
+  table.sort(keys)
+  return table.concat(keys, ',')
+end
+
+testcase('adapter-anchor', function()
+  checkeq(anchorof(nil), '')
+  checkeq(anchorof({}), '')
+  checkeq(anchorof({ station = { active = true } }), '')
+  checkeq(anchorof({ retry = { active = true } }), '__before__=retry')
+  checkeq(anchorof({ retry = { active = true }, cache = { active = true } }), '__before__=cache')
+  checkeq(anchorof({ cache = { active = false }, retry = { active = true } }), '__before__=retry')
+  checkeq(anchorof({ station = { active = true }, timeout = { active = true } }),
+    '__before__=timeout')
+  checkeq(anchorof({ test = { active = true }, retry = { active = true } }), '__after__=test')
+  checkeq(anchorof({ test = { active = false }, retry = { active = true } }), '__before__=retry')
+  checkeq(anchorof({ { name = 'retry', active = true } }), '')
+end)
+
+testcase('placement-live-retry', function()
+  local SDK, sent = generated_sdk({ 503, 200 })
+  local station = st.new({ config = st.NULL, proxy = 'off' })
+  local client = station:connect(SDK, { apikey = 'real-secret',
+    feature = { retry = { active = true } } })
+
+  checkeq(placed(client), 'station,retry')
+  client.list()
+  checkeq(#sent, 2)
+  checkeq(wire(station), 'http 503,http 200,op ok')
+end)
+
+testcase('placement-live-two-features', function()
+  local SDK = generated_sdk({})
+  local station = st.new({ config = st.NULL, proxy = 'off' })
+  local client = station:adopt(SDK, { apikey = 'real-secret',
+    feature = { retry = { active = true }, cache = { active = true } } })
+  checkeq(placed(client), 'station,cache,retry')
+end)
+
+testcase('placement-test-mode', function()
+  local SDK = generated_sdk({})
+  local station = st.new({ config = st.NULL, proxy = 'off' })
+  local client = station:connect(SDK, {
+    feature = { test = { active = true }, retry = { active = true } } })
+  checkeq(placed(client), 'test,station,retry')
+end)
+
+testcase('placement-alone', function()
+  local SDK = generated_sdk({})
+  local station = st.new({ config = st.NULL, proxy = 'off' })
+  checkeq(placed(station:connect(SDK, { apikey = 'real-secret' })), 'station')
+end)
+
 print('\n' .. PASSCOUNT .. ' passed, ' .. FAILCOUNT .. ' failed')
 
 os.exit(0 == FAILCOUNT and 0 or 1)
