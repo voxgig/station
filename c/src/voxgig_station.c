@@ -3607,14 +3607,72 @@ static char* named_ref(const char* instance, const vxstn_val* extra, const vxstn
   return ref;
 }
 
+/* An entry of sdkgen's ordered list form of options.feature, by name. */
+static bool feature_named(const vxstn_val* item, const char* name) {
+  return vxstn_is_map(item) && 0 == strcmp(name, vxstn_strval(vxstn_map_get(item, "name")));
+}
+
+/* The caller's station entry, from either form of options.feature.
+   Borrowed. */
+static const vxstn_val* station_entry_of(const vxstn_val* feature) {
+  size_t i;
+  for (i = 0; vxstn_is_list(feature) && i < feature->len; i++) {
+    if (feature_named(feature->items[i], "station")) {
+      return feature->items[i];
+    }
+  }
+  return vxstn_is_map(feature) ? vxstn_getk(feature, "station") : NULL;
+}
+
+/* A list is init order as given, so station takes its pinned place
+   itself: right after test, or first. Takes entry; owned. */
+static vxstn_val* with_station(const vxstn_val* feature, vxstn_val* entry) {
+  vxstn_val* out;
+  vxstn_val* named;
+  size_t i, k, seen = 0, at = 0;
+
+  if (!vxstn_is_list(feature)) {
+    out = vxstn_is_map(feature) ? vxstn_clone(feature) : vxstn_map();
+    vxstn_map_set(out, "station", entry);
+    return out;
+  }
+  for (i = 0; 0 == at && i < feature->len; i++) {
+    if (!feature_named(feature->items[i], "station")) {
+      seen++;
+      at = feature_named(feature->items[i], "test") ? seen : 0;
+    }
+  }
+  named = vxstn_map();
+  vxstn_map_set(named, "name", vxstn_str("station"));
+  for (k = 0; k < entry->mlen; k++) {
+    if (0 != strcmp("name", entry->keys[k])) {
+      vxstn_map_set(named, entry->keys[k], vxstn_clone(entry->vals[k]));
+    }
+  }
+  vxstn_val_free(entry);
+
+  out = vxstn_list();
+  if (0 == at) {
+    vxstn_list_push(out, named);
+  }
+  for (i = 0, seen = 0; i < feature->len; i++) {
+    if (!feature_named(feature->items[i], "station")) {
+      vxstn_list_push(out, vxstn_clone(feature->items[i]));
+      if (++seen == at) {
+        vxstn_list_push(out, named);
+      }
+    }
+  }
+  return out;
+}
+
 vxstn_val* vxstn_options(vxstn_station* st, const char* instance,
                          const vxstn_val* extra) {
   const vxstn_val* infeature = vxstn_getk(extra, "feature");
-  char* ref = NULL == st ? NULL : named_ref(instance, extra, vxstn_getk(infeature, "station"));
+  const vxstn_val* prior = station_entry_of(infeature);
+  char* ref = NULL == st ? NULL : named_ref(instance, extra, prior);
   vxstn_val* given = vxstn_map();
   vxstn_val* out;
-  vxstn_val* fmap = vxstn_is_map(infeature) ? vxstn_clone(infeature) : vxstn_map();
-  const vxstn_val* prior = vxstn_getk(fmap, "station");
   vxstn_val* entry = vxstn_is_map(prior) ? vxstn_clone(prior) : vxstn_map();
   size_t k;
 
@@ -3633,8 +3691,7 @@ vxstn_val* vxstn_options(vxstn_station* st, const char* instance,
   if (NULL != instance && '\0' != instance[0]) {
     vxstn_map_set(entry, "instance", vxstn_str(instance));
   }
-  vxstn_map_set(fmap, "station", entry);
-  vxstn_map_set(out, "feature", fmap);
+  vxstn_map_set(out, "feature", with_station(infeature, entry));
   return out;
 }
 

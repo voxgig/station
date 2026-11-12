@@ -279,6 +279,14 @@ public final class StationTest {
     return val instanceof String ? (String) val : null;
   }
 
+  static List<Object> featureNames(Object feature) {
+    List<Object> names = new ArrayList<>();
+    for (Object f : (List<Object>) feature) {
+      names.add(Descriptor.getprop(f, "name"));
+    }
+    return names;
+  }
+
   static Map<String, Object> map(Object... pairs) {
     Map<String, Object> out = new LinkedHashMap<>();
     for (int index = 0; index + 1 < pairs.length; index += 2) {
@@ -908,6 +916,27 @@ public final class StationTest {
         }
         checkeq(names, List.of("pad$eu"), named + ": registered under the named ref");
       }
+    });
+
+    testcase("front door: options() keeps the list form, station in its pinned place", () -> {
+      Station st = memoryStation(map(), map(
+          "pad", map(), "pad$eu", map("options", map("prefix", "/eu"))));
+      Map<String, Object> retry = map("name", "retry", "active", true);
+      Map<String, Object> test = map("name", "test", "active", true);
+
+      List<Object> bare = (List<Object>) st.options(map("feature", List.of(retry))).get("feature");
+      checkeq(featureNames(bare), List.of("station", "retry"), "station first without test");
+      checkeq(Descriptor.getprop(bare.get(0), "active"), true, "station is active");
+
+      checkeq(featureNames(st.options(map("feature", List.of(test, retry))).get("feature")),
+          List.of("test", "station", "retry"), "station right after test");
+
+      Map<String, Object> moved = st.options(map("feature", List.of(
+          retry, map("name", "station", "instance", "pad$eu"), test)));
+      List<Object> placed = (List<Object>) moved.get("feature");
+      checkeq(featureNames(placed), List.of("retry", "test", "station"), "the caller's entry moves");
+      checkeq(Descriptor.getprop(placed.get(2), "instance"), "pad$eu", "and is kept");
+      checkeq(moved.get("prefix"), "/eu", "the instance is read from the list");
     });
 
     testcase("front door: warm dedupes by secret name; an unknown name is a miss", () -> {

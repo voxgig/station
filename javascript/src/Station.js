@@ -283,24 +283,21 @@ class Station {
     opts = opts || {}
 
     const ref = namedRef({
-      ...(opts.feature?.station || {}),
+      ...stationOf(opts.feature),
       ...(null == opts.as ? {} : { as: opts.as }),
       ...(null == opts.instance ? {} : { instance: opts.instance }),
     })
     const calleropts = null == ref ? opts : instanceOptions(this.blockFor(ref), opts)
 
     const { as, instance, ...sdkopts } = calleropts
-    const fmap = { ...(sdkopts.feature || {}) }
-    fmap['station'] = {
-      ...(fmap['station'] || {}),
-      ...activation(this, calleropts),
-      // §6.1: `as` is a tag, resolved against the SDK's api in _register.
-      ...(null == as ? {} : { as }),
-      ...(null == instance ? {} : { instance }),
-    }
     const options = {
       ...sdkopts,
-      feature: fmap,
+      feature: withStation(sdkopts.feature, {
+        ...activation(this, calleropts),
+        // §6.1: `as` is a tag, resolved against the SDK's api in _register.
+        ...(null == as ? {} : { as }),
+        ...(null == instance ? {} : { instance }),
+      }),
       // The carried adapter rides extend for SDKs generated WITHOUT
       // the station feature; when the generated class exists the
       // constructor uses it and the extend copy is skipped by name
@@ -349,16 +346,14 @@ class Station {
       ...(null == given.instance ? {} : { instance: given.instance }),
       ...(named ? { instance: a } : {}),
     }
-    const ref = namedRef({ ...(given.feature?.station || {}), ...names })
+    const ref = namedRef({ ...stationOf(given.feature), ...names })
     const calleropts = null == ref ? given : instanceOptions(this.blockFor(ref), given)
 
     const { as: _as, instance: _instance, ...sdkopts } = calleropts
-    const fmap = { ...(sdkopts.feature || {}) }
-    fmap['station'] = {
-      ...(fmap['station'] || {}),
-      ...activation(this, calleropts), ...names,
+    return {
+      ...sdkopts,
+      feature: withStation(sdkopts.feature, { ...activation(this, calleropts), ...names }),
     }
-    return { ...sdkopts, feature: fmap }
   }
 
   // --- registration (design §3 item 1, called by the adapter) ---
@@ -1333,6 +1328,23 @@ function withoutUserinfo(text) {
 
 // The activation entry rides in the SDK's options, which an app may
 // serialise: it carries a closure, never the Station, and no caller key.
+function stationOf(feature) {
+  if (!Array.isArray(feature)) { return feature?.station || {} }
+  const { name: _name, ...own } = feature.find((f) => 'station' === f?.name) || {}
+  return own
+}
+
+// An array is init order as given, so station takes its pinned place itself.
+function withStation(feature, own) {
+  if (!Array.isArray(feature)) {
+    return { ...(feature || {}), station: { ...stationOf(feature), ...own } }
+  }
+  const rest = feature.filter((f) => 'station' !== f?.name)
+  const at = rest.findIndex((f) => 'test' === f?.name) + 1
+  rest.splice(at, 0, { name: 'station', ...stationOf(feature), ...own })
+  return rest
+}
+
 function activation(station, calleropts) {
   return { active: true, station: () => station, calleropts: keyless(calleropts) }
 }

@@ -1,6 +1,6 @@
 # Status: where the next session starts
 
-Snapshot, **2026-11-12**. `main` is at `a525c81`. 0.2.0 is released on
+Snapshot, **2026-11-12**. `main` is at `c9f6f76`. 0.2.0 is released on
 every route, and `main` is ahead of it: the six pull requests of W1
 merged on 2026-11-11 and changed every port's source, and on 2026-11-12
 W5.1 (the proxy builds), W4.3 (the fixture SDKs), W2.1 (the carried
@@ -8,8 +8,8 @@ adapter's place), W2.2 (the Station out of the SDK's options), W2.4
 (passwords refused in a block's `base`), W2.5 (no userinfo in an
 event's whole URL) and W2.3 (the scrub reaches a transport error's
 chain) merged, which completes W2a, and from W2b, W2.6 (one `op` event
-per operation), W2.7 (the policy's hostname), W2.8 (the event's host)
-and W2.9 (unpaired surrogate escapes). The seven
+per operation), W2.7 (the policy's hostname), W2.8 (the event's host),
+W2.9 (unpaired surrogate escapes) and W2.10 (the kill switch). The seven
 decisions were ruled on 2026-11-11. The register
 in [`progress.md`](progress.md) is the per-item authority, and
 [`upstream.md`](upstream.md) tracks what other repositories owe. This
@@ -38,7 +38,8 @@ wrong status file is worse than none.**
   those two, CI is the only evidence, and on 2026-11-11 it was the only
   thing that caught two faults (W1). dart 3.14, elixir 1.14 and lua 5.4
   were installed here on 2026-11-12 for W2.1, and their suites pass;
-  CI runs elixir 1.18.
+  CI runs elixir 1.18. swift 6.0.3 was installed here for W2.12, from
+  swift.org's tarball, and the swift suite passes with it.
 - **The gates.** `make version-check`, `vendor-check`, `comments` and
   `omni-isolation` pass on the merged tree.
 - **`make release-plan` now refuses, as it should.** It says
@@ -102,10 +103,12 @@ passing; CI runs them once the fixture lane's patch is applied.
 
 ## In flight
 
-W2.10, in review: the kill switch raises `station_blocked`, and every
-port now enforces the policy mode, which fourteen of the sixteen did
-not. W2.12 and W2.13, found during W2.1, and W2.14 and W2.15, found
-during W2.9, have no issue filed yet.
+W2.12, in review: `connect()`, `adopt()` and `options()` take sdkgen's
+ordered list form of `options.feature` in all sixteen ports, with
+station placed after `test`. Seven ports had dropped every listed
+feature silently. W2.13, found during W2.1, and W2.14 and W2.15, found
+during W2.9, have no issue filed yet. W2.13 now also owns
+`overrides.feature` on `create()` and `sdk()`.
 
 
 ## Pick this up first

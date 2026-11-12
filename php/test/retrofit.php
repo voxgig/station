@@ -119,4 +119,47 @@ try {
     putenv('TASKPAD_APIKEY');
 }
 
+// sdkgen's ordered list form: position is init order, so station takes
+// its pinned place first rather than the caller's map spread.
+putenv('TASKPAD_APIKEY=' . APIKEY);
+try {
+    $station = Station::open(['config' => null]);
+    $pad = $station->connect(\TaskpadSDK::class,
+        ['base' => $base, 'feature' => [['name' => 'retry', 'active' => true]]]);
+
+    $names = array_values(array_filter(
+        array_map(fn($f) => $f->get_name(), $pad->features),
+        fn($n) => 'base' !== $n));
+    if (['station', 'retry'] !== $names) {
+        throw new \RuntimeException('feature order: ' . json_encode($names));
+    }
+
+    $todos = $pad->Todo()->list();
+    if (!is_array($todos) || 0 === count($todos)) {
+        throw new \RuntimeException('list() returned no records');
+    }
+
+    $wire = [];
+    foreach ($station->events() as $e) {
+        if ('http' === $e['kind']) {
+            $wire[] = ['http', $e['http']['status']];
+        } elseif ('op' === $e['kind']) {
+            $wire[] = ['op', $e['op']['outcome']];
+        }
+    }
+    if ([['http', 200], ['op', 'ok']] !== array_slice($wire, -2)) {
+        throw new \RuntimeException('events: ' . json_encode($wire));
+    }
+
+    $station->close();
+    echo "ok   - the_list_form_of_options_feature_binds_with_retry_outside_station\n";
+} catch (\Throwable $err) {
+    $fail++;
+    echo "FAIL - the_list_form_of_options_feature_binds_with_retry_outside_station\n" .
+        $err->getMessage() . "\n";
+} finally {
+    Station::reset();
+    putenv('TASKPAD_APIKEY');
+}
+
 exit(0 < $fail ? 1 : 0);

@@ -273,12 +273,41 @@ module VoxgigStation
   # The generated constructor adds the active features, test first and the
   # rest by name, and only then this adapter, at its anchor or else last.
   def adapter_anchor(fmap)
-    return {} unless fmap.is_a?(Hash)
-    names = fmap.select do |n, v|
-      n.is_a?(String) && 'station' != n && v.is_a?(Hash) && true == v['active']
-    end.keys.sort
+    names =
+      if fmap.is_a?(Array)
+        fmap.select { |f| f.is_a?(Hash) && 'station' != f['name'] && true == f['active'] }
+            .map { |f| f['name'] }
+      elsif fmap.is_a?(Hash)
+        fmap.select do |n, v|
+          n.is_a?(String) && 'station' != n && v.is_a?(Hash) && true == v['active']
+        end.keys.sort
+      else
+        []
+      end
     return { '__after__' => 'test' } if names.include?('test')
     names.empty? ? {} : { '__before__' => names.first }
+  end
+
+  # The caller's own station options, from a feature map or sdkgen's
+  # ordered array.
+  def station_entry_of(feature)
+    if feature.is_a?(Array)
+      own = feature.find { |f| f.is_a?(Hash) && 'station' == f['name'] }
+      return own.is_a?(Hash) ? own.except('name') : {}
+    end
+    own = feature.is_a?(Hash) ? feature['station'] : nil
+    own.is_a?(Hash) ? own.dup : {}
+  end
+
+  # An array is init order as given, so station takes its pinned place
+  # itself: straight after `test`, else first.
+  def with_station(feature, own)
+    entry = station_entry_of(feature).merge(own)
+    return (feature.is_a?(Hash) ? feature : {}).merge('station' => entry) unless feature.is_a?(Array)
+
+    rest = feature.reject { |f| f.is_a?(Hash) && 'station' == f['name'] }
+    at = rest.index { |f| f.is_a?(Hash) && 'test' == f['name'] }
+    rest.insert(at.nil? ? 0 : at + 1, { 'name' => 'station' }.merge(entry))
   end
 
   def result_outcome(ctx)

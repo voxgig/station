@@ -1319,6 +1319,55 @@ fn options_for_hands_a_named_instance_its_declared_options() {
 }
 
 #[test]
+fn options_keeps_the_list_form_with_station_in_its_pinned_place() {
+    Station::reset();
+    let station = open_station(station_config(
+        r#", "sdk": { "taskpad$eu": { "options": { "prefix": "/eu" } } }"#,
+    ));
+    let entry = |built: &Json, i: usize| -> Json {
+        match jget(built, "feature") {
+            Some(Json::List(items)) => items[i].clone(),
+            _ => panic!("the list form was not kept"),
+        }
+    };
+    let names = |built: &Json| -> Vec<String> {
+        match jget(built, "feature") {
+            Some(Json::List(items)) => (0..items.len())
+                .map(|i| match jget(&entry(built, i), "name") {
+                    Some(Json::Str(name)) => name.clone(),
+                    _ => "?".to_string(),
+                })
+                .collect(),
+            _ => panic!("the list form was not kept"),
+        }
+    };
+
+    let bare = station.options(&parse(r#"{ "feature": [{ "name": "retry", "active": true }] }"#));
+    assert_eq!(names(&bare), ["station", "retry"]);
+    assert!(matches!(jget(&entry(&bare, 0), "active"), Some(Json::Bool(true))));
+
+    let tested = station.options(&parse(
+        r#"{ "feature": [{ "name": "test", "active": true }, { "name": "retry", "active": true }] }"#,
+    ));
+    assert_eq!(names(&tested), ["test", "station", "retry"]);
+
+    let moved = station.options(&parse(
+        r#"{ "feature": [{ "name": "retry", "active": true },
+             { "name": "station", "instance": "taskpad$eu" }, { "name": "test", "active": true }] }"#,
+    ));
+    assert_eq!(names(&moved), ["retry", "test", "station"]);
+    assert!(
+        matches!(jget(&entry(&moved, 2), "instance"), Some(Json::Str(found)) if "taskpad$eu" == found),
+        "the caller's station entry is kept"
+    );
+    assert!(
+        matches!(jget(&moved, "prefix"), Some(Json::Str(found)) if "/eu" == found),
+        "the instance is read from the list"
+    );
+    Station::reset();
+}
+
+#[test]
 fn options_names_the_instance_from_a_top_level_instance_or_as() {
     for named in [r#""instance": "taskpad$eu""#, r#""as": "taskpad$eu""#] {
         Station::reset();

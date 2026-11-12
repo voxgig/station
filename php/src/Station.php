@@ -421,21 +421,19 @@ class Station
         if ($named) {
             $names['instance'] = $a;
         }
-        $sopts = is_array($extra['feature']['station'] ?? null) ? $extra['feature']['station'] : [];
-        $ref = named_ref(array_merge($sopts, $names));
+        $ref = named_ref(array_merge(station_entry_of($extra['feature'] ?? null), $names));
         if (null !== $ref) {
             $extra = instance_options($this->block_for($ref), $extra);
         }
 
-        $fmap = is_array($extra['feature'] ?? null) ? $extra['feature'] : [];
-        $sf = is_array($fmap['station'] ?? null) ? $fmap['station'] : [];
-        $sf['active'] = true;
-        $sf['station'] = $this->handle();
-        $sf['calleropts'] = keyless($extra);
-        $fmap['station'] = array_merge($sf, $names);
+        $own = array_merge([
+            'active' => true,
+            'station' => $this->handle(),
+            'calleropts' => keyless($extra),
+        ], $names);
         $options = $extra;
         unset($options['as'], $options['instance']);
-        $options['feature'] = $fmap;
+        $options['feature'] = with_station($extra['feature'] ?? null, $own);
         return $options;
     }
 
@@ -1655,7 +1653,7 @@ class Station
             throw new StationError('station_no_plugin', 'station is closed');
         }
         $opts = $opts ?? [];
-        $named = is_array($opts['feature']['station'] ?? null) ? $opts['feature']['station'] : [];
+        $named = station_entry_of($opts['feature'] ?? null);
         foreach (['as', 'instance'] as $k) {
             if (null !== ($opts[$k] ?? null)) {
                 $named[$k] = $opts[$k];
@@ -1666,21 +1664,20 @@ class Station
             $opts = instance_options($this->block_for($ref), $opts);
         }
 
-        $fmap = is_array($opts['feature'] ?? null) ? $opts['feature'] : [];
-        $sf = is_array($fmap['station'] ?? null) ? $fmap['station'] : [];
-        $sf['active'] = true;
-        $sf['station'] = $this->handle();
-        $sf['calleropts'] = keyless($opts);
+        $own = [
+            'active' => true,
+            'station' => $this->handle(),
+            'calleropts' => keyless($opts),
+        ];
         // Design 6.1: `as` is a TAG, resolved against the api in
         // _register - the api comes from the SDK being passed and is not
         // knowable here until that SDK's config has been normalized.
         if (null !== ($opts['as'] ?? null)) {
-            $sf['as'] = $opts['as'];
+            $own['as'] = $opts['as'];
         }
         if (null !== ($opts['instance'] ?? null)) {
-            $sf['instance'] = $opts['instance'];
+            $own['instance'] = $opts['instance'];
         }
-        $fmap['station'] = $sf;
 
         $extend = is_array($opts['extend'] ?? null) ? $opts['extend'] : [];
 
@@ -1693,7 +1690,7 @@ class Station
 
         $options = $opts;
         unset($options['as'], $options['instance']);
-        $options['feature'] = $fmap;
+        $options['feature'] = with_station($opts['feature'] ?? null, $own);
         $options['extend'] = $extend;
 
         $client = new $sdk_class($options);

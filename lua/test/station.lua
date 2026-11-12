@@ -1314,7 +1314,54 @@ testcase('adapter-anchor', function()
     '__before__=timeout')
   checkeq(anchorof({ test = { active = true }, retry = { active = true } }), '__after__=test')
   checkeq(anchorof({ test = { active = false }, retry = { active = true } }), '__before__=retry')
-  checkeq(anchorof({ { name = 'retry', active = true } }), '')
+  -- sdkgen's ordered list form: list order is init order.
+  checkeq(anchorof({ { name = 'retry', active = true } }), '__before__=retry')
+  checkeq(anchorof({ { name = 'retry', active = true }, { name = 'cache', active = true } }),
+    '__before__=retry')
+  checkeq(anchorof({ { name = 'retry', active = true }, { name = 'test', active = true } }),
+    '__after__=test')
+  checkeq(anchorof({ { name = 'station', active = true }, { name = 'retry' } }), '')
+end)
+
+testcase('options-keeps-the-list-form', function()
+  local station = st.new({ proxy = 'off', config = {
+    station = 1,
+    profiles = { default = { sdk = {
+      taskpad = {}, ['taskpad$eu'] = { options = { prefix = '/eu' } },
+    } } },
+  } })
+  local function names(feature)
+    local out = {}
+    for _, f in ipairs(feature) do
+      out[#out + 1] = f.name
+    end
+    return table.concat(out, ',')
+  end
+
+  local bare = station:options({ feature = { { name = 'retry', active = true } } }).feature
+  checkeq(names(bare), 'station,retry')
+  checkeq(bare[1].active, true)
+
+  local tested = station:options({ feature = {
+    { name = 'test', active = true }, { name = 'retry', active = true } } }).feature
+  checkeq(names(tested), 'test,station,retry')
+
+  local moved = station:options({ feature = {
+    { name = 'retry', active = true },
+    { name = 'station', instance = 'taskpad$eu' },
+    { name = 'test', active = true },
+  } })
+  checkeq(names(moved.feature), 'retry,test,station')
+  checkeq(moved.feature[3].instance, 'taskpad$eu')
+
+  -- connect reads the instance from the list, so its block reaches the SDK.
+  local seen
+  station:connect(function(o)
+    seen = o
+    return {}
+  end, { feature = { { name = 'station', instance = 'taskpad$eu' } } })
+  checkeq(seen.prefix, '/eu')
+  checkeq(names(seen.feature), 'station')
 end)
 
 testcase('placement-live-retry', function()

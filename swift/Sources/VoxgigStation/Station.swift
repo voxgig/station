@@ -325,7 +325,7 @@ public final class Station {
       names["instance"] = instance
     }
 
-    let fentry = ((given["feature"] as? [String: Any?])?["station"] as? [String: Any?]) ?? [:]
+    let fentry = Station.stationEntry(given["feature"] ?? nil)
     var named: [String: Json] = [:]
     for key in ["as", "instance"] {
       if let text = fentry[key] as? String {
@@ -351,8 +351,7 @@ public final class Station {
     out.removeValue(forKey: "as")
     out.removeValue(forKey: "instance")
 
-    var fmap = (out["feature"] as? [String: Any?]) ?? [:]
-    var entry = (fmap["station"] as? [String: Any?]) ?? [:]
+    var entry = Station.stationEntry(out["feature"] ?? nil)
     entry["active"] = true
     entry["station"] = self
     // The entry rides in options an app may print: it keeps no caller key.
@@ -362,10 +361,39 @@ public final class Station {
     for (key, text) in names {
       entry[key] = text
     }
-    fmap["station"] = entry
-    out["feature"] = fmap
+    out["feature"] = Station.withStation(out["feature"] ?? nil, entry)
 
     return out
+  }
+
+  // sdkgen's ordered form of options.feature is a list of named entries.
+  static func stationEntry(_ feature: Any?) -> [String: Any?] {
+    guard let flist = feature as? [Any?] else {
+      return ((feature as? [String: Any?])?["station"] as? [String: Any?]) ?? [:]
+    }
+    for item in flist {
+      if let entry = item as? [String: Any?], "station" == entry["name"] as? String {
+        return entry.filter { "name" != $0.key }
+      }
+    }
+    return [:]
+  }
+
+  // A list is init order as given, so station takes its pinned place itself.
+  static func withStation(_ feature: Any?, _ entry: [String: Any?]) -> Any {
+    guard let flist = feature as? [Any?] else {
+      var fmap = (feature as? [String: Any?]) ?? [:]
+      fmap["station"] = entry
+      return fmap
+    }
+    var rest = flist.filter { "station" != ($0 as? [String: Any?])?["name"] as? String }
+    let at = (rest.firstIndex(where: { "test" == ($0 as? [String: Any?])?["name"] as? String }) ?? -1) + 1
+    var named: [String: Any?] = ["name": "station"]
+    for (key, val) in entry {
+      named.updateValue(val, forKey: key)
+    }
+    rest.insert(named, at: at)
+    return rest
   }
 
   /// A Json value in the native form options() hands back.

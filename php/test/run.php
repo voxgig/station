@@ -1680,6 +1680,28 @@ testcase('options_hands_a_named_instance_its_declared_options', function () {
     eq(['suffix' => '.json'], $unnamed);
 });
 
+testcase('options_keeps_the_list_form_with_station_in_its_pinned_place', function () {
+    $st = new Station(['config' => solarconfig([
+        'solar' => ['active' => true],
+        'solar$eu' => ['options' => ['prefix' => '/eu']],
+    ])]);
+    $names = fn(array $feature) => array_map(fn($f) => $f['name'], $feature);
+
+    $bare = $st->options(['feature' => [['name' => 'retry', 'active' => true]]])['feature'];
+    eq(['station', 'retry'], $names($bare));
+    eq(true, $bare[0]['active']);
+
+    $tested = $st->options(['feature' => [['name' => 'test', 'active' => true],
+        ['name' => 'retry', 'active' => true]]])['feature'];
+    eq(['test', 'station', 'retry'], $names($tested));
+
+    $moved = $st->options(['feature' => [['name' => 'retry', 'active' => true],
+        ['name' => 'station', 'instance' => 'solar$eu'], ['name' => 'test', 'active' => true]]]);
+    eq(['retry', 'test', 'station'], $names($moved['feature']));
+    eq('solar$eu', $moved['feature'][2]['instance']);
+    eq('/eu', $moved['prefix'] ?? null);
+});
+
 testcase('options_names_the_instance_from_a_top_level_instance_or_as', function () {
     foreach ([['instance' => 'solar$eu'], ['as' => 'solar$eu']] as $named) {
         $st = new Station(['config' => solarconfig([
@@ -2009,7 +2031,13 @@ testcase('adapter_anchor_after_test_when_active_else_before_the_first_by_name', 
         adapter_anchor(['test' => ['active' => true], 'retry' => ['active' => true]]));
     eq(['__before__' => 'retry'],
         adapter_anchor(['test' => ['active' => false], 'retry' => ['active' => true]]));
-    eq([], adapter_anchor([['name' => 'retry', 'active' => true]]));
+    // sdkgen's ordered list form: list order is init order.
+    eq(['__before__' => 'retry'], adapter_anchor([['name' => 'retry', 'active' => true]]));
+    eq(['__before__' => 'retry'], adapter_anchor([['name' => 'retry', 'active' => true],
+        ['name' => 'cache', 'active' => true]]));
+    eq(['__after__' => 'test'], adapter_anchor([['name' => 'retry', 'active' => true],
+        ['name' => 'test', 'active' => true]]));
+    eq([], adapter_anchor([['name' => 'station', 'active' => true], ['name' => 'retry']]));
 });
 
 testcase('placement_live_with_retry_station_is_the_base_wrap', function () {

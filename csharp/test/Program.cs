@@ -17,6 +17,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 
 using Voxgig.Omni;
 using Voxgig.Sekreto;
@@ -462,6 +463,33 @@ internal static class Program
 
             var plain = Bind(st, new object(), st.Options(Map()));
             Check("test-plug".Equals(plain["plugin"]), "the default instance keeps its slug");
+        });
+
+        TestCase("options: the list form keeps its order, with station in its pinned place", () =>
+        {
+            Station st = MemoryStation(Map(), Map(
+                "test-plug", Map(), "test-plug$eu", Map("options", Map("prefix", "/eu"))));
+            var retry = Map("name", "retry", "active", true);
+            var test = Map("name", "test", "active", true);
+            Func<object, string> names = feature => string.Join(",",
+                ((List<object>)feature).Select(f => Descriptor.GetProp(f, "name")));
+
+            var bare = st.Options(Map("feature", new List<object> { retry }))["feature"];
+            Check("station,retry" == names(bare), "station first without test: " + names(bare));
+            Check(true.Equals(Descriptor.GetProp(((List<object>)bare)[0], "active")),
+                "station is active");
+
+            var tested = st.Options(Map("feature", new List<object> { test, retry }))["feature"];
+            Check("test,station,retry" == names(tested), "station right after test: " + names(tested));
+
+            var moved = st.Options(Map("feature", new List<object> {
+                retry, Map("name", "station", "instance", "test-plug$eu"), test }));
+            Check("retry,test,station" == names(moved["feature"]),
+                "the caller's entry moves: " + names(moved["feature"]));
+            Check("test-plug$eu".Equals(
+                Descriptor.GetProp(((List<object>)moved["feature"])[2], "instance")), "and is kept");
+            Check("/eu".Equals(moved.GetValueOrDefault("prefix")),
+                "the instance is read from the list");
         });
 
         TestCase("options: a top-level instance or full-ref as names the instance", () =>

@@ -467,8 +467,7 @@ sub _construct {
     }
 
     $opts = {} unless ref($opts) eq 'HASH';
-    my $feature = ref( $opts->{feature} ) eq 'HASH' ? $opts->{feature} : {};
-    my %named = %{ ref( $feature->{station} ) eq 'HASH' ? $feature->{station} : {} };
+    my %named = %{ _station_entry_of( $opts->{feature} ) };
     $named{as}       = $opts->{as}       if defined $opts->{as};
     $named{instance} = $opts->{instance} if defined $opts->{instance};
     my $ref = named_ref( \%named );
@@ -547,8 +546,7 @@ sub options {
         $ident{$key} = $extra->{$key} if defined $extra->{$key};
     }
     $ident{instance} = $a if $named;
-    my $feature = ref( $extra->{feature} ) eq 'HASH' ? $extra->{feature} : {};
-    my %named = ( %{ ref( $feature->{station} ) eq 'HASH' ? $feature->{station} : {} }, %ident );
+    my %named = ( %{ _station_entry_of( $extra->{feature} ) }, %ident );
     my $ref = named_ref( \%named );
     $extra = instance_options( $self->block_for($ref), $extra ) if defined $ref;
 
@@ -589,17 +587,49 @@ sub _keyless {
 }
 
 sub _activation {
-    my ( $self, $fmap, $calleropts, $ident ) = @_;
-    $fmap = _copymap($fmap);
+    my ( $self, $feature, $calleropts, $ident ) = @_;
     my $station = $self;
-    $fmap->{station} = {
-        %{ ref( $fmap->{station} ) eq 'HASH' ? $fmap->{station} : {} },
+    my %own = (
         active     => 1,
         station    => sub { return $station },
         calleropts => _keyless($calleropts),
         %{ ref($ident) eq 'HASH' ? $ident : {} },
-    };
+    );
+    return _with_station( $feature, \%own ) if ref($feature) eq 'ARRAY';
+    my $fmap = _copymap($feature);
+    $fmap->{station} = { %{ _station_entry_of($fmap) }, %own };
     return $fmap;
+}
+
+sub _named_entry {
+    my ( $entry, $name ) = @_;
+    return ref($entry) eq 'HASH' && defined $entry->{name} && $name eq $entry->{name};
+}
+
+# The caller's own station options, from a feature map or sdkgen's ordered
+# array.
+sub _station_entry_of {
+    my ($feature) = @_;
+    if ( ref($feature) eq 'ARRAY' ) {
+        my ($entry) = grep { _named_entry( $_, 'station' ) } @$feature;
+        return {} unless defined $entry;
+        my %own = %$entry;
+        delete $own{name};
+        return \%own;
+    }
+    my $own = ref($feature) eq 'HASH' ? $feature->{station} : undef;
+    return ref($own) eq 'HASH' ? {%$own} : {};
+}
+
+# An array is init order as given, so station takes its pinned place
+# itself: straight after `test`, else first.
+sub _with_station {
+    my ( $feature, $own ) = @_;
+    my @rest = grep { !_named_entry( $_, 'station' ) } @$feature;
+    my ($at) = grep { _named_entry( $rest[$_], 'test' ) } 0 .. $#rest;
+    splice( @rest, defined $at ? $at + 1 : 0,
+        0, { name => 'station', %{ _station_entry_of($feature) }, %$own } );
+    return \@rest;
 }
 
 # --- registration (design station.md 3 item 1, called by the adapter) ---

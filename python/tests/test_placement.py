@@ -187,7 +187,17 @@ class TestAdapterAnchor(unittest.TestCase):
         self.assertEqual({'__before__': 'retry'},
                          adapter_anchor({'test': {'active': False},
                                          'retry': {'active': True}}))
-        self.assertEqual({}, adapter_anchor([{'name': 'retry', 'active': True}]))
+        # sdkgen's ordered list form: list order is init order.
+        self.assertEqual({'__before__': 'retry'},
+                         adapter_anchor([{'name': 'retry', 'active': True}]))
+        self.assertEqual({'__before__': 'retry'},
+                         adapter_anchor([{'name': 'retry', 'active': True},
+                                         {'name': 'cache', 'active': True}]))
+        self.assertEqual({'__after__': 'test'},
+                         adapter_anchor([{'name': 'retry', 'active': True},
+                                         {'name': 'test', 'active': True}]))
+        self.assertEqual({}, adapter_anchor([{'name': 'station', 'active': True},
+                                             {'name': 'retry'}]))
 
 
 class TestCarriedAdapterPlacement(unittest.TestCase):

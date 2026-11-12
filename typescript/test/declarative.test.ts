@@ -664,6 +664,33 @@ describe('declared-options-and-feature-schema', () => {
     }
   })
 
+  test("options() keeps sdkgen's array form, with station in its pinned place", () => {
+    const st = station({ notes: NOTES, 'notes$eu': { options: { prefix: '/eu' } } },
+      { proxy: 'off', load: false })
+
+    const names = (feature: any[]) => feature.map((f: any) => f.name)
+    const bare = st.options({ feature: [{ name: 'retry', active: true }] }).feature
+    deepStrictEqual(names(bare), ['station', 'retry'])
+    equal(true, bare[0].active)
+
+    const tested = st.options({
+      feature: [{ name: 'test', active: true }, { name: 'retry', active: true }],
+    }).feature
+    deepStrictEqual(names(tested), ['test', 'station', 'retry'])
+
+    const moved = st.options({
+      feature: [
+        { name: 'retry', active: true },
+        { name: 'station', instance: 'notes$eu' },
+        { name: 'test', active: true },
+      ],
+    })
+    deepStrictEqual(names(moved.feature), ['retry', 'test', 'station'])
+    equal('notes$eu', moved.feature[2].instance, 'the caller\'s station entry is kept')
+    equal('/eu', moved.prefix, 'the instance is read from the array')
+    st.close()
+  })
+
   test('an unnamed connect cannot apply them, and says so', () => {
     const notes = fakeSDK('notes')
     const st = station({ notes: NOTES }, { proxy: 'off', load: false })

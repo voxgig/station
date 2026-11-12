@@ -189,7 +189,13 @@ class PlacementTest < Minitest::Test
       anchor.call('test' => { 'active' => true }, 'retry' => { 'active' => true }))
     assert_equal({ '__before__' => 'retry' },
       anchor.call('test' => { 'active' => false }, 'retry' => { 'active' => true }))
-    assert_equal({}, anchor.call([{ 'name' => 'retry', 'active' => true }]))
+    # sdkgen's ordered array form: array order is init order.
+    assert_equal({ '__before__' => 'retry' }, anchor.call([{ 'name' => 'retry', 'active' => true }]))
+    assert_equal({ '__before__' => 'retry' },
+      anchor.call([{ 'name' => 'retry', 'active' => true }, { 'name' => 'cache', 'active' => true }]))
+    assert_equal({ '__after__' => 'test' },
+      anchor.call([{ 'name' => 'retry', 'active' => true }, { 'name' => 'test', 'active' => true }]))
+    assert_equal({}, anchor.call([{ 'name' => 'station', 'active' => true }, { 'name' => 'retry' }]))
   end
 
   def test_live_with_retry_station_is_the_base_wrap

@@ -1516,22 +1516,66 @@ local function keyless(opts)
   return out
 end
 
-local function activation(self, fmap, calleropts)
-  local out = shallowcopy(fmap)
-  local entry = shallowcopy(out.station)
-  entry.active = true
-  entry.station = function()
+-- sdkgen's ordered form: a sequence of { name = ..., ... } entries.
+local function feature_list(feature)
+  return type(feature) == 'table' and #feature > 0 and type(feature[1]) == 'table'
+end
+
+-- The caller's own station options, from a feature map or the list.
+local function station_entry_of(feature)
+  if feature_list(feature) then
+    for _, entry in ipairs(feature) do
+      if type(entry) == 'table' and entry.name == 'station' then
+        local own = shallowcopy(entry)
+        own.name = nil
+        return own
+      end
+    end
+    return {}
+  end
+  return shallowcopy(getk(feature, 'station'))
+end
+
+-- A list is init order as given, so station takes its pinned place
+-- itself: straight after `test`, else first.
+local function with_station(feature, own)
+  local entry = station_entry_of(feature)
+  for k, v in pairs(own) do
+    entry[k] = v
+  end
+  if not feature_list(feature) then
+    local out = shallowcopy(feature)
+    out.station = entry
+    return out
+  end
+  local rest, at = {}, 0
+  for _, f in ipairs(feature) do
+    if not (type(f) == 'table' and f.name == 'station') then
+      rest[#rest + 1] = f
+      if at == 0 and type(f) == 'table' and f.name == 'test' then
+        at = #rest
+      end
+    end
+  end
+  entry.name = 'station'
+  table.insert(rest, at + 1, entry)
+  return rest
+end
+
+local function activation(self, feature, calleropts, ident)
+  local own = shallowcopy(ident)
+  own.active = true
+  own.station = function()
     return self
   end
-  entry.calleropts = keyless(calleropts)
-  out.station = entry
-  return out
+  own.calleropts = keyless(calleropts)
+  return with_station(feature, own)
 end
 
 -- The ref a caller names before construction: an explicit instance, or
 -- an `as` that is a full ref. A bare tag needs the SDK's api, so not.
 local function named_ref(opts)
-  local entry = getk(getk(opts, 'feature'), 'station')
+  local entry = station_entry_of(getk(opts, 'feature'))
   local function pick(key)
     for _, v in ipairs({ getk(opts, key) or false, getk(entry, key) or false }) do
       if type(v) == 'string' and v ~= '' then
@@ -1588,16 +1632,15 @@ local function construct(self, SDK, opts)
     opts = M.instance_options(M.block_of(self.profile, ref), opts)
   end
   local options = shallowcopy(opts)
-  options.feature = activation(self, options.feature, opts)
 
   -- `as` and `instance` are station's own: they ride the feature entry,
   -- never the SDK's options, which a generated SDK checks as closed.
+  local ident = {}
   for _, key in ipairs({ 'as', 'instance' }) do
-    if options[key] ~= nil then
-      options.feature.station[key] = options[key]
-      options[key] = nil
-    end
+    ident[key] = options[key]
+    options[key] = nil
   end
+  options.feature = activation(self, options.feature, opts, ident)
 
   -- The carried adapter rides extend for SDKs generated WITHOUT the
   -- station feature; when the generated class exists the constructor
@@ -2400,13 +2443,22 @@ function M.adapter_anchor(fmap)
     return {}
   end
   local names = {}
-  for name, entry in pairs(fmap) do
-    if type(name) == 'string' and 'station' ~= name and type(entry) == 'table'
-        and entry.active == true then
-      names[#names + 1] = name
+  if feature_list(fmap) then
+    for _, entry in ipairs(fmap) do
+      if type(entry) == 'table' and type(entry.name) == 'string'
+          and 'station' ~= entry.name and entry.active == true then
+        names[#names + 1] = entry.name
+      end
     end
+  else
+    for name, entry in pairs(fmap) do
+      if type(name) == 'string' and 'station' ~= name and type(entry) == 'table'
+          and entry.active == true then
+        names[#names + 1] = name
+      end
+    end
+    table.sort(names)
   end
-  table.sort(names)
   for _, name in ipairs(names) do
     if 'test' == name then
       return { __after__ = 'test' }

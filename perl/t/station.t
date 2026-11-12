@@ -1076,6 +1076,48 @@ subtest 'options() hands a named instance its declared options' => sub {
     is_deeply( \%unnamed, { suffix => '.json' }, 'an unnamed call is untouched' );
 };
 
+subtest 'options() keeps the array form, with station in its pinned place' => sub {
+    reset_env();
+    my $st = Voxgig::Station->new(
+        {
+            config => {
+                station  => 1,
+                profiles => {
+                    default => {
+                        sdk => {
+                            notes      => {},
+                            'notes$eu' => { options => { prefix => '/eu' } },
+                        }
+                    }
+                }
+            }
+        }
+    );
+    my $names = sub { [ map { $_->{name} } @{ $_[0] } ] };
+
+    my $bare = $st->options( { feature => [ { name => 'retry', active => 1 } ] } )->{feature};
+    is_deeply( $names->($bare), [qw(station retry)], 'station first' );
+    ok( $bare->[0]{active}, 'station is active' );
+
+    my $tested = $st->options(
+        { feature => [ { name => 'test', active => 1 }, { name => 'retry', active => 1 } ] } )
+      ->{feature};
+    is_deeply( $names->($tested), [qw(test station retry)], 'station after test' );
+
+    my $moved = $st->options(
+        {
+            feature => [
+                { name => 'retry',   active   => 1 },
+                { name => 'station', instance => 'notes$eu' },
+                { name => 'test',    active   => 1 },
+            ]
+        }
+    );
+    is_deeply( $names->( $moved->{feature} ), [qw(retry test station)], 'moved to its place' );
+    is( $moved->{feature}[2]{instance}, 'notes$eu', 'the caller station entry is kept' );
+    is( $moved->{prefix}, '/eu', 'the instance is read from the array' );
+};
+
 subtest 'options() names the instance from a top-level instance or as' => sub {
     for my $named ( { instance => 'gnarly-pets$eu' }, { as => 'gnarly-pets$eu' } ) {
         reset_env();

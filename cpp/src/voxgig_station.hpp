@@ -2953,6 +2953,57 @@ inline Jval instance_options(const Jval& block, const Jval& opts) {
   return out;
 }
 
+// An entry of sdkgen's ordered list form of options.feature, by name.
+inline bool feature_named(const Jval& item, const std::string& name) {
+  return item.ismap() && item.get("name").isstr() && name == item.get("name").sval;
+}
+
+// The caller's station entry, from either form of options.feature.
+inline Jval station_entry_of(const Jval& feature) {
+  if (!feature.islist()) {
+    Jval entry = feature.get("station");
+    return entry.ismap() ? entry : Jval::map();
+  }
+  for (const auto& item : feature.lval) {
+    if (feature_named(item, "station")) {
+      Jval own = Jval::map();
+      for (const auto& kv : item.mval) {
+        if ("name" != kv.first) {
+          own.set(kv.first, kv.second);
+        }
+      }
+      return own;
+    }
+  }
+  return Jval::map();
+}
+
+// A list is init order as given, so station takes its pinned place itself.
+inline Jval with_station(const Jval& feature, const Jval& entry) {
+  if (!feature.islist()) {
+    Jval fmap = feature.ismap() ? feature : Jval::map();
+    fmap.set("station", entry);
+    return fmap;
+  }
+  Jval rest = Jval::list();
+  for (const auto& item : feature.lval) {
+    if (!feature_named(item, "station")) {
+      rest.lval.push_back(item);
+    }
+  }
+  size_t at = 0;
+  for (size_t i = 0; 0 == at && i < rest.lval.size(); i++) {
+    at = feature_named(rest.lval[i], "test") ? i + 1 : 0;
+  }
+  Jval named = Jval::map();
+  named.set("name", Jval::str("station"));
+  for (const auto& kv : entry.mval) {
+    named.set(kv.first, kv.second);
+  }
+  rest.lval.insert(rest.lval.begin() + static_cast<std::ptrdiff_t>(at), named);
+  return rest;
+}
+
 // ---------------------------------------------------------------------
 // The instance ref grammar (design station.md 6.1), pinned by the
 // `instanceref` corpus section.
@@ -4471,21 +4522,13 @@ class Station {
         calleropts.mval.end());
     Jval out = extra.ismap() ? extra : Jval::map();
 
-    Jval fmap = out.get("feature");
-    if (!fmap.ismap()) {
-      fmap = Jval::map();
-    }
-    Jval sopts = fmap.get("station");
-    if (!sopts.ismap()) {
-      sopts = Jval::map();
-    }
+    Jval sopts = station_entry_of(out.get("feature"));
     sopts.set("active", Jval::boolean(true));
     sopts.set("calleropts", calleropts);
     if (!instance.empty()) {
       sopts.set("instance", Jval::str(instance));
     }
-    fmap.set("station", sopts);
-    out.set("feature", fmap);
+    out.set("feature", with_station(out.get("feature"), sopts));
     return out;
   }
 
@@ -5058,6 +5101,63 @@ class Station {
     return ::sdk::Value(nullptr);
   }
 
+  // An entry of sdkgen's ordered list form of options.feature, by name.
+  static bool _feature_named(const ::sdk::Value& item, const char* name) {
+    ::sdk::Value found = ::sdk::getp(item, "name");
+    return item.is_map() && found.is_string() && name == found.as_string();
+  }
+
+  static ::sdk::Value _station_entry(const ::sdk::Value& feature) {
+    if (!feature.is_list()) {
+      return ::sdk::getp(feature, "station");
+    }
+    for (const auto& item : *feature.as_list()) {
+      if (_feature_named(item, "station")) {
+        return item;
+      }
+    }
+    return ::sdk::Value();
+  }
+
+  // The station entry of out's options.feature, made if absent. A list is
+  // init order as given, so the entry moves to its pinned place itself:
+  // right after test, or first.
+  static ::sdk::Value _station_slot(const ::sdk::Value& out) {
+    ::sdk::Value feature = ::sdk::getp(out, "feature");
+    if (!feature.is_list()) {
+      ::sdk::Value fmap = ::sdk::Helpers::toMapAny(feature);
+      if (!fmap.is_map()) {
+        fmap = ::sdk::vmap();
+        ::sdk::map_put(out, "feature", fmap);
+      }
+      ::sdk::Value entry = ::sdk::Helpers::toMapAny(::sdk::getp(fmap, "station"));
+      if (!entry.is_map()) {
+        entry = ::sdk::vmap();
+        ::sdk::map_put(fmap, "station", entry);
+      }
+      return entry;
+    }
+    ::sdk::Value entry = ::sdk::vmap();
+    ::sdk::map_put(entry, "name", ::sdk::Value("station"));
+    ::sdk::Value found = _station_entry(feature);
+    if (found.is_map()) {
+      for (const auto& kv : *found.as_map()) {
+        ::sdk::map_put(entry, kv.first, kv.second);
+      }
+    }
+    ::sdk::Value rest = ::sdk::vlist();
+    size_t at = 0;
+    for (const auto& item : *feature.as_list()) {
+      if (!_feature_named(item, "station")) {
+        rest.as_list()->push_back(item);
+        at = 0 == at && _feature_named(item, "test") ? rest.as_list()->size() : at;
+      }
+    }
+    rest.as_list()->insert(rest.as_list()->begin() + static_cast<std::ptrdiff_t>(at), entry);
+    ::sdk::map_put(out, "feature", rest);
+    return entry;
+  }
+
   // options() with the INSTANCE NAME the construction registers under
   // (design 6.1). C++ cannot overload on a LEADING optional argument
   // the way the canonical `options(instanceName?, extra?)` does, so the
@@ -5066,8 +5166,7 @@ class Station {
   // (options_for) - this is its SDK-Value spelling.
   ::sdk::Value options(const std::string& instance, const ::sdk::Value& extra) const {
     ::sdk::Value out = extra.is_map() ? ::sdk::Struct::clone(extra) : ::sdk::vmap();
-    std::string ref =
-        _named_ref(instance, extra, ::sdk::getp(::sdk::getp(extra, "feature"), "station"));
+    std::string ref = _named_ref(instance, extra, _station_entry(::sdk::getp(extra, "feature")));
     ::sdk::map_remove(out, "as");
     ::sdk::map_remove(out, "instance");
     if (!ref.empty()) {
@@ -5077,16 +5176,7 @@ class Station {
         }
       }
     }
-    ::sdk::Value fmap = ::sdk::Helpers::toMapAny(::sdk::getp(out, "feature"));
-    if (!fmap.is_map()) {
-      fmap = ::sdk::vmap();
-      ::sdk::map_put(out, "feature", fmap);
-    }
-    ::sdk::Value entry = ::sdk::Helpers::toMapAny(::sdk::getp(fmap, "station"));
-    if (!entry.is_map()) {
-      entry = ::sdk::vmap();
-      ::sdk::map_put(fmap, "station", entry);
-    }
+    ::sdk::Value entry = _station_slot(out);
     ::sdk::map_put(entry, "active", ::sdk::Value(true));
     ::sdk::Value callers = extra.is_map() ? ::sdk::Struct::clone(extra) : ::sdk::vmap();
     ::sdk::map_remove(callers, "apikey");

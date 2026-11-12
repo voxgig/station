@@ -196,7 +196,17 @@ subtest 'after test when test is active, else before the first by name' => sub {
         { __before__ => 'retry' } );
     is_deeply( adapter_anchor( { retry => { active => Voxgig::Struct::JFALSE() } } ), {} );
     is_deeply( adapter_anchor( { retry => { active => [1] } } ), {} );
-    is_deeply( adapter_anchor( [ { name => 'retry', active => 1 } ] ), {} );
+    # sdkgen's ordered array form: array order is init order.
+    is_deeply( adapter_anchor( [ { name => 'retry', active => 1 } ] ),
+        { __before__ => 'retry' } );
+    is_deeply(
+        adapter_anchor( [ { name => 'retry', active => 1 }, { name => 'cache', active => 1 } ] ),
+        { __before__ => 'retry' } );
+    is_deeply(
+        adapter_anchor( [ { name => 'retry', active => 1 }, { name => 'test', active => 1 } ] ),
+        { __after__ => 'test' } );
+    is_deeply( adapter_anchor( [ { name => 'station', active => 1 }, { name => 'retry' } ] ),
+        {} );
 };
 
 subtest 'live, with retry: station is the base wrap and sees each attempt' => sub {

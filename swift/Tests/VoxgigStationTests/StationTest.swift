@@ -335,6 +335,36 @@ final class StationTest: XCTestCase {
       "the default instance keeps its slug")
   }
 
+  func testOptionsKeepsTheListFormWithStationInItsPinnedPlace() throws {
+    let st = try memStation(
+      .map(["test-plug$eu": .map(["options": .map(["prefix": .str("/eu")])])]))
+    let retry: [String: Any?] = ["name": "retry", "active": true]
+    let test: [String: Any?] = ["name": "test", "active": true]
+    let own: [String: Any?] = ["name": "station", "instance": "test-plug$eu"]
+    func entry(_ feature: Any??, _ i: Int) -> [String: Any?] {
+      let list = ((feature ?? nil) as? [Any?]) ?? []
+      return (i < list.count ? list[i] as? [String: Any?] : nil) ?? [:]
+    }
+    func names(_ feature: Any??) -> [String] {
+      let list = ((feature ?? nil) as? [Any?]) ?? []
+      return list.indices.map { (entry(feature, $0)["name"] as? String) ?? "?" }
+    }
+
+    let bare = st.options(["feature": [retry] as [Any?]])["feature"]
+    XCTAssertEqual(["station", "retry"], names(bare), "station first without test")
+    XCTAssertEqual(true, entry(bare, 0)["active"] as? Bool, "station is active")
+
+    let tested = st.options(["feature": [test, retry] as [Any?]])["feature"]
+    XCTAssertEqual(["test", "station", "retry"], names(tested), "station right after test")
+
+    let moved = st.options(["feature": [retry, own, test] as [Any?]])
+    XCTAssertEqual(
+      ["retry", "test", "station"], names(moved["feature"]), "the caller's entry moves")
+    XCTAssertEqual(
+      "test-plug$eu", entry(moved["feature"], 2)["instance"] as? String, "and is kept")
+    XCTAssertEqual("/eu", moved["prefix"] as? String, "the instance is read from the list")
+  }
+
   func testOptionsTopLevelInstanceOrFullRefAsNamesTheInstance() throws {
     let st = try memStation(
       .map(["test-plug$eu": .map(["options": .map(["prefix": .str("/eu")])])]))

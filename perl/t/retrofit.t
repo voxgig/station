@@ -91,4 +91,30 @@ subtest 'live, with retry: station wraps the wire and sees each attempt' => sub 
     Voxgig::Station->reset;
 };
 
+# sdkgen's ordered array form: position is init order, so station takes its
+# pinned place first rather than the caller's map spread.
+subtest 'the array form of options.feature binds, with retry outside station' => sub {
+    Voxgig::Station->reset;
+    local $ENV{TASKPAD_APIKEY} = $APIKEY;
+
+    my $station = Voxgig::Station->open( { config => undef } );
+    my $pad = $station->connect( 'TaskpadSDK',
+        { base => $BASE, feature => [ { name => 'retry', active => 1 } ] } );
+
+    is_deeply( [ grep { 'base' ne $_ } map { $_->get_name } @{ $pad->{features} } ],
+        [qw(station retry)] );
+
+    my $todos = $pad->Todo->list;
+    ok( 0 < scalar @$todos, 'list() returns records' );
+
+    my @events = grep { 'http' eq $_->{kind} || 'op' eq $_->{kind} } @{ $station->events };
+    my @wire =
+      map { 'http' eq $_->{kind} ? [ 'http', $_->{http}{status} ] : [ 'op', $_->{op}{outcome} ] }
+      @events;
+    is_deeply( [ @wire[ -2, -1 ] ], [ [ 'http', 200 ], [ 'op', 'ok' ] ] );
+
+    $station->close;
+    Voxgig::Station->reset;
+};
+
 done_testing;

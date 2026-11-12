@@ -89,6 +89,32 @@ describe('generated-feature', { skip: !HAVE_SDKS }, () => {
     }
   })
 
+  test('the array form of options.feature binds through the generated feature', async () => {
+    process.env.TASKPAD_APIKEY = APIKEY
+    try {
+      const st = Station.open({ config: null })
+      const TaskpadSDK = loadSDK()
+      const names = (pad: any) => pad._features.map((f: any) => f.name).join(',')
+
+      const live = new TaskpadSDK(st.options({ base: BASE, feature: [] }))
+      equal('station', names(live))
+      ok(0 < (await live.Todo().list()).length)
+
+      const mocked = st.connect(TaskpadSDK, {
+        base: BASE,
+        as: 'mock',
+        feature: [{ name: 'test', active: true, entity: { todo: { t9: { id: 't9', title: 'mock' } } } }],
+      })
+      // The generated feature, then the carried adapter, inert (above).
+      equal('test,station,station', names(mocked))
+      equal('mock', (await mocked.Todo().list())[0].data().title)
+      st.close()
+    }
+    finally {
+      delete process.env.TASKPAD_APIKEY
+    }
+  })
+
   test('connect() on the regenerated SDK does not double-bind', async () => {
     process.env.TASKPAD_APIKEY = APIKEY
     try {

@@ -352,10 +352,7 @@ func (st *Station) OptionsFor(instance string, extra map[string]any) map[string]
 	if "" != instance {
 		names["instance"] = instance
 	}
-	named := map[string]any{}
-	for k, v := range asMap(asMap(extra["feature"])["station"]) {
-		named[k] = v
-	}
+	named := stationEntryOf(extra["feature"])
 	for k, v := range names {
 		named[k] = v
 	}
@@ -378,24 +375,70 @@ func (st *Station) OptionsFor(instance string, extra map[string]any) map[string]
 		}
 	}
 
-	fmap := map[string]any{}
-	for k, v := range asMap(out["feature"]) {
-		fmap[k] = v
-	}
-	sopts := map[string]any{}
-	for k, v := range asMap(fmap["station"]) {
-		sopts[k] = v
-	}
+	sopts := stationEntryOf(out["feature"])
 	sopts["active"] = true
 	sopts["station"] = st
 	sopts["calleropts"] = calleropts
 	for k, v := range names {
 		sopts[k] = v
 	}
-	fmap["station"] = sopts
-	out["feature"] = fmap
+	out["feature"] = withStation(out["feature"], sopts)
 
 	return out
+}
+
+// stationEntryOf copies the caller's station entry, from either form of
+// options.feature: sdkgen's ordered list of named entries, or a map.
+func stationEntryOf(feature any) map[string]any {
+	entry := asMap(asMap(feature)["station"])
+	list, isList := feature.([]any)
+	for _, f := range list {
+		if "station" == asMap(f)["name"] {
+			entry = asMap(f)
+			break
+		}
+	}
+	own := map[string]any{}
+	for k, v := range entry {
+		own[k] = v
+	}
+	if isList {
+		delete(own, "name")
+	}
+	return own
+}
+
+// A list is init order as given, so station takes its pinned place itself.
+func withStation(feature any, entry map[string]any) any {
+	list, isList := feature.([]any)
+	if !isList {
+		fmap := map[string]any{}
+		for k, v := range asMap(feature) {
+			fmap[k] = v
+		}
+		fmap["station"] = entry
+		return fmap
+	}
+	rest := []any{}
+	for _, f := range list {
+		if "station" != asMap(f)["name"] {
+			rest = append(rest, f)
+		}
+	}
+	at := 0
+	for i, f := range rest {
+		if "test" == asMap(f)["name"] {
+			at = i + 1
+			break
+		}
+	}
+	named := map[string]any{"name": "station"}
+	for k, v := range entry {
+		named[k] = v
+	}
+	placed := append([]any{}, rest[:at]...)
+	placed = append(placed, named)
+	return append(placed, rest[at:]...)
 }
 
 // boundEntry is the registry entry whose client IS this value, or nil.
