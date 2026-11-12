@@ -499,6 +499,20 @@ subtest 'http event host reads as URL.host does' => sub {
     );
 };
 
+subtest 'http event keeps no userinfo of a URL it reports whole' => sub {
+    reset_env();
+    my $st = Voxgig::Station->new( { config => undef } );
+    my $b = bind_client( $st, sub { return ( okres(), undef ) } );
+    $b->{client}{mode} = 'test';
+    for my $url ( 'https://u:s3cret@h x/y', 'https://u:p@h:99999/x' ) {
+        $b->{utility}{fetcher}->( $b->{ctx}, $url, { method => 'GET', headers => {} } );
+    }
+    my $shown = JSON::PP->new->canonical->encode(
+        [ map { $_->{http} } @{ events_of( $st, 'http' ) } ] );
+    unlike( $shown, qr/s3cret/,  'no password' );
+    unlike( $shown, qr/u:p\@/,   'no userinfo' );
+};
+
 subtest 'status-0 is a transport failure' => sub {
     reset_env();
     local $ENV{GNARLY_PETS_APIKEY} = 'status-zero-key';

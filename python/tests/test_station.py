@@ -412,6 +412,22 @@ class TestBinding(unittest.TestCase):
                          [(h['host'], h['path']) for h in http])
         st.close()
 
+    def test_http_event_keeps_no_userinfo_of_a_url_reported_whole(self):
+        from voxgig_station.station import without_userinfo
+        self.assertEqual('https://h x/y', without_userinfo('https://u:s3cret@h x/y'))
+        self.assertEqual('https://h:99999/x', without_userinfo('https://u:p@h:99999/x'))
+        self.assertEqual('https://h x/y@z', without_userinfo('https://h x/y@z'))
+        self.assertEqual('/a@b', without_userinfo('/a@b'))
+
+        st = Station({'config': None})
+        ctx, _log = bind(st, mode='test')
+        for url in ('https://u:s3cret@h x/y', 'https://u:p@h:99999/x'):
+            ctx.utility.fetcher(ctx, url, {'method': 'GET', 'headers': {}})
+        shown = json.dumps([e['http'] for e in st.events() if 'http' == e['kind']])
+        self.assertNotIn('s3cret', shown)
+        self.assertNotIn('u:p@', shown)
+        st.close()
+
     def test_missing_secret_fails_on_the_op_path(self):
         del os.environ['GNARLY_PETS_APIKEY']
         st = Station({'config': None})

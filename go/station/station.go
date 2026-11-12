@@ -3,6 +3,7 @@ package station
 import (
 	"errors"
 	"net/url"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -691,7 +692,7 @@ func (st *Station) emitHTTP(name string, corr string, fullurl string,
 
 	// A relative reference parses here but not in the canonical port, so it
 	// is reported whole. EscapedPath keeps the escapes that Path decodes.
-	host, path := "", fullurl
+	host, path := "", withoutUserinfo(fullurl)
 	if u, err := url.Parse(fullurl); nil == err && "" != u.Scheme && "" != u.Host {
 		host = urlHost(u)
 		path = u.EscapedPath()
@@ -710,6 +711,17 @@ func (st *Station) emitHTTP(name string, corr string, fullurl string,
 			DurationMs: nowMs() - started, Bytes: bytes,
 		},
 	})
+}
+
+var authorityRe = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.-]*://[^/?#]*`)
+
+// A URL reported whole drops its userinfo, a value no scrub would find.
+func withoutUserinfo(text string) string {
+	at := strings.LastIndex(authorityRe.FindString(text), "@")
+	if -1 == at {
+		return text
+	}
+	return text[:strings.Index(text, "://")+3] + text[at+1:]
 }
 
 var defaultPorts = map[string]string{"http": "80", "https": "443"}

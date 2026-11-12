@@ -45,6 +45,28 @@ describe('http-event', () => {
     st.close()
   })
 
+  test('a URL that does not parse is reported whole, less its userinfo', async () => {
+    const cases: [string, string, string][] = [
+      ['https://u:s3cret@h x/y', '', 'https://h x/y'],
+      ['https://u:p@h:99999/x', '', 'https://h:99999/x'],
+      ['https://h x/y@z', '', 'https://h x/y@z'],
+    ]
+
+    const st = new Station({ config: null })
+    const { ctx } = fakeClient('vault')
+    featureBinding(ctx, { station: st })
+
+    for (const [url] of cases) {
+      await ctx.utility.fetcher({ client: ctx.client }, url, { method: 'GET' })
+    }
+
+    const http = st.events().filter((e) => 'http' === e.kind)
+    deepStrictEqual(http.map((e) => [e.http!.host, e.http!.path]),
+      cases.map(([, host, path]) => [host, path]))
+
+    st.close()
+  })
+
   test('the host reads as URL.host does', async () => {
     const cases: [string, string, string][] = [
       ['https://h:443/x', 'h', '/x'],

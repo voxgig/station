@@ -756,11 +756,28 @@ namespace Voxgig.Station
             Emit(ev);
         }
 
+        private static readonly Regex Authority =
+            new Regex("^[a-zA-Z][a-zA-Z0-9+.-]*://[^/?#]*", RegexOptions.CultureInvariant);
+
+        // A URL reported whole loses its userinfo first: a value the broker
+        // never held, so no scrub can find it in the event.
+        internal static string WithoutUserinfo(string text)
+        {
+            Match head = Authority.Match(text ?? "");
+            int at = head.Success ? head.Value.LastIndexOf('@') : -1;
+            if (-1 == at)
+            {
+                return text;
+            }
+            return text.Substring(0, text.IndexOf("://", StringComparison.Ordinal) + 3)
+                + text.Substring(at + 1);
+        }
+
         private void EmitHttp(string slug, string corr, string fullurl,
             Dictionary<string, object> fetchdef, int status, long started, long bytes)
         {
             string host = "";
-            string path = fullurl;
+            string path = WithoutUserinfo(fullurl);
             // A scheme-less path parses as an implicit file URI on Unix; it is
             // reported whole, like an unparseable URL.
             if (Uri.TryCreate(fullurl, UriKind.Absolute, out Uri uri) && !uri.IsFile)

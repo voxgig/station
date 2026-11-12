@@ -707,6 +707,26 @@ internal static class Program
                 + gotText + "\n  want: " + wantText);
         });
 
+        TestCase("transport: an http event keeps no userinfo of a URL reported whole", () =>
+        {
+            Station st = MemoryStation(Map(), null);
+            Bind(st, new object(), st.Options(Map()));
+            foreach (string url in new[] { "https://u:s3cret@h x/y", "https://u:p@h:99999/x", "https://u:p@ss@h/x" })
+            {
+                st.Transport("test-plug", url, Map("method", "GET"), false, null,
+                    (u, def) => Map("status", 200));
+            }
+            foreach (var ev in st.Events())
+            {
+                if ("http".Equals(ev.GetValueOrDefault("kind")))
+                {
+                    var hm = Descriptor.AsMap(ev["http"]);
+                    string shown = hm["host"] + " " + hm["path"];
+                    Check(!shown.Contains("s3cret") && !shown.Contains("u:p@"), shown);
+                }
+            }
+        });
+
         TestCase("transport: a missing secret fails the op with the code", () =>
         {
             Station st = MemoryStation(Map(), null);

@@ -1338,7 +1338,7 @@ module VoxgigStation
 
     def emit_http(name, corr, fullurl, fetchdef, status, started, bytes)
       host = ''
-      path = fullurl.to_s
+      path = VoxgigStation.without_userinfo(fullurl.to_s)
       begin
         u = URI.parse(fullurl)
         # A relative reference is reported whole, like an unparseable URL.
@@ -1351,7 +1351,7 @@ module VoxgigStation
           path = '/' if path.empty?
         end
       rescue StandardError
-        path = fullurl.to_s
+        path = VoxgigStation.without_userinfo(fullurl.to_s)
       end
       emit('t' => started, 'kind' => 'http', 'plugin' => name,
            'api' => VoxgigStation.refapi(name), 'corr' => corr,

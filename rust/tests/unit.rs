@@ -692,6 +692,25 @@ fn http_event_host_reads_as_url_host() {
     Station::reset();
 }
 
+#[test]
+fn http_event_keeps_no_userinfo_of_a_url_reported_whole() {
+    let station = open_station(station_config(""));
+    let client: Rc<dyn Any> = Rc::new(());
+    let bound = bind(spec(client, &["test", "station"])).expect("bound");
+    for url in ["https://u:s3cret@h x/y", "https://u:p@h:99999/x"] {
+        bound
+            .binding
+            .done_ok(None, "GET", url, voxgig_station::now_ms(), 200, 0);
+    }
+    for ev in events_of(&station, "http") {
+        let http = ev.http.as_ref().unwrap();
+        let shown = format!("{} {}", http.host, http.path);
+        assert!(!shown.contains("s3cret") && !shown.contains("u:p@"), "{}", shown);
+    }
+    station.close();
+    Station::reset();
+}
+
 // --- the shape artifact (design §4.3) ---------------------------------------
 
 // spec/config-shape.json walked up from this crate, the way the corpus

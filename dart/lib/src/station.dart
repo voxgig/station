@@ -553,7 +553,7 @@ class Station {
       host = uri.hasPort ? name + ':' + uri.port.toString() : name;
       path = uri.path.isEmpty ? '/' : uri.path;
     } else {
-      path = fullurl.toString();
+      path = withoutUserinfo(fullurl.toString());
     }
     final method =
         (fetchdef is Map ? fetchdef['method'] : null) ?? 'GET';
@@ -760,4 +760,17 @@ class Station {
     }
     return null;
   }
+}
+
+final RegExp _authority = RegExp(r'^[a-zA-Z][a-zA-Z0-9+.-]*://[^/?#]*');
+
+// A URL reported whole loses its userinfo first: a value the broker never
+// held, so no scrub can find it in the event.
+String withoutUserinfo(String text) {
+  final head = _authority.firstMatch(text);
+  final at = null == head ? -1 : head.group(0)!.lastIndexOf('@');
+  if (-1 == at) {
+    return text;
+  }
+  return text.substring(0, text.indexOf('://') + 3) + text.substring(at + 1);
 }

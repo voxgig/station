@@ -1,11 +1,11 @@
 # Status: where the next session starts
 
-Snapshot, **2026-11-12**. `main` is at `dc36a3e`. 0.2.0 is released on
+Snapshot, **2026-11-12**. `main` is at `e195639`. 0.2.0 is released on
 every route, and `main` is ahead of it: the six pull requests of W1
 merged on 2026-11-11 and changed every port's source, and on 2026-11-12
 W5.1 (the proxy builds), W4.3 (the fixture SDKs), W2.1 (the carried
-adapter's place) and W2.2 (the Station out of the SDK's options)
-merged. The seven
+adapter's place), W2.2 (the Station out of the SDK's options) and W2.4
+(passwords refused in a block's `base`) merged. The seven
 decisions were ruled on 2026-11-11. The register
 in [`progress.md`](progress.md) is the per-item authority, and
 [`upstream.md`](upstream.md) tracks what other repositories owe. This
@@ -98,17 +98,16 @@ passing; CI runs them once the fixture lane's patch is applied.
 
 ## In flight
 
-W2.4, in review: a password in a block's `base`, or in a URL that does
-not parse, is refused in the eleven ports that run the `config` section.
-W2.12 and W2.13, found during W2.1, have no issue filed yet.
+W2.5, in review: an http event no longer carries the userinfo of a URL
+it reports whole, in every port. W2.12 and W2.13, found during W2.1,
+have no issue filed yet.
 
 
 ## Pick this up first
 
 In this order. None of it waits on the maintainer.
 
-1. **The rest of W2a**, canonical first: W2.5, then W2.3. That is what
-   0.3.0 waits on.
+1. **W2.3**, the last of W2a, canonical first. Then 0.3.0 (W2.11).
 2. **W4.1**, a completeness guard in typescript. W1.1, which edited the
    same test file, has landed.
 3. **W0.8**, the design's account of sdkgen.
@@ -148,6 +147,9 @@ git push origin --delete chore/comment-policy \
 
 ## Recently settled
 
+- **A password in a block's `base`, or in a URL that does not parse,
+  is refused** (W2.4, 2026-11-12, `e195639`), in the eleven ports that
+  run the `config` section; [#57] closed.
 - **The SDK's options hold no Station and no caller key** (W2.2,
   2026-11-12, `dc36a3e`), in every port that carried either; [#37]
   closed. The SDK's own copy of a resident key is `sdkgen-9`.
@@ -207,3 +209,4 @@ Each is source or prose the plan schedules:
 [#27]: https://github.com/voxgig/station/issues/27
 [#63]: https://github.com/voxgig/station/issues/63
 [#37]: https://github.com/voxgig/station/issues/37
+[#57]: https://github.com/voxgig/station/issues/57

@@ -727,6 +727,34 @@ static void test_emit_http_host(void) {
   vxstn_station_free(st);
 }
 
+static void test_emit_http_whole_without_userinfo(void) {
+  static const char* const urls[] = {"https://u:s3cret@h x/y", "https://u:p@h:99999/x"};
+  const size_t n = sizeof(urls) / sizeof(urls[0]);
+  vxstn_open_opts opts;
+  vxstn_station* st;
+  vxstn_val* events;
+  size_t i;
+
+  memset(&opts, 0, sizeof(opts));
+  opts.proxy = "off";
+  st = vxstn_station_new(&opts, NULL);
+
+  for (i = 0; i < n; i++) {
+    vxstn_emit_http(st, "vault", NULL, "GET", urls[i], 200, vxstn_now_ms(), 0);
+  }
+  events = vxstn_events(st);
+  CHECK(n == events->len);
+  for (i = 0; i < n && i < events->len; i++) {
+    const vxstn_val* http = vxstn_map_get(events->items[i], "http");
+    const char* host = vxstn_strval(vxstn_map_get(http, "host"));
+    const char* path = vxstn_strval(vxstn_map_get(http, "path"));
+    CHECK(NULL == strstr(host, "s3cret") && NULL == strstr(path, "s3cret"));
+    CHECK(NULL == strstr(host, "u:p@") && NULL == strstr(path, "u:p@"));
+  }
+  vxstn_val_free(events);
+  vxstn_station_free(st);
+}
+
 /* ---- Stage 5: the config shape, the mirror, and its invariants ---- */
 
 /* The mirror is only honest if something compares it to the spec. Walk
@@ -1733,6 +1761,7 @@ int main(void) {
   test_emit_http();
   test_emit_http_path();
   test_emit_http_host();
+  test_emit_http_whole_without_userinfo();
   test_shape_mirror();
   test_normalize_config();
   test_validate_config();

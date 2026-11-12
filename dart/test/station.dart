@@ -837,6 +837,26 @@ void stationCases(void Function(String, FutureOr<void> Function()) testcase) {
         'host and path of each request');
   });
 
+  testcase('an http event keeps no userinfo of a URL reported whole', () async {
+    eq(withoutUserinfo('https://u:s3cret@h x/y'), 'https://h x/y', 'a space in the host');
+    eq(withoutUserinfo('https://u:p@h:99999/x'), 'https://h:99999/x', 'a port out of range');
+    eq(withoutUserinfo('https://h x/y@z'), 'https://h x/y@z', 'an @ after the authority');
+    eq(withoutUserinfo('/a@b'), '/a@b', 'a relative reference');
+
+    final st = Station({'config': null, 'proxy': 'off'});
+    final ctx = makeCtx();
+    bindCtx(st, ctx);
+    ctx.client.mode = 'test';
+    for (final url in ['https://u:s3cret@h x/y', 'https://u:p@h:99999/x', 'https://u:p@ss@h/x']) {
+      await ctx.utility.fetcher(FakeCtx(client: ctx.client), url,
+          <String, dynamic>{'method': 'GET', 'headers': {}});
+    }
+    for (final e in ofKind(st, 'http')) {
+      final shown = '${e['http']['host']} ${e['http']['path']}';
+      check(!shown.contains('s3cret') && !shown.contains('u:p@'), shown);
+    }
+  });
+
   testcase('the http event host reads as URL.host does', () async {
     const cases = [
       ['https://h:443/x', 'h', '/x'],
