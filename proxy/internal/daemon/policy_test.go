@@ -37,6 +37,21 @@ func stationJSONFor(t *testing.T, hosts string, resolve string, capture string) 
 	return path
 }
 
+func TestConfigWithAnUnpairedSurrogateEscapeIsRefused(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "station.json")
+	text := `{"station": 1, "profiles": {"default": {"sdk": {` +
+		`"joplin$a\ud800": {}, "joplin$a\udbff": {}}}}}`
+	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := loadStationConfig(path, "default")
+	want := "station: config " + path +
+		` has an unpaired surrogate escape in "joplin$a\ud800"`
+	if nil == err || want != err.Error() {
+		t.Fatalf("err = %v, want %s", err, want)
+	}
+}
+
 // --- §8.3: pending -> approve -> narrow-not-widen ----------------------
 
 func TestPolicyAuthority(t *testing.T) {

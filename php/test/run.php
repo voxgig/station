@@ -50,6 +50,7 @@ use function Voxgig\Station\known_code;
 use function Voxgig\Station\merge_features;
 use function Voxgig\Station\normalize_config;
 use function Voxgig\Station\normalize_descriptor;
+use function Voxgig\Station\parse_config;
 use function Voxgig\Station\placeholder_for;
 use function Voxgig\Station\provide;
 use function Voxgig\Station\provided;
@@ -222,7 +223,8 @@ $DRIVERS = [
     // in, and either the normalized output or the expected error out -
     // the two steps are one pipeline and a port that splits them is free
     // to validate the wrong form.
-    'config' => fn($vin) => validate_config(normalize_config(denull($vin))),
+    'config' => fn($vin) => validate_config(normalize_config(
+        is_string($vin) ? parse_config($vin) : denull($vin))),
 
     // The 3.3 merge, and the whole of this port's profile contract. A
     // `ref` asks for the options that named instance is constructed with.
@@ -1537,6 +1539,11 @@ testcase('config_scope_reads_the_repo_review_boundary', function () {
         file_put_contents($dir . '/station.json', '{not json');
         $e = raises(fn() => \Voxgig\Station\load_config($dir), 'station_config_invalid');
         ok(str_contains($e->getMessage(), 'is not valid JSON'), $e->getMessage());
+
+        file_put_contents($dir . '/station.json', '{ "station": 1, "profiles": { "x\\ud800": {} } }');
+        $e = raises(fn() => \Voxgig\Station\load_config($dir), 'station_config_invalid');
+        eq('station_config_invalid: station.json at ' . $dir . '/station.json'
+            . ' has an unpaired surrogate escape in "x\\ud800"', $e->getMessage());
     } finally {
         @unlink($dir . '/station.json');
         @rmdir($dir);

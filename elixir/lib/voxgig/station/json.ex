@@ -74,10 +74,27 @@ defmodule Voxgig.Station.Json do
   defp parse_string("\"" <> rest, out),
     do: {out |> Enum.reverse() |> IO.iodata_to_binary(), rest}
 
+  # An escaped pair is one character. A lone surrogate has no UTF-8 form
+  # and raises here; the config reader refuses one before it gets here.
   defp parse_string("\\u" <> rest, out) do
     <<hex::binary-size(4), more::binary>> = rest
     {code, ""} = Integer.parse(hex, 16)
-    parse_string(more, [<<code::utf8>> | out])
+
+    case {code, more} do
+      {high, "\\u" <> <<lowhex::binary-size(4), tail::binary>>}
+      when high in 0xD800..0xDBFF ->
+        case Integer.parse(lowhex, 16) do
+          {low, ""} when low in 0xDC00..0xDFFF ->
+            pair = 0x10000 + (high - 0xD800) * 0x400 + (low - 0xDC00)
+            parse_string(tail, [<<pair::utf8>> | out])
+
+          _ ->
+            parse_string(more, [<<code::utf8>> | out])
+        end
+
+      _ ->
+        parse_string(more, [<<code::utf8>> | out])
+    end
   end
 
   defp parse_string("\\" <> <<escape, rest::binary>>, out) do

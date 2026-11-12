@@ -770,6 +770,102 @@ vxstn_val* vxstn_parse_json(const char* text, char** errmsg) {
   return out;
 }
 
+static long config_escape(const char* text, size_t n, size_t at) {
+  long unit = 0;
+  size_t k;
+  if (at + 6 > n || '\\' != text[at] || 'u' != text[at + 1]) {
+    return -1;
+  }
+  for (k = at + 2; k < at + 6; k++) {
+    char c = text[k];
+    unit *= 16;
+    if ('0' <= c && c <= '9') {
+      unit += c - '0';
+    } else if ('a' <= c && c <= 'f') {
+      unit += c - 'a' + 10;
+    } else if ('A' <= c && c <= 'F') {
+      unit += c - 'A' + 10;
+    } else {
+      return -1;
+    }
+  }
+  return unit;
+}
+
+static bool high_surrogate(long unit) {
+  return 0xD800 <= unit && unit <= 0xDBFF;
+}
+
+static bool low_surrogate(long unit) {
+  return 0xDC00 <= unit && unit <= 0xDFFF;
+}
+
+/* The first closed string literal holding a \u escape for a surrogate
+   that is not half of an escaped pair: its offset, quotes included, with
+   its length in *len, or -1. Read by byte: no byte of a multibyte
+   character is a quote or a backslash. */
+static long unpaired_surrogate(const char* text, size_t n, size_t* len) {
+  long start = -1;
+  bool unpaired = false;
+  size_t i;
+  for (i = 0; i < n; i++) {
+    char c = text[i];
+    if (-1 == start) {
+      if ('"' == c) {
+        start = (long)i;
+        unpaired = false;
+      }
+    } else if ('"' == c) {
+      if (unpaired) {
+        *len = i + 1 - (size_t)start;
+        return start;
+      }
+      start = -1;
+    } else if ('\\' == c) {
+      long unit = config_escape(text, n, i);
+      if (high_surrogate(unit) && low_surrogate(config_escape(text, n, i + 6))) {
+        i += 11;
+      } else if (high_surrogate(unit) || low_surrogate(unit)) {
+        unpaired = true;
+        i += 5;
+      } else {
+        i++;
+      }
+    }
+  }
+  return -1;
+}
+
+vxstn_val* vxstn_parse_config(const char* text, vxstn_error** err) {
+  const char* src = NULL == text ? "" : text;
+  size_t n = strlen(src);
+  size_t len = 0;
+  long at = unpaired_surrogate(src, n, &len);
+  vxstn_val* config = NULL;
+  char* jerr = NULL;
+  vxstn_sb msg;
+
+  if (NULL != err) {
+    *err = NULL;
+  }
+  vxstn_sb_init(&msg);
+  if (-1 != at) {
+    vxstn_sb_put(&msg, "station.json has an unpaired surrogate escape in ");
+    vxstn_sb_putn(&msg, src + at, len);
+    vxstn_seterr(err, "station_config_invalid", msg.buf);
+  } else {
+    config = vxstn_parse_json(src, &jerr);
+    if (NULL == config) {
+      vxstn_sb_put(&msg, "station.json is not valid JSON: ");
+      vxstn_sb_put(&msg, NULL == jerr ? "parse failed" : jerr);
+      vxstn_seterr(err, "station_config_invalid", msg.buf);
+      free(jerr);
+    }
+  }
+  free(msg.buf);
+  return config;
+}
+
 /* =========================================================================
  * Canonical serialization
  * =========================================================================*/
@@ -2258,19 +2354,8 @@ vxstn_station* vxstn_station_new(const vxstn_open_opts* opts, vxstn_error** err)
   }
 
   if (NULL != opts && NULL != opts->config_json) {
-    char* jerr = NULL;
-    config = vxstn_parse_json(opts->config_json, &jerr);
+    config = vxstn_parse_config(opts->config_json, err);
     if (NULL == config) {
-      /* A parse failure is a config error, not a protocol one: the
-         caller wrote a station.json, so say so in the vocabulary the
-         rest of the config surface uses. */
-      vxstn_sb msg;
-      vxstn_sb_init(&msg);
-      vxstn_sb_put(&msg, "config is not valid JSON: ");
-      vxstn_sb_put(&msg, NULL == jerr ? "parse failed" : jerr);
-      vxstn_seterr(err, "station_config_invalid", msg.buf);
-      free(msg.buf);
-      free(jerr);
       return NULL;
     }
 

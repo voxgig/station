@@ -263,6 +263,52 @@ internal static class Program
 
         // Focused unit cases: the mechanics the corpus cannot reach.
 
+        // This port runs no `config` section yet, so the raw-text cases it
+        // carries are pinned here.
+        TestCase("config: an unpaired surrogate escape is refused", () =>
+        {
+            foreach (string literal in new[] {
+                "\"joplin$a\\ud800\"", "\"x\\uDC00y\"", "\"\\ud83d\\ud83d\"",
+                "\"\\ude00\\ud83d\"" })
+            {
+                try
+                {
+                    Profile.ParseConfig("{\"station\": 1, \"profiles\": {" + literal + ": {}}}");
+                    Check(false, "refused: " + literal);
+                }
+                catch (StationError err)
+                {
+                    Check("station_config_invalid" == err.Code, "code");
+                    Check("station_config_invalid: station.json has an unpaired surrogate "
+                        + "escape in " + literal == err.Message, err.Message);
+                }
+            }
+            var config = Profile.ParseConfig("{\"pair\": \"\\ud83d\\ude00\", "
+                + "\"text\": \"\\\\ud800\"}");
+            Check("\U0001F600" == (string)config["pair"], "an escaped pair is one character");
+            Check("\\ud800" == (string)config["text"], "an escaped backslash is no escape");
+
+            string dir = Path.Combine(Path.GetTempPath(), "station-surrogate-" + Guid.NewGuid());
+            Directory.CreateDirectory(Path.Combine(dir, ".git"));
+            string file = Path.Combine(dir, "station.json");
+            File.WriteAllText(file, "{\"station\": 1, \"profiles\": {\"x\\ud800\": {}}}");
+            try
+            {
+                Profile.LoadConfig(dir);
+                Check(false, "LoadConfig refuses it");
+            }
+            catch (StationError err)
+            {
+                Check("station_config_invalid: station.json at " + file
+                    + " has an unpaired surrogate escape in \"x\\ud800\"" == err.Message,
+                    err.Message);
+            }
+            finally
+            {
+                Directory.Delete(dir, true);
+            }
+        });
+
         TestCase("events: ring overflow drops oldest, counted", () =>
         {
             var buffer = new EventBuffer(2);

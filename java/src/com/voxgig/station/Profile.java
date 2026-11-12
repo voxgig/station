@@ -67,15 +67,97 @@ public final class Profile {
     } catch (IOException err) {
       throw new RuntimeException("station: cannot read " + file + ": " + err.getMessage(), err);
     }
-    // A file that is not JSON is a CONFIG ERROR, not a raw parse error
-    // escaping open(): the reader found station.json and could not use it,
-    // which is exactly what station_config_invalid exists to say.
+    return parseConfig(text, file);
+  }
+
+  /**
+   * Decodes station.json text; a non-null file names it in a refusal. A
+   * file that is not JSON is a CONFIG ERROR, not a raw parse error escaping
+   * open(). Decoders disagree about an unpaired surrogate escape, which
+   * I-JSON forbids, so the text is scanned before it is decoded.
+   */
+  public static Map<String, Object> parseConfig(String text, String file) {
+    String where = "station.json" + (null == file ? "" : " at " + file);
+    String literal = unpairedSurrogate(text);
+    if (null != literal) {
+      throw new StationError("station_config_invalid",
+          where + " has an unpaired surrogate escape in " + literal);
+    }
     try {
       return Descriptor.asmap(Json.parse(text));
     } catch (RuntimeException err) {
       throw new StationError("station_config_invalid",
-          "station.json at " + file + " is not valid JSON: " + err.getMessage());
+          where + " is not valid JSON: " + err.getMessage());
     }
+  }
+
+  // The first closed string literal, quotes included, holding a \\u escape
+  // for a surrogate that is not half of an escaped pair.
+  static String unpairedSurrogate(String text) {
+    int start = -1;
+    boolean unpaired = false;
+    for (int i = 0; i < text.length(); i++) {
+      char c = text.charAt(i);
+      if (-1 == start) {
+        if ('"' == c) {
+          start = i;
+          unpaired = false;
+        }
+      } else if ('"' == c) {
+        if (unpaired) {
+          return text.substring(start, i + 1);
+        }
+        start = -1;
+      } else if ('\\' == c) {
+        int unit = escapedUnit(text, i);
+        if (isHighSurrogate(unit) && isLowSurrogate(escapedUnit(text, i + 6))) {
+          i += 11;
+        } else if (isHighSurrogate(unit) || isLowSurrogate(unit)) {
+          unpaired = true;
+          i += 5;
+        } else {
+          i++;
+        }
+      }
+    }
+    return null;
+  }
+
+  private static int escapedUnit(String text, int at) {
+    if (at + 6 > text.length() || '\\' != text.charAt(at) || 'u' != text.charAt(at + 1)) {
+      return -1;
+    }
+    int unit = 0;
+    for (int k = at + 2; k < at + 6; k++) {
+      int digit = hexDigit(text.charAt(k));
+      if (-1 == digit) {
+        return -1;
+      }
+      unit = unit * 16 + digit;
+    }
+    return unit;
+  }
+
+  // Character.digit would also take a non-ASCII digit.
+  private static int hexDigit(char c) {
+    if ('0' <= c && c <= '9') {
+      return c - '0';
+    }
+    if ('a' <= c && c <= 'f') {
+      return c - 'a' + 10;
+    }
+    if ('A' <= c && c <= 'F') {
+      return c - 'A' + 10;
+    }
+    return -1;
+  }
+
+  private static boolean isHighSurrogate(int unit) {
+    return 0xD800 <= unit && unit <= 0xDBFF;
+  }
+
+  private static boolean isLowSurrogate(int unit) {
+    return 0xDC00 <= unit && unit <= 0xDFFF;
   }
 
   /**

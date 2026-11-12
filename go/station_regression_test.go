@@ -32,6 +32,21 @@ func TestConfigRootMustBeAnObject(t *testing.T) {
 	}
 }
 
+func TestAnUnpairedSurrogateEscapeIsRefused(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "station.json")
+	body := `{ "station": 1, "profiles": { "x\ud800": {} } }`
+	if err := os.WriteFile(file, []byte(body), 0o644); nil != err {
+		t.Fatal(err)
+	}
+	_, err := station.LoadConfig(dir)
+	want := "station_config_invalid: station.json at " + file +
+		` has an unpaired surrogate escape in "x\ud800"`
+	if nil == err || want != err.Error() {
+		t.Fatalf("err = %v, want %s", err, want)
+	}
+}
+
 func TestDeclarationOrderIsNotSortedOrder(t *testing.T) {
 	dir := t.TempDir()
 	// zeta before alpha: declared order and sorted order disagree, so a

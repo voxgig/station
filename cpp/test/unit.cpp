@@ -522,6 +522,30 @@ int main(int argc, char** argv) {
     fs::remove_all(root);
   });
 
+  testcase("station-json-unpaired-surrogate-refused", [] {
+    namespace fs = std::filesystem;
+    fs::path root = fs::temp_directory_path() / "vstation-surrogate";
+    fs::remove_all(root);
+    fs::create_directories(root / ".git");
+    {
+      std::ofstream out(root / "station.json");
+      out << R"({ "station": 1, "profiles": { "x\ud800": {} } })";
+    }
+    std::string file = (root / "station.json").string();
+    try {
+      vs::load_config(root.string());
+      check(false, "an unpaired surrogate escape must be refused");
+    } catch (const vs::StationError& err) {
+      checkeq(err.code(), "station_config_invalid", "code");
+      checkeq(std::string(err.what()), "station_config_invalid: station.json at " + file +
+                                           R"( has an unpaired surrogate escape in "x\ud800")",
+              "message");
+    }
+    checkeq(vs::parse_config(R"({"e": "\ud83d\ude00"})").get("e").str_or(""),
+            "\xF0\x9F\x98\x80", "an escaped pair is one four-byte character");
+    fs::remove_all(root);
+  });
+
   testcase("legacy-config-warning-event-on-register", [] {
     vs::StationOptions opts;
     opts.has_config = true;

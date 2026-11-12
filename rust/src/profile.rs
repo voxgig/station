@@ -48,17 +48,95 @@ pub fn load_config(from: Option<&Path>) -> Result<Option<Json>, StationError> {
             format!("station.json at {} cannot be read: {}", file.display(), err),
         )
     })?;
-    match voxgig_sekreto::voxgig_plugin::value::parse(&text) {
-        Ok(parsed) => Ok(Some(parsed)),
-        Err(why) => Err(StationError::new(
+    parse_config(&text, Some(&file.display().to_string())).map(Some)
+}
+
+/// Decodes station.json text; `file` names it in a refusal. A file that is
+/// not JSON is a config error. Decoders disagree about an unpaired surrogate
+/// escape, which I-JSON forbids, so the text is scanned before it is decoded.
+pub fn parse_config(text: &str, file: Option<&str>) -> Result<Json, StationError> {
+    let place = match file {
+        Some(file) => format!("station.json at {}", file),
+        None => "station.json".to_string(),
+    };
+    if let Some(literal) = unpaired_surrogate(text) {
+        return Err(StationError::new(
             "station_config_invalid",
-            format!(
-                "station.json at {} is not valid JSON: {}",
-                file.display(),
-                why
-            ),
-        )),
+            format!("{} has an unpaired surrogate escape in {}", place, literal),
+        ));
     }
+    voxgig_sekreto::voxgig_plugin::value::parse(text).map_err(|why| {
+        StationError::new(
+            "station_config_invalid",
+            format!("{} is not valid JSON: {}", place, why),
+        )
+    })
+}
+
+// The first closed string literal, quotes included, holding a \u escape
+// for a surrogate that is not half of an escaped pair. Read by byte: no
+// byte of a multibyte character is a quote or a backslash.
+fn unpaired_surrogate(text: &str) -> Option<&str> {
+    let bytes = text.as_bytes();
+    let mut start: Option<usize> = None;
+    let mut unpaired = false;
+    let mut i = 0;
+    while i < bytes.len() {
+        let c = bytes[i];
+        match start {
+            None => {
+                if b'"' == c {
+                    start = Some(i);
+                    unpaired = false;
+                }
+            }
+            Some(open) => {
+                if b'"' == c {
+                    if unpaired {
+                        return Some(&text[open..=i]);
+                    }
+                    start = None;
+                } else if b'\\' == c {
+                    let unit = escaped_unit(bytes, i);
+                    if is_high_surrogate(unit) && is_low_surrogate(escaped_unit(bytes, i + 6)) {
+                        i += 11;
+                    } else if is_high_surrogate(unit) || is_low_surrogate(unit) {
+                        unpaired = true;
+                        i += 5;
+                    } else {
+                        i += 1;
+                    }
+                }
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+fn escaped_unit(bytes: &[u8], at: usize) -> i32 {
+    if at + 6 > bytes.len() || b'\\' != bytes[at] || b'u' != bytes[at + 1] {
+        return -1;
+    }
+    let mut unit = 0;
+    for &byte in &bytes[at + 2..at + 6] {
+        let digit = match byte {
+            b'0'..=b'9' => byte - b'0',
+            b'a'..=b'f' => byte - b'a' + 10,
+            b'A'..=b'F' => byte - b'A' + 10,
+            _ => return -1,
+        };
+        unit = unit * 16 + i32::from(digit);
+    }
+    unit
+}
+
+fn is_high_surrogate(unit: i32) -> bool {
+    (0xD800..=0xDBFF).contains(&unit)
+}
+
+fn is_low_surrogate(unit: i32) -> bool {
+    (0xDC00..=0xDFFF).contains(&unit)
 }
 
 pub fn config_scope(from: Option<&Path>) -> String {

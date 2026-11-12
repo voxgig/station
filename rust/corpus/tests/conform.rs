@@ -8,8 +8,8 @@ use voxgig_omni::{make_runner, Json as OJson, Provider, Subject, NULLMARK};
 use voxgig_station::{
     block_of, canonical_serialize, check_features, check_pin, envtoken, feature_names,
     feature_sources, instance_options, instance_ref, is_known_code, merge_features,
-    normalize_config, normalize_descriptor, placeholder_for, resolve_order, resolve_profile,
-    secretname_default, validate_config, Json,
+    normalize_config, normalize_descriptor, parse_config, placeholder_for, resolve_order,
+    resolve_profile, secretname_default, validate_config, Json,
 };
 
 // Find the shared spec by walking up from this crate (the station repo
@@ -153,7 +153,10 @@ fn drivers() -> Vec<(&'static str, Subject)> {
         Rc::new(|args: &[OJson]| Ok(OJson::Str(canonical_serialize(&o2s(&args[0])))));
 
     let config: Subject = Rc::new(|args: &[OJson]| {
-        let raw = o2s(&args[0]);
+        let raw = match &args[0] {
+            OJson::Str(text) => parse_config(text, None).map_err(|err| err.to_string())?,
+            other => o2s(other),
+        };
         match validate_config(&normalize_config(&raw)) {
             Ok(normalized) => Ok(s2o(&normalized)),
             Err(err) => Err(err.to_string()),

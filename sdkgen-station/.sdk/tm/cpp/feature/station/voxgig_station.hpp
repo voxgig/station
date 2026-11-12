@@ -544,6 +544,95 @@ inline void parseword(const std::string& text, size_t& pos, const std::string& w
   pos += word.size();
 }
 
+// The code unit four hex digits at `at` spell, or -1.
+inline long hexunit(const std::string& text, size_t at) {
+  if (at + 4 > text.size()) {
+    return -1;
+  }
+  long unit = 0;
+  for (size_t k = at; k < at + 4; k++) {
+    char ch = text[k];
+    unit *= 16;
+    if ('0' <= ch && ch <= '9') {
+      unit += ch - '0';
+    } else if ('a' <= ch && ch <= 'f') {
+      unit += ch - 'a' + 10;
+    } else if ('A' <= ch && ch <= 'F') {
+      unit += ch - 'A' + 10;
+    } else {
+      return -1;
+    }
+  }
+  return unit;
+}
+
+// The code unit a \u escape at `at` spells, or -1.
+inline long escapeunit(const std::string& text, size_t at) {
+  if (at + 2 > text.size() || '\\' != text[at] || 'u' != text[at + 1]) {
+    return -1;
+  }
+  return hexunit(text, at + 2);
+}
+
+inline void pututf8(std::string& out, unsigned long code) {
+  if (0x80 > code) {
+    out.push_back(static_cast<char>(code));
+  } else if (0x800 > code) {
+    out.push_back(static_cast<char>(0xC0 | (code >> 6)));
+    out.push_back(static_cast<char>(0x80 | (code & 0x3F)));
+  } else if (0x10000 > code) {
+    out.push_back(static_cast<char>(0xE0 | (code >> 12)));
+    out.push_back(static_cast<char>(0x80 | ((code >> 6) & 0x3F)));
+    out.push_back(static_cast<char>(0x80 | (code & 0x3F)));
+  } else {
+    out.push_back(static_cast<char>(0xF0 | (code >> 18)));
+    out.push_back(static_cast<char>(0x80 | ((code >> 12) & 0x3F)));
+    out.push_back(static_cast<char>(0x80 | ((code >> 6) & 0x3F)));
+    out.push_back(static_cast<char>(0x80 | (code & 0x3F)));
+  }
+}
+
+inline bool highsurrogate(long unit) {
+  return 0xD800 <= unit && unit <= 0xDBFF;
+}
+
+inline bool lowsurrogate(long unit) {
+  return 0xDC00 <= unit && unit <= 0xDFFF;
+}
+
+// The first closed string literal, quotes included, holding a \u escape
+// for a surrogate that is not half of an escaped pair, or "". Read by
+// byte: no byte of a multibyte character is a quote or a backslash.
+inline std::string unpairedsurrogate(const std::string& text) {
+  size_t start = std::string::npos;
+  bool unpaired = false;
+  for (size_t i = 0; i < text.size(); i++) {
+    char ch = text[i];
+    if (std::string::npos == start) {
+      if ('"' == ch) {
+        start = i;
+        unpaired = false;
+      }
+    } else if ('"' == ch) {
+      if (unpaired) {
+        return text.substr(start, i + 1 - start);
+      }
+      start = std::string::npos;
+    } else if ('\\' == ch) {
+      long unit = escapeunit(text, i);
+      if (highsurrogate(unit) && lowsurrogate(escapeunit(text, i + 6))) {
+        i += 11;
+      } else if (highsurrogate(unit) || lowsurrogate(unit)) {
+        unpaired = true;
+        i += 5;
+      } else {
+        i++;
+      }
+    }
+  }
+  return "";
+}
+
 inline std::string parsestr(const std::string& text, size_t& pos) {
   if (pos >= text.size() || '"' != text[pos]) {
     throw StationError("station_protocol", "expected JSON string at " + std::to_string(pos));
@@ -573,22 +662,17 @@ inline std::string parsestr(const std::string& text, size_t& pos) {
       case 'r': out.push_back('\r'); break;
       case 't': out.push_back('\t'); break;
       case 'u': {
-        if (pos + 4 > text.size()) {
+        long code = hexunit(text, pos);
+        if (-1 == code) {
           throw StationError("station_protocol", "bad JSON unicode escape");
         }
-        unsigned int code =
-            static_cast<unsigned int>(std::stoul(text.substr(pos, 4), nullptr, 16));
         pos += 4;
-        if (0x80 > code) {
-          out.push_back(static_cast<char>(code));
-        } else if (0x800 > code) {
-          out.push_back(static_cast<char>(0xC0 | (code >> 6)));
-          out.push_back(static_cast<char>(0x80 | (code & 0x3F)));
-        } else {
-          out.push_back(static_cast<char>(0xE0 | (code >> 12)));
-          out.push_back(static_cast<char>(0x80 | ((code >> 6) & 0x3F)));
-          out.push_back(static_cast<char>(0x80 | (code & 0x3F)));
+        long low = 0xD800 <= code && code <= 0xDBFF ? escapeunit(text, pos) : -1;
+        if (0xDC00 <= low && low <= 0xDFFF) {
+          code = 0x10000 + ((code - 0xD800) << 10) + (low - 0xDC00);
+          pos += 6;
         }
+        pututf8(out, static_cast<unsigned long>(code));
         break;
       }
       default:
@@ -2601,6 +2685,24 @@ inline std::string find_config_file(const std::string& from = "") {
   return "";
 }
 
+// station.json text, parsed; a non-empty `file` names it in a refusal.
+// Decoders disagree about an unpaired surrogate escape, which I-JSON
+// forbids, so the text is scanned before it is decoded.
+inline Jval parse_config(const std::string& text, const std::string& file = "") {
+  std::string where = "station.json" + (file.empty() ? std::string() : " at " + file);
+  std::string literal = jsonparse::unpairedsurrogate(text);
+  if (!literal.empty()) {
+    throw StationError("station_config_invalid",
+                       where + " has an unpaired surrogate escape in " + literal);
+  }
+  try {
+    return parse_json(text);
+  } catch (const StationError& err) {
+    throw StationError("station_config_invalid",
+                       where + " is not valid JSON: " + err.message());
+  }
+}
+
 // The parsed station.json, or absent when none is found. A malformed
 // file is station_config_invalid NAMING THE FILE - a raw parse error
 // escaping open() tells an operator nothing about which of the two
@@ -2613,13 +2715,7 @@ inline Jval load_config(const std::string& from = "") {
   std::ifstream handle(file);
   std::stringstream buffer;
   buffer << handle.rdbuf();
-  try {
-    return parse_json(buffer.str());
-  } catch (const StationError& err) {
-    throw StationError("station_config_invalid",
-                       "station.json at " + file + " is not valid JSON: " +
-                           err.message());
-  }
+  return parse_config(buffer.str(), file);
 }
 
 // Which side of design 6.3's review boundary the discovered

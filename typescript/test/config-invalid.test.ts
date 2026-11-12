@@ -28,6 +28,23 @@ test('malformed station.json raises station_config_invalid', () => {
   }
 })
 
+test('an unpaired surrogate escape raises station_config_invalid', () => {
+  const dir = tmpdir()
+  const file = Path.join(dir, 'station.json')
+  Fs.writeFileSync(file, '{ "station": 1, "profiles": { "x\\ud800": {} } }')
+  try {
+    Assert.throws(() => loadConfig(dir), (err: any) => {
+      Assert.equal(err.code, 'station_config_invalid')
+      Assert.equal(err.message, 'station_config_invalid: station.json at ' +
+        file + ' has an unpaired surrogate escape in "x\\ud800"')
+      return true
+    })
+  }
+  finally {
+    Fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('well-formed station.json still loads', () => {
   const dir = tmpdir()
   try {

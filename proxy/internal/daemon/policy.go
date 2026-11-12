@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -155,6 +156,55 @@ func mergedKeys(maps ...map[string]any) []string {
 	return out
 }
 
+// The first closed string literal, quotes included, holding a \u escape
+// for a surrogate that is not half of an escaped pair, as the library's
+// ParseConfig reads it.
+func unpairedSurrogate(text []byte) (string, bool) {
+	start := -1
+	unpaired := false
+	for i := 0; i < len(text); i++ {
+		c := text[i]
+		switch {
+		case -1 == start:
+			if '"' == c {
+				start = i
+				unpaired = false
+			}
+		case '"' == c:
+			if unpaired {
+				return string(text[start : i+1]), true
+			}
+			start = -1
+		case '\\' == c:
+			unit := escapedUnit(text, i)
+			if isHighSurrogate(unit) && isLowSurrogate(escapedUnit(text, i+6)) {
+				i += 11
+			} else if isHighSurrogate(unit) || isLowSurrogate(unit) {
+				unpaired = true
+				i += 5
+			} else {
+				i++
+			}
+		}
+	}
+	return "", false
+}
+
+func escapedUnit(text []byte, at int) int {
+	if at+6 > len(text) || '\\' != text[at] || 'u' != text[at+1] {
+		return -1
+	}
+	unit, err := strconv.ParseUint(string(text[at+2:at+6]), 16, 16)
+	if nil != err {
+		return -1
+	}
+	return int(unit)
+}
+
+func isHighSurrogate(unit int) bool { return 0xD800 <= unit && unit <= 0xDBFF }
+
+func isLowSurrogate(unit int) bool { return 0xDC00 <= unit && unit <= 0xDFFF }
+
 func loadStationConfig(path string, profileName string) (*stationConfig, error) {
 	if path == "" {
 		return nil, nil
@@ -162,6 +212,12 @@ func loadStationConfig(path string, profileName string) (*stationConfig, error) 
 	text, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("station: cannot read config %s: %w", path, err)
+	}
+	// encoding/json would replace an unpaired surrogate escape with U+FFFD,
+	// merging keys that differ only there; the library refuses the file too.
+	if literal, found := unpairedSurrogate(text); found {
+		return nil, fmt.Errorf("station: config %s has an unpaired surrogate escape in %s",
+			path, literal)
 	}
 	var raw map[string]any
 	if err := json.Unmarshal(text, &raw); err != nil {

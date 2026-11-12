@@ -38,15 +38,75 @@ module VoxgigStation
     file = find_config_file(from)
     return nil if file.nil?
 
-    begin
-      JSON.parse(File.read(file))
-    rescue JSON::ParserError => e
-      # A file that is not JSON is a CONFIG error, not a raw parse error
-      # escaping open(): the reader found station.json and could not use
-      # it, which is exactly what station_config_invalid exists to say.
+    parse_config(File.read(file), file)
+  end
+
+  # A file that is not JSON is a CONFIG error, not a raw parse error
+  # escaping open(). Decoders disagree about an unpaired surrogate escape,
+  # which I-JSON forbids, so the text is scanned before it is decoded.
+  def parse_config(text, file = nil)
+    where = 'station.json' + (file.nil? ? '' : ' at ' + file)
+    literal = unpaired_surrogate(text)
+    unless literal.nil?
       raise StationError.new('station_config_invalid',
-        'station.json at ' + file + ' is not valid JSON: ' + e.message.to_s)
+        where + ' has an unpaired surrogate escape in ' + literal)
     end
+
+    begin
+      JSON.parse(text)
+    rescue JSON::ParserError => e
+      raise StationError.new('station_config_invalid',
+        where + ' is not valid JSON: ' + e.message.to_s)
+    end
+  end
+
+  # The first closed string literal, quotes included, holding a \u escape
+  # for a surrogate that is not half of an escaped pair. Read by byte: no
+  # byte of a multibyte character is a quote or a backslash.
+  def unpaired_surrogate(text)
+    start = nil
+    unpaired = false
+    i = 0
+    while i < text.bytesize
+      byte = text.getbyte(i)
+      if start.nil?
+        if 0x22 == byte
+          start = i
+          unpaired = false
+        end
+      elsif 0x22 == byte
+        return text.byteslice(start, i + 1 - start) if unpaired
+
+        start = nil
+      elsif 0x5C == byte
+        unit = escaped_unit(text, i)
+        if high_surrogate?(unit) && low_surrogate?(escaped_unit(text, i + 6))
+          i += 11
+        elsif high_surrogate?(unit) || low_surrogate?(unit)
+          unpaired = true
+          i += 5
+        else
+          i += 1
+        end
+      end
+      i += 1
+    end
+    nil
+  end
+
+  def escaped_unit(text, at)
+    return -1 unless 0x5C == text.getbyte(at) && 0x75 == text.getbyte(at + 1)
+
+    digits = text.byteslice(at + 2, 4).to_s.b
+    digits.match?(/\A\h{4}\z/) ? digits.to_i(16) : -1
+  end
+
+  def high_surrogate?(unit)
+    unit.between?(0xD800, 0xDBFF)
+  end
+
+  def low_surrogate?(unit)
+    unit.between?(0xDC00, 0xDFFF)
   end
 
   # Which side of the review boundary the config came from

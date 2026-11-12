@@ -16,8 +16,8 @@ export {
 } from './descriptor'
 export { placeholderFor } from './secrets'
 export {
-  blockOf, configScope, findConfigFile, instanceOptions, loadConfig, refapi,
-  resolveProfile, selectProfile,
+  blockOf, configScope, findConfigFile, instanceOptions, loadConfig,
+  parseConfig, refapi, resolveProfile, selectProfile,
 } from './profile'
 export type { ResolvedProfile } from './profile'
 export {

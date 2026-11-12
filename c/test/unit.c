@@ -994,6 +994,26 @@ static vxstn_error* validate_text(const char* text) {
   return err;
 }
 
+static void test_config_text_with_an_unpaired_surrogate(void) {
+  vxstn_open_opts opts;
+  vxstn_error* err = NULL;
+  vxstn_station* st;
+
+  memset(&opts, 0, sizeof(opts));
+  opts.proxy = "off";
+  opts.config_json = "{ \"station\": 1, \"profiles\": { \"x\\ud800\": {} } }";
+  st = vxstn_station_new(&opts, &err);
+  CHECK(NULL == st);
+  CHECK(NULL != err);
+  if (NULL != err) {
+    CHECK_STR(err->code, "station_config_invalid");
+    CHECK_STR(err->message, "station_config_invalid: station.json has an "
+                            "unpaired surrogate escape in \"x\\ud800\"");
+  }
+  vxstn_error_free(err);
+  vxstn_station_free(st);
+}
+
 static void test_validate_config(void) {
   vxstn_error* err;
 
@@ -1834,6 +1854,7 @@ int main(void) {
   test_one_op_event_per_operation();
   test_shape_mirror();
   test_normalize_config();
+  test_config_text_with_an_unpaired_surrogate();
   test_validate_config();
   test_feature_merge();
   test_feature_order();

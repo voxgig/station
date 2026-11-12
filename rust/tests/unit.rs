@@ -1435,6 +1435,26 @@ fn a_malformed_config_file_names_itself() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+#[test]
+fn an_unpaired_surrogate_escape_is_refused() {
+    let dir = std::env::temp_dir().join(format!("station-surrogate-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join(".git")).unwrap();
+    let file = dir.join("station.json");
+    std::fs::write(&file, r#"{ "station": 1, "profiles": { "x\ud800": {} } }"#).unwrap();
+
+    let err = voxgig_station::load_config(Some(&dir)).unwrap_err();
+    assert_eq!("station_config_invalid", err.code);
+    assert_eq!(
+        format!(
+            r#"station.json at {} has an unpaired surrogate escape in "x\ud800""#,
+            file.display()
+        ),
+        err.msg
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 // --- the fleet view (design §8.7) -------------------------------------------
 
 #[test]

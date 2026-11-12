@@ -49,6 +49,7 @@ from voxgig_station import (  # noqa: E402
     factory_for,
     factory_from_module,
     feature_binding,
+    load_config,
     load_sync,
     normalize_config,
     normalize_descriptor,
@@ -1502,6 +1503,41 @@ class TestConfigShape(unittest.TestCase):
             '.profiles.`$CHILD`.feature.`$CHILD`',
             '.profiles.`$CHILD`.sdk.`$CHILD`.feature.`$CHILD`',
         ], sorted(open_at))
+
+class TestLoadConfig(unittest.TestCase):
+
+    def setUp(self):
+        self._dir = tempfile.mkdtemp()
+        self._file = os.path.join(self._dir, 'station.json')
+
+    def tearDown(self):
+        shutil.rmtree(self._dir, ignore_errors=True)
+
+    def _write(self, text):
+        with open(self._file, 'w', encoding='utf-8') as handle:
+            handle.write(text)
+
+    def test_malformed_json_names_the_file(self):
+        self._write('{ "station": 1, ')
+        with self.assertRaises(StationError) as caught:
+            load_config(self._dir)
+        self.assertEqual('station_config_invalid', caught.exception.code)
+        self.assertIn(self._file, str(caught.exception))
+
+    def test_an_unpaired_surrogate_escape_is_refused(self):
+        self._write('{ "station": 1, "profiles": { "x\\ud800": {} } }')
+        with self.assertRaises(StationError) as caught:
+            load_config(self._dir)
+        self.assertEqual('station_config_invalid', caught.exception.code)
+        self.assertEqual(
+            'station_config_invalid: station.json at ' + self._file +
+            ' has an unpaired surrogate escape in "x\\ud800"',
+            str(caught.exception))
+
+    def test_well_formed_json_still_loads(self):
+        self._write('{ "station": 1 }')
+        self.assertEqual({'station': 1}, load_config(self._dir))
+
 
 if __name__ == '__main__':
     unittest.main()

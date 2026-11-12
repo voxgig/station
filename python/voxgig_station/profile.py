@@ -36,16 +36,75 @@ def load_config(from_dir=None):
     if file is None:
         return None
     with open(file, encoding='utf-8') as handle:
-        text = handle.read()
-    # A file that is not JSON is a config error, not a raw decode error
-    # escaping open(): the reader found station.json and could not use
-    # it, which is exactly what station_config_invalid exists to say.
+        return parse_config(handle.read(), file)
+
+
+def parse_config(text, file=None):
+    """A file that is not JSON is a config error, not a raw decode error
+    escaping open(). Decoders disagree about an unpaired surrogate escape,
+    which I-JSON forbids, so the text is scanned before it is decoded."""
+    where = 'station.json' + ('' if file is None else ' at ' + file)
+    literal = _unpaired_surrogate(text)
+    if literal is not None:
+        raise StationError(
+            'station_config_invalid',
+            where + ' has an unpaired surrogate escape in ' + literal)
     try:
         return json.loads(text)
     except ValueError as e:
         raise StationError(
             'station_config_invalid',
-            'station.json at ' + file + ' is not valid JSON: ' + str(e))
+            where + ' is not valid JSON: ' + str(e))
+
+
+def _unpaired_surrogate(text):
+    """The first closed string literal, quotes included, holding a \\u
+    escape for a surrogate that is not half of an escaped pair."""
+    start = -1
+    unpaired = False
+    i = 0
+    while i < len(text):
+        c = text[i]
+        if -1 == start:
+            if '"' == c:
+                start = i
+                unpaired = False
+        elif '"' == c:
+            if unpaired:
+                return text[start:i + 1]
+            start = -1
+        elif '\\' == c:
+            unit = _escaped_unit(text, i)
+            if _is_high_surrogate(unit) and _is_low_surrogate(
+                    _escaped_unit(text, i + 6)):
+                i += 11
+            elif _is_high_surrogate(unit) or _is_low_surrogate(unit):
+                unpaired = True
+                i += 5
+            else:
+                i += 1
+        i += 1
+    return None
+
+
+_HEX = frozenset('0123456789abcdefABCDEF')
+
+
+def _escaped_unit(text, i):
+    if '\\u' != text[i:i + 2]:
+        return -1
+    digits = text[i + 2:i + 6]
+    if 4 != len(digits) or not all(d in _HEX for d in digits):
+        return -1
+    return int(digits, 16)
+
+
+def _is_high_surrogate(unit):
+    return 0xD800 <= unit <= 0xDBFF
+
+
+def _is_low_surrogate(unit):
+    return 0xDC00 <= unit <= 0xDFFF
 
 
 def config_scope(from_dir=None):

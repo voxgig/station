@@ -157,6 +157,12 @@ void vxstn_val_free(vxstn_val* v);
  * errmsg is non-NULL. Null parses to VXSTN_NULL. */
 vxstn_val* vxstn_parse_json(const char* text, char** errmsg);
 
+/* station.json text, parsed. NULL + *err station_config_invalid when the
+ * text is not JSON, or holds an unpaired surrogate escape, which I-JSON
+ * forbids: decoders disagree about one, so the text is scanned before it
+ * is decoded. Owned. */
+vxstn_val* vxstn_parse_config(const char* text, vxstn_error** err);
+
 /* =========================================================================
  * Canonical serialization (design station.md 4): UTF-8, object keys
  * sorted bytewise (strcmp compares as unsigned char, which IS byte

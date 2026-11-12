@@ -18,7 +18,9 @@ import {
   resolveorder,
 } from '../src/feature'
 import { placeholderFor, substitute } from '../src/secrets'
-import { blockOf, instanceOptions, resolveProfile } from '../src/profile'
+import {
+  blockOf, instanceOptions, parseConfig, resolveProfile,
+} from '../src/profile'
 import { normalizeConfig, validateConfig } from '../src/shape'
 import { instanceRef } from '../src/Station'
 import { omnihome, specfile } from '../src/omnihome'
@@ -84,7 +86,8 @@ describe('station-conform', () => {
 
   test('config', async () => {
     await R.runset(R.spec.config, (vin: any) =>
-      validateConfig(normalizeConfig(denull(vin))))
+      validateConfig(normalizeConfig(
+        'string' === typeof vin ? parseConfig(vin) : denull(vin))))
   })
 
   // The §3.3 merge, and the whole of this port's profile contract. A

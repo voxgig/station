@@ -195,7 +195,15 @@ var (
 	})
 
 	CONFIG = omni.Subject(func(args ...any) (any, error) {
-		return station.ValidateConfig(station.NormalizeConfig(denull(args[0])))
+		raw := denull(args[0])
+		if text, is := args[0].(string); is {
+			parsed, _, err := station.ParseConfig([]byte(text), "")
+			if nil != err {
+				return nil, err
+			}
+			raw = parsed
+		}
+		return station.ValidateConfig(station.NormalizeConfig(raw))
 	})
 
 	// The §3.3 merge, and the whole of this port's profile contract. A

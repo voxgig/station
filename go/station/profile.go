@@ -60,13 +60,9 @@ func LoadConfigOrder(from string) (map[string]any, *Order, error) {
 	if nil != err {
 		return nil, nil, err
 	}
-	// A file that is not JSON is a config error, not a raw parse error
-	// escaping Open(): the reader found station.json and could not use
-	// it, which is exactly what station_config_invalid exists to say.
-	parsed, order, err := ParseOrdered(text)
+	parsed, order, err := ParseConfig(text, file)
 	if nil != err {
-		return nil, nil, fail("station_config_invalid",
-			"station.json at "+file+" is not valid JSON: "+err.Error())
+		return nil, nil, err
 	}
 	config, is := parsed.(map[string]any)
 	if !is {
@@ -77,6 +73,77 @@ func LoadConfigOrder(from string) (map[string]any, *Order, error) {
 	}
 	return config, order, nil
 }
+
+// ParseConfig decodes station.json text, and file, when not empty, names
+// it in a refusal. A file that is not JSON is a config error, not a raw
+// parse error escaping Open(). Decoders disagree about an unpaired
+// surrogate escape, which I-JSON forbids, and encoding/json replaces one
+// with U+FFFD, so the text is scanned before it is decoded.
+func ParseConfig(text []byte, file string) (any, *Order, error) {
+	where := "station.json"
+	if "" != file {
+		where += " at " + file
+	}
+	if literal, found := unpairedSurrogate(text); found {
+		return nil, nil, fail("station_config_invalid",
+			where+" has an unpaired surrogate escape in "+literal)
+	}
+	parsed, order, err := ParseOrdered(text)
+	if nil != err {
+		return nil, nil, fail("station_config_invalid",
+			where+" is not valid JSON: "+err.Error())
+	}
+	return parsed, order, nil
+}
+
+// The first closed string literal, quotes included, holding a \u escape
+// for a surrogate that is not half of an escaped pair. Read by byte: no
+// byte of a multibyte rune is a quote or a backslash.
+func unpairedSurrogate(text []byte) (string, bool) {
+	start := -1
+	unpaired := false
+	for i := 0; i < len(text); i++ {
+		c := text[i]
+		switch {
+		case -1 == start:
+			if '"' == c {
+				start = i
+				unpaired = false
+			}
+		case '"' == c:
+			if unpaired {
+				return string(text[start : i+1]), true
+			}
+			start = -1
+		case '\\' == c:
+			unit := escapedUnit(text, i)
+			if isHighSurrogate(unit) && isLowSurrogate(escapedUnit(text, i+6)) {
+				i += 11
+			} else if isHighSurrogate(unit) || isLowSurrogate(unit) {
+				unpaired = true
+				i += 5
+			} else {
+				i++
+			}
+		}
+	}
+	return "", false
+}
+
+func escapedUnit(text []byte, at int) int {
+	if at+6 > len(text) || '\\' != text[at] || 'u' != text[at+1] {
+		return -1
+	}
+	unit, err := strconv.ParseUint(string(text[at+2:at+6]), 16, 16)
+	if nil != err {
+		return -1
+	}
+	return int(unit)
+}
+
+func isHighSurrogate(unit int) bool { return 0xD800 <= unit && unit <= 0xDBFF }
+
+func isLowSurrogate(unit int) bool { return 0xDC00 <= unit && unit <= 0xDFFF }
 
 func ConfigScope(from string) string {
 	file := FindConfigFile(from)

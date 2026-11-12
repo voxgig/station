@@ -1429,6 +1429,97 @@
        },
        "station": 1
       }
+     },
+     {
+      "doc": true,
+      "err": "station_config_invalid: station.json has an unpaired surrogate escape in \"joplin$a\\ud800\"",
+      "id": "config#text-lone-high-in-a-key",
+      "in": "{\"station\": 1, \"profiles\": {\"default\": {\"sdk\": {\"joplin$a\\ud800\": {\"base\": \"http://127.0.0.1:1\"}}}}}"
+     },
+     {
+      "err": "station_config_invalid: station.json has an unpaired surrogate escape in \"joplin$a\\uDFFF\"",
+      "id": "config#text-lone-low-in-a-key",
+      "in": "{\"station\": 1, \"profiles\": {\"default\": {\"sdk\": {\"joplin$a\\uDFFF\": {\"base\": \"http://127.0.0.1:1\"}}}}}"
+     },
+     {
+      "err": "station_config_invalid: station.json has an unpaired surrogate escape in \"x\\uDBFFy\"",
+      "id": "config#text-lone-high-in-a-value",
+      "in": "{\"station\": 1, \"profiles\": {\"default\": {\"sdk\": {\"joplin\": {\"options\": {\"note\": \"x\\uDBFFy\"}}}}}}"
+     },
+     {
+      "err": "station_config_invalid: station.json has an unpaired surrogate escape in \"\\udc00\"",
+      "id": "config#text-lone-low-in-a-value",
+      "in": "{\"station\": 1, \"profiles\": {\"default\": {\"sdk\": {\"joplin\": {\"options\": {\"note\": \"\\udc00\"}}}}}}"
+     },
+     {
+      "err": "station_config_invalid: station.json has an unpaired surrogate escape in \"\\ud83d\\ud83d\"",
+      "id": "config#text-two-highs-are-not-a-pair",
+      "in": "{\"station\": 1, \"profiles\": {\"default\": {\"sdk\": {\"joplin\": {\"options\": {\"note\": \"\\ud83d\\ud83d\"}}}}}}"
+     },
+     {
+      "err": "station_config_invalid: station.json has an unpaired surrogate escape in \"\\ude00\\ud83d\"",
+      "id": "config#text-reversed-pair",
+      "in": "{\"station\": 1, \"profiles\": {\"default\": {\"sdk\": {\"joplin\": {\"options\": {\"note\": \"\\ude00\\ud83d\"}}}}}}"
+     },
+     {
+      "doc": true,
+      "id": "config#text-escaped-pair-is-accepted",
+      "in": "{\"station\": 1, \"profiles\": {\"default\": {\"sdk\": {\"joplin\": {\"options\": {\"\\ud83d\\ude00\": \"\\ud83d\\ude00\", \"edge\": \"\\ud7ff\\ue000\"}}}}}}",
+      "out": {
+       "profiles": {
+        "default": {
+         "api": {},
+         "feature": {},
+         "sdk": {
+          "joplin": {
+           "active": true,
+           "feature": {},
+           "options": {
+            "edge": "\ud7ff\ue000",
+            "😀": "😀"
+           }
+          }
+         },
+         "secrets": {
+          "providers": [
+           {
+            "kind": "env"
+           }
+          ]
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "id": "config#text-escaped-backslash-is-not-an-escape",
+      "in": "{\"station\": 1, \"profiles\": {\"default\": {\"sdk\": {\"joplin\": {\"options\": {\"note\": \"\\\\ud800\"}}}}}}",
+      "out": {
+       "profiles": {
+        "default": {
+         "api": {},
+         "feature": {},
+         "sdk": {
+          "joplin": {
+           "active": true,
+           "feature": {},
+           "options": {
+            "note": "\\ud800"
+           }
+          }
+         },
+         "secrets": {
+          "providers": [
+           {
+            "kind": "env"
+           }
+          ]
+         }
+        }
+       },
+       "station": 1
+      }
      }
     ]
    },

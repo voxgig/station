@@ -1312,6 +1312,15 @@ has rules:**
   collision (§5.1) and a `secret` name sekreto would reject. The file
   is malformed, and it is the file that decides which credential
   reaches which host.
+- **The text is read the same way in every language before any of
+  that.** A file that is not JSON is `station_config_invalid`, and so is
+  one whose text holds a `\u` escape for a surrogate that is not half of
+  an escaped pair, which I-JSON (RFC 7493 §2.1) forbids. Decoders
+  disagree about such an escape: one keeps it, one replaces it with
+  U+FFFD so that two keys merge into one, one refuses the file. So each
+  port scans the text before it decodes it, and the refusal quotes the
+  first string literal holding one, escapes and all, as the file spells
+  it. An escaped pair is one character, in every port.
 - **Availability errors are fatal at first use.** A package that will not
   import, an api with no factory, an instance marked inactive — these
   fail at `station.sdk(name)`, not at `open()`. At 20 SDKs a process
@@ -1322,7 +1331,7 @@ New error codes for `station.md` §14's catalog:
 
 | code | when |
 |---|---|
-| `station_config_invalid` | struct validation failed; message carries every error with paths |
+| `station_config_invalid` | the text is not JSON or holds an unpaired surrogate escape, or struct validation failed; message carries every error with paths |
 | `station_config_secret` | a credential-shaped key in an `options` block (§5.2) |
 | `station_no_instance` | `sdk(ref)` for an undeclared ref; message lists the declared ones |
 | `station_instance_api` | `connect(SDK, {as})` given a full ref whose name is not the SDK's api slug (§6.1) |
