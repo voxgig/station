@@ -869,6 +869,10 @@ static void scanconfig(const vxstn_val* cfg, vxstn_val* secrets, vxstn_val* rese
           free(sub);
         }
 
+        sub = joinpath(bpath, "base");
+        userinfo(vxstn_map_get(block, "base"), sub, secrets);
+        free(sub);
+
         /* `options` is passthrough to a generated constructor, so it is
          * the one place a value can hide. */
         sub = joinpath(bpath, "options");

@@ -319,6 +319,10 @@ fn scan_config(cfg: &Json) -> Scanned {
                     secretvalue(secret, &format!("{}.secret", bpath), &mut out.secrets);
                 }
 
+                if let Some(Json::Str(base)) = jget(block, "base") {
+                    userinfo(base, &format!("{}.base", bpath), &mut out.secrets);
+                }
+
                 scan(
                     jget(block, "options"),
                     &format!("{}.options", bpath),

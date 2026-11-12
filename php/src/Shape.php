@@ -395,6 +395,11 @@ function scan_config(mixed $cfg): array
                     secretvalue(mval($block, 'secret'), $bpath . '.secret', $secrets);
                 }
 
+                $base = mval($block, 'base');
+                if (is_string($base)) {
+                    userinfo($base, $bpath . '.base', $secrets);
+                }
+
                 // `options` is passthrough to a generated constructor,
                 // so it is the one place a value can hide.
                 scan(mval($block, 'options'), $bpath . '.options', $secrets, $reserved);

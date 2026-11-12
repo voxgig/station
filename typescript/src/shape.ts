@@ -159,6 +159,9 @@ function scanConfig(cfg: any): void {
           secretvalue(block.secret, bpath + '.secret', secrets)
         }
 
+        if ('string' === typeof block.base) {
+          userinfo(block.base, bpath + '.base', secrets)
+        }
         scan(block.options, bpath + '.options', secrets, reserved)
         checkfeatures(block.feature, bpath + '.feature', secrets, reserved, invalid)
 
@@ -298,10 +301,18 @@ function secretvalue(val: any, path: string, secrets: string[]): void {
 /** One rule about values rather than keys, because the `proxy` feature
  * makes it concrete: `http://user:pass@proxy.internal:8080`. */
 function userinfo(val: string, path: string, secrets: string[]): void {
-  if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(val)) { return }
-  let u: URL
-  try { u = new URL(val) } catch (e) { return }
-  if ('' !== u.username || '' !== u.password) {
+  const authority = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/([^/?#]*)/.exec(val)
+  if (null == authority) { return }
+  let carries: boolean
+  try {
+    const u = new URL(val)
+    carries = '' !== u.username || '' !== u.password
+  }
+  catch (e) {
+    // One that does not parse still carries userinfo if its authority has an @.
+    carries = authority[1].includes('@')
+  }
+  if (carries) {
     secrets.push(path + ' is a URL carrying userinfo, which puts a ' +
       'credential in the config file; use the proxy feature\'s ' +
       '`fromEnv` option instead (§8.6)')
