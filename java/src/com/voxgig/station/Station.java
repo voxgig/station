@@ -402,8 +402,7 @@ public class Station {
     if (null != instance && !instance.isEmpty()) {
       names.put("instance", instance);
     }
-    Map<String, Object> named = new LinkedHashMap<>(Descriptor.asmap(
-        Descriptor.getprop(Descriptor.getprop(extra, "feature"), "station")));
+    Map<String, Object> named = stationEntryOf(Descriptor.getprop(extra, "feature"));
     named.putAll(names);
     String ref = namedRef(named);
     Map<String, Object> given = null == extra ? new LinkedHashMap<>() : extra;
@@ -413,10 +412,7 @@ public class Station {
     out.remove("as");
     out.remove("instance");
 
-    Map<String, Object> fmap = new LinkedHashMap<>(
-        Descriptor.asmap(out.get("feature")));
-    Map<String, Object> entry = new LinkedHashMap<>(
-        Descriptor.asmap(fmap.get("station")));
+    Map<String, Object> entry = stationEntryOf(out.get("feature"));
     entry.put("active", true);
     entry.put("station", this);
     // The entry rides in options an app may print: it keeps no caller key.
@@ -424,10 +420,51 @@ public class Station {
     keyless.remove("apikey");
     entry.put("calleropts", keyless);
     entry.putAll(names);
-    fmap.put("station", entry);
-    out.put("feature", fmap);
+    out.put("feature", withStation(out.get("feature"), entry));
 
     return out;
+  }
+
+  // sdkgen's ordered form of options.feature is a list of named entries.
+  static Map<String, Object> stationEntryOf(Object feature) {
+    if (!(feature instanceof List)) {
+      return new LinkedHashMap<>(Descriptor.asmap(Descriptor.getprop(feature, "station")));
+    }
+    for (Object f : (List<Object>) feature) {
+      if ("station".equals(Descriptor.getprop(f, "name"))) {
+        Map<String, Object> own = new LinkedHashMap<>(Descriptor.asmap(f));
+        own.remove("name");
+        return own;
+      }
+    }
+    return new LinkedHashMap<>();
+  }
+
+  // A list is init order as given, so station takes its pinned place itself.
+  static Object withStation(Object feature, Map<String, Object> entry) {
+    if (!(feature instanceof List)) {
+      Map<String, Object> fmap = new LinkedHashMap<>(Descriptor.asmap(feature));
+      fmap.put("station", entry);
+      return fmap;
+    }
+    List<Object> rest = new ArrayList<>();
+    for (Object f : (List<Object>) feature) {
+      if (!"station".equals(Descriptor.getprop(f, "name"))) {
+        rest.add(f);
+      }
+    }
+    int at = 0;
+    for (int i = 0; i < rest.size(); i++) {
+      if ("test".equals(Descriptor.getprop(rest.get(i), "name"))) {
+        at = i + 1;
+        break;
+      }
+    }
+    Map<String, Object> named = new LinkedHashMap<>();
+    named.put("name", "station");
+    named.putAll(entry);
+    rest.add(at, named);
+    return rest;
   }
 
   // --- the binding seam (design 3, called by the generated adapter) ---

@@ -1173,6 +1173,30 @@ class TestDeclarative(unittest.TestCase):
         self.assertEqual({'suffix': '.json'}, unnamed)
         st.close()
 
+    def test_options_keeps_the_list_form_with_station_in_its_pinned_place(self):
+        st = Station({'config': cfg(sdk={'notes': {},
+                                         'notes$eu': {'options': {'prefix': '/eu'}}}),
+                      'proxy': 'off'})
+
+        def names(feature):
+            return [f['name'] for f in feature]
+
+        bare = st.options({'feature': [{'name': 'retry', 'active': True}]})['feature']
+        self.assertEqual(['station', 'retry'], names(bare))
+        self.assertTrue(bare[0]['active'])
+
+        tested = st.options({'feature': [{'name': 'test', 'active': True},
+                                         {'name': 'retry', 'active': True}]})['feature']
+        self.assertEqual(['test', 'station', 'retry'], names(tested))
+
+        moved = st.options({'feature': [{'name': 'retry', 'active': True},
+                                        {'name': 'station', 'instance': 'notes$eu'},
+                                        {'name': 'test', 'active': True}]})
+        self.assertEqual(['retry', 'test', 'station'], names(moved['feature']))
+        self.assertEqual('notes$eu', moved['feature'][2]['instance'])
+        self.assertEqual('/eu', moved['prefix'], 'the instance is read from the list')
+        st.close()
+
     def test_options_names_the_instance_from_a_top_level_instance_or_as(self):
         blocks = {'gnarly-pets': {'options': {'headers': {'x-api-version': '1'}}},
                   'gnarly-pets$eu': {'options': {'prefix': '/eu'}}}

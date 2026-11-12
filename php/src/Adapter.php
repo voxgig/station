@@ -360,13 +360,22 @@ function adapter_anchor(mixed $fmap): array
         return [];
     }
     $names = [];
-    foreach ($fmap as $name => $entry) {
-        if (is_string($name) && 'station' !== $name && is_array($entry)
-            && true === ($entry['active'] ?? null)) {
-            $names[] = $name;
+    if (is_feature_list($fmap)) {
+        foreach ($fmap as $entry) {
+            if (is_array($entry) && 'station' !== ($entry['name'] ?? null)
+                && true === ($entry['active'] ?? null)) {
+                $names[] = (string) $entry['name'];
+            }
         }
+    } else {
+        foreach ($fmap as $name => $entry) {
+            if (is_string($name) && 'station' !== $name && is_array($entry)
+                && true === ($entry['active'] ?? null)) {
+                $names[] = $name;
+            }
+        }
+        sort($names, SORT_STRING);
     }
-    sort($names, SORT_STRING);
     if (in_array('test', $names, true)) {
         return ['__after__' => 'test'];
     }
@@ -388,4 +397,52 @@ function result_outcome(mixed $ctx): string
         return 'err';
     }
     return 'ok';
+}
+
+/** sdkgen's ordered form: a non-empty list of `['name' => ...]` entries. */
+function is_feature_list(mixed $feature): bool
+{
+    return is_array($feature) && [] !== $feature && array_is_list($feature);
+}
+
+/** The caller's own station options, from a feature map or sdkgen's ordered list. */
+function station_entry_of(mixed $feature): array
+{
+    if (is_feature_list($feature)) {
+        foreach ($feature as $entry) {
+            if (is_array($entry) && 'station' === ($entry['name'] ?? null)) {
+                unset($entry['name']);
+                return $entry;
+            }
+        }
+        return [];
+    }
+    return is_array($feature['station'] ?? null) ? $feature['station'] : [];
+}
+
+/**
+ * A list is init order as given, so station takes its pinned place
+ * itself: straight after `test`, else first.
+ */
+function with_station(mixed $feature, array $own): array
+{
+    $entry = array_merge(station_entry_of($feature), $own);
+    if (!is_feature_list($feature)) {
+        $fmap = is_array($feature) ? $feature : [];
+        $fmap['station'] = $entry;
+        return $fmap;
+    }
+    $rest = [];
+    $at = null;
+    foreach ($feature as $f) {
+        if (is_array($f) && 'station' === ($f['name'] ?? null)) {
+            continue;
+        }
+        $rest[] = $f;
+        if (null === $at && is_array($f) && 'test' === ($f['name'] ?? null)) {
+            $at = count($rest);
+        }
+    }
+    array_splice($rest, $at ?? 0, 0, [array_merge(['name' => 'station'], $entry)]);
+    return $rest;
 }

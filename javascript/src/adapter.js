@@ -172,9 +172,11 @@ function adapterFeature(station, calleropts) {
 
 // The generated constructor adds the active features, test first and the
 // rest by name, and only then this adapter, at its anchor or else last.
-function adapterAnchor(fmap) {
-  const names = null == fmap || 'object' !== typeof fmap || Array.isArray(fmap) ? []
-    : Object.keys(fmap).filter((n) => 'station' !== n && fmap[n]?.active).sort()
+function adapterAnchor(feature) {
+  const names = Array.isArray(feature)
+    ? feature.filter((f) => 'station' !== f?.name && f?.active).map((f) => f.name)
+    : null == feature || 'object' !== typeof feature ? []
+      : Object.keys(feature).filter((n) => 'station' !== n && feature[n]?.active).sort()
   if (names.includes('test')) { return { __after__: 'test' } }
   return 0 === names.length ? {} : { __before__: names[0] }
 }

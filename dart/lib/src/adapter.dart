@@ -203,16 +203,26 @@ class StationAdapterFeature {
 // rest by name, and only then the carried adapter, at its anchor or else
 // last.
 Map<String, dynamic> adapterAnchor(dynamic fmap) {
-  if (fmap is! Map) {
+  final names = <String>[];
+  if (fmap is List) {
+    for (final entry in fmap) {
+      if (entry is Map &&
+          entry['name'] is String &&
+          'station' != entry['name'] &&
+          true == entry['active']) {
+        names.add(entry['name'] as String);
+      }
+    }
+  } else if (fmap is Map) {
+    fmap.forEach((name, entry) {
+      if (name is String && 'station' != name && entry is Map && true == entry['active']) {
+        names.add(name);
+      }
+    });
+    names.sort();
+  } else {
     return <String, dynamic>{};
   }
-  final names = <String>[];
-  fmap.forEach((name, entry) {
-    if (name is String && 'station' != name && entry is Map && true == entry['active']) {
-      names.add(name);
-    }
-  });
-  names.sort();
   if (names.contains('test')) {
     return <String, dynamic>{'__after__': 'test'};
   }

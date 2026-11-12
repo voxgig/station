@@ -123,7 +123,7 @@ function wire(station: Station): any[] {
 }
 
 describe('adapterAnchor', () => {
-  test('after test when test is active, else before the first feature by name', () => {
+  test('after test when test is active, else before the first feature it will add', () => {
     deepStrictEqual(adapterAnchor(undefined), {})
     deepStrictEqual(adapterAnchor({}), {})
     deepStrictEqual(adapterAnchor({ station: { active: true } }), {})
@@ -138,7 +138,13 @@ describe('adapterAnchor', () => {
       { __after__: 'test' })
     deepStrictEqual(adapterAnchor({ test: { active: false }, retry: { active: true } }),
       { __before__: 'retry' })
-    deepStrictEqual(adapterAnchor([{ name: 'retry', active: true }]), {})
+    // sdkgen's ordered array form: array order is init order, not the alphabet.
+    deepStrictEqual(adapterAnchor([{ name: 'retry', active: true }]), { __before__: 'retry' })
+    deepStrictEqual(adapterAnchor([{ name: 'retry', active: true }, { name: 'cache', active: true }]),
+      { __before__: 'retry' })
+    deepStrictEqual(adapterAnchor([{ name: 'retry', active: true }, { name: 'test', active: true }]),
+      { __after__: 'test' })
+    deepStrictEqual(adapterAnchor([{ name: 'station', active: true }, { name: 'retry' }]), {})
   })
 })
 

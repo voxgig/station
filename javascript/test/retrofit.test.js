@@ -73,4 +73,33 @@ describe('retrofit', { skip: !HAVE_SDK }, () => {
       delete process.env.TASKPAD_APIKEY
     }
   })
+
+  // sdkgen's ordered array form: position is init order, so station takes
+  // its pinned place first rather than the caller's map spread.
+  test('the array form of options.feature binds, with retry outside station', async () => {
+    process.env.TASKPAD_APIKEY = APIKEY
+    try {
+      Station.reset()
+      const { TaskpadSDK } = require(Path.join(SDK_DIR, 'TaskpadSDK'))
+      const station = Station.open({ config: null })
+      const pad = station.connect(TaskpadSDK, {
+        base: 'http://127.0.0.1:' + PORT,
+        feature: [{ name: 'retry', active: true }],
+      })
+
+      deepEqual(pad._features.map((f) => f.name), ['station', 'retry'])
+
+      const todos = await pad.Todo().list()
+      ok(0 < todos.length)
+
+      const events = station.events().filter((e) => 'http' === e.kind || 'op' === e.kind)
+      deepEqual(events.map((e) => [e.kind, e.http?.status ?? e.op?.outcome]).slice(-2),
+        [['http', 200], ['op', 'ok']])
+
+      station.close()
+    }
+    finally {
+      delete process.env.TASKPAD_APIKEY
+    }
+  })
 })

@@ -171,7 +171,83 @@ void placementCases(void Function(String, FutureOr<void> Function()) testcase) {
     eq(anchor({'test': {'active': true}, 'retry': {'active': true}}), '__after__=test', 'test');
     eq(anchor({'test': {'active': false}, 'retry': {'active': true}}), '__before__=retry',
         'inactive test');
-    eq(anchor([{'name': 'retry', 'active': true}]), '', 'array form');
+    // sdkgen's ordered list form: list order is init order.
+    eq(anchor([{'name': 'retry', 'active': true}]), '__before__=retry', 'list');
+    eq(
+        anchor([
+          {'name': 'retry', 'active': true},
+          {'name': 'cache', 'active': true}
+        ]),
+        '__before__=retry',
+        'list order');
+    eq(
+        anchor([
+          {'name': 'retry', 'active': true},
+          {'name': 'test', 'active': true}
+        ]),
+        '__after__=test',
+        'list test');
+    eq(anchor([{'name': 'station', 'active': true}, {'name': 'retry'}]), '',
+        'list, nothing active');
+  });
+
+  testcase('options and connect keep the list form, station in its place', () {
+    final st = Station({
+      'proxy': 'off',
+      'config': {
+        'station': 1,
+        'profiles': {
+          'default': {
+            'sdk': {
+              'gnarly-pets': <String, dynamic>{},
+              r'gnarly-pets$eu': {
+                'options': {'prefix': '/eu'}
+              },
+            }
+          }
+        }
+      },
+    });
+    String order(dynamic feature) =>
+        (feature as List).map((f) => (f as Map)['name']).join(',');
+
+    final bare = st.options({
+      'feature': [
+        {'name': 'retry', 'active': true}
+      ]
+    })['feature'];
+    eq(order(bare), 'station,retry', 'station first');
+    eq((bare as List)[0]['active'], true, 'station active');
+
+    final tested = st.options({
+      'feature': [
+        {'name': 'test', 'active': true},
+        {'name': 'retry', 'active': true}
+      ]
+    })['feature'];
+    eq(order(tested), 'test,station,retry', 'station after test');
+
+    final moved = st.options({
+      'feature': [
+        {'name': 'retry', 'active': true},
+        {'name': 'station', 'instance': r'gnarly-pets$eu'},
+        {'name': 'test', 'active': true}
+      ]
+    })['feature'];
+    eq(order(moved), 'retry,test,station', 'moved to its place');
+    eq((moved as List)[2]['instance'], r'gnarly-pets$eu', 'entry kept');
+
+    dynamic seen;
+    st.connect((o) {
+      seen = o;
+      return Object();
+    }, {
+      'feature': [
+        {'name': 'station', 'instance': r'gnarly-pets$eu'}
+      ]
+    });
+    eq(seen['prefix'], '/eu', 'connect reads the instance from the list');
+    eq(order(seen['feature']), 'station', 'one station entry');
   });
 
   testcase('placement: live, with retry, station is the base wrap', () async {

@@ -754,6 +754,52 @@ func TestOptionsForHandsANamedInstanceItsDeclaredOptions(t *testing.T) {
 	}
 }
 
+func TestOptionsKeepsTheListFormWithStationInItsPinnedPlace(t *testing.T) {
+	st := declarative(t, map[string]any{
+		"default": map[string]any{
+			"sdk": map[string]any{
+				"notes":    map[string]any{},
+				"notes$eu": map[string]any{"options": map[string]any{"prefix": "/eu"}},
+			},
+		},
+	})
+	entry := func(feature any, i int) map[string]any {
+		return feature.([]any)[i].(map[string]any)
+	}
+	names := func(feature any) string {
+		out := []string{}
+		for i := range feature.([]any) {
+			out = append(out, entry(feature, i)["name"].(string))
+		}
+		return strings.Join(out, ",")
+	}
+	retry := map[string]any{"name": "retry", "active": true}
+	test := map[string]any{"name": "test", "active": true}
+
+	bare := st.Options(map[string]any{"feature": []any{retry}})["feature"]
+	if "station,retry" != names(bare) || true != entry(bare, 0)["active"] {
+		t.Fatalf("bare: %v", bare)
+	}
+
+	tested := st.Options(map[string]any{"feature": []any{test, retry}})["feature"]
+	if "test,station,retry" != names(tested) {
+		t.Fatalf("tested: %v", names(tested))
+	}
+
+	moved := st.Options(map[string]any{"feature": []any{
+		retry, map[string]any{"name": "station", "instance": "notes$eu"}, test,
+	}})
+	if "retry,test,station" != names(moved["feature"]) {
+		t.Fatalf("moved: %v", names(moved["feature"]))
+	}
+	if "notes$eu" != entry(moved["feature"], 2)["instance"] {
+		t.Fatalf("moved: the caller's station entry was not kept: %v", moved["feature"])
+	}
+	if "/eu" != moved["prefix"] {
+		t.Fatalf("moved: the instance was not read from the list: %v", moved)
+	}
+}
+
 func TestOptionsNamesTheInstanceFromATopLevelInstanceOrAs(t *testing.T) {
 	for _, named := range []map[string]any{
 		{"instance": "notes$eu"},

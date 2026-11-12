@@ -150,7 +150,7 @@ private func stationOptionsFor(_ station: Station?, _ instance: String?, _ extra
   }
 
   let named = VMap()
-  if let em = given.entries["feature"]?.asMap?.entries["station"]?.asMap {
+  if let em = stationEntryOf(given.entries["feature"]) {
     for (k, v) in em.entries {
       named.entries[k] = v
     }
@@ -177,15 +177,8 @@ private func stationOptionsFor(_ station: Station?, _ instance: String?, _ extra
     out.entries[k] = v
   }
 
-  let fmap = VMap()
-  if let fm = out.entries["feature"]?.asMap {
-    for (k, v) in fm.entries {
-      fmap.entries[k] = v
-    }
-  }
-
   let entry = VMap()
-  if let em = fmap.entries["station"]?.asMap {
+  if let em = stationEntryOf(out.entries["feature"]) {
     for (k, v) in em.entries {
       entry.entries[k] = v
     }
@@ -197,12 +190,47 @@ private func stationOptionsFor(_ station: Station?, _ instance: String?, _ extra
   for (k, v) in names.entries {
     entry.entries[k] = v
   }
-  entry.entries["calleropts"] = .map(calleropts)
+  // The entry rides in options an app may print: it keeps no caller key.
+  let keyless = VMap()
+  for (k, v) in calleropts.entries where "apikey" != k {
+    keyless.entries[k] = v
+  }
+  entry.entries["calleropts"] = .map(keyless)
 
-  fmap.entries["station"] = .map(entry)
-  out.entries["feature"] = .map(fmap)
+  out.entries["feature"] = stationPlaced(out.entries["feature"], entry)
 
   return out
+}
+
+// sdkgen's ordered form of options.feature is a list of named entries.
+private func stationEntryOf(_ feature: Value?) -> VMap? {
+  if let flist = feature?.asList {
+    return flist.items.first(where: { "station" == $0.asMap?.entries["name"]?.asString })?.asMap
+  }
+  return feature?.asMap?.entries["station"]?.asMap
+}
+
+// A list is init order as given, so station takes its pinned place itself.
+private func stationPlaced(_ feature: Value?, _ entry: VMap) -> Value {
+  guard let flist = feature?.asList else {
+    let fmap = VMap()
+    if let fm = feature?.asMap {
+      for (k, v) in fm.entries {
+        fmap.entries[k] = v
+      }
+    }
+    fmap.entries["station"] = .map(entry)
+    return .map(fmap)
+  }
+  var rest = flist.items.filter { "station" != $0.asMap?.entries["name"]?.asString }
+  let at = (rest.firstIndex(where: { "test" == $0.asMap?.entries["name"]?.asString }) ?? -1) + 1
+  let named = VMap()
+  named.entries["name"] = .string("station")
+  for (k, v) in entry.entries {
+    named.entries[k] = v
+  }
+  rest.insert(.map(named), at: at)
+  return .list(rest)
 }
 
 // The transport middleware shell: extract what the library's per-request

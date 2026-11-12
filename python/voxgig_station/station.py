@@ -59,6 +59,35 @@ def _first_non_empty(*vals):
 _DEFAULT_PORTS = {'http': 80, 'https': 443}
 
 
+def _station_of(feature):
+    """The caller's own station options, from a feature map or sdkgen's
+    ordered list."""
+    if isinstance(feature, list):
+        for entry in feature:
+            if isinstance(entry, dict) and 'station' == entry.get('name'):
+                return {k: v for k, v in entry.items() if 'name' != k}
+        return {}
+    own = (feature or {}).get('station') if isinstance(feature, dict) else None
+    return dict(own) if isinstance(own, dict) else {}
+
+
+def _with_station(feature, own):
+    """A list is init order as given, so station takes its pinned place
+    itself: straight after `test`, else first."""
+    entry = _station_of(feature)
+    entry.update(own)
+    if not isinstance(feature, list):
+        fmap = dict(feature or {})
+        fmap['station'] = entry
+        return fmap
+    rest = [f for f in feature
+            if not (isinstance(f, dict) and 'station' == f.get('name'))]
+    at = next((i + 1 for i, f in enumerate(rest)
+               if isinstance(f, dict) and 'test' == f.get('name')), 0)
+    rest.insert(at, dict({'name': 'station'}, **entry))
+    return rest
+
+
 def _keyless(opts):
     """The caller's options as the activation entry carries them: the
     entry rides in the SDK's options, which an app may serialise, so it
@@ -364,8 +393,7 @@ class Station:
             raise StationError('station_no_plugin', 'station is closed')
         opts = opts or {}
 
-        sopts = (opts.get('feature') or {}).get('station')
-        sopts = dict(sopts) if isinstance(sopts, dict) else {}
+        sopts = _station_of(opts.get('feature'))
         for key in ('as', 'instance'):
             if opts.get(key) is not None:
                 sopts[key] = opts[key]
@@ -378,27 +406,24 @@ class Station:
         # out of the carried copy - the binding only reads plain keys.
         calleropts = _keyless(opts)
 
-        fmap = dict(opts.get('feature') or {})
-        entry = dict(fmap.get('station') or {})
-        entry.update({
+        own = {
             'active': True,
             # A zero-arg callable, not the instance: callables ride the
             # py SDK's option clone by reference, objects do not.
             'station': self._handle(),
             'calleropts': calleropts,
-        })
+        }
         # design 6.1: `as` is a TAG, resolved against the api in
         # _register - the api comes from the SDK being passed and is not
         # knowable here until that SDK's config has been normalized.
         if opts.get('as') is not None:
-            entry['as'] = opts['as']
+            own['as'] = opts['as']
         if opts.get('instance') is not None:
-            entry['instance'] = opts['instance']
-        fmap['station'] = entry
+            own['instance'] = opts['instance']
 
         options = {k: v for k, v in opts.items()
                    if k not in ('as', 'instance')}
-        options['feature'] = fmap
+        options['feature'] = _with_station(opts.get('feature'), own)
         # The carried adapter rides extend for SDKs generated WITHOUT
         # the station feature; when the generated class exists the
         # constructor uses it and the extend copy is skipped by name
@@ -447,24 +472,20 @@ class Station:
                  if extra.get(k) is not None}
         if named:
             names['instance'] = a
-        sopts = (extra.get('feature') or {}).get('station')
-        sopts = dict(sopts) if isinstance(sopts, dict) else {}
+        sopts = _station_of(extra.get('feature'))
         sopts.update(names)
         ref = named_ref(sopts)
         if ref is not None:
             extra = instance_options(self.block_for(ref), extra)
         calleropts = _keyless(extra)
-        fmap = dict(extra.get('feature') or {})
-        entry = dict(fmap.get('station') or {})
-        entry.update({
+        own = {
             'active': True,
             'station': self._handle(),
             'calleropts': calleropts,
-        })
-        entry.update(names)
-        fmap['station'] = entry
+        }
+        own.update(names)
         out = {k: v for k, v in extra.items() if k not in ('as', 'instance')}
-        out['feature'] = fmap
+        out['feature'] = _with_station(extra.get('feature'), own)
         return out
 
     def _handle(self):

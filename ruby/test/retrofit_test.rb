@@ -20,30 +20,41 @@ APIKEY = 'taskpad-key-101'
 PORT = 8943
 BASE = 'http://localhost:' + PORT.to_s
 
+# Minitest runs tests in random order, so the test that needs no 503 has a
+# server of its own rather than whatever the first test left.
+CLEAN_PORT = 8953
+CLEAN_BASE = 'http://localhost:' + CLEAN_PORT.to_s
+
 if HAVE_SDK
   $LOAD_PATH.unshift(SDK_DIR)
   require File.join(SDK_DIR, 'Taskpad_sdk')
 
-  SERVER_PID = Process.spawn(
-    { 'TASKPAD_APIKEY' => APIKEY, 'TASKPAD_PORT' => PORT.to_s, 'TASKPAD_FAIL' => '1' },
-    'node', SERVER_JS,
-    out: File::NULL, err: File::NULL)
+  SERVER_PIDS = [[PORT, '1'], [CLEAN_PORT, '0']].map do |port, fail|
+    Process.spawn(
+      { 'TASKPAD_APIKEY' => APIKEY, 'TASKPAD_PORT' => port.to_s, 'TASKPAD_FAIL' => fail },
+      'node', SERVER_JS,
+      out: File::NULL, err: File::NULL)
+  end
   Minitest.after_run do
-    begin
-      Process.kill('TERM', SERVER_PID)
-      Process.wait(SERVER_PID)
-    rescue StandardError
-      nil
+    SERVER_PIDS.each do |pid|
+      begin
+        Process.kill('TERM', pid)
+        Process.wait(pid)
+      rescue StandardError
+        nil
+      end
     end
   end
 
   require 'net/http'
-  40.times do
-    begin
-      Net::HTTP.get_response(URI(BASE + '/api/todo'))
-      break
-    rescue StandardError
-      sleep(0.1)
+  [BASE, CLEAN_BASE].each do |base|
+    40.times do
+      begin
+        Net::HTTP.get_response(URI(base + '/api/todo'))
+        break
+      rescue StandardError
+        sleep(0.1)
+      end
     end
   end
 end
@@ -78,6 +89,26 @@ class RetrofitRb < Minitest::Test
     assert_equal [['http', 503], ['http', 200], %w[op ok]],
       events.map { |e| [e['kind'], 'http' == e['kind'] ? e['http']['status'] : e['op']['outcome']] }
     assert_equal 1, events.map { |e| e['corr'] }.uniq.length
+
+    station.close
+  end
+
+  # sdkgen's ordered array form: position is init order, so station takes
+  # its pinned place first rather than the caller's map spread.
+  def test_the_array_form_of_options_feature_binds_with_retry_outside_station
+    station = VoxgigStation::Station.open('config' => nil)
+    pad = station.connect(TaskpadSDK,
+      'base' => CLEAN_BASE, 'feature' => [{ 'name' => 'retry', 'active' => true }])
+
+    names = pad.features.map(&:get_name).reject { |n| 'base' == n }
+    assert_equal %w[station retry], names
+
+    todos = pad.Todo.list
+    assert todos.length.positive?
+
+    events = station.events.select { |e| %w[http op].include?(e['kind']) }
+    assert_equal [['http', 200], %w[op ok]],
+      events.map { |e| [e['kind'], 'http' == e['kind'] ? e['http']['status'] : e['op']['outcome']] }
 
     station.close
   end

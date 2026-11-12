@@ -310,11 +310,21 @@ sub adapter_feature {
 # last.
 sub adapter_anchor {
     my ($fmap) = @_;
-    return {} unless ref($fmap) eq 'HASH';
-    my @names = sort grep {
-        my $entry = $fmap->{$_};
-        'station' ne $_ && ref($entry) eq 'HASH' && _active( $entry->{active} )
-    } keys %$fmap;
+    my @names;
+    if ( ref($fmap) eq 'ARRAY' ) {
+        @names = map { $_->{name} } grep {
+            ref($_) eq 'HASH'
+              && defined $_->{name}
+              && 'station' ne $_->{name}
+              && _active( $_->{active} )
+        } @$fmap;
+    }
+    elsif ( ref($fmap) eq 'HASH' ) {
+        @names = sort grep {
+            my $entry = $fmap->{$_};
+            'station' ne $_ && ref($entry) eq 'HASH' && _active( $entry->{active} )
+        } keys %$fmap;
+    }
     return { '__after__' => 'test' } if grep { 'test' eq $_ } @names;
     return @names ? { '__before__' => $names[0] } : {};
 }

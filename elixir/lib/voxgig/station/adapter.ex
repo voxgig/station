@@ -111,7 +111,7 @@ defmodule Voxgig.Station.Adapter do
   # The ref a caller names before construction: an explicit instance, or
   # an `as` that is a full ref. A bare tag needs the SDK's api, so not.
   def named_ref(opts) do
-    entry = S.getprop(S.getprop(opts, "feature"), "station")
+    entry = station_entry(S.getprop(opts, "feature"))
     pick = fn key -> Enum.find([S.getprop(opts, key), S.getprop(entry, key)], &textual?/1) end
     explicit = pick.("instance")
     as = pick.("as")
@@ -132,8 +132,7 @@ defmodule Voxgig.Station.Adapter do
   def absent_keys(options, keys), do: Enum.reject(keys, &(nil != S.getprop(options, &1)))
 
   defp activate(options, station, calleropts) do
-    fmap = ensure_map(options, "feature")
-    entry = ensure_map(fmap, "station")
+    entry = station_slot(options)
     S.setprop(entry, "active", true)
     S.setprop(entry, "station", fn -> station end)
     S.setprop(entry, "calleropts", keyless(calleropts))
@@ -149,7 +148,7 @@ defmodule Voxgig.Station.Adapter do
   # `as` and `instance` are station's own: they ride the feature entry,
   # never the SDK's options, which a generated SDK checks as closed.
   defp station_keys(options) do
-    entry = S.getprop(S.getprop(options, "feature"), "station")
+    entry = station_entry(S.getprop(options, "feature"))
 
     Enum.each(["as", "instance"], fn key ->
       val = S.getprop(options, key)
@@ -158,6 +157,34 @@ defmodule Voxgig.Station.Adapter do
     end)
 
     options
+  end
+
+  # sdkgen's ordered form of options.feature is a list of named entries.
+  defp station_entry(feature) do
+    if S.islist(feature),
+      do: Enum.find(entries(feature), &("station" == S.getprop(&1, "name"))),
+      else: S.getprop(feature, "station")
+  end
+
+  # A list is init order as given, so station takes its pinned place itself.
+  defp station_slot(options) do
+    feature = S.getprop(options, "feature")
+
+    if S.islist(feature) do
+      found = station_entry(feature)
+      entry = if S.ismap(found), do: found, else: S.jm(["name", "station"])
+      rest = Enum.reject(entries(feature), &("station" == S.getprop(&1, "name")))
+      at = (Enum.find_index(rest, &("test" == S.getprop(&1, "name"))) || -1) + 1
+      S.setprop(options, "feature", S.jt(List.insert_at(rest, at, entry)))
+      entry
+    else
+      ensure_map(ensure_map(options, "feature"), "station")
+    end
+  end
+
+  defp entries(list) do
+    n = S.size(list)
+    if 0 == n, do: [], else: Enum.map(0..(n - 1), &S.getelem(list, &1))
   end
 
   defp ensure_map(node, key) do
@@ -661,20 +688,29 @@ defmodule Voxgig.Station.Adapter do
     f
   end
 
-  # The generated constructor adds the active features, test first and the
-  # rest by name, and only then the carried adapter, at its anchor or else
-  # last.
-  def adapter_anchor(fmap) do
+  # The generated constructor adds the active features, in list order or
+  # else test first and the rest by name, and only then the carried
+  # adapter, at its anchor or else last.
+  def adapter_anchor(feature) do
     names =
-      if S.ismap(fmap) do
-        S.keysof(fmap)
-        |> Enum.filter(fn name ->
-          entry = S.getprop(fmap, name)
-          "station" != name and S.ismap(entry) and true == S.getprop(entry, "active")
-        end)
-        |> Enum.sort()
-      else
-        []
+      cond do
+        S.islist(feature) ->
+          entries(feature)
+          |> Enum.filter(fn entry ->
+            "station" != S.getprop(entry, "name") and true == S.getprop(entry, "active")
+          end)
+          |> Enum.map(&S.getprop(&1, "name"))
+
+        S.ismap(feature) ->
+          S.keysof(feature)
+          |> Enum.filter(fn name ->
+            entry = S.getprop(feature, name)
+            "station" != name and S.ismap(entry) and true == S.getprop(entry, "active")
+          end)
+          |> Enum.sort()
+
+        true ->
+          []
       end
 
     cond do

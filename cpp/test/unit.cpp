@@ -404,6 +404,35 @@ int main(int argc, char** argv) {
     check(callers.get("apikey").isabsent(), "the entry keeps no key");
   });
 
+  testcase("options-keeps-the-list-form-with-station-in-its-pinned-place", [] {
+    vs::StationOptions opts;
+    opts.has_config = true;
+    vs::Station st(opts);
+    auto names = [](const vs::Jval& built) {
+      std::string out;
+      for (const auto& item : built.get("feature").lval) {
+        out += (out.empty() ? "" : ",") + item.get("name").sval;
+      }
+      return out;
+    };
+
+    vs::Jval bare = st.options_for("", vs::parse_json(R"({ "feature": [
+      { "name": "retry", "active": true } ] })"));
+    check(bare.get("feature").islist(), "the list form is kept");
+    checkeq(names(bare), "station,retry", "station first without test");
+    check(bare.get("feature").lval[0].get("active").bval, "station is active");
+
+    vs::Jval tested = st.options_for("", vs::parse_json(R"({ "feature": [
+      { "name": "test", "active": true }, { "name": "retry", "active": true } ] })"));
+    checkeq(names(tested), "test,station,retry", "station right after test");
+
+    vs::Jval moved = st.options_for("", vs::parse_json(R"({ "feature": [
+      { "name": "retry", "active": true }, { "name": "station", "instance": "pad$eu" },
+      { "name": "test", "active": true } ] })"));
+    checkeq(names(moved), "retry,test,station", "the caller's entry moves");
+    checkeq(moved.get("feature").lval[2].get("instance").sval, "pad$eu", "and is kept");
+  });
+
   testcase("station-solo-warning-and-env-only-honesty", [] {
     vs::StationOptions opts;
     opts.has_config = true;

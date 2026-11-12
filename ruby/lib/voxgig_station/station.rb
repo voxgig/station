@@ -322,18 +322,12 @@ module VoxgigStation
       extra = extra.is_a?(Hash) ? extra : {}
       names = extra.slice('as', 'instance').compact
       names['instance'] = a if named
-      sopts = extra['feature'].is_a?(Hash) && extra['feature']['station'].is_a?(Hash) ?
-        extra['feature']['station'].dup : {}
+      sopts = VoxgigStation.station_entry_of(extra['feature'])
       ref = VoxgigStation.named_ref(sopts.merge(names))
       extra = VoxgigStation.instance_options(block_for(ref), extra) unless ref.nil?
 
-      fmap = extra['feature'].is_a?(Hash) ? extra['feature'].dup : {}
-      entry = (fmap['station'].is_a?(Hash) ? fmap['station'] : {})
-        .merge(_activation(extra))
-        .merge(names)
-      fmap['station'] = entry
-
-      extra.except('as', 'instance').merge('feature' => fmap)
+      feature = VoxgigStation.with_station(extra['feature'], _activation(extra).merge(names))
+      extra.except('as', 'instance').merge('feature' => feature)
     end
 
     # --- registration (design station.md 3 item 1, called by the adapter) ---
@@ -1277,22 +1271,18 @@ module VoxgigStation
       end
 
       opts = opts.is_a?(Hash) ? opts : {}
-      sopts = opts['feature'].is_a?(Hash) && opts['feature']['station'].is_a?(Hash) ?
-        opts['feature']['station'].dup : {}
+      sopts = VoxgigStation.station_entry_of(opts['feature'])
       sopts['as'] = opts['as'] unless opts['as'].nil?
       sopts['instance'] = opts['instance'] unless opts['instance'].nil?
       ref = VoxgigStation.named_ref(sopts)
       opts = VoxgigStation.instance_options(block_for(ref), opts) unless ref.nil?
 
-      fmap = opts['feature'].is_a?(Hash) ? opts['feature'].dup : {}
-      entry = (fmap['station'].is_a?(Hash) ? fmap['station'] : {})
-        .merge(_activation(opts))
+      own = _activation(opts)
       # 6.1: `as` is a TAG, resolved against the api in _register - the
       # api comes from the SDK being passed and is not knowable here
       # until that SDK's config has been normalized.
-      entry['as'] = opts['as'] unless opts['as'].nil?
-      entry['instance'] = opts['instance'] unless opts['instance'].nil?
-      fmap['station'] = entry
+      own['as'] = opts['as'] unless opts['as'].nil?
+      own['instance'] = opts['instance'] unless opts['instance'].nil?
 
       extend_list = opts['extend'].is_a?(Array) ? opts['extend'] : []
 
@@ -1301,7 +1291,7 @@ module VoxgigStation
       # uses it and the extend copy's bind is made inert by _bound_entry
       # (both delegate to feature_binding, so behavior is identical).
       options = opts.except('as', 'instance').merge(
-        'feature' => fmap,
+        'feature' => VoxgigStation.with_station(opts['feature'], own),
         'extend' => extend_list + [VoxgigStation.adapter_feature(self, VoxgigStation.keyless(opts))])
 
       client = sdk_class.new(options)

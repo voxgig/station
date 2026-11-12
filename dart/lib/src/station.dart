@@ -148,17 +148,17 @@ class Station {
     if (null != ref) {
       calleropts = instanceOptions(blockOf(_profile, ref), calleropts);
     }
-    final options = _withActivation(calleropts);
-
     // `as` and `instance` are station's own: they ride the feature entry,
     // never the SDK's options, which a generated SDK checks as closed.
-    final sopts = options['feature']['station'] as Map<String, dynamic>;
+    final ident = <String, dynamic>{};
     for (final key in const ['as', 'instance']) {
-      final val = options.remove(key);
-      if (null != val) {
-        sopts[key] = val;
+      if (null != calleropts[key]) {
+        ident[key] = calleropts[key];
       }
     }
+    final options = _withActivation(calleropts, ident)
+      ..remove('as')
+      ..remove('instance');
 
     final extend = <dynamic>[];
     if (calleropts['extend'] is List) {
@@ -180,7 +180,7 @@ class Station {
   // The ref a caller names before construction: an explicit instance, or
   // an `as` that is a full ref. A bare tag needs the SDK's api, so not.
   static String? _namedRef(Map<String, dynamic> opts) {
-    final sopts = _mget(_mget(opts, 'feature'), 'station');
+    final sopts = _stationEntryOf(opts['feature']);
     String? pick(String key) {
       final val = opts[key] ?? _mget(sopts, key);
       return val is String && '' != val ? val : null;
@@ -250,15 +250,15 @@ class Station {
   Map<String, dynamic> _keyless(Map<String, dynamic> calleropts) =>
       <String, dynamic>{...calleropts}..remove('apikey');
 
-  Map<String, dynamic> _withActivation(Map<String, dynamic> calleropts) {
+  Map<String, dynamic> _withActivation(Map<String, dynamic> calleropts,
+      [Map<String, dynamic>? ident]) {
     final options = <String, dynamic>{...calleropts};
-    final fmap = _copy(options['feature']);
-    final sopts = _copy(fmap['station']);
-    sopts['active'] = true;
-    sopts['station'] = this;
-    sopts['calleropts'] = _keyless(calleropts);
-    fmap['station'] = sopts;
-    options['feature'] = fmap;
+    options['feature'] = _withStation(options['feature'], <String, dynamic>{
+      'active': true,
+      'station': this,
+      'calleropts': _keyless(calleropts),
+      ...?ident,
+    });
     return options;
   }
 
@@ -818,4 +818,46 @@ String policyHostname(String url) {
   }
   final colon = host.indexOf(':');
   return -1 == colon ? host : host.substring(0, colon);
+}
+
+// The caller's own station options, from a feature map or sdkgen's
+// ordered list.
+Map<String, dynamic> _stationEntryOf(dynamic feature) {
+  final out = <String, dynamic>{};
+  if (feature is List) {
+    for (final own in feature) {
+      if (own is Map && 'station' == own['name']) {
+        own.forEach((k, v) => out[k.toString()] = v);
+        break;
+      }
+    }
+    out.remove('name');
+    return out;
+  }
+  final own = feature is Map ? feature['station'] : null;
+  if (own is Map) {
+    own.forEach((k, v) => out[k.toString()] = v);
+  }
+  return out;
+}
+
+// A list is init order as given, so station takes its pinned place
+// itself: straight after `test`, else first.
+dynamic _withStation(dynamic feature, Map<String, dynamic> own) {
+  final entry = <String, dynamic>{..._stationEntryOf(feature), ...own};
+  if (feature is! List) {
+    final fmap = <String, dynamic>{};
+    if (feature is Map) {
+      feature.forEach((k, v) => fmap[k.toString()] = v);
+    }
+    fmap['station'] = entry;
+    return fmap;
+  }
+  final rest = <dynamic>[
+    for (final f in feature)
+      if (!(f is Map && 'station' == f['name'])) f
+  ];
+  final at = rest.indexWhere((f) => f is Map && 'test' == f['name']) + 1;
+  rest.insert(at, <String, dynamic>{'name': 'station', ...entry});
+  return rest;
 }

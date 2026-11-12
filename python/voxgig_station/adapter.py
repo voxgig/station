@@ -184,11 +184,16 @@ def adapter_anchor(fmap):
     """Where feature_add puts the adapter. The generated constructor adds
     the active features, test first and the rest by name, and only then
     the adapter, at its anchor or else last."""
-    if not isinstance(fmap, dict):
+    if isinstance(fmap, list):
+        names = [f['name'] for f in fmap
+                 if isinstance(f, dict) and 'station' != f.get('name')
+                 and f.get('active') is True]
+    elif isinstance(fmap, dict):
+        names = sorted(n for n, v in fmap.items()
+                       if 'station' != n and isinstance(v, dict)
+                       and v.get('active') is True)
+    else:
         return {}
-    names = sorted(n for n, v in fmap.items()
-                   if 'station' != n and isinstance(v, dict)
-                   and v.get('active') is True)
     if 'test' in names:
         return {'__after__': 'test'}
     return {'__before__': names[0]} if names else {}

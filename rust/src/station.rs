@@ -364,11 +364,7 @@ impl Station {
         if !instance.is_empty() {
             names.insert("instance".to_string(), jtext(instance));
         }
-        let mut named: BTreeMap<String, Json> =
-            match jget(extra, "feature").and_then(|feature| jget(feature, "station")) {
-                Some(Json::Map(entries)) => entries.clone(),
-                _ => BTreeMap::new(),
-            };
+        let mut named = station_entry_of(jget(extra, "feature"));
         named.extend(names.clone());
         let mut out: BTreeMap<String, Json> = match named_ref(&Json::Map(named)) {
             Some(reference) => instance_options(&self.block_for(&reference), Some(extra)),
@@ -380,18 +376,11 @@ impl Station {
         out.remove("as");
         out.remove("instance");
 
-        let mut features: BTreeMap<String, Json> = match out.get("feature") {
-            Some(Json::Map(entries)) => entries.clone(),
-            _ => BTreeMap::new(),
-        };
-        let mut sopts: BTreeMap<String, Json> = match features.get("station") {
-            Some(Json::Map(entries)) => entries.clone(),
-            _ => BTreeMap::new(),
-        };
+        let mut sopts = station_entry_of(out.get("feature"));
         sopts.insert("active".to_string(), Json::Bool(true));
         sopts.extend(names);
-        features.insert("station".to_string(), Json::Map(sopts));
-        out.insert("feature".to_string(), Json::Map(features));
+        let placed = with_station(out.get("feature"), sopts);
+        out.insert("feature".to_string(), placed);
 
         Json::Map(out)
     }
@@ -1312,3 +1301,42 @@ pub(crate) fn policy_hosts(block: &Json) -> Option<Vec<String>> {
     }
 }
 
+fn feature_named(item: &Json, name: &str) -> bool {
+    matches!(jget(item, "name"), Some(Json::Str(found)) if name == found)
+}
+
+// sdkgen's ordered form of options.feature is a list of named entries.
+fn station_entry_of(feature: Option<&Json>) -> BTreeMap<String, Json> {
+    let entry = match feature {
+        Some(Json::List(items)) => items.iter().find(|item| feature_named(item, "station")),
+        Some(feature) => jget(feature, "station"),
+        None => None,
+    };
+    let mut own = match entry {
+        Some(Json::Map(entries)) => entries.clone(),
+        _ => BTreeMap::new(),
+    };
+    if let Some(Json::List(_)) = feature {
+        own.remove("name");
+    }
+    own
+}
+
+// A list is init order as given, so station takes its pinned place itself.
+fn with_station(feature: Option<&Json>, entry: BTreeMap<String, Json>) -> Json {
+    let Some(Json::List(items)) = feature else {
+        let mut features = match feature {
+            Some(Json::Map(entries)) => entries.clone(),
+            _ => BTreeMap::new(),
+        };
+        features.insert("station".to_string(), Json::Map(entry));
+        return Json::Map(features);
+    };
+    let mut rest: Vec<Json> =
+        items.iter().filter(|item| !feature_named(item, "station")).cloned().collect();
+    let at = rest.iter().position(|item| feature_named(item, "test")).map_or(0, |i| i + 1);
+    let mut named = entry;
+    named.insert("name".to_string(), jtext("station"));
+    rest.insert(at, Json::Map(named));
+    Json::List(rest)
+}

@@ -1496,6 +1496,76 @@ static void test_options_top_level_names(void) {
   }
 }
 
+/* "a,b,c" from the entry names of a list-form feature; "" for a map. */
+static void feature_names(const vxstn_val* built, char* buf, size_t size) {
+  const vxstn_val* feature = vxstn_map_get(built, "feature");
+  size_t i;
+  buf[0] = '\0';
+  for (i = 0; vxstn_is_list(feature) && i < feature->len; i++) {
+    if (0 < i) {
+      strncat(buf, ",", size - strlen(buf) - 1);
+    }
+    strncat(buf, vxstn_strval(vxstn_map_get(feature->items[i], "name")), size - strlen(buf) - 1);
+  }
+}
+
+static void test_options_list_form(void) {
+  vxstn_open_opts opts;
+  vxstn_station* st;
+  vxstn_error* err = NULL;
+  vxstn_val* bare_in =
+      vxstn_parse_json("{\"feature\":[{\"name\":\"retry\",\"active\":true}]}", NULL);
+  vxstn_val* tested_in = vxstn_parse_json(
+      "{\"feature\":[{\"name\":\"test\",\"active\":true},"
+      "{\"name\":\"retry\",\"active\":true}]}",
+      NULL);
+  vxstn_val* moved_in = vxstn_parse_json(
+      "{\"feature\":[{\"name\":\"retry\",\"active\":true},"
+      "{\"name\":\"station\",\"instance\":\"notes$eu\"},"
+      "{\"name\":\"test\",\"active\":true}]}",
+      NULL);
+  vxstn_val* bare;
+  vxstn_val* tested;
+  vxstn_val* moved;
+  const vxstn_val* active;
+  char names[128];
+
+  vxstn_reset();
+  memset(&opts, 0, sizeof(opts));
+  opts.proxy = "off";
+  opts.config_json = "{\"station\":1,\"profiles\":{\"default\":{\"sdk\":{"
+                     "\"notes$eu\":{\"options\":{\"prefix\":\"/eu\"}}}}}}";
+  st = vxstn_open(&opts, &err);
+  CHECK(NULL != st && NULL == err);
+
+  bare = vxstn_options(st, NULL, bare_in);
+  feature_names(bare, names, sizeof(names));
+  CHECK_STR(names, "station,retry");
+  active = vxstn_map_get(vxstn_list_get(vxstn_map_get(bare, "feature"), 0), "active");
+  CHECK(NULL != active && VXSTN_BOOL == active->kind && active->b);
+
+  tested = vxstn_options(st, NULL, tested_in);
+  feature_names(tested, names, sizeof(names));
+  CHECK_STR(names, "test,station,retry");
+
+  moved = vxstn_options(st, NULL, moved_in);
+  feature_names(moved, names, sizeof(names));
+  CHECK_STR(names, "retry,test,station");
+  CHECK_STR(vxstn_strval(vxstn_map_get(vxstn_list_get(vxstn_map_get(moved, "feature"), 2),
+                                       "instance")),
+            "notes$eu");
+  CHECK_STR(vxstn_strval(vxstn_map_get(moved, "prefix")), "/eu");
+
+  vxstn_val_free(moved);
+  vxstn_val_free(tested);
+  vxstn_val_free(bare);
+  vxstn_val_free(moved_in);
+  vxstn_val_free(tested_in);
+  vxstn_val_free(bare_in);
+  vxstn_station_free(st);
+  vxstn_reset();
+}
+
 static void test_factory_table(void) {
   vxstn_val* config = vxstn_parse_json(SOLAR_CONFIG, NULL);
   vxstn_val* same = vxstn_parse_json(SOLAR_CONFIG, NULL);
@@ -1896,6 +1966,7 @@ int main(void) {
   test_optspec_and_strict();
   test_options_named();
   test_options_top_level_names();
+  test_options_list_form();
   test_factory_table();
   test_check_package();
   test_declarative();

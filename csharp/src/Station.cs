@@ -16,6 +16,7 @@
 // generated FetcherFunc type); everything the wrap DOES lives here.
 
 using System;
+using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
@@ -335,8 +336,7 @@ namespace Voxgig.Station
                 names["instance"] = instance;
             }
 
-            var named = new Dictionary<string, object>(Descriptor.AsMap(Descriptor.GetProp(
-                given.GetValueOrDefault("feature"), "station")));
+            var named = StationEntryOf(given.GetValueOrDefault("feature"));
             foreach (KeyValuePair<string, object> name in names)
             {
                 named[name.Key] = name.Value;
@@ -350,10 +350,7 @@ namespace Voxgig.Station
             out_.Remove("as");
             out_.Remove("instance");
 
-            var fmap = new Dictionary<string, object>(
-                Descriptor.AsMap(out_.GetValueOrDefault("feature")));
-            var entry = new Dictionary<string, object>(
-                Descriptor.AsMap(fmap.GetValueOrDefault("station")));
+            var entry = StationEntryOf(out_.GetValueOrDefault("feature"));
             entry["active"] = true;
             entry["station"] = this;
             // The entry rides in options an app may print: no caller key.
@@ -364,10 +361,56 @@ namespace Voxgig.Station
             {
                 entry[name.Key] = name.Value;
             }
-            fmap["station"] = entry;
-            out_["feature"] = fmap;
+            out_["feature"] = WithStation(out_.GetValueOrDefault("feature"), entry);
 
             return out_;
+        }
+
+        // sdkgen's ordered form of options.feature is a list of named entries.
+        internal static Dictionary<string, object> StationEntryOf(object feature)
+        {
+            if (!(feature is IList list))
+            {
+                return new Dictionary<string, object>(
+                    Descriptor.AsMap(Descriptor.GetProp(feature, "station")));
+            }
+            foreach (object f in list)
+            {
+                if ("station".Equals(Descriptor.GetProp(f, "name")))
+                {
+                    var own = new Dictionary<string, object>(Descriptor.AsMap(f));
+                    own.Remove("name");
+                    return own;
+                }
+            }
+            return new Dictionary<string, object>();
+        }
+
+        // A list is init order as given, so station takes its pinned place itself.
+        internal static object WithStation(object feature, Dictionary<string, object> entry)
+        {
+            if (!(feature is IList list))
+            {
+                var fmap = new Dictionary<string, object>(Descriptor.AsMap(feature));
+                fmap["station"] = entry;
+                return fmap;
+            }
+            var rest = new List<object>();
+            foreach (object f in list)
+            {
+                if (!"station".Equals(Descriptor.GetProp(f, "name")))
+                {
+                    rest.Add(f);
+                }
+            }
+            int at = rest.FindIndex(f => "test".Equals(Descriptor.GetProp(f, "name"))) + 1;
+            var named = new Dictionary<string, object> { ["name"] = "station" };
+            foreach (KeyValuePair<string, object> kv in entry)
+            {
+                named[kv.Key] = kv.Value;
+            }
+            rest.Insert(at, named);
+            return rest;
         }
 
         // --- the binding seam (design 3, called by the generated adapter) ---

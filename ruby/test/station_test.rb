@@ -1521,6 +1521,28 @@ class TestStation < Minitest::Test
     assert_equal({ 'suffix' => '.json' }, st.options('suffix' => '.json').except('feature'))
   end
 
+  def test_options_keeps_the_array_form_with_station_in_its_pinned_place
+    st = solar_station('sdk' => {
+      'solar' => {}, 'solar$eu' => { 'options' => { 'prefix' => '/eu' } },
+    })
+    names = ->(feature) { feature.map { |f| f['name'] } }
+
+    bare = st.options('feature' => [{ 'name' => 'retry', 'active' => true }])['feature']
+    assert_equal %w[station retry], names.call(bare)
+    assert_equal true, bare[0]['active']
+
+    tested = st.options('feature' => [{ 'name' => 'test', 'active' => true },
+                                      { 'name' => 'retry', 'active' => true }])['feature']
+    assert_equal %w[test station retry], names.call(tested)
+
+    moved = st.options('feature' => [{ 'name' => 'retry', 'active' => true },
+                                     { 'name' => 'station', 'instance' => 'solar$eu' },
+                                     { 'name' => 'test', 'active' => true }])
+    assert_equal %w[retry test station], names.call(moved['feature'])
+    assert_equal 'solar$eu', moved['feature'][2]['instance']
+    assert_equal '/eu', moved['prefix'], 'the instance is read from the array'
+  end
+
   def test_options_names_the_instance_from_a_top_level_instance_or_as
     [{ 'instance' => 'solar$eu' }, { 'as' => 'solar$eu' }].each do |named|
       st = solar_station('sdk' => {
