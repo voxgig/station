@@ -474,6 +474,50 @@ class TestStation < Minitest::Test
     end
   end
 
+  # A message cannot be rewritten in Ruby, nor a cause removed: a chain that
+  # quotes the URL comes back without its cause.
+  def test_a_transport_error_cause_chain_is_scrubbed
+    ENV['GNARLY_PETS_APIKEY'] = 'tok!en 1'
+    url = 'http://localhost:8903/api/pet?apikey=%5Bstation%3Agnarly-pets%5D'
+    url_error = Class.new(StandardError) do
+      attr_reader :url
+
+      def initialize(url)
+        @url = url
+        super('refused')
+      end
+    end
+    inners = {
+      'ivar' => ->(_c, u, _d) { raise url_error.new(u) },
+      'cause' => lambda { |_c, u, _d|
+        begin
+          raise IOError, 'GET ' + u
+        rescue IOError
+          raise SocketError, 'fetch failed'
+        end
+      },
+    }
+    inners.each do |shape, inner|
+      st = VoxgigStation::Station.new('config' => nil)
+      b = bind(st, inner)
+      err = begin
+        b[:utility].fetcher.call(b[:ctx], url, 'url' => url, 'method' => 'GET', 'headers' => {})
+        flunk shape
+      rescue StandardError => e
+        e
+      end
+      shown = err.full_message(highlight: false) + err.instance_variables
+        .map { |iv| err.instance_variable_get(iv).to_s }.join
+      refute_includes shown, 'tok%21en%201', shape
+      refute_includes shown, 'tok!en 1', shape
+      assert_includes err.url, '[redacted]' if 'ivar' == shape
+      if 'cause' == shape
+        assert_instance_of SocketError, err
+        assert_nil err.cause
+      end
+    end
+  end
+
   def test_no_injection_into_mock_transports
     ENV['GNARLY_PETS_APIKEY'] = 'never-on-mock'
     st = VoxgigStation::Station.new('config' => nil)

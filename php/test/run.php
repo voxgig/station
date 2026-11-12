@@ -866,6 +866,78 @@ testcase('an_error_quoting_only_the_fetchdef_url_is_scrubbed', function () {
     ok(str_contains($thrown->getMessage(), '[redacted]'), $thrown->getMessage());
 });
 
+// A cause that keeps the URL in a property of its own.
+class UrlCause extends \Exception
+{
+    public function __construct(public string $url)
+    {
+        parent::__construct('GET ' . $url);
+    }
+}
+
+// The same, where the property cannot be rewritten.
+class SealedCause extends \Exception
+{
+    public function __construct(public readonly string $url)
+    {
+        parent::__construct('refused');
+    }
+}
+
+// Every string a printer reaches: the chain's text, and its trace arguments.
+function chain_shows(\Throwable $err): string
+{
+    $shown = (string) $err;
+    for ($link = $err; null !== $link; $link = $link->getPrevious()) {
+        $trace = $link->getTrace();
+        array_walk_recursive($trace, function ($v) use (&$shown) {
+            $shown .= is_string($v) ? $v : '';
+        });
+        foreach (get_object_vars($link) as $v) {
+            $shown .= is_string($v) ? $v : '';
+        }
+    }
+    return $shown;
+}
+
+testcase('a_transport_error_cause_chain_is_scrubbed', function () {
+    putenv('GNARLY_PETS_APIKEY=tok!en 1');
+    // Captured arguments are what a development php.ini gives.
+    $ignore = ini_set('zend.exception_ignore_args', '0');
+    $send = function (callable $inner): \Throwable {
+        $st = new Station(['config' => null]);
+        $b = bind($st, $inner);
+        try {
+            ($b['utility']->fetcher)($b['ctx'], QUERY_URL, ['method' => 'GET', 'headers' => []]);
+        } catch (\Throwable $e) {
+            $shown = chain_shows($e);
+            ok(!str_contains($shown, 'tok%21en%201'), $shown);
+            ok(!str_contains($shown, 'tok!en 1'), $shown);
+            return $e;
+        }
+        throw new \LogicException('no transport error');
+    };
+    try {
+        $err = $send(function ($_c, $u, $_d) {
+            throw new \RuntimeException('fetch failed', 0, new UrlCause($u));
+        });
+        ok($err->getPrevious() instanceof UrlCause, 'the cause is kept');
+        ok(str_contains($err->getPrevious()->url, '[redacted]'), $err->getPrevious()->url);
+
+        $err = $send(function ($_c, $u, $_d) {
+            throw new \RuntimeException('fetch failed', 0, new SealedCause($u));
+        });
+        eq(null, $err->getPrevious(), 'a cause that cannot be scrubbed is cut off');
+
+        $err = $send(function ($_c, $u, $_d) {
+            throw new SealedCause($u);
+        });
+        ok(!($err instanceof SealedCause), 'an error that cannot be scrubbed is replaced');
+    } finally {
+        ini_set('zend.exception_ignore_args', (string) $ignore);
+    }
+});
+
 testcase('a_status_0_response_after_a_placement_is_scrubbed', function () {
     putenv('GNARLY_PETS_APIKEY=tok!en 1');
     $st = new Station(['config' => null]);

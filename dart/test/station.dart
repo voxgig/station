@@ -755,6 +755,32 @@ void stationCases(void Function(String, FutureOr<void> Function()) testcase) {
     }
   });
 
+  testcase('a transport error keeping the placed URL in a field is scrubbed',
+      () async {
+    // Long enough that the error's text shows only the start of it.
+    final url = 'http://localhost:8x03/api/pet/p1/' +
+        'x' * 60 +
+        '?token=%5Bstation%3Agnarly-pets%5D';
+    final st = Station({'config': null, 'proxy': 'off'});
+    final ctx =
+        makeCtx(inner: (dynamic fctx, dynamic wireurl, dynamic def) async {
+      return Uri.parse(wireurl.toString());
+    });
+    ctx.options['apikey'] = 'tok!en 1';
+    bindCtx(st, ctx);
+
+    dynamic err;
+    try {
+      err = await ctx.utility.fetcher(FakeCtx(client: ctx.client), url,
+          <String, dynamic>{'url': url, 'method': 'GET', 'headers': {}});
+    } catch (e) {
+      err = e;
+    }
+    check(err is ScrubbedError, 'scrubbed copy: ' + err.runtimeType.toString());
+    check(!err.toString().contains('tok%21en%201'),
+        'scrubbed: ' + err.toString());
+  });
+
   testcase('a transport error quoting only the fetchdef url is scrubbed',
       () async {
     const url = 'http://localhost:8903/api/pet/p1';

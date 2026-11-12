@@ -916,6 +916,21 @@ raw-value redact runs after it, for the same reason. A port whose
 errors are immutable returns an equivalent error carrying the scrubbed
 text, and only when scrubbing changed it.
 
+**The scrub reaches the whole chain behind the error**, because a
+cause can quote the URL when the error itself does not: Node's
+`ERR_INVALID_URL` keeps it in `input`, urllib3's `MaxRetryError` in
+`url`, and Dart's `FormatException` in a `source` its text shows only a
+slice of. Each link has its message and every string field of its own
+scrubbed where the language lets them be rewritten: typescript and
+javascript walk `cause`, python `__cause__`, `__context__` and the
+exceptions it holds, php `previous` (and the arguments a trace captured,
+which a development `php.ini` records), ruby, perl, lua and elixir each
+the fields their errors carry. A link that cannot be scrubbed is cut off
+its chain or replaced by its scrubbed text, never kept. Where errors
+cannot be rewritten at all (go, java, csharp, swift, dart, cpp), the
+equivalent keeps a cause only when every link behind it reads clean. In
+c and rust the transport error is text, so there is no chain to walk.
+
 **Injection placement:** below every recording feature and never into
 mock transports (§3.3). In c/zig, where the app supplies the base
 transport, the injected value necessarily crosses into that

@@ -655,12 +655,46 @@ class Station {
     return res
   }
 
-  // A transport error may quote its URL, which carries a query-placed value.
+  // A transport error, or any cause behind it, may quote the placed URL.
   scrubbed(err, placed) {
-    if (placed && err instanceof Error) {
-      err.message = this.redact(err.message)
+    if (!placed) { return err }
+    if ('string' === typeof err) { return this.redact(err) }
+    if (null == err || 'object' !== typeof err || this.scrubChain(err)) { return err }
+    const copy = new Error(this.redact(String(readField(err, 'message') ?? err)))
+    const code = readField(err, 'code')
+    if (null != code) { copy.code = 'string' === typeof code ? this.redact(code) : code }
+    return copy
+  }
+
+  // A link that cannot be scrubbed is cut off; false when the head cannot be.
+  scrubChain(err) {
+    const seen = new Set()
+    let parent = null
+    let link = err
+    while (null != link && 'object' === typeof link && !seen.has(link)) {
+      seen.add(link)
+      if (!this.scrubLink(link)) {
+        return null != parent && Reflect.deleteProperty(parent, 'cause') &&
+          undefined === readField(parent, 'cause')
+      }
+      parent = link
+      link = readField(link, 'cause')
     }
-    return err
+    return true
+  }
+
+  // Own string fields first; a getter may build the message from others.
+  scrubLink(link) {
+    for (const key of Reflect.ownKeys(link)) {
+      const text = readField(link, key)
+      if ('string' !== typeof text) { continue }
+      const clean = this.redact(text)
+      if (clean !== text && !(Reflect.set(link, key, clean) && clean === readField(link, key))) {
+        return false
+      }
+    }
+    const message = readField(link, 'message')
+    return 'string' !== typeof message || message === this.redact(message)
   }
 
   emitHttp(slug, corr, fullurl, fetchdef, status, started, bytes) {
@@ -1287,6 +1321,11 @@ class Station {
   emit(ev) {
     this.buffer.emit(ev)
   }
+}
+
+// A getter may throw, and a field that cannot be read is not printed either.
+function readField(obj, key) {
+  try { return obj[key] } catch (_e) { return undefined }
 }
 
 // A URL that does not parse is reported whole, and its userinfo is a value

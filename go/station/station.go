@@ -636,19 +636,21 @@ func (st *Station) transport(entry *PluginEntry, mode func() string,
 	return res, nil
 }
 
-// A transport error may quote its URL - net/http's *url.Error does - and
-// that URL carries a query-placed value.
+// A transport error, or any error it wraps, may quote the placed URL. Only a
+// *url.Error can be rewritten, so an unclean chain is replaced by its text.
 func (st *Station) scrubbed(err error, placed bool) error {
 	if !placed {
 		return err
 	}
-	var urlerr *url.Error
-	if errors.As(err, &urlerr) {
-		urlerr.URL = st.Redact(urlerr.URL)
+	for link := err; nil != link; link = errors.Unwrap(link) {
+		if urlerr, is := link.(*url.Error); is {
+			urlerr.URL = st.Redact(urlerr.URL)
+		}
 	}
-	message := err.Error()
-	if clean := st.Redact(message); clean != message {
-		return errors.New(clean)
+	for link := err; nil != link; link = errors.Unwrap(link) {
+		if text := link.Error(); st.Redact(text) != text {
+			return errors.New(st.Redact(err.Error()))
+		}
 	}
 	return err
 }

@@ -512,14 +512,17 @@ class Station {
 
   // A transport error may quote its URL, which carries a query-placed value.
   // Dart errors expose no settable message, so a changed one comes back as
-  // a ScrubbedError.
+  // a ScrubbedError. Uri.parse's FormatException keeps the whole URL in
+  // `source`, where its text shows a slice.
   dynamic _scrubbed(dynamic err, bool placed) {
     if (!placed) {
       return err;
     }
     final text = err.toString();
     final clean = redact(text);
-    return clean == text ? err : ScrubbedError(clean);
+    final source = err is FormatException ? err.source : null;
+    final hidden = source is String && redact(source) != source;
+    return clean == text && !hidden ? err : ScrubbedError(clean);
   }
 
   String _clientMode(dynamic fctx) {

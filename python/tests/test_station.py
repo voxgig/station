@@ -13,6 +13,7 @@ import os
 import shutil
 import sys
 import tempfile
+import traceback
 import unittest
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -364,6 +365,68 @@ class TestBinding(unittest.TestCase):
                 self.assertNotIn('tok%21en%201', str(err))
                 self.assertIn('[redacted]', str(err))
                 st.close()
+
+    def test_a_transport_error_cause_chain_is_scrubbed(self):
+        os.environ['GNARLY_PETS_APIKEY'] = 'tok!en 1'
+        url = ('http://localhost:8903/api/pet'
+               '?apikey=%5Bstation%3Agnarly-pets%5D')
+
+        # urllib3's shape: the message and a `url` attribute quote it.
+        class MaxRetryError(Exception):
+            def __init__(self, url):
+                super().__init__('Max retries exceeded with url: ' + url)
+                self.url = url
+
+        # Its message is built from a field no scrub rewrites.
+        class Opaque(Exception):
+            def __init__(self, url):
+                super().__init__()
+                self.parts = [url]
+
+            def __str__(self):
+                return 'GET ' + self.parts[0]
+
+        # requests' shape: the inner error is an arg, and the context.
+        def wrapped(fctx, fullurl, fetchdef):
+            try:
+                raise MaxRetryError(fullurl)
+            except MaxRetryError as e:
+                raise ConnectionError(e)
+
+        def opaque_cause(fctx, fullurl, fetchdef):
+            raise RuntimeError('fetch failed') from Opaque(fullurl)
+
+        def opaque(fctx, fullurl, fetchdef):
+            raise Opaque(fullurl)
+
+        def send(fetcher):
+            st = Station({'config': None})
+            ctx, _log = bind(st, fetcher=fetcher)
+            try:
+                ctx.utility.fetcher(
+                    ctx, url, {'url': url, 'method': 'GET', 'headers': {}})
+            except Exception as e:
+                shown = ''.join(traceback.format_exception(e))
+                self.assertNotIn('tok%21en%201', shown)
+                self.assertNotIn('tok!en 1', shown)
+                return e
+            finally:
+                st.close()
+            self.fail('no transport error')
+
+        err = send(wrapped)
+        self.assertIsInstance(err, ConnectionError)
+        self.assertIn('[redacted]', err.args[0].url)
+        self.assertIs(err.args[0], err.__context__)
+
+        err = send(opaque_cause)
+        self.assertEqual('fetch failed', str(err))
+        self.assertIsNone(err.__cause__)
+
+        err = send(opaque)
+        self.assertNotIsInstance(err, Opaque)
+        self.assertIn('[redacted]', str(err))
+        self.assertIsNone(err.__context__)
 
     def test_no_injection_into_mock_transports(self):
         st = Station({'config': None})

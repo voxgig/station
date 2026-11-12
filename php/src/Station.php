@@ -766,9 +766,10 @@ class Station
 
     /**
      * A transport error may quote its URL, which carries a query-placed
-     * value. Exception::$message cannot be assigned from outside, so the
-     * scrubbed message goes in through reflection; an SDK error keeps a
-     * second copy in its public `msg`.
+     * value, and so may any previous error behind it, or its trace's
+     * arguments. Every property is rewritten through reflection, strings
+     * nested in arrays included; a link where that fails is cut off its
+     * parent, and a head where it fails comes back as an equivalent.
      */
     private function scrubbed(mixed $err, bool $placed): mixed
     {
@@ -778,17 +779,62 @@ class Station
         if (is_string($err)) {
             return $this->redact($err);
         }
-        if ($err instanceof \Throwable) {
-            $clean = $this->redact($err->getMessage());
-            if ($clean !== $err->getMessage()) {
-                $owner = $err instanceof \Exception ? \Exception::class : \Error::class;
-                (new \ReflectionProperty($owner, 'message'))->setValue($err, $clean);
+        if (!is_object($err) || $this->scrub_chain($err)) {
+            return $err;
+        }
+        $message = $err instanceof \Throwable ? $err->getMessage() : '';
+        return new \RuntimeException($this->redact($message));
+    }
+
+    private function scrub_chain(object $err): bool
+    {
+        $seen = [];
+        $parent = null;
+        for ($link = $err; is_object($link) && !isset($seen[spl_object_id($link)]);
+            $link = $link instanceof \Throwable ? $link->getPrevious() : null) {
+            $seen[spl_object_id($link)] = true;
+            if (!$this->scrub_props($link)) {
+                if (null === $parent) {
+                    return false;
+                }
+                $owner = $parent instanceof \Exception ? \Exception::class : \Error::class;
+                (new \ReflectionProperty($owner, 'previous'))->setValue($parent, null);
+                return true;
             }
+            $parent = $link;
         }
-        if (is_object($err) && is_string($err->msg ?? null)) {
-            $err->msg = $this->redact($err->msg);
+        return true;
+    }
+
+    /** Every class in its line is read, for a parent's private properties. */
+    private function scrub_props(object $link): bool
+    {
+        try {
+            for ($class = new \ReflectionObject($link); false !== $class;
+                $class = $class->getParentClass()) {
+                foreach ($class->getProperties() as $prop) {
+                    if ($prop->isStatic() || !$prop->isInitialized($link)) {
+                        continue;
+                    }
+                    $val = $prop->getValue($link);
+                    $clean = $this->scrub_value($val);
+                    if ($clean !== $val) {
+                        $prop->setValue($link, $clean);
+                    }
+                }
+            }
+        } catch (\Error $e) {
+            return false;
         }
-        return $err;
+        return true;
+    }
+
+    private function scrub_value(mixed $val): mixed
+    {
+        if (is_string($val)) {
+            return $this->redact($val);
+        }
+        return is_array($val) ? array_map(fn($v) => $this->scrub_value($v), $val) : $val;
     }
 
     /**

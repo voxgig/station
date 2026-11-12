@@ -24,6 +24,7 @@ package com.voxgig.station;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -820,20 +821,34 @@ public class Station {
     return res;
   }
 
-  // A transport error may quote its URL, which carries a query-placed value.
-  // A java message cannot be rewritten, so an equivalent error stands in.
+  // A transport error may quote its URL, which carries a query-placed value,
+  // and so may any cause behind it. A java message cannot be rewritten, so an
+  // equivalent error stands in, keeping the cause only when its whole chain
+  // reads clean.
   private RuntimeException scrubbed(RuntimeException err, boolean placed) {
+    if (!placed) {
+      return err;
+    }
+    boolean chain = readsClean(err.getCause());
+    if (chain && redact(err.toString()).equals(err.toString())) {
+      return err;
+    }
     String message = err.getMessage();
-    if (!placed || null == message) {
-      return err;
-    }
-    String clean = redact(message);
-    if (clean.equals(message)) {
-      return err;
-    }
-    RuntimeException out = new RuntimeException(clean, err.getCause());
+    RuntimeException out = new RuntimeException(
+        null == message ? null : redact(message), chain ? err.getCause() : null);
     out.setStackTrace(err.getStackTrace());
     return out;
+  }
+
+  private boolean readsClean(Throwable cause) {
+    Set<Throwable> seen = Collections.newSetFromMap(new IdentityHashMap<>());
+    for (Throwable link = cause; null != link && seen.add(link); link = link.getCause()) {
+      String text = link.toString();
+      if (!redact(text).equals(text)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /** Op events from the hook bridge (design 3 item 3). */

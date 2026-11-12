@@ -171,6 +171,28 @@ int main(int argc, char** argv) {
     }
   });
 
+  testcase("transport-error-nested-chain", [] {
+    vs::StationOptions opts;
+    opts.has_config = true;
+    opts.proxy = "off";
+    vs::Station st(opts);
+    st._hoist("joplin", "tok!en 1");
+    const std::string url = "http://localhost:41184/notes?token=tok%21en%201";
+    bool nested_clean = true;
+    try {
+      try {
+        throw std::runtime_error("GET " + url);
+      } catch (...) {
+        std::throw_with_nested(std::runtime_error("fetch failed"));
+      }
+    } catch (const std::exception& err) {
+      nested_clean = st.reads_clean(err);
+    }
+    check(!nested_clean, "a nested error quoting the URL is found");
+    check(st.reads_clean(std::runtime_error("fetch failed")), "a clean error reads clean");
+    check(!st.reads_clean(std::runtime_error("GET " + url)), "a quoting error does not");
+  });
+
   testcase("emit-http-whole-without-userinfo", [] {
     vs::StationOptions opts;
     opts.has_config = true;

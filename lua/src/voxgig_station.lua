@@ -1877,23 +1877,45 @@ function Station:_transport(slug, inner, fctx, fullurl, fetchdef)
   return res, err
 end
 
--- A transport error may quote its URL, which carries a query-placed value:
--- a string comes back scrubbed, an error table is scrubbed in place.
+-- A transport error may quote its URL, which carries a query-placed value,
+-- and so may the cause an error table holds. Each table along the `cause`
+-- chain has its string fields scrubbed in place; a link whose text still
+-- reads unclean is cut off, and a head comes back as its scrubbed text.
 function Station:_scrubbed(err, placed)
   if not placed then
     return err
   end
-  if type(err) == 'string' then
-    return self:redact(err)
-  end
-  if type(err) == 'table' then
-    for _, key in ipairs({ 'msg', 'message' }) do
-      if type(err[key]) == 'string' then
-        err[key] = self:redact(err[key])
+  local seen = {}
+  local parent, link = nil, err
+  while link ~= nil and not seen[link] do
+    seen[link] = true
+    if type(link) == 'table' then
+      for key, val in next, link do
+        if type(val) == 'string' then
+          rawset(link, key, self:redact(val))
+        end
       end
     end
+    local clean = self:_scrubbed_text(link)
+    if clean ~= link and parent == nil then
+      return clean
+    elseif clean ~= link then
+      rawset(parent, 'cause', nil)
+      break
+    end
+    parent = link
+    link = type(link) == 'table' and rawget(link, 'cause') or nil
   end
   return err
+end
+
+function Station:_scrubbed_text(val)
+  if val == nil or type(val) == 'string' then
+    return val and self:redact(val)
+  end
+  local text = tostring(val)
+  local clean = self:redact(text)
+  return clean == text and val or clean
 end
 
 -- Op events from the hook bridge (design station.md 3 item 3).

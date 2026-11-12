@@ -12,6 +12,7 @@ defmodule Voxgig.StationTest do
   use ExUnit.Case, async: false
 
   alias Voxgig.Station
+  alias Voxgig.Station.Adapter
   alias Voxgig.Station.Descriptor
   alias Voxgig.Station.Error
   alias Voxgig.Station.Events
@@ -287,6 +288,41 @@ defmodule Voxgig.StationTest do
     refute out =~ "long-secret-value"
     assert out =~ "[redacted]"
     refute String.contains?(out, " k ")
+  end
+
+  defmodule UrlError do
+    defexception [:url, message: "refused"]
+  end
+
+  defmodule FetchError do
+    defexception [:reason, message: "fetch failed"]
+  end
+
+  # Its message is built from a field no scrub rewrites.
+  defmodule OpaqueError do
+    defexception [:parts]
+
+    @impl true
+    def message(%{parts: [url]}), do: "GET " <> url
+  end
+
+  test "a transport error's held exceptions are scrubbed" do
+    st = Station.new(%{"config" => nil})
+    Station.hoist(st, "joplin", "tok!en 1")
+    url = "http://localhost:41184/notes?token=tok%21en%201"
+
+    err = Adapter.scrubbed(st, %FetchError{reason: %UrlError{url: url}}, true)
+    assert %FetchError{reason: %UrlError{}} = err
+    assert err.reason.url =~ "[redacted]"
+    refute inspect(err) =~ "tok%21en%201"
+
+    err = Adapter.scrubbed(st, %FetchError{reason: %OpaqueError{parts: [url]}}, true)
+    assert %FetchError{reason: %RuntimeError{}} = err
+    refute inspect(err) =~ "tok%21en%201"
+
+    err = Adapter.scrubbed(st, %OpaqueError{parts: [url]}, true)
+    assert %RuntimeError{} = err
+    refute inspect(err) =~ "tok%21en%201"
   end
 
   test "scrub also removes a held value's strict query encoding" do

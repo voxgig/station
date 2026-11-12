@@ -475,6 +475,42 @@ testcase('query-error-scrubbed', function()
   check(not holds(station2:events(), sent), 'no encoded value in events')
 end)
 
+testcase('query-error-cause-scrubbed', function()
+  local url = 'http://localhost:8901/api/task/x?token=%5Bstation%3Ataskpad%5D'
+  local sent = 'tok%21en%201'
+
+  -- Its text is built from an upvalue, where no scrub reaches.
+  local function opaque(fullurl)
+    return setmetatable({}, { __tostring = function() return 'GET ' .. fullurl end })
+  end
+  local function fail(make)
+    local station = st.new({ config = st.NULL, proxy = 'off' })
+    local b = bind(station, {
+      options = { apikey = 'tok!en 1', base = 'http://localhost:8901' },
+      inner = function(_fctx, fullurl) return nil, make(fullurl) end,
+    })
+    local _, err = b.utility.fetcher({ client = b.client }, url,
+      { url = url, headers = {} })
+    return err
+  end
+
+  local err = fail(function(fullurl)
+    return { msg = 'fetch failed', cause = { msg = 'refused', url = fullurl } }
+  end)
+  check(type(err.cause) == 'table', 'the cause is kept')
+  check(string.find(err.cause.url, sent, 1, true) == nil, err.cause.url)
+  check(string.find(err.cause.url, '[redacted]', 1, true) ~= nil, err.cause.url)
+
+  err = fail(function(fullurl)
+    return { msg = 'fetch failed', cause = opaque(fullurl) }
+  end)
+  checkeq(err.cause, nil, 'a cause that cannot be scrubbed is cut off')
+
+  err = fail(opaque)
+  check(type(err) == 'string' and string.find(err, sent, 1, true) == nil,
+    'an error that cannot be scrubbed comes back as its text')
+end)
+
 testcase('defurl-error-scrubbed', function()
   -- The request URL carries no placeholder; only the fetchdef's own url does.
   local url = 'http://localhost:8901/api/task/x'

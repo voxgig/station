@@ -599,8 +599,9 @@ module VoxgigStation
       rescue StandardError => e
         emit_http(name, corr, fullurl, senddef, 0, started, 0)
         emit_err(name, fctx, e)
+        out = scrubbed(e, placed)
         # An implicit cause would chain the unscrubbed original.
-        raise scrubbed(e, placed), cause: e.cause
+        raise out, cause: out.cause
       end
 
       unless err.nil?
@@ -1310,18 +1311,61 @@ module VoxgigStation
     end
 
     # A transport error may quote its URL, which carries a query-placed
-    # value. The SDK's own error keeps its message in a writable `msg`.
+    # value, and so may any cause behind it. A Ruby cause can be replaced
+    # but never removed, so one whose chain still reads unclean comes back
+    # as a fresh equivalent with no cause.
     def scrubbed(err, placed)
       return err unless placed
       return redact(err) if err.is_a?(String)
       return err unless err.is_a?(Exception)
 
-      message = redact(err.message)
-      return err if message == err.message
-      return err.exception(message) unless err.respond_to?(:msg=)
+      head = scrubbed_in_place?(err)
+      chain = clean_chain?(err.cause)
+      return err if head && chain
 
-      err.msg = message
-      err
+      message = redact(err.message)
+      return err.exception(message) if chain && !err.frozen?
+
+      equivalent(err, message)
+    end
+
+    # Its string ivars, the SDK error's `@msg` among them, are rewritten
+    # where they lie; true when its message then reads clean.
+    def scrubbed_in_place?(link)
+      link.instance_variables.each do |iv|
+        text = link.instance_variable_get(iv)
+        next unless text.is_a?(String)
+
+        clean = redact(text)
+        link.instance_variable_set(iv, clean) unless clean == text
+      end
+      message = link.message
+      redact(message) == message
+    rescue StandardError
+      false
+    end
+
+    def clean_chain?(cause)
+      seen = {}.compare_by_identity
+      link = cause
+      while link.is_a?(Exception) && !seen[link]
+        seen[link] = true
+        return false unless scrubbed_in_place?(link)
+
+        link = link.cause
+      end
+      true
+    end
+
+    def equivalent(err, message)
+      out = err.class.allocate
+      Exception.instance_method(:initialize).bind_call(out, message)
+      err.instance_variables.each do |iv|
+        val = err.instance_variable_get(iv)
+        out.instance_variable_set(iv, val.is_a?(String) ? redact(val) : val)
+      end
+      out.set_backtrace(err.backtrace) unless err.backtrace.nil?
+      out
     end
 
     # A synthesized status-0 response is a transport failure, so each
