@@ -1042,6 +1042,121 @@ void stationCases(void Function(String, FutureOr<void> Function()) testcase) {
 
   // An IPv6 host keeps its brackets, and neither a port nor the userinfo,
   // a raw `@` in its password among it, reaches the host.
+  Future<List<dynamic>> modeRequest(Map<String, dynamic> policy,
+      [String mode = 'live']) async {
+    final st = Station({
+      'proxy': 'off',
+      'config': {
+        'station': 1,
+        'profiles': {
+          'default': {
+            'sdk': {
+              'gnarly-pets': {'policy': policy}
+            }
+          }
+        }
+      },
+    });
+    var called = false;
+    final ctx = makeCtx(inner: (dynamic fctx, dynamic url, dynamic def) async {
+      called = true;
+      return {'status': 200, 'headers': {}};
+    });
+    (ctx.config['options'] as Map).remove('auth');
+    bindCtx(st, ctx);
+    ctx.client.mode = mode;
+    final out = await ctx.utility.fetcher(FakeCtx(client: ctx.client),
+        'http://localhost:8903/x', <String, dynamic>{'method': 'GET', 'headers': {}});
+    return [st, out, called];
+  }
+
+  testcase('policy mode block refuses with its own code', () async {
+    for (final policy in [
+      {'mode': 'block'},
+      {
+        'mode': 'block',
+        'hosts': ['localhost']
+      },
+    ]) {
+      final got = await modeRequest(policy);
+      final out = got[1];
+      check(false == got[2], 'the transport is not called');
+      eq(out is StationError ? out.code : null, 'station_blocked', '$policy');
+      check(out.toString().contains('mode "block"'), out.toString());
+      final codes = ofKind(got[0] as Station, 'error')
+          .map((e) => (e['err'] as Map)['code'])
+          .toList();
+      eq(codes.join(','), 'station_blocked', 'one error event');
+    }
+  });
+
+  testcase("an api block's policy reaches an instance with no sdk block",
+      () async {
+    final cases = [
+      [
+        <String, dynamic>{'mode': 'block'},
+        'http://localhost:8903/x',
+        'station_blocked'
+      ],
+      [
+        <String, dynamic>{
+          'hosts': ['api.good.example']
+        },
+        'http://evil.example/x',
+        'station_host_allow'
+      ],
+    ];
+    for (final c in cases) {
+      final st = Station({
+        'proxy': 'off',
+        'config': {
+          'station': 1,
+          'profiles': {
+            'default': {
+              'api': {
+                'gnarly-pets': {'policy': c[0]}
+              }
+            }
+          }
+        },
+      });
+      final ctx = makeCtx(
+          inner: (dynamic fctx, dynamic url, dynamic def) async =>
+              {'status': 200, 'headers': {}});
+      (ctx.config['options'] as Map).remove('auth');
+      bindCtx(st, ctx);
+      final out = await ctx.utility.fetcher(FakeCtx(client: ctx.client), c[1],
+          <String, dynamic>{'method': 'GET', 'headers': {}});
+      eq(out is StationError ? out.code : null, c[2], '${c[0]}');
+    }
+  });
+
+  testcase('policy modes that need a proxy fail station_no_proxy', () async {
+    for (final mode in ['record', 'replay', 'mock']) {
+      final got = await modeRequest({'mode': mode});
+      final out = got[1];
+      eq(out is StationError ? out.code : null, 'station_no_proxy', mode);
+    }
+  });
+
+  testcase('policy mode live or absent passes, and only live is gated',
+      () async {
+    final cases = [
+      [<String, dynamic>{'mode': 'live'}, 'live'],
+      [
+        <String, dynamic>{
+          'hosts': ['localhost']
+        },
+        'live'
+      ],
+      [<String, dynamic>{'mode': 'block'}, 'test'],
+    ];
+    for (final c in cases) {
+      final got = await modeRequest(c[0] as Map<String, dynamic>, c[1] as String);
+      check(got[1] is! StationError && true == got[2], '${c[0]} in ${c[1]}');
+    }
+  });
+
   testcase('the hosts policy compares the hostname URL.hostname reads',
       () async {
     final cases = [

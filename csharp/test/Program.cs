@@ -878,6 +878,87 @@ internal static class Program
 
         // An IPv6 host keeps its brackets, and neither a port nor the
         // userinfo, a raw `@` in its password among it, reaches the host.
+        TestCase("transport: policy mode block refuses with its own code", () =>
+        {
+            foreach (var policy in new[] { Map("mode", "block"),
+                Map("mode", "block", "hosts", Vals("api.good.example")) })
+            {
+                Station st = MemoryStation(Map("TEST_PLUG_APIKEY", "k"), Map(
+                    "test-plug", Map("policy", policy)));
+                Bind(st, new object(), st.Options(Map()));
+                bool called = false;
+                string code = null;
+                string message = "";
+                try
+                {
+                    st.Transport("test-plug", "http://api.good.example/x", Map("headers", Map()),
+                        true, null, (url, def) =>
+                        {
+                            called = true;
+                            return Map("status", 200);
+                        });
+                }
+                catch (StationError err)
+                {
+                    code = err.Code;
+                    message = err.Message;
+                }
+                Check(!called, "the transport is not called");
+                Check("station_blocked" == code, "code: " + code);
+                Check(message.Contains("mode \"block\""), message);
+                var codes = new List<object>();
+                foreach (var ev in st.Events())
+                {
+                    if ("error".Equals(ev["kind"]))
+                    {
+                        codes.Add(Descriptor.GetProp(ev["err"], "code"));
+                    }
+                }
+                Check(1 == codes.Count && "station_blocked".Equals(codes[0]),
+                    "one error event: " + string.Join(",", codes));
+            }
+        });
+
+        TestCase("transport: policy modes that need a proxy fail station_no_proxy", () =>
+        {
+            foreach (string mode in new[] { "record", "replay", "mock" })
+            {
+                Station st = MemoryStation(Map("TEST_PLUG_APIKEY", "k"), Map(
+                    "test-plug", Map("policy", Map("mode", mode))));
+                Bind(st, new object(), st.Options(Map()));
+                string code = null;
+                try
+                {
+                    st.Transport("test-plug", "http://api.good.example/x", Map("headers", Map()),
+                        true, null, (url, def) => Map("status", 200));
+                }
+                catch (StationError err)
+                {
+                    code = err.Code;
+                }
+                Check("station_no_proxy" == code, mode + ": " + code);
+            }
+        });
+
+        TestCase("transport: policy mode live or absent passes, and only live is gated", () =>
+        {
+            var cases = new (Dictionary<string, object> Policy, bool Live)[]
+            {
+                (Map("mode", "live"), true),
+                (Map("hosts", Vals("api.good.example")), true),
+                (Map("mode", "block"), false),
+            };
+            foreach (var c in cases)
+            {
+                Station st = MemoryStation(Map("TEST_PLUG_APIKEY", "k"), Map(
+                    "test-plug", Map("policy", c.Policy)));
+                Bind(st, new object(), st.Options(Map()));
+                object res = st.Transport("test-plug", "http://api.good.example/x",
+                    Map("headers", Map()), c.Live, null, (url, def) => Map("status", 200));
+                Check(res is Dictionary<string, object>, "passes");
+            }
+        });
+
         TestCase("transport: the hosts policy compares the hostname URL.hostname reads", () =>
         {
             var cases = new (string Host, string Url, bool Allowed)[]

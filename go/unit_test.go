@@ -569,6 +569,87 @@ func TestHostsPolicyComparesTheHostnameURLHostnameReads(t *testing.T) {
 	}
 }
 
+func modeRequest(t *testing.T, policy map[string]any, mode string) (error, bool) {
+	t.Helper()
+	st, err := station.New(&station.Options{
+		NoConfig: true,
+		Config: map[string]any{
+			"station": 1,
+			"profiles": map[string]any{"default": map[string]any{
+				"secrets": map[string]any{"providers": []any{
+					map[string]any{"kind": "memory",
+						"values": map[string]string{"FAKEPAD_APIKEY": "k"}},
+				}},
+				"sdk": map[string]any{"fakepad": map[string]any{"policy": policy}},
+			}},
+		},
+	})
+	if nil != err {
+		t.Fatal(err)
+	}
+	called := false
+	base := func(opctx any, fullurl string, fetchdef map[string]any) (any, error) {
+		called = true
+		return okResponse()(opctx, fullurl, fetchdef)
+	}
+	h := bindOne(t, st, "fakepad", []string{"station"}, base, "")
+	h.client.mode = mode
+	_, ferr := h.client.fetcher(nil, "http://localhost:8920/api/todo",
+		map[string]any{"headers": map[string]any{}})
+	if "block" == policy["mode"] && "live" == mode {
+		var codes []string
+		for _, ev := range st.Events() {
+			if "error" == ev.Kind && nil != ev.Err {
+				codes = append(codes, ev.Err.Code)
+			}
+		}
+		if 1 != len(codes) || "station_blocked" != codes[0] {
+			t.Fatalf("error events %v, want one station_blocked", codes)
+		}
+	}
+	return ferr, called
+}
+
+func TestPolicyModeBlockRefusesWithItsOwnCode(t *testing.T) {
+	for _, policy := range []map[string]any{
+		{"mode": "block"},
+		{"mode": "block", "hosts": []any{"localhost"}},
+	} {
+		ferr, called := modeRequest(t, policy, "live")
+		serr, is := ferr.(*station.Error)
+		if called || !is || "station_blocked" != serr.Code ||
+			!strings.Contains(serr.Error(), `mode "block"`) {
+			t.Fatalf("%v: called %v, err %v", policy, called, ferr)
+		}
+	}
+}
+
+func TestPolicyModesThatNeedAProxyFailStationNoProxy(t *testing.T) {
+	for _, mode := range []string{"record", "replay", "mock"} {
+		ferr, called := modeRequest(t, map[string]any{"mode": mode}, "live")
+		serr, is := ferr.(*station.Error)
+		if called || !is || "station_no_proxy" != serr.Code {
+			t.Fatalf("%s: called %v, err %v", mode, called, ferr)
+		}
+	}
+}
+
+func TestPolicyModeLiveOrAbsentPassesAndOnlyLiveIsGated(t *testing.T) {
+	for _, c := range []struct {
+		policy map[string]any
+		mode   string
+	}{
+		{map[string]any{"mode": "live"}, "live"},
+		{map[string]any{}, "live"},
+		{map[string]any{"mode": "block"}, "test"},
+	} {
+		ferr, called := modeRequest(t, c.policy, c.mode)
+		if nil != ferr || !called {
+			t.Fatalf("%v in %s: called %v, err %v", c.policy, c.mode, called, ferr)
+		}
+	}
+}
+
 func TestRequireProxyFailsOnTheOpPath(t *testing.T) {
 	st, err := station.New(&station.Options{NoConfig: true, Proxy: "require"})
 	if nil != err {

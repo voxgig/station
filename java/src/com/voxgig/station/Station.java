@@ -726,6 +726,20 @@ public class Station {
     String placeholder = SecretBroker.placeholderFor(name);
     Map<String, Object> block = blockFor(name);
 
+    // Policy mode (design 16): `block` is the kill switch, and record,
+    // replay and mock need the proxy solo mode lacks, so each fails closed
+    // here as `require` does.
+    Object mode = Descriptor.getprop(block.get("policy"), "mode");
+    if (null != mode && !"live".equals(mode) && live) {
+      StationError err = "block".equals(mode)
+          ? new StationError("station_blocked", "egress denied: plugin \"" + name
+              + "\" is policy mode \"block\", the kill switch (§16)")
+          : new StationError("station_no_proxy", "policy mode \"" + mode + "\" for plugin \""
+              + name + "\" needs an attached proxy, and none is attached");
+      emitErr(name, corr, err);
+      throw err;
+    }
+
     // Egress policy (design 16), solo half: the hosts allowlist is enforced
     // at the seam every request crosses. When a policy is present,
     // redirects come back manual - a 3xx is a response like any other, so a

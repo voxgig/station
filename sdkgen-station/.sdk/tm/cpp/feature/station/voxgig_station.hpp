@@ -266,6 +266,7 @@ inline const std::vector<std::string>& known_codes() {
       "station_secret_error",
       "station_secret_name",
       "station_host_allow",
+      "station_blocked",
       "station_grant_expired",
       "station_wrap_order",
       "station_protocol",
@@ -4828,6 +4829,27 @@ class Station {
     emit_warn(name, name.empty() ? "" : api_of(name), warn);
   }
 
+  // Policy mode (design station.md 16): "" when the instance may send
+  // live traffic, else the code a live request fails with, and `msg` its
+  // message. `block` is the kill switch; record, replay and mock need the
+  // proxy solo mode lacks.
+  static std::string mode_refusal(const Jval& block, const std::string& name,
+                                  std::string& msg) {
+    Jval mode = block.get("policy").get("mode");
+    if (mode.isnone() || (mode.isstr() && "live" == mode.sval)) {
+      return "";
+    }
+    std::string text = mode.isstr() ? mode.sval : "";
+    if ("block" == text) {
+      msg = "egress denied: plugin \"" + name +
+            "\" is policy mode \"block\", the kill switch (§16)";
+      return "station_blocked";
+    }
+    msg = "policy mode \"" + text + "\" for plugin \"" + name +
+          "\" needs an attached proxy, and none is attached";
+    return "station_no_proxy";
+  }
+
   // ( host-with-port, hostname, path ) from a URL, stdlib only. Mirrors
   // ts URL semantics: host keeps a non-default port, hostname strips
   // it, an empty path reads as '/'.
@@ -5158,6 +5180,13 @@ class Station {
     // host (design 8.2's rule at the library seam). NOTE the generated
     // C++ SDK has no built-in live transport; an app-supplied
     // options.system.fetch should honour the redirect slot.
+    std::string mode_msg;
+    std::string mode_code = live ? mode_refusal(block, name, mode_msg) : "";
+    if (!mode_code.empty()) {
+      emit_err(name, corr, mode_code, mode_msg);
+      throw fctx->makeError(mode_code, mode_code + ": " + mode_msg);
+    }
+
     Jval hosts = block.get("policy").get("hosts");
     bool has_hosts = hosts.islist();
 

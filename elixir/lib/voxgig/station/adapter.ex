@@ -342,7 +342,34 @@ defmodule Voxgig.Station.Adapter do
       placeholder = Secrets.placeholder_for(slug)
       client = S.getprop(fctx, "client")
       live = nil != client and "live" == S.getprop(client, "mode")
-      profile_plugin = Station.profile_plugin(station, slug)
+      block = Station.block_for(station, slug)
+      policy = if is_map(block), do: block["policy"], else: nil
+
+      # Policy mode (design station.md 16): `block` is the kill switch, and
+      # record, replay and mock need the proxy solo mode lacks, so each
+      # fails closed here as `require` does.
+      mode = if is_map(policy) and nil != policy["mode"], do: policy["mode"], else: "live"
+
+      if "live" != mode and live do
+        err =
+          if "block" == mode do
+            Error.new(
+              "station_blocked",
+              "egress denied: plugin \"" <>
+                slug <> "\" is policy mode \"block\", the kill switch (§16)"
+            )
+          else
+            Error.new(
+              "station_no_proxy",
+              "policy mode \"" <>
+                to_string(mode) <>
+                "\" for plugin \"" <> slug <> "\" needs an attached proxy, and none is attached"
+            )
+          end
+
+        Station.emit_err(station, slug, corr, err)
+        throw({:station_ret, {nil, err}})
+      end
 
       # Egress policy (design station.md 16), solo half: the hosts
       # allowlist is enforced at the seam every request crosses. When a
@@ -352,7 +379,7 @@ defmodule Voxgig.Station.Adapter do
       # (station.md 8.2's rule, applied at the library seam; the
       # generated transport honors the fetchdef redirect slot).
       hosts =
-        case is_map(profile_plugin) && profile_plugin["policy"] do
+        case policy do
           %{"hosts" => hosts} when is_list(hosts) -> hosts
           _ -> nil
         end

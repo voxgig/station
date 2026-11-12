@@ -178,6 +178,7 @@ local CODES = {
   'station_secret_error',
   'station_secret_name',
   'station_host_allow',
+  'station_blocked',
   'station_grant_expired',
   'station_wrap_order',
   'station_protocol',
@@ -1823,6 +1824,31 @@ function Station:_transport(slug, inner, fctx, fullurl, fetchdef)
     fctx.client.mode or ''
   local live = 'live' == mode
   local profile_plugin = self.profile.sdk[slug]
+  local block = M.block_of(self.profile, slug)
+  local policy = type(block) == 'table' and
+    type(block.policy) == 'table' and block.policy or {}
+
+  -- Policy mode (design station.md 16): `block` is the kill switch, and
+  -- record, replay and mock need the proxy solo mode lacks, so each fails
+  -- closed here as `require` does.
+  local policy_mode = policy.mode
+  if policy_mode == nil or policy_mode == M.NULL then
+    policy_mode = 'live'
+  end
+  if policy_mode ~= 'live' and live then
+    local err
+    if policy_mode == 'block' then
+      err = op_error(fctx, 'station_blocked',
+        'egress denied: plugin "' .. slug .. '" is policy mode "block", ' ..
+        'the kill switch (§16)')
+    else
+      err = op_error(fctx, 'station_no_proxy',
+        'policy mode "' .. tostring(policy_mode) .. '" for plugin "' .. slug ..
+        '" needs an attached proxy, and none is attached')
+    end
+    self:_emit_err(slug, fctx, err)
+    return nil, err
+  end
 
   -- Egress policy (design station.md 16), solo half: the hosts
   -- allowlist is enforced at the seam every request crosses. When a
@@ -1832,8 +1858,7 @@ function Station:_transport(slug, inner, fctx, fullurl, fetchdef)
   -- (design 8.2's rule at the library seam). NOTE the lua SDK's default
   -- luasocket transport follows GET redirects itself and ignores the
   -- redirect slot; an app-supplied system.fetch should honour it.
-  local hosts = type(profile_plugin) == 'table' and
-    type(profile_plugin.policy) == 'table' and profile_plugin.policy.hosts or nil
+  local hosts = policy.hosts
   if type(hosts) ~= 'table' then
     hosts = nil
   end

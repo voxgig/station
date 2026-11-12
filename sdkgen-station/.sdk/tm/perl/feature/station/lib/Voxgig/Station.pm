@@ -836,6 +836,27 @@ sub _transport {
     # registration did, so an imperative tagged instance gets its api's
     # policy rather than none at all.
     my $profile_plugin = $self->block_for($name);
+    my $policy =
+      ref($profile_plugin) eq 'HASH' && ref( $profile_plugin->{policy} ) eq 'HASH'
+      ? $profile_plugin->{policy}
+      : {};
+
+    # Policy mode (design station.md 16): `block` is the kill switch, and
+    # record, replay and mock need the proxy solo mode lacks, so each
+    # fails closed here as `require` does.
+    my $policy_mode = defined $policy->{mode} ? $policy->{mode} : 'live';
+    if ( 'live' ne $policy_mode && $live ) {
+        my $err =
+          'block' eq $policy_mode
+          ? $self->_op_error( $fctx, 'station_blocked',
+                'egress denied: plugin "' . $name
+              . '" is policy mode "block", the kill switch (§16)' )
+          : $self->_op_error( $fctx, 'station_no_proxy',
+                'policy mode "' . $policy_mode . '" for plugin "' . $name
+              . '" needs an attached proxy, and none is attached' );
+        $self->_emit_err( $name, $fctx, $err );
+        return ( undef, $err );
+    }
 
     # Egress policy (design station.md 16), solo half: the hosts
     # allowlist is enforced at the seam every request crosses. When a

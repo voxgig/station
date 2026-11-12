@@ -702,6 +702,58 @@ testcase('hosts_policy_denies_off_list_egress', function () {
     eq('station_host_allow', $errs[0]['err']['code']);
 });
 
+/** @return array{0: Station, 1: mixed, 2: bool} */
+function mode_request(array $policy, string $mode = 'live'): array
+{
+    putenv('GNARLY_PETS_APIKEY=k');
+    $st = new Station(['config' => [
+        'station' => 1,
+        'profiles' => ['default' => ['sdk' => ['gnarly-pets' => ['policy' => $policy]]]],
+    ]]);
+    $called = false;
+    $b = bind($st, function ($_c, $_u, $_d) use (&$called) {
+        $called = true;
+        return [okres(), null];
+    });
+    $b['client']->mode = $mode;
+    [$_res, $err] = ($b['utility']->fetcher)($b['ctx'], 'http://localhost:8903/x',
+        ['method' => 'GET', 'headers' => []]);
+    return [$st, $err, $called];
+}
+
+testcase('policy_mode_block_refuses_with_its_own_code', function () {
+    [$st, $err, $called] = mode_request(['mode' => 'block']);
+    ok(!$called, 'inner transport never called');
+    eq('station_blocked', $err?->code());
+    ok(str_contains($err->getMessage(), 'mode "block"'), $err->getMessage());
+    $errs = array_values(array_filter($st->events(), fn($e) => 'error' === $e['kind']));
+    eq(['station_blocked'], array_map(fn($e) => $e['err']['code'], $errs));
+});
+
+testcase('policy_mode_block_wins_over_hosts_that_admit_the_host', function () {
+    [$_st, $err, $called] = mode_request(['mode' => 'block', 'hosts' => ['localhost']]);
+    ok(!$called, 'inner transport never called');
+    eq('station_blocked', $err?->code());
+});
+
+testcase('policy_modes_that_need_a_proxy_fail_station_no_proxy', function () {
+    foreach (['record', 'replay', 'mock'] as $mode) {
+        [$_st, $err, $called] = mode_request(['mode' => $mode]);
+        ok(!$called, $mode . ': inner transport never called');
+        eq('station_no_proxy', $err?->code());
+    }
+});
+
+testcase('policy_mode_live_or_absent_passes_and_only_live_is_gated', function () {
+    foreach ([[['mode' => 'live'], 'live'], [['hosts' => ['localhost']], 'live'],
+        [['mode' => 'block'], 'test']]
+        as [$policy, $mode]) {
+        [$_st, $err, $called] = mode_request($policy, $mode);
+        ok(null === $err, json_encode($policy) . ' passes');
+        ok($called, json_encode($policy) . ' reaches the transport');
+    }
+});
+
 // An IPv6 host keeps its brackets, and neither a port nor the userinfo,
 // a raw `@` in its password among it, reaches the host.
 testcase('hosts_policy_compares_the_hostname_url_hostname_reads', function () {

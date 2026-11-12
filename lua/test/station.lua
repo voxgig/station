@@ -938,6 +938,72 @@ testcase('hosts-policy-hostname', function()
   end
 end)
 
+local function mode_request(policy, mode)
+  local station = st.new({ proxy = 'off', config = {
+    station = 1,
+    profiles = { default = { sdk = { taskpad = { policy = policy } } } },
+  } })
+  local b = bind(station)
+  b.options.apikey = '[station:taskpad]'
+  station.broker:hoist('taskpad', 'v')
+  b.client.mode = mode or 'live'
+  local _, err = b.utility.fetcher({ client = b.client },
+    'http://api.good.example/api/task', { headers = {} })
+  return station, err, #b.inner_calls
+end
+
+testcase('policy-mode-block', function()
+  for _, policy in ipairs({ { mode = 'block' },
+    { mode = 'block', hosts = { 'api.good.example' } } }) do
+    local station, err, calls = mode_request(policy)
+    checkeq(calls, 0, 'the transport is not called')
+    checkeq(type(err) == 'table' and err.code or nil, 'station_blocked', 'code')
+    check(nil ~= string.find(err.message, 'mode "block"', 1, true), err.message)
+    local codes = {}
+    for _, ev in ipairs(station:events()) do
+      if 'error' == ev.kind then
+        codes[#codes + 1] = ev.err.code
+      end
+    end
+    checkeq(table.concat(codes, ','), 'station_blocked', 'one error event')
+  end
+end)
+
+testcase('policy-from-the-api-block', function()
+  -- An instance with no sdk block of its own takes its api's policy.
+  for _, c in ipairs({
+    { { mode = 'block' }, 'http://api.good.example/api/task', 'station_blocked' },
+    { { hosts = { 'api.good.example' } }, 'http://evil.example/api/task', 'station_host_allow' },
+  }) do
+    local station = st.new({ proxy = 'off', config = {
+      station = 1,
+      profiles = { default = { api = { taskpad = { policy = c[1] } } } },
+    } })
+    local b = bind(station)
+    b.options.apikey = '[station:taskpad]'
+    station.broker:hoist('taskpad', 'v')
+    local _, err = b.utility.fetcher({ client = b.client }, c[2], { headers = {} })
+    checkeq(type(err) == 'table' and err.code or nil, c[3], c[3])
+  end
+end)
+
+testcase('policy-mode-needs-proxy', function()
+  for _, mode in ipairs({ 'record', 'replay', 'mock' }) do
+    local _, err, calls = mode_request({ mode = mode })
+    checkeq(calls, 0, mode .. ': the transport is not called')
+    checkeq(type(err) == 'table' and err.code or nil, 'station_no_proxy', mode)
+  end
+end)
+
+testcase('policy-mode-live', function()
+  for _, c in ipairs({ { { mode = 'live' }, 'live' },
+    { { hosts = { 'api.good.example' } }, 'live' }, { { mode = 'block' }, 'test' } }) do
+    local _, err, calls = mode_request(c[1], c[2])
+    checkeq(err, nil, 'no error')
+    checkeq(calls, 1, 'the transport is called')
+  end
+end)
+
 testcase('require-proxy', function()
   local station = st.new({ config = st.NULL, proxy = 'require' })
   local b = bind(station)

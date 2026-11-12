@@ -159,7 +159,7 @@ the remedy this port offers, and says plainly that `package` is not
 honoured; `Station::load()` is present and inert, and
 `StationOptions { load: Some(false) }` is accepted and equally inert.
 `station_sdk_load` stays in the §14 catalog (the `errors` corpus section
-pins all 29 codes for every port) and is never raised — what survives of
+pins all 30 codes for every port) and is never raised — what survives of
 the loader is `check_package`, a pure predicate exported so a Rust-side
 tool can hold a shared config to the same rule the loading ports apply.
 

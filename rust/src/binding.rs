@@ -10,7 +10,7 @@ use crate::error::StationError;
 use crate::events::{HttpEvent, OpEvent, StationEvent};
 use crate::jsonx::{jstr, now_ms};
 use crate::secrets::{placeholder_for, substitute};
-use crate::station::{policy_allow, policy_hosts, PluginEntry, Station};
+use crate::station::{policy_allow, policy_hosts, policy_mode, PluginEntry, Station};
 
 thread_local! {
     static CORR_SEQ: Cell<u64> = const { Cell::new(0) };
@@ -231,7 +231,34 @@ impl Binding {
             return Err(err);
         }
 
-        let hosts: Option<Vec<String>> = policy_hosts(&self.station.block_for(&self.name));
+        let block = self.station.block_for(&self.name);
+
+        // `block` is §16's kill switch; record, replay and mock need the
+        // proxy solo mode lacks, so each fails closed here as `require` does.
+        let mode = policy_mode(&block);
+        if "live" != mode && live {
+            let err = if "block" == mode {
+                StationError::new(
+                    "station_blocked",
+                    format!(
+                        "egress denied: plugin \"{}\" is policy mode \"block\", the kill switch (§16)",
+                        self.name
+                    ),
+                )
+            } else {
+                StationError::new(
+                    "station_no_proxy",
+                    format!(
+                        "policy mode \"{}\" for plugin \"{}\" needs an attached proxy, and none is attached",
+                        mode, self.name
+                    ),
+                )
+            };
+            self.station.emit_err(&self.name, corr, &err);
+            return Err(err);
+        }
+
+        let hosts: Option<Vec<String>> = policy_hosts(&block);
 
         let policed = hosts.is_some() && live;
         if let (Some(hosts), true) = (&hosts, live) {

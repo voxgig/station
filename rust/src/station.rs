@@ -1289,6 +1289,14 @@ pub(crate) fn policy_allow(block: &Json) -> Option<Json> {
     Some(Json::Map(out))
 }
 
+pub(crate) fn policy_mode(block: &Json) -> String {
+    match jget(block, "policy").and_then(|policy| jget(policy, "mode")) {
+        None | Some(Json::Null) => "live".to_string(),
+        Some(Json::Str(text)) => text.clone(),
+        Some(other) => canonical_serialize(other),
+    }
+}
+
 pub(crate) fn policy_hosts(block: &Json) -> Option<Vec<String>> {
     match jget(block, "policy").and_then(|policy| jget(policy, "hosts")) {
         Some(Json::List(items)) => Some(

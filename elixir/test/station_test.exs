@@ -370,6 +370,94 @@ defmodule Voxgig.StationTest do
     end
   end
 
+  defp mode_request(policy, mode) do
+    Voxgig.Station.TestStruct.load()
+
+    st =
+      Station.new(%{
+        "config" => %{
+          "station" => 1,
+          "profiles" => %{"default" => %{"sdk" => %{"pad" => %{"policy" => policy}}}}
+        }
+      })
+
+    me = self()
+    fctx = Voxgig.Struct.jm(["client", Voxgig.Struct.jm(["mode", mode])])
+
+    inner = fn _fctx, _url, _def ->
+      send(me, :transport_called)
+      {Voxgig.Struct.jm(["status", 200]), nil}
+    end
+
+    {_res, err} =
+      Adapter.transport(st, "pad", inner, fctx, "http://localhost:8903/x", Voxgig.Struct.jm([]))
+
+    called =
+      receive do
+        :transport_called -> true
+      after
+        0 -> false
+      end
+
+    {st, err, called}
+  end
+
+  test "policy mode block refuses with its own code" do
+    for policy <- [%{"mode" => "block"}, %{"mode" => "block", "hosts" => ["localhost"]}] do
+      {st, err, called} = mode_request(policy, "live")
+      refute called
+      assert "station_blocked" == (err && err.code)
+      assert String.contains?(Exception.message(err), ~s(mode "block"))
+
+      codes =
+        for ev <- Station.events(st), "error" == ev["kind"], do: ev["err"]["code"]
+
+      assert ["station_blocked"] == codes
+    end
+  end
+
+  test "an api block's policy reaches an instance with no sdk block" do
+    Voxgig.Station.TestStruct.load()
+
+    for {policy, url, code} <- [
+          {%{"mode" => "block"}, "http://localhost:8903/x", "station_blocked"},
+          {%{"hosts" => ["api.good.example"]}, "http://evil.example/x", "station_host_allow"}
+        ] do
+      st =
+        Station.new(%{
+          "config" => %{
+            "station" => 1,
+            "profiles" => %{"default" => %{"api" => %{"pad" => %{"policy" => policy}}}}
+          }
+        })
+
+      fctx = Voxgig.Struct.jm(["client", Voxgig.Struct.jm(["mode", "live"])])
+      inner = fn _fctx, _url, _def -> {Voxgig.Struct.jm(["status", 200]), nil} end
+      {_res, err} = Adapter.transport(st, "pad", inner, fctx, url, Voxgig.Struct.jm([]))
+      assert code == (err && err.code)
+    end
+  end
+
+  test "policy modes that need a proxy fail station_no_proxy" do
+    for mode <- ["record", "replay", "mock"] do
+      {_st, err, called} = mode_request(%{"mode" => mode}, "live")
+      refute called, mode
+      assert "station_no_proxy" == (err && err.code), mode
+    end
+  end
+
+  test "policy mode live or absent passes, and only live is gated" do
+    for {policy, mode} <- [
+          {%{"mode" => "live"}, "live"},
+          {%{"hosts" => ["localhost"]}, "live"},
+          {%{"mode" => "block"}, "test"}
+        ] do
+      {_st, err, called} = mode_request(policy, mode)
+      assert nil == err
+      assert called
+    end
+  end
+
   test "one failed operation emits one op event" do
     Voxgig.Station.TestStruct.load()
     st = Station.new(%{"config" => nil})

@@ -686,6 +686,54 @@ class TestBinding(unittest.TestCase):
                 self.assertEqual(1 if allowed else 0, len(log))
                 st.close()
 
+    def _mode_station(self, policy):
+        return Station({'config': {
+            'station': 1,
+            'profiles': {'default': {'sdk': {'gnarly-pets': {'policy': policy}}}},
+        }})
+
+    def _mode_request(self, st, mode='live'):
+        ctx, log = bind(st, mode=mode)
+        _res, err = ctx.utility.fetcher(
+            ctx, 'http://localhost:8903/api/pet', {'method': 'GET', 'headers': {}})
+        return err, log
+
+    def test_policy_mode_block_refuses_with_its_own_code(self):
+        st = self._mode_station({'mode': 'block'})
+        err, log = self._mode_request(st)
+        self.assertEqual('station_blocked', getattr(err, 'code', err))
+        self.assertIn('mode "block"', str(err))
+        self.assertEqual(0, len(log))
+        errs = [e for e in st.events() if 'error' == e['kind']]
+        self.assertEqual(['station_blocked'], [e['err']['code'] for e in errs])
+        st.close()
+
+    def test_policy_mode_block_wins_over_hosts_that_admit_the_host(self):
+        st = self._mode_station({'mode': 'block', 'hosts': ['localhost']})
+        err, log = self._mode_request(st)
+        self.assertEqual('station_blocked', getattr(err, 'code', err))
+        self.assertEqual(0, len(log))
+        st.close()
+
+    def test_policy_modes_that_need_a_proxy_fail_station_no_proxy(self):
+        for mode in ('record', 'replay', 'mock'):
+            with self.subTest(mode=mode):
+                st = self._mode_station({'mode': mode})
+                err, log = self._mode_request(st)
+                self.assertEqual('station_no_proxy', getattr(err, 'code', err))
+                self.assertEqual(0, len(log))
+                st.close()
+
+    def test_policy_mode_live_or_absent_passes_and_only_live_is_gated(self):
+        for policy, mode in (({'mode': 'live'}, 'live'), ({}, 'live'),
+                             ({'mode': 'block'}, 'test')):
+            with self.subTest(policy=policy, mode=mode):
+                st = self._mode_station(policy)
+                err, log = self._mode_request(st, mode)
+                self.assertIsNone(err)
+                self.assertEqual(1, len(log))
+                st.close()
+
     def test_hosts_policy_sends_manual_redirects(self):
         st = Station({'config': {
             'station': 1,

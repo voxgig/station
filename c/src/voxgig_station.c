@@ -129,6 +129,7 @@ static const char* const VXSTN_CODES[] = {
   "station_secret_error",
   "station_secret_name",
   "station_host_allow",
+  "station_blocked",
   "station_grant_expired",
   "station_wrap_order",
   "station_protocol",
@@ -3043,6 +3044,45 @@ const vxstn_val* vxstn_profile_sdk(vxstn_station* st, const char* name) {
     return NULL;
   }
   return vxstn_getk(vxstn_map_get(st->profile, "sdk"), name);
+}
+
+const char* vxstn_mode_refusal(vxstn_station* st, const char* name, char** msg) {
+  const vxstn_val* mode =
+      vxstn_getk(vxstn_getk(vxstn_block_for(st, name), "policy"), "mode");
+  const char* text;
+  const char* code;
+  vxstn_sb sb;
+
+  if (NULL != msg) {
+    *msg = NULL;
+  }
+  if (NULL == mode || VXSTN_NULL == mode->kind || VXSTN_UNDEF == mode->kind) {
+    return NULL;
+  }
+  text = vxstn_is_str(mode) ? mode->str : "";
+  if (vxstn_is_str(mode) && 0 == strcmp(text, "live")) {
+    return NULL;
+  }
+  vxstn_sb_init(&sb);
+  if (0 == strcmp(text, "block")) {
+    code = "station_blocked";
+    vxstn_sb_put(&sb, "egress denied: plugin \"");
+    vxstn_sb_put(&sb, NULL == name ? "" : name);
+    vxstn_sb_put(&sb, "\" is policy mode \"block\", the kill switch (§16)");
+  } else {
+    code = "station_no_proxy";
+    vxstn_sb_put(&sb, "policy mode \"");
+    vxstn_sb_put(&sb, text);
+    vxstn_sb_put(&sb, "\" for plugin \"");
+    vxstn_sb_put(&sb, NULL == name ? "" : name);
+    vxstn_sb_put(&sb, "\" needs an attached proxy, and none is attached");
+  }
+  if (NULL != msg) {
+    *msg = sb.buf;
+  } else {
+    free(sb.buf);
+  }
+  return code;
 }
 
 bool vxstn_host_allowed(vxstn_station* st, const char* name,

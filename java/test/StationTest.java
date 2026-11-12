@@ -1424,6 +1424,69 @@ public final class StationTest {
       check(res instanceof Map, "mock path unaffected");
     });
 
+    testcase("transport: policy mode block refuses with its own code", () -> {
+      for (Map<String, Object> policy : List.of(map("mode", "block"),
+          map("mode", "block", "hosts", List.of("api.good.example")))) {
+        Station st = memoryStation(map("TEST_PLUG_APIKEY", "k"), map(
+            "test-plug", map("policy", policy)));
+        bind(st, new Object(), st.options(map()));
+        boolean[] called = {false};
+        String code = null;
+        String message = "";
+        try {
+          st.transport("test-plug", "http://api.good.example/x", map("headers", map()), true,
+              null, (url, def) -> {
+                called[0] = true;
+                return map("status", 200);
+              });
+        } catch (StationError err) {
+          code = err.code;
+          message = err.getMessage();
+        }
+        check(!called[0], "the transport is not called");
+        checkeq(code, "station_blocked", "code");
+        check(message.contains("mode \"block\""), message);
+        List<Object> codes = new ArrayList<>();
+        for (Map<String, Object> ev : st.events()) {
+          if ("error".equals(ev.get("kind"))) {
+            codes.add(Descriptor.getprop(ev.get("err"), "code"));
+          }
+        }
+        checkeq(codes, List.of("station_blocked"), "error events");
+      }
+    });
+
+    testcase("transport: policy modes that need a proxy fail station_no_proxy", () -> {
+      for (String mode : List.of("record", "replay", "mock")) {
+        Station st = memoryStation(map("TEST_PLUG_APIKEY", "k"), map(
+            "test-plug", map("policy", map("mode", mode))));
+        bind(st, new Object(), st.options(map()));
+        String code = null;
+        try {
+          st.transport("test-plug", "http://api.good.example/x", map("headers", map()), true,
+              null, (url, def) -> map("status", 200));
+        } catch (StationError err) {
+          code = err.code;
+        }
+        checkeq(code, "station_no_proxy", mode);
+      }
+    });
+
+    testcase("transport: policy mode live or absent passes, and only live is gated", () -> {
+      Object[][] cases = {
+        {map("mode", "live"), true}, {map("hosts", List.of("api.good.example")), true},
+        {map("mode", "block"), false},
+      };
+      for (Object[] c : cases) {
+        Station st = memoryStation(map("TEST_PLUG_APIKEY", "k"), map(
+            "test-plug", map("policy", c[0])));
+        bind(st, new Object(), st.options(map()));
+        Object res = st.transport("test-plug", "http://api.good.example/x",
+            map("headers", map()), (Boolean) c[1], null, (url, def) -> map("status", 200));
+        check(res instanceof Map, c[0] + " passes");
+      }
+    });
+
     // An IPv6 host keeps its brackets, and neither a port nor the userinfo,
     // a raw `@` in its password among it, reaches the host.
     testcase("transport: the hosts policy compares the hostname URL.hostname reads", () -> {

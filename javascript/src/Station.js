@@ -534,24 +534,15 @@ class Station {
     const live = 'live' === fctx.client._mode
     const profilePlugin = this.blockFor(name)
 
-    // Policy mode (design §16): `live` is the default; `block` is the
-    // kill switch and refuses live egress outright. Enforced at the
-    // same seam as the hosts allowlist, and like it only on LIVE
-    // traffic - a test-mode client's mock transport is not egress.
-    //
-    // §14 names no mode-specific code, so `block` raises
-    // `station_host_allow` - the closest existing catalog code: the
-    // same `_allow` gate grammar, the same seam, the same meaning
-    // (egress denied by this plugin's policy), with the message naming
-    // the mode. `record`/`replay`/`mock` are proxy-era modes accepted
-    // by the grammar now (so a config written for the proxy is not a
-    // validation error) and fail `station_no_proxy` on the operation
-    // path until a proxy is attached - the same fail-closed behaviour
-    // `require` shows above.
+    // Policy mode (design §16): `block` is the kill switch and refuses
+    // live egress with its own code. `record`/`replay`/`mock` are
+    // proxy-era modes the grammar accepts, so a config written for the
+    // proxy still validates, and each fails `station_no_proxy` here as
+    // `require` does. Only LIVE traffic is gated, like the hosts policy.
     const mode = profilePlugin?.policy?.mode ?? 'live'
     if ('live' !== mode && live) {
       const err = 'block' === mode
-        ? new StationError('station_host_allow',
+        ? new StationError('station_blocked',
           'egress denied: plugin "' + name + '" is policy mode "block", ' +
           'the kill switch (§16)')
         : new StationError('station_no_proxy',

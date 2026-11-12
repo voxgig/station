@@ -646,6 +646,24 @@ class Station
         $placeholder = placeholder_for($name);
         $live = 'live' === ($fctx->client->mode ?? null);
         $profile_plugin = $this->block_for($name);
+        $policy = is_array($profile_plugin) && is_array($profile_plugin['policy'] ?? null)
+            ? $profile_plugin['policy'] : [];
+
+        // Policy mode (design station.md 16): `block` is the kill switch,
+        // and record, replay and mock need the proxy solo mode lacks, so
+        // each fails closed here as `require` does.
+        $mode = $policy['mode'] ?? 'live';
+        if ('live' !== $mode && $live) {
+            $err = 'block' === $mode
+                ? new StationError('station_blocked',
+                    'egress denied: plugin "' . $name . '" is policy mode "block", ' .
+                    'the kill switch (§16)')
+                : new StationError('station_no_proxy',
+                    'policy mode "' . (is_scalar($mode) ? (string) $mode : gettype($mode)) .
+                    '" for plugin "' . $name . '" needs an attached proxy, and none is attached');
+            $this->emit_err($name, $fctx, $err);
+            return [null, $err];
+        }
 
         // Egress policy (design station.md 16), solo half: the hosts
         // allowlist is enforced at the seam every request crosses. When

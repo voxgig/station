@@ -704,6 +704,51 @@ class TestStation < Minitest::Test
     assert_equal 'station_host_allow', errs[0]['err']['code']
   end
 
+  def mode_request(policy, mode = 'live')
+    ENV['GNARLY_PETS_APIKEY'] = 'k'
+    st = VoxgigStation::Station.new('config' => {
+      'station' => 1,
+      'profiles' => { 'default' => { 'sdk' => { 'gnarly-pets' => { 'policy' => policy } } } },
+    })
+    called = false
+    b = bind(st, ->(_c, _u, _d) { called = true; [okres, nil] })
+    b[:client].mode = mode
+    _res, err = b[:utility].fetcher.call(b[:ctx], 'http://localhost:8903/x',
+      'method' => 'GET', 'headers' => {})
+    [st, err, called]
+  end
+
+  def test_policy_mode_block_refuses_with_its_own_code
+    st, err, called = mode_request('mode' => 'block')
+    refute called
+    assert_equal 'station_blocked', err&.code
+    assert_includes err.message, 'mode "block"'
+    errs = st.events.select { |e| 'error' == e['kind'] }
+    assert_equal ['station_blocked'], errs.map { |e| e['err']['code'] }
+  end
+
+  def test_policy_mode_block_wins_over_hosts_that_admit_the_host
+    _st, err, called = mode_request('mode' => 'block', 'hosts' => ['localhost'])
+    refute called
+    assert_equal 'station_blocked', err&.code
+  end
+
+  def test_policy_modes_that_need_a_proxy_fail_station_no_proxy
+    %w[record replay mock].each do |mode|
+      _st, err, called = mode_request('mode' => mode)
+      refute called, mode
+      assert_equal 'station_no_proxy', err&.code, mode
+    end
+  end
+
+  def test_policy_mode_live_or_absent_passes_and_only_live_is_gated
+    [[{ 'mode' => 'live' }, 'live'], [{}, 'live'], [{ 'mode' => 'block' }, 'test']].each do |policy, mode|
+      _st, err, called = mode_request(policy, mode)
+      assert_nil err, policy.inspect
+      assert called, policy.inspect
+    end
+  end
+
   # An IPv6 host keeps its brackets, and neither a port nor the userinfo,
   # a raw `@` in its password among it, reaches the host.
   def test_hosts_policy_compares_the_hostname_url_hostname_reads

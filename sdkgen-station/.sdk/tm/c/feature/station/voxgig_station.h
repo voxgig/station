@@ -581,6 +581,13 @@ bool vxstn_require_proxy(vxstn_station* st);
 bool vxstn_host_allowed(vxstn_station* st, const char* name,
                         const char* fullurl, bool* has_policy);
 
+/* Policy mode (design station.md 16): NULL when the instance may send
+ * live traffic, else the code a live request fails with: station_blocked
+ * for `block`, the kill switch, and station_no_proxy for record, replay
+ * and mock, which need the proxy solo mode lacks. *msg (owned) carries
+ * the message. */
+const char* vxstn_mode_refusal(vxstn_station* st, const char* name, char** msg);
+
 /* The instance's isolation rung: "R1" | "none" (borrowed; NULL when the
  * INSTANCE NAME is unknown). Injection happens only on R1 - and,
  * adapter-side, only in live mode: never into mock transports

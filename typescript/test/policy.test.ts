@@ -75,17 +75,36 @@ describe('policy-hostname', () => {
 
 describe('policy-mode', () => {
 
-  test('mode "block" refuses a live operation, like the hosts policy', async () => {
+  test('mode "block" refuses a live operation with its own code', async () => {
     const st = policyStation('solar', { mode: 'block' })
     const out = await liveRequest(st, 'solar')
 
     ok(out instanceof Error)
-    equal('station_host_allow', (out as any).code)
+    equal('station_blocked', (out as any).code)
     match(String((out as any).message), /mode "block"/)
 
     const errs = st.events().filter((e) => 'error' === e.kind)
     equal(1, errs.length)
-    equal('station_host_allow', errs[0].err!.code)
+    equal('station_blocked', errs[0].err!.code)
+    st.close()
+  })
+
+  test('mode "block" wins over a hosts policy that admits the host', async () => {
+    const st = policyStation('solar', { mode: 'block', hosts: ['api.x.com'] })
+    const out = await liveRequest(st, 'solar')
+    equal('station_blocked', (out as any).code)
+    st.close()
+  })
+
+  test("an api block's policy reaches an instance with no sdk block", async () => {
+    const st = new Station({
+      config: {
+        station: 1,
+        profiles: { default: { api: { solar: { policy: { mode: 'block' } } } } },
+      },
+    })
+    const out = await liveRequest(st, 'solar')
+    equal('station_blocked', (out as any).code)
     st.close()
   })
 

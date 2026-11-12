@@ -486,6 +486,61 @@ fn prepare_enforces_hosts_policy_and_pins_redirects() {
     Station::reset();
 }
 
+fn mode_prepare(policy: &str, live: bool) -> (Option<String>, Vec<String>) {
+    let station = open_station(station_config(&format!(
+        r#", "sdk": {{ "taskpad": {{ "policy": {} }} }}"#,
+        policy
+    )));
+    let client: Rc<dyn Any> = Rc::new(());
+    let bound = bind(spec(client, &["test", "station"])).expect("bound");
+    let got = bound
+        .binding
+        .prepare(None, live, "http://api.test/api/todo", &BTreeMap::new())
+        .err()
+        .map(|err| {
+            if "station_blocked" == err.code {
+                assert!(err.msg.contains(r#"mode "block""#), "{}", err.msg);
+            }
+            err.code
+        });
+    let codes = events_of(&station, "error")
+        .iter()
+        .filter_map(|ev| ev.err.as_ref().and_then(|e| e.code.clone()))
+        .collect();
+    station.close();
+    Station::reset();
+    (got, codes)
+}
+
+#[test]
+fn policy_mode_block_refuses_with_its_own_code() {
+    for policy in [r#"{ "mode": "block" }"#, r#"{ "mode": "block", "hosts": ["api.test"] }"#] {
+        let (got, codes) = mode_prepare(policy, true);
+        assert_eq!(Some("station_blocked".to_string()), got, "{}", policy);
+        assert_eq!(vec!["station_blocked".to_string()], codes, "{}", policy);
+    }
+}
+
+#[test]
+fn policy_modes_that_need_a_proxy_fail_station_no_proxy() {
+    for mode in ["record", "replay", "mock"] {
+        let (got, _codes) = mode_prepare(&format!(r#"{{ "mode": "{}" }}"#, mode), true);
+        assert_eq!(Some("station_no_proxy".to_string()), got, "{}", mode);
+    }
+}
+
+#[test]
+fn policy_mode_live_or_absent_passes_and_only_live_is_gated() {
+    for (policy, live) in [
+        (r#"{ "mode": "live" }"#, true),
+        (r#"{ "hosts": ["api.test"] }"#, true),
+        (r#"{ "mode": "block" }"#, false),
+    ] {
+        let (got, _codes) = mode_prepare(policy, live);
+        assert_eq!(None, got, "{} live={}", policy, live);
+    }
+}
+
 // An IPv6 host keeps its brackets, and neither a port nor the userinfo, a
 // raw `@` in its password among it, reaches the host.
 #[test]

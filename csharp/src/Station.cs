@@ -611,6 +611,21 @@ namespace Voxgig.Station
             string placeholder = SecretBroker.PlaceholderFor(slug);
             Dictionary<string, object> profilePlugin = Profile.BlockOf(profile, slug);
 
+            // Policy mode (design 16): `block` is the kill switch, and record,
+            // replay and mock need the proxy solo mode lacks, so each fails
+            // closed here as `require` does.
+            object mode = Descriptor.GetProp(profilePlugin.GetValueOrDefault("policy"), "mode");
+            if (null != mode && !"live".Equals(mode) && live)
+            {
+                var refused = "block".Equals(mode)
+                    ? new StationError("station_blocked", "egress denied: plugin \"" + slug
+                        + "\" is policy mode \"block\", the kill switch (§16)")
+                    : new StationError("station_no_proxy", "policy mode \"" + mode
+                        + "\" for plugin \"" + slug + "\" needs an attached proxy, and none is attached");
+                EmitErr(slug, corr, refused);
+                throw refused;
+            }
+
             // Egress policy (design 16), solo half: the hosts allowlist is
             // enforced at the seam every request crosses. When a policy is
             // present, redirects come back manual - a 3xx is a response like

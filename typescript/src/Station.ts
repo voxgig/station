@@ -400,7 +400,7 @@ export class Station {
     const mode = profilePlugin?.policy?.mode ?? 'live'
     if ('live' !== mode && live) {
       const err = 'block' === mode
-        ? new StationError('station_host_allow',
+        ? new StationError('station_blocked',
           'egress denied: plugin "' + name + '" is policy mode "block", ' +
           'the kill switch (§16)')
         : new StationError('station_no_proxy',
