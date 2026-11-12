@@ -67,13 +67,26 @@ namespace Voxgig.Station
             {
                 return null;
             }
-            string text = File.ReadAllText(file);
-            // A file that is not JSON is a config error, not a raw parser
-            // error escaping open(): the reader found station.json and
-            // could not use it, which is exactly what
-            // station_config_invalid exists to say. sekreto's Json.Parse
-            // never throws, so validate through the BCL parser first to
-            // capture the real parser message.
+            return ParseConfig(File.ReadAllText(file), file);
+        }
+
+        /// <summary>
+        /// Decodes station.json text; a non-null file names it in a refusal.
+        /// A file that is not JSON is a config error, not a raw parser error
+        /// escaping open(). Decoders disagree about an unpaired surrogate
+        /// escape, which I-JSON forbids, so the text is scanned before it is
+        /// decoded. sekreto's Json.Parse never throws, so the BCL parser
+        /// validates first to capture the real parser message.
+        /// </summary>
+        public static Dictionary<string, object> ParseConfig(string text, string file = null)
+        {
+            string where = "station.json" + (null == file ? "" : " at " + file);
+            string literal = UnpairedSurrogate(text);
+            if (null != literal)
+            {
+                throw new StationError("station_config_invalid",
+                    where + " has an unpaired surrogate escape in " + literal);
+            }
             try
             {
                 using (JsonDocument.Parse(text))
@@ -83,9 +96,101 @@ namespace Voxgig.Station
             catch (JsonException err)
             {
                 throw new StationError("station_config_invalid",
-                    "station.json at " + file + " is not valid JSON: " + err.Message);
+                    where + " is not valid JSON: " + err.Message);
             }
             return Descriptor.AsMap(Json.Parse(text));
+        }
+
+        // The first closed string literal, quotes included, holding a \u
+        // escape for a surrogate that is not half of an escaped pair.
+        private static string UnpairedSurrogate(string text)
+        {
+            int start = -1;
+            bool unpaired = false;
+            for (int i = 0; i < text.Length; i++)
+            {
+                char c = text[i];
+                if (-1 == start)
+                {
+                    if ('"' == c)
+                    {
+                        start = i;
+                        unpaired = false;
+                    }
+                }
+                else if ('"' == c)
+                {
+                    if (unpaired)
+                    {
+                        return text.Substring(start, i + 1 - start);
+                    }
+                    start = -1;
+                }
+                else if ('\\' == c)
+                {
+                    int unit = EscapedUnit(text, i);
+                    if (IsHighSurrogate(unit) && IsLowSurrogate(EscapedUnit(text, i + 6)))
+                    {
+                        i += 11;
+                    }
+                    else if (IsHighSurrogate(unit) || IsLowSurrogate(unit))
+                    {
+                        unpaired = true;
+                        i += 5;
+                    }
+                    else
+                    {
+                        i++;
+                    }
+                }
+            }
+            return null;
+        }
+
+        private static int EscapedUnit(string text, int at)
+        {
+            if (at + 6 > text.Length || '\\' != text[at] || 'u' != text[at + 1])
+            {
+                return -1;
+            }
+            int unit = 0;
+            for (int k = at + 2; k < at + 6; k++)
+            {
+                int digit = HexDigit(text[k]);
+                if (-1 == digit)
+                {
+                    return -1;
+                }
+                unit = unit * 16 + digit;
+            }
+            return unit;
+        }
+
+        private static int HexDigit(char c)
+        {
+            if ('0' <= c && c <= '9')
+            {
+                return c - '0';
+            }
+            if ('a' <= c && c <= 'f')
+            {
+                return c - 'a' + 10;
+            }
+            if ('A' <= c && c <= 'F')
+            {
+                return c - 'A' + 10;
+            }
+            return -1;
+        }
+
+        private static bool IsHighSurrogate(int unit)
+        {
+            return 0xD800 <= unit && unit <= 0xDBFF;
+        }
+
+        private static bool IsLowSurrogate(int unit)
+        {
+            return 0xDC00 <= unit && unit <= 0xDFFF;
         }
 
         /// <summary>

@@ -923,6 +923,19 @@ class TestStation < Minitest::Test
     end
   end
 
+  def test_load_config_refuses_an_unpaired_surrogate_escape
+    Dir.mktmpdir do |dir|
+      file = File.join(dir, 'station.json')
+      File.write(file, '{ "station": 1, "profiles": { "x\\ud800": {} } }')
+      err = assert_raises(VoxgigStation::StationError) do
+        VoxgigStation.load_config(dir)
+      end
+      assert_equal 'station_config_invalid', err.code
+      assert_equal 'station_config_invalid: station.json at ' + file +
+                   ' has an unpaired surrogate escape in "x\\ud800"', err.message
+    end
+  end
+
   # --- the factory table (design station.md 6.2) ---
 
   def test_provide_is_idempotent_for_one_pair_and_conflicts_on_another

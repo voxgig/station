@@ -28,7 +28,9 @@ const {
   resolveorder,
 } = require('../src/feature')
 const { placeholderFor, substitute } = require('../src/secrets')
-const { blockOf, instanceOptions, resolveProfile } = require('../src/profile')
+const {
+  blockOf, instanceOptions, parseConfig, resolveProfile,
+} = require('../src/profile')
 const { normalizeConfig, validateConfig } = require('../src/shape')
 const { instanceRef } = require('../src/Station')
 const { omnihome, specfile } = require('../src/omnihome')
@@ -80,7 +82,8 @@ const DRIVERS = {
   // in, and either the normalized output or the expected error out -
   // the two steps are one pipeline and a port that splits them is free
   // to validate the wrong form.
-  config: (vin) => validateConfig(normalizeConfig(denull(vin))),
+  config: (vin) => validateConfig(normalizeConfig(
+    'string' === typeof vin ? parseConfig(vin) : denull(vin))),
 
   // The §3.3 merge, and the whole of this port's profile contract. A
   // `ref` asks for the options that named instance is constructed with.

@@ -229,7 +229,8 @@ const omni::Subject ERRORS = [](const std::vector<omni::Json>& args) {
 // mistake 4.2 exists to prevent (an all-optional block is an OPEN map
 // until normalization makes its keys present).
 const omni::Subject CONFIG = [](const std::vector<omni::Json>& args) {
-  vs::Jval raw = to_station(args[0], false);
+  vs::Jval raw = omni::Json::Type::Str == args[0].type ? vs::parse_config(args[0].strval)
+                                                       : to_station(args[0], false);
   return to_omni(vs::validate_config(vs::normalize_config(raw)));
 };
 

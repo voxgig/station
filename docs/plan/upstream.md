@@ -135,6 +135,7 @@ sections were written.
 | struct-2 | A closed map whose keys are all optional still refuses an undeclared key | [struct#175] | OPEN | `sdkgen-5`. A strict feature refuses a misspelled option only when a correctly spelled one is passed beside it. Found by W1.1. |
 | struct-3 | — | [struct#178], a parity pull request across its ports | WATCH | W4.4. It changes behaviour, and station's CI takes struct `main`. |
 | struct-4 | Packages on Packagist and Maven Central | — | NOT FILED | W3.5, W3.6. It is on every other registry station's ports use. |
+| struct-5 | Perl's `parse_json` decodes an escaped surrogate pair as one character | — | NOT FILED | Found by W2.9: it decodes each `\u` escape on its own, so `\ud83d\ude00` arrives as two surrogate characters (run, at `055ac4a`). Station's perl joins the halves after it reads (`jsonform`), and the corpus holds it to that. |
 
 
 ## voxgig/plugin
@@ -160,6 +161,7 @@ Tests only. Nothing is owed.
 |---|---|---|---|---|
 | omni-1 | CI pins `dcbab7a`, from August. omni has since released npm 0.2.0 and `go/v0.2.0`, and likeness runs on the tag. | — | station's to do | Nothing. Move the pin to the release when a section needs what it adds. |
 | omni-2 | An entry declared as waiting on a named cause | [omni#74] | WATCH | W5.4. It is the general form of the "pinned pending" list §13 asks tier C ports to carry. |
+| omni-3 | The rust, c and cpp runners decode an escaped surrogate pair in the spec as one character | — | NOT FILED | Found by W2.9, at the pinned `dcbab7a`: each decodes a `\u` escape on its own, rust to U+FFFD and c to three bytes per half, so an expected value spelled with an escaped pair never matches a port that reads the pair correctly (run); cpp's decoder is the same code (read). `main` was not checked. Until it is fixed the corpus spells such a value as raw UTF-8, and `spec/README.md` says why. |
 
 
 ## The generated SDKs (voxgig-sdk)

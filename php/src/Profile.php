@@ -60,16 +60,87 @@ function load_config(?string $from = null): ?array
     if (false === $text) {
         return null;
     }
-    // A file that is not JSON is a CONFIG ERROR, not a raw parse error
-    // escaping open(): the reader found station.json and could not use
-    // it, which is exactly what station_config_invalid exists to say.
+    return parse_config($text, $file);
+}
+
+/**
+ * A file that is not JSON is a CONFIG ERROR, not a raw parse error
+ * escaping open(). Decoders disagree about an unpaired surrogate escape,
+ * which I-JSON forbids, so the text is scanned before it is decoded.
+ *
+ * @return array<string, mixed>|null
+ */
+function parse_config(string $text, ?string $file = null): ?array
+{
+    $where = 'station.json' . (null === $file ? '' : ' at ' . $file);
+    $literal = unpaired_surrogate($text);
+    if (null !== $literal) {
+        throw new StationError('station_config_invalid',
+            $where . ' has an unpaired surrogate escape in ' . $literal);
+    }
     try {
         $out = json_decode($text, true, 512, JSON_THROW_ON_ERROR);
     } catch (\JsonException $e) {
         throw new StationError('station_config_invalid',
-            'station.json at ' . $file . ' is not valid JSON: ' . $e->getMessage());
+            $where . ' is not valid JSON: ' . $e->getMessage());
     }
     return is_array($out) ? $out : null;
+}
+
+/**
+ * The first closed string literal, quotes included, holding a \u escape
+ * for a surrogate that is not half of an escaped pair. Read by byte: no
+ * byte of a multibyte character is a quote or a backslash.
+ */
+function unpaired_surrogate(string $text): ?string
+{
+    $start = -1;
+    $unpaired = false;
+    $n = strlen($text);
+    for ($i = 0; $i < $n; $i++) {
+        $c = $text[$i];
+        if (-1 === $start) {
+            if ('"' === $c) {
+                $start = $i;
+                $unpaired = false;
+            }
+        } elseif ('"' === $c) {
+            if ($unpaired) {
+                return substr($text, $start, $i + 1 - $start);
+            }
+            $start = -1;
+        } elseif ('\\' === $c) {
+            $unit = escaped_unit($text, $i);
+            if (is_high_surrogate($unit) && is_low_surrogate(escaped_unit($text, $i + 6))) {
+                $i += 11;
+            } elseif (is_high_surrogate($unit) || is_low_surrogate($unit)) {
+                $unpaired = true;
+                $i += 5;
+            } else {
+                $i++;
+            }
+        }
+    }
+    return null;
+}
+
+function escaped_unit(string $text, int $at): int
+{
+    if ('\\u' !== substr($text, $at, 2)) {
+        return -1;
+    }
+    $digits = substr($text, $at + 2, 4);
+    return 1 === preg_match('/\A[0-9A-Fa-f]{4}\z/', $digits) ? (int) hexdec($digits) : -1;
+}
+
+function is_high_surrogate(int $unit): bool
+{
+    return 0xD800 <= $unit && $unit <= 0xDBFF;
+}
+
+function is_low_surrogate(int $unit): bool
+{
+    return 0xDC00 <= $unit && $unit <= 0xDFFF;
 }
 
 /**

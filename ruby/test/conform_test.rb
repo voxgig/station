@@ -70,7 +70,8 @@ DRIVERS = {
   # out - the two steps are ONE PIPELINE, and a port that splits them is
   # free to validate the wrong form.
   'config' => lambda { |vin|
-    VoxgigStation.validate_config(VoxgigStation.normalize_config(denull(vin)))
+    raw = vin.is_a?(String) ? VoxgigStation.parse_config(vin) : denull(vin)
+    VoxgigStation.validate_config(VoxgigStation.normalize_config(raw))
   },
 
   # The 3.3 merge, and the whole of this port's profile contract. A

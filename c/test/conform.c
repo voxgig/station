@@ -249,12 +249,22 @@ static omni_result subject_instance(omni_subject *self, omni_json **args, size_t
    map until normalization makes its keys present). */
 static omni_result subject_config(omni_subject *self, omni_json **args, size_t nargs) {
   omni_result out = {NULL, NULL};
-  vxstn_val *raw = to_station(0 < nargs ? args[0] : NULL);
-  vxstn_val *normalized = vxstn_normalize_config(raw);
+  const omni_json *vin = 0 < nargs ? args[0] : NULL;
   vxstn_error *err = NULL;
-  vxstn_val *validated = vxstn_validate_config(normalized, &err);
+  vxstn_val *raw = NULL != vin && OMNI_STR == vin->type
+                       ? vxstn_parse_config(vin->strval, &err)
+                       : to_station(vin);
+  vxstn_val *normalized;
+  vxstn_val *validated;
   (void)self;
 
+  if (NULL == raw) {
+    out.err = omni_pool_strdup(POOL, NULL == err ? "parse failed" : err->message);
+    vxstn_error_free(err);
+    return out;
+  }
+  normalized = vxstn_normalize_config(raw);
+  validated = vxstn_validate_config(normalized, &err);
   vxstn_val_free(raw);
   vxstn_val_free(normalized);
   if (NULL == validated) {

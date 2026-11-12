@@ -148,7 +148,9 @@ public final class StationTest {
   // steps are ONE pipeline, and a port that splits them is free to
   // validate the wrong form.
   static final Subject CONFIG = args ->
-      Shape.validateConfig(Shape.normalizeConfig(denull(args[0])));
+      Shape.validateConfig(Shape.normalizeConfig(args[0] instanceof String
+          ? Profile.parseConfig((String) args[0], null)
+          : denull(args[0])));
 
   // A `ref` asks for the options that named instance is constructed with.
   static final Subject INSTANCE = args -> {
@@ -1473,6 +1475,28 @@ public final class StationTest {
         check(false, "require must fail traffic");
       } catch (StationError err) {
         check("station_no_proxy".equals(err.code), "no proxy code");
+      }
+    });
+
+    testcase("loadConfig: an unpaired surrogate escape is refused", () -> {
+      File dir = Files.createTempDirectory("station-config-").toFile();
+      File file = new File(dir, "station.json");
+      try {
+        Files.write(file.toPath(),
+            "{ \"station\": 1, \"profiles\": { \"x\\ud800\": {} } }"
+                .getBytes(StandardCharsets.UTF_8));
+        try {
+          Profile.loadConfig(dir.getPath());
+          check(false, "an unpaired surrogate escape must be refused");
+        } catch (StationError err) {
+          checkeq(err.code, "station_config_invalid", "code");
+          checkeq(err.getMessage(), "station_config_invalid: station.json at "
+              + file.getPath() + " has an unpaired surrogate escape in \"x\\ud800\"",
+              "message");
+        }
+      } finally {
+        file.delete();
+        dir.delete();
       }
     });
 

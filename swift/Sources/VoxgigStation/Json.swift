@@ -241,12 +241,17 @@ public indirect enum Json {
       case "r": out.append("\r")
       case "t": out.append("\t")
       case "u":
-        guard pos + 4 <= chars.count else {
-          throw JsonError("station: bad JSON unicode escape")
-        }
-        let hex = String(chars[pos..<(pos + 4)])
+        var code = try hexunit(chars, pos)
         pos += 4
-        guard let code = UInt32(hex, radix: 16), let scalar = Unicode.Scalar(code) else {
+        // An escaped pair is one character; a lone surrogate is no scalar.
+        if 0xD800 <= code, code <= 0xDBFF, pos + 6 <= chars.count,
+          "\\" == chars[pos], "u" == chars[pos + 1],
+          let low = try? hexunit(chars, pos + 2), 0xDC00 <= low, low <= 0xDFFF
+        {
+          code = 0x10000 + ((code - 0xD800) << 10) + (low - 0xDC00)
+          pos += 6
+        }
+        guard let scalar = Unicode.Scalar(code) else {
           throw JsonError("station: bad JSON unicode escape")
         }
         out.append(Character(scalar))
@@ -256,6 +261,14 @@ public indirect enum Json {
     }
 
     throw JsonError("station: unterminated JSON string")
+  }
+
+  private static func hexunit(_ chars: [Character], _ at: Int) throws -> UInt32 {
+    guard at + 4 <= chars.count, let code = UInt32(String(chars[at..<(at + 4)]), radix: 16)
+    else {
+      throw JsonError("station: bad JSON unicode escape")
+    }
+    return code
   }
 
   private static func parsenum(_ chars: [Character], _ pos: inout Int) throws -> Json {

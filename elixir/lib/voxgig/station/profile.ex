@@ -56,24 +56,88 @@ defmodule Voxgig.Station.Profile do
         nil
 
       file ->
-        text = File.read!(file)
-
-        # A file that is not JSON is a config error, not a raw parser
-        # exception escaping open(): the reader found station.json and
-        # could not use it, which is exactly what station_config_invalid
-        # exists to say.
-        try do
-          Json.parse(text)
-        rescue
-          err ->
-            Error.fail(
-              "station_config_invalid",
-              "station.json at " <>
-                file <> " is not valid JSON: " <> Exception.message(err)
-            )
-        end
+        parse_config(File.read!(file), file)
     end
   end
+
+  # A file that is not JSON is a config error, not a raw parser exception
+  # escaping open(). Decoders disagree about an unpaired surrogate escape,
+  # which I-JSON forbids, so the text is scanned before it is decoded.
+  def parse_config(text, file \\ nil) do
+    where = if nil == file, do: "station.json", else: "station.json at " <> file
+
+    case unpaired_surrogate(text) do
+      nil ->
+        :ok
+
+      literal ->
+        Error.fail(
+          "station_config_invalid",
+          where <> " has an unpaired surrogate escape in " <> literal
+        )
+    end
+
+    try do
+      Json.parse(text)
+    rescue
+      err ->
+        Error.fail(
+          "station_config_invalid",
+          where <> " is not valid JSON: " <> Exception.message(err)
+        )
+    end
+  end
+
+  # The first closed string literal, quotes included, holding a \u escape
+  # for a surrogate that is not half of an escaped pair. Read by byte: no
+  # byte of a multibyte character is a quote or a backslash.
+  defp unpaired_surrogate(text), do: outside_string(text, text, 0)
+
+  defp outside_string(text, <<?", rest::binary>>, at),
+    do: inside_string(text, rest, at, at + 1, false)
+
+  defp outside_string(text, <<_, rest::binary>>, at), do: outside_string(text, rest, at + 1)
+  defp outside_string(_text, <<>>, _at), do: nil
+
+  defp inside_string(text, <<?", rest::binary>>, start, at, unpaired) do
+    if unpaired,
+      do: binary_part(text, start, at + 1 - start),
+      else: outside_string(text, rest, at + 1)
+  end
+
+  defp inside_string(text, <<?\\, _::binary>> = rest, start, at, unpaired) do
+    unit = escaped_unit(rest)
+
+    {skip, unpaired} =
+      cond do
+        high_surrogate?(unit) and low_surrogate?(escaped_unit(drop(rest, 6))) -> {12, unpaired}
+        high_surrogate?(unit) or low_surrogate?(unit) -> {6, true}
+        true -> {2, unpaired}
+      end
+
+    inside_string(text, drop(rest, skip), start, at + skip, unpaired)
+  end
+
+  defp inside_string(text, <<_, rest::binary>>, start, at, unpaired),
+    do: inside_string(text, rest, start, at + 1, unpaired)
+
+  defp inside_string(_text, <<>>, _start, _at, _unpaired), do: nil
+
+  defp escaped_unit(<<?\\, ?u, hex::binary-size(4), _::binary>>) do
+    if Enum.all?(:binary.bin_to_list(hex), &hex_digit?/1),
+      do: String.to_integer(hex, 16),
+      else: -1
+  end
+
+  defp escaped_unit(_), do: -1
+
+  defp hex_digit?(c), do: c in ?0..?9 or c in ?a..?f or c in ?A..?F
+
+  defp drop(bin, n) when byte_size(bin) <= n, do: <<>>
+  defp drop(bin, n), do: binary_part(bin, n, byte_size(bin) - n)
+
+  defp high_surrogate?(unit), do: unit in 0xD800..0xDBFF
+  defp low_surrogate?(unit), do: unit in 0xDC00..0xDFFF
 
   # Profile selection: the open() option, else VOXGIG_STATION_PROFILE,
   # else 'default' (design station.md 3.5 - env vars rank above

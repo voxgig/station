@@ -802,13 +802,76 @@ function M.load_config(from)
   end
   local text = handle:read('a')
   handle:close()
-  -- A file that is not JSON is a config error, not a raw parser error
-  -- escaping open(): the reader found station.json and could not use
-  -- it, which is exactly what station_config_invalid exists to say.
+  return M.parse_config(text, file)
+end
+
+local function escaped_unit(text, at)
+  if string.sub(text, at, at + 1) ~= '\\u' then
+    return -1
+  end
+  local hex = string.sub(text, at + 2, at + 5)
+  if not string.match(hex, '^%x%x%x%x$') then
+    return -1
+  end
+  return tonumber(hex, 16)
+end
+
+local function high_surrogate(unit)
+  return unit >= 0xD800 and unit <= 0xDBFF
+end
+
+local function low_surrogate(unit)
+  return unit >= 0xDC00 and unit <= 0xDFFF
+end
+
+-- The first closed string literal, quotes included, holding a \u escape
+-- for a surrogate that is not half of an escaped pair. Read by byte: no
+-- byte of a multibyte character is a quote or a backslash.
+local function unpaired_surrogate(text)
+  local start = nil
+  local unpaired = false
+  local i = 1
+  while i <= #text do
+    local c = string.sub(text, i, i)
+    if start == nil then
+      if c == '"' then
+        start = i
+        unpaired = false
+      end
+    elseif c == '"' then
+      if unpaired then
+        return string.sub(text, start, i)
+      end
+      start = nil
+    elseif c == '\\' then
+      local unit = escaped_unit(text, i)
+      if high_surrogate(unit) and low_surrogate(escaped_unit(text, i + 6)) then
+        i = i + 11
+      elseif high_surrogate(unit) or low_surrogate(unit) then
+        unpaired = true
+        i = i + 5
+      else
+        i = i + 1
+      end
+    end
+    i = i + 1
+  end
+  return nil
+end
+
+-- A file that is not JSON is a config error, not a raw parser error
+-- escaping open(). Decoders disagree about an unpaired surrogate escape,
+-- which I-JSON forbids, so the text is scanned before it is decoded.
+function M.parse_config(text, file)
+  local where = 'station.json' .. (file == nil and '' or ' at ' .. file)
+  local literal = unpaired_surrogate(text)
+  if literal ~= nil then
+    fail('station_config_invalid',
+      where .. ' has an unpaired surrogate escape in ' .. literal)
+  end
   local ok, parsed = pcall(json_parse, text)
   if not ok then
-    fail('station_config_invalid',
-      'station.json at ' .. file .. ' is not valid JSON: ' .. tostring(parsed))
+    fail('station_config_invalid', where .. ' is not valid JSON: ' .. tostring(parsed))
   end
   return parsed
 end

@@ -81,7 +81,8 @@ use Voxgig::Station::Error qw(is_known_code);
 use Voxgig::Station::Feature qw(
   checkfeatures checkpin featuresources mergefeatures resolveorder
 );
-use Voxgig::Station::Profile qw(block_of instance_options resolve_profile);
+use Voxgig::Station::Profile
+  qw(block_of instance_options parse_config resolve_profile);
 use Voxgig::Station::Secrets qw(placeholder_for substitute);
 use Voxgig::Station::Shape qw(normalize_config validate_config);
 use Voxgig::Station::Struct qw(struct_parse);
@@ -193,7 +194,9 @@ my @DRIVERS = (
     # them is free to validate the wrong form.
     [
         config => sub {
-            return validate_config( normalize_config( denull( $_[0] ) ) );
+            my $raw =
+              ref $_[0] ? denull( $_[0] ) : parse_config( $_[0] );
+            return validate_config( normalize_config($raw) );
         }
     ],
 
@@ -278,7 +281,16 @@ subtest 'sections-covered' => sub {
     is_deeply( \@covered, \@present, 'every corpus section is run or pinned' );
 };
 
-my $R = makeRunner( specfile('station.json') )->('station');
+# JSON is UTF-8, and omni's reader takes the file as bytes, so the corpus
+# is decoded here and handed over parsed.
+my $R = makeRunner(
+    do {
+        open( my $handle, '<:raw', specfile('station.json') )
+          or die "station: cannot read the corpus: $!";
+        local $/ = undef;
+        JSON::PP->new->utf8->decode(<$handle>);
+    }
+)->('station');
 
 my $spec   = $R->{spec};
 my $runset = $R->{runset};

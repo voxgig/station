@@ -23,8 +23,8 @@ use Voxgig::Station::Struct qw(jsonform struct_parse);
 
 use Exporter 'import';
 our @EXPORT_OK = qw(
-  block_of config_scope find_config_file instance_options load_config refapi
-  resolve_profile select_profile
+  block_of config_scope find_config_file instance_options load_config
+  parse_config refapi resolve_profile select_profile
 );
 
 sub _ismap { return ref( $_[0] ) eq 'HASH' ? 1 : 0 }
@@ -63,28 +63,86 @@ sub load_config {
     local $/ = undef;
     my $text = <$handle>;
     close($handle);
+    return parse_config( $text, $file );
+}
 
-    # Read through struct's own JSON reader, not JSON::PP's, for ONE
-    # reason: it keeps map key order, and design 8.4's LAST tie-break of
-    # the feature order is the order the config declared its features
-    # in. A plain perl hash has no order at all, so JSON::PP would turn
-    # that tie-break into a per-process accident. `jsonform` then puts
-    # the tree back into this port's spelling (JSON::PP booleans, undef
-    # for null) with the ordering intact.
-    #
-    # A file that is not JSON is a CONFIG error, not a raw parse error
-    # escaping open(): the reader found station.json and could not use
-    # it, which is exactly what station_config_invalid exists to say.
+# A file that is not JSON is a CONFIG error, not a raw parse error
+# escaping open(). Decoders disagree about an unpaired surrogate escape,
+# which I-JSON forbids, so the text is scanned before it is decoded.
+#
+# Read through struct's own JSON reader, not JSON::PP's, for ONE reason:
+# it keeps map key order, and design 8.4's LAST tie-break of the feature
+# order is the order the config declared its features in. A plain perl
+# hash has no order at all, so JSON::PP would turn that tie-break into a
+# per-process accident. `jsonform` then puts the tree back into this
+# port's spelling (JSON::PP booleans, undef for null) with the ordering
+# intact.
+sub parse_config {
+    my ( $text, $file ) = @_;
+    my $where = 'station.json' . ( defined $file ? ' at ' . $file : '' );
+    my $literal = unpaired_surrogate($text);
+    Voxgig::Station::Error::fail( 'station_config_invalid',
+        $where . ' has an unpaired surrogate escape in ' . $literal )
+      if defined $literal;
+
     my $parsed = eval { jsonform( struct_parse($text) ) };
     if ( my $err = $@ ) {
         my $msg = "$err";
         $msg =~ s/ at \S+ line \d+\.?\n?\z//;
         $msg =~ s/\s+\z//;
         Voxgig::Station::Error::fail( 'station_config_invalid',
-            'station.json at ' . $file . ' is not valid JSON: ' . $msg );
+            $where . ' is not valid JSON: ' . $msg );
     }
     return $parsed;
 }
+
+# The first closed string literal, quotes included, holding a \u escape
+# for a surrogate that is not half of an escaped pair.
+sub unpaired_surrogate {
+    my ($text)   = @_;
+    my $start    = -1;
+    my $unpaired = 0;
+    for ( my $i = 0 ; $i < length $text ; $i++ ) {
+        my $c = substr( $text, $i, 1 );
+        if ( -1 == $start ) {
+            if ( '"' eq $c ) {
+                $start    = $i;
+                $unpaired = 0;
+            }
+        }
+        elsif ( '"' eq $c ) {
+            return substr( $text, $start, $i + 1 - $start ) if $unpaired;
+            $start = -1;
+        }
+        elsif ( '\\' eq $c ) {
+            my $unit = _escaped_unit( $text, $i );
+            if ( _high_surrogate($unit)
+                && _low_surrogate( _escaped_unit( $text, $i + 6 ) ) )
+            {
+                $i += 11;
+            }
+            elsif ( _high_surrogate($unit) || _low_surrogate($unit) ) {
+                $unpaired = 1;
+                $i += 5;
+            }
+            else {
+                $i++;
+            }
+        }
+    }
+    return undef;
+}
+
+sub _escaped_unit {
+    my ( $text, $at ) = @_;
+    return -1 if $at + 6 > length $text;
+    my $escape = substr( $text, $at, 6 );
+    return $escape =~ /\A\\u([0-9A-Fa-f]{4})\z/ ? hex($1) : -1;
+}
+
+sub _high_surrogate { return 0xD800 <= $_[0] && $_[0] <= 0xDBFF }
+
+sub _low_surrogate { return 0xDC00 <= $_[0] && $_[0] <= 0xDFFF }
 
 # Which side of the repo review boundary the discovered station.json
 # came from (design station.md 6.3).

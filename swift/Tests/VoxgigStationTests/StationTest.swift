@@ -472,6 +472,44 @@ final class StationTest: XCTestCase {
     XCTAssertNil(binding.corrOf("ctx1"), "correlation closed")
   }
 
+  // This port runs no `config` section yet, so the raw-text cases it
+  // carries are pinned here.
+  func testAnUnpairedSurrogateEscapeIsRefused() throws {
+    let literals = [
+      #""joplin$a\ud800""#, #""x\uDC00y""#, #""\ud83d\ud83d""#, #""\ude00\ud83d""#,
+    ]
+    for literal in literals {
+      do {
+        _ = try Profile.parseConfig(#"{"station": 1, "profiles": {"# + literal + ": {}}}")
+        XCTFail("refused: " + literal)
+      } catch let err as StationError {
+        XCTAssertEqual("station_config_invalid", err.code, "code")
+        XCTAssertEqual(
+          "station_config_invalid: station.json has an unpaired surrogate escape in " + literal,
+          err.message)
+      }
+    }
+    let config = try Profile.parseConfig(#"{"pair": "\ud83d\ude00", "text": "\\ud800"}"#)
+    XCTAssertEqual("\u{1F600}", config.get("pair").asStr, "an escaped pair is one character")
+    XCTAssertEqual(#"\ud800"#, config.get("text").asStr, "an escaped backslash is no escape")
+
+    let dir = NSTemporaryDirectory() + "station-surrogate-" + UUID().uuidString
+    try FileManager.default.createDirectory(
+      atPath: dir + "/.git", withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(atPath: dir) }
+    let file = dir + "/station.json"
+    try #"{"station": 1, "profiles": {"x\ud800": {}}}"#.write(
+      toFile: file, atomically: true, encoding: .utf8)
+    do {
+      _ = try Profile.loadConfig(dir)
+      XCTFail("loadConfig refuses it")
+    } catch let err as StationError {
+      XCTAssertEqual(
+        "station_config_invalid: station.json at " + file
+          + #" has an unpaired surrogate escape in "x\ud800""#, err.message)
+    }
+  }
+
   func testOneFailedOperationEmitsOneOpEvent() throws {
     let st = try memStation()
     let binding = (try bind(st, NSObject()))!.binding

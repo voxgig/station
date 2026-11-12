@@ -214,6 +214,37 @@ testcase('canonical', function()
   checkeq(st.canonical_serialize(st.map({ ['é'] = 1, e = 2 })), '{"e":2,"é":1}')
 end)
 
+-- This port runs no `config` section yet, so the raw-text cases it
+-- carries are pinned here.
+testcase('config: an unpaired surrogate escape is refused', function()
+  for _, literal in ipairs({
+    '"joplin$a\\ud800"', '"x\\uDC00y"', '"\\ud83d\\ud83d"', '"\\ude00\\ud83d"',
+  }) do
+    local ok, err = pcall(st.parse_config,
+      '{"station": 1, "profiles": {' .. literal .. ': {}}}')
+    check(not ok, 'refused: ' .. literal)
+    checkeq(err.code, 'station_config_invalid', 'code')
+    checkeq(err.message, 'station_config_invalid: station.json has an unpaired ' ..
+      'surrogate escape in ' .. literal, 'message')
+  end
+  local config = st.parse_config('{"pair": "\\ud83d\\ude00", "text": "\\\\ud800"}')
+  checkeq(config.pair, '\xF0\x9F\x98\x80', 'an escaped pair is one character')
+  checkeq(config.text, '\\ud800', 'an escaped backslash is no escape')
+
+  local dir = os.tmpname()
+  os.remove(dir)
+  os.execute('mkdir -p ' .. dir .. '/.git')
+  local file = dir .. '/station.json'
+  local handle = io.open(file, 'w')
+  handle:write('{"station": 1, "profiles": {"x\\ud800": {}}}')
+  handle:close()
+  local lok, lerr = pcall(st.load_config, dir)
+  os.execute('rm -rf ' .. dir)
+  check(not lok, 'load_config refuses it')
+  checkeq(lerr.message, 'station_config_invalid: station.json at ' .. file ..
+    ' has an unpaired surrogate escape in "x\\ud800"', 'message')
+end)
+
 testcase('parse_json', function()
   local v = st.parse_json('{"a":[1,2],"b":null,"c":"x\\u00e9","d":{}}')
   checkeq(v.a[2], 2)

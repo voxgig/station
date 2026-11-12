@@ -14,6 +14,7 @@ use warnings;
 
 use File::Basename qw(dirname);
 use File::Spec;
+use File::Temp ();
 use JSON::PP ();
 use Scalar::Util qw(blessed refaddr reftype);
 use Test::More;
@@ -1931,6 +1932,21 @@ subtest 'the descriptor carries a feature option schema and role' => sub {
 
     is_deeply( [ RESERVED_KEYS() ], [ 'active', 'order' ],
         'reserved keys are never options' );
+};
+
+subtest 'load_config refuses an unpaired surrogate escape' => sub {
+    my $dir  = File::Temp::tempdir( CLEANUP => 1 );
+    my $file = File::Spec->catfile( $dir, 'station.json' );
+    open( my $out, '>', $file ) or die "cannot write $file: $!";
+    print {$out} '{ "station": 1, "profiles": { "x\\ud800": {} } }';
+    close($out);
+    my $err = eval { Voxgig::Station::Profile::load_config($dir); 1 } ? undef : $@;
+    ok( $err, 'refused' );
+    is( $err->{code}, 'station_config_invalid', 'code' );
+    is( $err->{message},
+        'station_config_invalid: station.json at ' . $file
+          . ' has an unpaired surrogate escape in "x\\ud800"',
+        'message names the file and the literal' );
 };
 
 done_testing();

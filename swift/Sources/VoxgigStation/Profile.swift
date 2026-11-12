@@ -37,10 +37,7 @@ public enum Profile {
     return fm.fileExists(atPath: home) ? home : nil
   }
 
-  /// The parsed station.json, or nil when none is found. A file that IS
-  /// found and does not parse is a config error, not a raw JsonError
-  /// escaping open(): the reader found station.json and could not use
-  /// it, which is exactly what station_config_invalid exists to say.
+  /// The parsed station.json, or nil when none is found.
   public static func loadConfig(_ from: String?) throws -> Json? {
     guard let file = findConfigFile(from) else {
       return nil
@@ -48,14 +45,86 @@ public enum Profile {
     guard let text = try? String(contentsOfFile: file, encoding: .utf8) else {
       return nil
     }
+    return try parseConfig(text, file)
+  }
+
+  /// Decodes station.json text; a non-nil file names it in a refusal. A
+  /// file that is not JSON is a config error, not a raw JsonError escaping
+  /// open(). Decoders disagree about an unpaired surrogate escape, which
+  /// I-JSON forbids, so the text is scanned before it is decoded.
+  public static func parseConfig(_ text: String, _ file: String? = nil) throws -> Json {
+    let place = "station.json" + (file.map { " at " + $0 } ?? "")
+    if let literal = unpairedSurrogate(text) {
+      throw StationError(
+        "station_config_invalid", place + " has an unpaired surrogate escape in " + literal)
+    }
     do {
       return try Json.parse(text)
     } catch {
       throw StationError(
         "station_config_invalid",
-        "station.json at " + file + " is not valid JSON: "
-          + ((error as? JsonError)?.message ?? "\(error)"))
+        place + " is not valid JSON: " + ((error as? JsonError)?.message ?? "\(error)"))
     }
+  }
+
+  // The first closed string literal, quotes included, holding a \u escape
+  // for a surrogate that is not half of an escaped pair. Read by byte: no
+  // byte of a multibyte character is a quote or a backslash.
+  static func unpairedSurrogate(_ text: String) -> String? {
+    let bytes = Array(text.utf8)
+    var start = -1
+    var unpaired = false
+    var i = 0
+    while i < bytes.count {
+      let byte = bytes[i]
+      if -1 == start {
+        if 0x22 == byte {
+          start = i
+          unpaired = false
+        }
+      } else if 0x22 == byte {
+        if unpaired {
+          return String(decoding: bytes[start...i], as: UTF8.self)
+        }
+        start = -1
+      } else if 0x5C == byte {
+        let unit = escapedUnit(bytes, i)
+        if isHighSurrogate(unit) && isLowSurrogate(escapedUnit(bytes, i + 6)) {
+          i += 11
+        } else if isHighSurrogate(unit) || isLowSurrogate(unit) {
+          unpaired = true
+          i += 5
+        } else {
+          i += 1
+        }
+      }
+      i += 1
+    }
+    return nil
+  }
+
+  static func escapedUnit(_ bytes: [UInt8], _ at: Int) -> Int {
+    guard at + 6 <= bytes.count, 0x5C == bytes[at], 0x75 == bytes[at + 1] else {
+      return -1
+    }
+    var unit = 0
+    for byte in bytes[(at + 2)..<(at + 6)] {
+      switch byte {
+      case 0x30...0x39: unit = unit * 16 + Int(byte - 0x30)
+      case 0x41...0x46: unit = unit * 16 + Int(byte - 0x37)
+      case 0x61...0x66: unit = unit * 16 + Int(byte - 0x57)
+      default: return -1
+      }
+    }
+    return unit
+  }
+
+  static func isHighSurrogate(_ unit: Int) -> Bool {
+    return 0xD800 <= unit && unit <= 0xDBFF
+  }
+
+  static func isLowSurrogate(_ unit: Int) -> Bool {
+    return 0xDC00 <= unit && unit <= 0xDFFF
   }
 
   /// Profile selection: the open() option, else VOXGIG_STATION_PROFILE,

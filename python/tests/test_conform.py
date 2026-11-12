@@ -65,6 +65,7 @@ from voxgig_station import (  # noqa: E402
     merge_features,
     normalize_config,
     normalize_descriptor,
+    parse_config,
     placeholder_for,
     resolve_order,
     resolve_profile,
@@ -155,7 +156,8 @@ DRIVERS = {
     # in, and either the normalized output or the expected error out -
     # the two steps are one pipeline and a port that splits them is free
     # to validate the wrong form.
-    'config': lambda vin: validate_config(normalize_config(denull(vin))),
+    'config': lambda vin: validate_config(normalize_config(
+        parse_config(vin) if isinstance(vin, str) else denull(vin))),
 
     # The 3.3 merge, and the whole of this port's profile contract. A
     # `ref` asks for the options that named instance is constructed with.

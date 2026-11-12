@@ -113,7 +113,7 @@ sub jsonform {
     return $val if !defined $val;
 
     my $ref = ref $val;
-    return $val if '' eq $ref;
+    return paired($val) if '' eq $ref;
 
     structmod();
     return undef if Voxgig::Struct::is_jnull($val);
@@ -124,11 +124,22 @@ sub jsonform {
 
     if ( 'HASH' eq $ref ) {
         my $out = ordered_map();
-        $out->{$_} = jsonform( $val->{$_} ) for mapkeys($val);
+        $out->{ paired($_) } = jsonform( $val->{$_} ) for mapkeys($val);
         return $out;
     }
 
     return $val;
+}
+
+# Struct's reader decodes each \u escape alone, so an escaped pair
+# arrives as two surrogates. A copy is matched so a number stays a number.
+sub paired {
+    my ($val) = @_;
+    my $text = $val;
+    return $val unless $text =~ /[\x{D800}-\x{DBFF}][\x{DC00}-\x{DFFF}]/;
+    $text =~ s/([\x{D800}-\x{DBFF}])([\x{DC00}-\x{DFFF}])/
+      chr( 0x10000 + ( ( ord($1) - 0xD800 ) << 10 ) + ord($2) - 0xDC00 )/ge;
+    return $text;
 }
 
 # The keys of a map in the order that MEANS something: insertion order

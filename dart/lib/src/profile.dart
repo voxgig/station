@@ -49,21 +49,76 @@ dynamic loadConfig([String? from]) {
   if (null == file) {
     return null;
   }
-  final text = File(file).readAsStringSync();
-  // A file that is not JSON is a config error, not a raw FormatException
-  // escaping open(): the reader found station.json and could not use it,
-  // which is exactly what station_config_invalid exists to say.
+  return parseConfig(File(file).readAsStringSync(), file);
+}
+
+// A file that is not JSON is a config error, not a raw FormatException
+// escaping open(). Decoders disagree about an unpaired surrogate escape,
+// which I-JSON forbids, so the text is scanned before it is decoded.
+dynamic parseConfig(String text, [String? file]) {
+  final where = 'station.json' + (null == file ? '' : ' at ' + file);
+  final literal = _unpairedSurrogate(text);
+  if (null != literal) {
+    throw StationError('station_config_invalid',
+        where + ' has an unpaired surrogate escape in ' + literal);
+  }
   try {
     return jsonDecode(text);
   } catch (err) {
     throw StationError(
         'station_config_invalid',
-        'station.json at ' +
-            file +
+        where +
             ' is not valid JSON: ' +
             (err is FormatException ? err.message : err.toString()));
   }
 }
+
+// The first closed string literal, quotes included, holding a \u escape
+// for a surrogate that is not half of an escaped pair.
+String? _unpairedSurrogate(String text) {
+  var start = -1;
+  var unpaired = false;
+  for (var i = 0; i < text.length; i++) {
+    final c = text[i];
+    if (-1 == start) {
+      if ('"' == c) {
+        start = i;
+        unpaired = false;
+      }
+    } else if ('"' == c) {
+      if (unpaired) {
+        return text.substring(start, i + 1);
+      }
+      start = -1;
+    } else if ('\\' == c) {
+      final unit = _escapedUnit(text, i);
+      if (_isHighSurrogate(unit) &&
+          _isLowSurrogate(_escapedUnit(text, i + 6))) {
+        i += 11;
+      } else if (_isHighSurrogate(unit) || _isLowSurrogate(unit)) {
+        unpaired = true;
+        i += 5;
+      } else {
+        i++;
+      }
+    }
+  }
+  return null;
+}
+
+final _hex4 = RegExp(r'^[0-9A-Fa-f]{4}$');
+
+int _escapedUnit(String text, int at) {
+  if (at + 6 > text.length || '\\' != text[at] || 'u' != text[at + 1]) {
+    return -1;
+  }
+  final hex = text.substring(at + 2, at + 6);
+  return _hex4.hasMatch(hex) ? int.parse(hex, radix: 16) : -1;
+}
+
+bool _isHighSurrogate(int unit) => 0xD800 <= unit && unit <= 0xDBFF;
+
+bool _isLowSurrogate(int unit) => 0xDC00 <= unit && unit <= 0xDFFF;
 
 // Profile selection: the open() option, else VOXGIG_STATION_PROFILE,
 // else 'default' (design station.md 3.5 - env vars rank above

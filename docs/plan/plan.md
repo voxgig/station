@@ -209,6 +209,9 @@ every language, and can ship in 0.3.x:
 - Found during W2.1, with no issue yet: `connect()` cannot take the
   array form of `options.feature`, and the declarative path drops a
   declared feature order the alphabet disagrees with (W2.12, W2.13).
+- Found during W2.9, with no issue yet: java reads a `station.json`
+  that is not JSON as though it were, and perl and swift read the
+  file's bytes differently from the other ports (W2.14, W2.15).
 
 **Exit:** each issue is closed by a change that carries a corpus case
 or, where the corpus cannot see it, a pin in every port's suite. 0.3.0

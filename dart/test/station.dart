@@ -157,6 +157,53 @@ bool hasEnv(String name) => Platform.environment.containsKey(name);
 
 // Register the unit cases with the shared harness (test/run.dart).
 void stationCases(void Function(String, FutureOr<void> Function()) testcase) {
+  // This port runs no `config` section yet, so the raw-text cases it
+  // carries are pinned here.
+  testcase('config: an unpaired surrogate escape is refused', () {
+    for (final literal in [
+      '"joplin\$a\\ud800"',
+      '"x\\uDC00y"',
+      '"\\ud83d\\ud83d"',
+      '"\\ude00\\ud83d"',
+    ]) {
+      try {
+        parseConfig('{"station": 1, "profiles": {' + literal + ': {}}}');
+        check(false, 'refused: ' + literal);
+      } on StationError catch (err) {
+        check('station_config_invalid' == err.code, 'code');
+        check(
+            'station_config_invalid: station.json has an unpaired surrogate '
+                    'escape in ' +
+                    literal ==
+                err.message,
+            err.message);
+      }
+    }
+    final config = parseConfig(
+        '{"pair": "\\ud83d\\ude00", "text": "\\\\ud800"}');
+    check('\u{1F600}' == config['pair'], 'an escaped pair is one character');
+    check('\\ud800' == config['text'], 'an escaped backslash is no escape');
+
+    final dir = Directory.systemTemp.createTempSync('station-surrogate-');
+    Directory(dir.path + '/.git').createSync();
+    final file = dir.path + '/station.json';
+    File(file).writeAsStringSync(
+        '{"station": 1, "profiles": {"x\\ud800": {}}}');
+    try {
+      loadConfig(dir.path);
+      check(false, 'loadConfig refuses it');
+    } on StationError catch (err) {
+      check(
+          'station_config_invalid: station.json at ' +
+                  file +
+                  ' has an unpaired surrogate escape in "x\\ud800"' ==
+              err.message,
+          err.message);
+    } finally {
+      dir.deleteSync(recursive: true);
+    }
+  });
+
   // --- ambient instance (design station.md 10.2) ---
 
   testcase('open is idempotent; conflicting options are an error', () {

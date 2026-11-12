@@ -32,7 +32,7 @@ pub use crate::jsonx::{jbool, jget, jlist, jmap, jobj, jstr, jtext, now_ms};
 pub use crate::loader::{camelify, check_package, DEFAULT_EXPORT};
 pub use crate::profile::{
     block_defaults, block_of, config_scope, find_config_file, instance_options, load_config,
-    refapi, resolve_profile, select_profile, ResolvedProfile, MERGE_SENSITIVE,
+    parse_config, refapi, resolve_profile, select_profile, ResolvedProfile, MERGE_SENSITIVE,
 };
 pub use crate::secrets::{encode_query_value, placeholder_for, substitute, SecretBroker};
 pub use crate::shape::{

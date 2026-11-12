@@ -25,6 +25,46 @@ defmodule Voxgig.StationTest do
     :ok
   end
 
+  # This port runs no `config` section yet, so the raw-text cases it
+  # carries are pinned here.
+  test "config: an unpaired surrogate escape is refused" do
+    for literal <- [
+          ~S("joplin$a\ud800"),
+          ~S("x\uDC00y"),
+          ~S("\ud83d\ud83d"),
+          ~S("\ude00\ud83d")
+        ] do
+      err =
+        assert_raise Error, fn ->
+          Profile.parse_config(~S({"station": 1, "profiles": {) <> literal <> ": {}}}")
+        end
+
+      assert "station_config_invalid" == err.code
+
+      assert "station_config_invalid: station.json has an unpaired surrogate escape in " <>
+               literal == Exception.message(err)
+    end
+
+    config = Profile.parse_config(~S({"pair": "\ud83d\ude00", "text": "\\ud800"}))
+    assert "\u{1F600}" == config["pair"]
+    assert ~S(\ud800) == config["text"]
+
+    dir = Path.join(System.tmp_dir!(), "station-surrogate-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(Path.join(dir, ".git"))
+    file = Path.join(dir, "station.json")
+    File.write!(file, ~S({"station": 1, "profiles": {"x\ud800": {}}}))
+
+    try do
+      err = assert_raise Error, fn -> Profile.load_config(dir) end
+
+      assert "station_config_invalid: station.json at " <>
+               file <> ~S( has an unpaired surrogate escape in "x\ud800") ==
+               Exception.message(err)
+    after
+      File.rm_rf!(dir)
+    end
+  end
+
   # --- ambient instance (design station.md 10.2) ---
 
   test "open is idempotent; conflicting options are an error" do

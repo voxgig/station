@@ -1,6 +1,6 @@
 # Status: where the next session starts
 
-Snapshot, **2026-11-12**. `main` is at `cc3bac7`. 0.2.0 is released on
+Snapshot, **2026-11-12**. `main` is at `156dea9`. 0.2.0 is released on
 every route, and `main` is ahead of it: the six pull requests of W1
 merged on 2026-11-11 and changed every port's source, and on 2026-11-12
 W5.1 (the proxy builds), W4.3 (the fixture SDKs), W2.1 (the carried
@@ -8,7 +8,8 @@ adapter's place), W2.2 (the Station out of the SDK's options), W2.4
 (passwords refused in a block's `base`), W2.5 (no userinfo in an
 event's whole URL) and W2.3 (the scrub reaches a transport error's
 chain) merged, which completes W2a, and from W2b, W2.6 (one `op` event
-per operation) and W2.7 (the policy's hostname). The seven
+per operation), W2.7 (the policy's hostname) and W2.8 (the event's
+host). The seven
 decisions were ruled on 2026-11-11. The register
 in [`progress.md`](progress.md) is the per-item authority, and
 [`upstream.md`](upstream.md) tracks what other repositories owe. This
@@ -101,9 +102,10 @@ passing; CI runs them once the fixture lane's patch is applied.
 
 ## In flight
 
-W2.8, in review: the `http` event's host follows `URL.host` in the
-three ruled forms, and the hosts policy's key is lower-cased, in every
-port. W2.12 and W2.13, found during W2.1, have no issue filed yet.
+W2.9, in review: every port refuses a `station.json` whose text holds
+an unpaired surrogate escape, and reads an escaped pair as one
+character. W2.12 and W2.13, found during W2.1, and W2.14 and W2.15,
+found during W2.9, have no issue filed yet.
 
 
 ## Pick this up first
@@ -153,6 +155,9 @@ git push origin --delete chore/comment-policy \
 
 ## Recently settled
 
+- **An `http` event's host follows `URL.host` in the three ruled
+  forms** (W2.8, 2026-11-12, `156dea9`), in every port; [#55] closed.
+  It carried the policy key's lower case that review asked for on W2.7.
 - **The hosts policy reads the hostname as `URL.hostname` does**
   (W2.7, 2026-11-12, `cc3bac7`), in every port; [#54] closed. It
   carried the go sweep fix review asked for on W2.6.
@@ -231,3 +236,4 @@ Each is source or prose the plan schedules:
 [#29]: https://github.com/voxgig/station/issues/29
 [#36]: https://github.com/voxgig/station/issues/36
 [#54]: https://github.com/voxgig/station/issues/54
+[#55]: https://github.com/voxgig/station/issues/55

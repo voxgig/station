@@ -30,17 +30,69 @@ function findConfigFile(from) {
 function loadConfig(from) {
   const file = findConfigFile(from)
   if (null == file) { return null }
-  const text = Fs.readFileSync(file, 'utf8')
-  // A file that is not JSON is a config error, not a raw SyntaxError
-  // escaping open(): the reader found station.json and could not use
-  // it, which is exactly what station_config_invalid exists to say.
+  return parseConfig(Fs.readFileSync(file, 'utf8'), file)
+}
+
+// A file that is not JSON is a config error, not a raw SyntaxError
+// escaping open(). Decoders disagree about an unpaired surrogate escape,
+// which I-JSON forbids, so the text is scanned before it is decoded.
+function parseConfig(text, file) {
+  const where = 'station.json' + (null == file ? '' : ' at ' + file)
+  const literal = unpairedSurrogate(text)
+  if (null != literal) {
+    throw new StationError('station_config_invalid',
+      where + ' has an unpaired surrogate escape in ' + literal)
+  }
   try {
     return JSON.parse(text)
   }
   catch (err) {
     throw new StationError('station_config_invalid',
-      'station.json at ' + file + ' is not valid JSON: ' + err.message)
+      where + ' is not valid JSON: ' + err.message)
   }
+}
+
+// The first closed string literal, quotes included, holding a \u escape
+// for a surrogate that is not half of an escaped pair.
+function unpairedSurrogate(text) {
+  let start = -1
+  let unpaired = false
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]
+    if (-1 === start) {
+      if ('"' === c) { start = i; unpaired = false }
+    }
+    else if ('"' === c) {
+      if (unpaired) { return text.slice(start, i + 1) }
+      start = -1
+    }
+    else if ('\\' === c) {
+      const unit = escapedUnit(text, i)
+      if (isHighSurrogate(unit) && isLowSurrogate(escapedUnit(text, i + 6))) {
+        i += 11
+      }
+      else if (isHighSurrogate(unit) || isLowSurrogate(unit)) {
+        unpaired = true
+        i += 5
+      }
+      else { i++ }
+    }
+  }
+  return null
+}
+
+function escapedUnit(text, i) {
+  if ('\\' !== text[i] || 'u' !== text[i + 1]) { return -1 }
+  const hex = text.slice(i + 2, i + 6)
+  return /^[0-9A-Fa-f]{4}$/.test(hex) ? parseInt(hex, 16) : -1
+}
+
+function isHighSurrogate(unit) {
+  return 0xD800 <= unit && unit <= 0xDBFF
+}
+
+function isLowSurrogate(unit) {
+  return 0xDC00 <= unit && unit <= 0xDFFF
 }
 
 // Which side of the review boundary the config came from (§6.3).
@@ -214,6 +266,7 @@ module.exports = {
   instanceOptions,
   refapi,
   loadConfig,
+  parseConfig,
   resolveProfile,
   selectProfile,
 }
