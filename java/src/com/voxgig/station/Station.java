@@ -28,6 +28,7 @@ import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
@@ -876,15 +877,15 @@ public class Station {
       Pattern.compile("^[a-zA-Z][a-zA-Z0-9+.-]*://[^/?#]*");
 
   // The hosts policy's key, as URL.hostname reads it: the host after the
-  // userinfo's last `@` (URI.getHost refuses a raw one), an IPv6 host with
-  // its brackets, and no port.
+  // userinfo's last `@` (URI.getHost refuses a raw one), lower-cased, an
+  // IPv6 host with its brackets, and no port.
   static String policyHostname(String url) {
     Matcher head = AUTHORITY.matcher(null == url ? "" : url);
     if (!head.find()) {
       return "";
     }
     String authority = head.group().substring(head.group().indexOf("://") + 3);
-    String host = authority.substring(authority.lastIndexOf('@') + 1);
+    String host = authority.substring(authority.lastIndexOf('@') + 1).toLowerCase(Locale.ROOT);
     if (host.startsWith("[")) {
       int end = host.indexOf(']');
       return -1 == end ? "" : host.substring(0, end + 1);
@@ -915,7 +916,7 @@ public class Station {
       // A relative reference is reported whole, like an unparseable URL.
       // getRawPath keeps the escapes that getPath decodes.
       if (u.isAbsolute() && null != u.getRawAuthority()) {
-        String h = u.getHost();
+        String h = null == u.getHost() ? null : u.getHost().toLowerCase(Locale.ROOT);
         int port = u.getPort();
         host = null == h ? ""
             : (0 <= port && port != defaultPort(u.getScheme()) ? h + ":" + port : h);

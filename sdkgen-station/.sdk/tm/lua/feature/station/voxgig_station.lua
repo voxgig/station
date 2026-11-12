@@ -1705,11 +1705,12 @@ local function parse_url(fullurl)
   end
   scheme = string.lower(scheme)
   authority = string.gsub(authority, '^.*@', '')
-  local hostname, port = string.match(authority, '^(.*):(%d+)$')
+  local hostname, port = string.match(authority, '^(.*):(%d*)$')
   if hostname == nil then
     hostname = authority
-    port = nil
   end
+  hostname = string.lower(hostname)
+  port = port ~= nil and port ~= '' and tostring(math.tointeger(tonumber(port))) or nil
   local default = scheme == 'http' and '80' or (scheme == 'https' and '443' or '')
   local host = hostname
   if port ~= nil and port ~= default then

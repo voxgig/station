@@ -781,8 +781,8 @@ namespace Voxgig.Station
             new Regex("^[a-zA-Z][a-zA-Z0-9+.-]*://[^/?#]*", RegexOptions.CultureInvariant);
 
         // The hosts policy's key, as URL.hostname reads it: the host after
-        // the userinfo's last `@` (System.Uri refuses a raw one), an IPv6
-        // host with its brackets, and no port.
+        // the userinfo's last `@` (System.Uri refuses a raw one), lower-cased,
+        // an IPv6 host with its brackets, and no port.
         internal static string PolicyHostname(string url)
         {
             Match head = Authority.Match(url ?? "");
@@ -791,7 +791,7 @@ namespace Voxgig.Station
                 return "";
             }
             string authority = head.Value.Substring(head.Value.IndexOf("://", StringComparison.Ordinal) + 3);
-            string host = authority.Substring(authority.LastIndexOf('@') + 1);
+            string host = authority.Substring(authority.LastIndexOf('@') + 1).ToLowerInvariant();
             if (host.StartsWith("[", StringComparison.Ordinal))
             {
                 int end = host.IndexOf(']');

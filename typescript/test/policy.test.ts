@@ -57,6 +57,8 @@ describe('policy-hostname', () => {
       ['api.test', 'https://evil.test:443/x', false],
       ['api.test', 'https://u:p@ss@api.test/x', true],
       ['api.test', 'https://api.test:x@evil.test/x', false],
+      ['api.test', 'https://API.TEST/x', true],
+      ['api.test', 'https://EVIL.TEST/x', false],
     ]
     for (const [host, url, allowed] of cases) {
       const st = policyStation('solar', { hosts: [host] })

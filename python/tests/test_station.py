@@ -490,6 +490,10 @@ class TestBinding(unittest.TestCase):
             ('https://u:p@ss@h/x', 'h', '/x'),
             ('http://[::1]:8080/x', '[::1]:8080', '/x'),
             ('http://[::1]/x', '[::1]', '/x'),
+            ('https://H/x', 'h', '/x'),
+            ('https://h:/x', 'h', '/x'),
+            ('https://h:0443/x', 'h', '/x'),
+            ('https://h:08443/x', 'h:8443', '/x'),
         ]
         st = Station({'config': None})
         ctx, _log = bind(st, mode='test')
@@ -662,6 +666,8 @@ class TestBinding(unittest.TestCase):
             ('api.test', 'https://evil.test:443/x', False),
             ('api.test', 'https://u:p@ss@api.test/x', True),
             ('api.test', 'https://api.test:x@evil.test/x', False),
+            ('api.test', 'https://API.TEST/x', True),
+            ('api.test', 'https://EVIL.TEST/x', False),
         ]
         for host, url, allowed in cases:
             with self.subTest(host=host, url=url):

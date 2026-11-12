@@ -702,6 +702,10 @@ testcase('http-host', function()
     { 'https://u:p@ss@h/x', 'h', '/x' },
     { 'http://[::1]:8080/x', '[::1]:8080', '/x' },
     { 'http://[::1]/x', '[::1]', '/x' },
+    { 'https://H/x', 'h', '/x' },
+    { 'https://h:/x', 'h', '/x' },
+    { 'https://h:0443/x', 'h', '/x' },
+    { 'https://h:08443/x', 'h:8443', '/x' },
   }
   local station = st.new({ config = st.NULL, proxy = 'off' })
   local b = bind(station, { mode = 'test' })
@@ -886,6 +890,8 @@ testcase('hosts-policy-hostname', function()
     { 'api.test', 'https://evil.test:443/x', false },
     { 'api.test', 'https://u:p@ss@api.test/x', true },
     { 'api.test', 'https://api.test:x@evil.test/x', false },
+    { 'api.test', 'https://API.TEST/x', true },
+    { 'api.test', 'https://EVIL.TEST/x', false },
   }
   for _, c in ipairs(cases) do
     local station = st.new({ proxy = 'off', config = {

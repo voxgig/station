@@ -672,10 +672,11 @@ func policyHostname(fullurl string) string {
 	if nil != err {
 		return ""
 	}
-	if hostname := u.Hostname(); strings.Contains(hostname, ":") {
+	hostname := strings.ToLower(u.Hostname())
+	if strings.Contains(hostname, ":") {
 		return "[" + hostname + "]"
 	}
-	return u.Hostname()
+	return hostname
 }
 
 func hostsPolicy(block map[string]any) ([]string, bool) {
@@ -740,11 +741,15 @@ var defaultPorts = map[string]string{"http": "80", "https": "443"}
 
 // u.Host keeps an explicit default port, which the canonical URL.host drops.
 func urlHost(u *url.URL) string {
-	host := u.Hostname()
+	host := strings.ToLower(u.Hostname())
 	if strings.Contains(host, ":") {
 		host = "[" + host + "]"
 	}
-	if port := u.Port(); "" != port && defaultPorts[u.Scheme] != port {
+	port := u.Port()
+	if n, err := strconv.Atoi(port); nil == err {
+		port = strconv.Itoa(n)
+	}
+	if "" != port && defaultPorts[u.Scheme] != port {
 		host += ":" + port
 	}
 	return host

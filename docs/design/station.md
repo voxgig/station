@@ -987,13 +987,18 @@ with an empty `host`. The rule covers what a working transport sends:
 an `http` or `https` URL with a host, built from the block's base and
 the SDK's percent-encoded parameters. For such a URL, `http.host` is
 its host as `URL.host` reads it: no userinfo, an IPv6 address in
-brackets, and a port only when it is not the scheme's default, 80 for
-`http` and 443 for `https`. Other forms are outside it, and the ports
+brackets, an ASCII host in lower case, and a port only when it is not
+the scheme's default, 80 for `http` and 443 for `https`. The port is
+read as a number, so `0443` is the default and `08443` reads `8443`,
+and an empty port is dropped. Other forms are outside it, and the ports
 may read them differently:
 - a hostless absolute URL;
 - a scheme with no authority;
 - a dot segment, which WHATWG normalizes and other HTTP stacks send as
-  written.
+  written;
+- a long-form IPv6 address, which `URL.host` compresses
+  (`[0:0:0:0:0:0:0:1]` reads `[::1]`) and the ports without an address
+  parser report as sent (D-2026-11-11-2).
 None of these comes from an SDK given an `http` or `https` base with a
 host; a base that is not one fails every request anyway. A dot segment
 in a parameter is the SDK's to encode. No corpus section can see an
@@ -1944,10 +1949,11 @@ authoritative copy is proxy-side (§8.3).
 - `hosts:` egress allowlist — defaulted from the *proxy-side* view
   of the descriptor's base + server-variable expansion, per §8.3;
   anything else is a policy edit, not a surprise. An entry names a
-  host as `URL.hostname` reads it, so an IPv6 host keeps its brackets
-  (`[::1]`). Neither a port nor the userinfo is part of it, and the
-  host is what follows the userinfo's last `@`, whatever a password
-  holds. Every port's suite pins an allow and a deny for each.
+  host as `URL.hostname` reads it, so an ASCII host is in lower case
+  and an IPv6 host keeps its brackets (`[::1]`). Neither a port nor
+  the userinfo is part of it, and the host is what follows the
+  userinfo's last `@`, whatever a password holds. Every port's suite
+  pins an allow and a deny for each.
 - `budget:` rps/concurrency ceilings (the SDK `ratelimit` feature,
   configured by station, plus proxy-side enforcement in R2).
 - `agent.write:` gates mutating `station_call` **and** replay of

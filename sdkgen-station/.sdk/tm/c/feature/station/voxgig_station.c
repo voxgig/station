@@ -1773,15 +1773,15 @@ static void parse_url(const char* fullurl, char** host_out, char** hostname_out,
   }
   alen = (size_t)(auth_end - authority);
 
-  /* The last ':' with only digits (at least one) after it is a port
-   * separator; a ']' first means an ipv6 literal with no port. */
+  /* The last ':' with only digits after it, or none, is a port separator;
+   * a ']' first means an ipv6 literal with no port. */
   colon = NULL;
   {
     size_t i;
     for (i = alen; 0 < i; i--) {
       char c = authority[i - 1];
       if (':' == c) {
-        bool digits = i < alen;
+        bool digits = true;
         size_t j;
         for (j = i; j < alen; j++) {
           if (authority[j] < '0' || '9' < authority[j]) {
@@ -1800,28 +1800,35 @@ static void parse_url(const char* fullurl, char** host_out, char** hostname_out,
     }
   }
 
-  if (NULL != colon && colon + 1 < authority + alen) {
-    size_t hn = (size_t)(colon - authority);
-    const char* port = colon + 1;
-    size_t plen = alen - hn - 1;
+  /* As in URL.host: an ASCII host lower-cased, the port read as a number,
+   * and an empty or default port dropped. */
+  {
+    size_t hn = NULL == colon ? alen : (size_t)(colon - authority);
+    const char* port = NULL == colon ? "" : colon + 1;
+    size_t plen = NULL == colon ? 0 : alen - hn - 1;
     const char* dflt = 0 == strcmp(scheme, "http")
                            ? "80"
                            : (0 == strcmp(scheme, "https") ? "443" : "");
+    size_t i;
+    while (1 < plen && '0' == *port) {
+      port++;
+      plen--;
+    }
     hostname = (char*)malloc(hn + 1);
-    memcpy(hostname, authority, hn);
+    for (i = 0; i < hn; i++) {
+      char c = authority[i];
+      hostname[i] = ('A' <= c && c <= 'Z') ? (char)(c - 'A' + 'a') : c;
+    }
     hostname[hn] = '\0';
-    if (strlen(dflt) == plen && 0 == strncmp(port, dflt, plen)) {
+    if (0 == plen || (strlen(dflt) == plen && 0 == strncmp(port, dflt, plen))) {
       host = vxstn_sdup(hostname);
     } else {
-      host = (char*)malloc(alen + 1);
-      memcpy(host, authority, alen);
-      host[alen] = '\0';
+      host = (char*)malloc(hn + plen + 2);
+      memcpy(host, hostname, hn);
+      host[hn] = ':';
+      memcpy(host + hn + 1, port, plen);
+      host[hn + plen + 1] = '\0';
     }
-  } else {
-    hostname = (char*)malloc(alen + 1);
-    memcpy(hostname, authority, alen);
-    hostname[alen] = '\0';
-    host = vxstn_sdup(hostname);
   }
 
   path = auth_end;

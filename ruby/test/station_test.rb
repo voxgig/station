@@ -586,6 +586,10 @@ class TestStation < Minitest::Test
       ['https://u:p@h/x', 'h', '/x'],
       ['http://[::1]:8080/x', '[::1]:8080', '/x'],
       ['http://[::1]/x', '[::1]', '/x'],
+      ['https://H/x', 'h', '/x'],
+      ['https://h:/x', 'h', '/x'],
+      ['https://h:0443/x', 'h', '/x'],
+      ['https://h:08443/x', 'h:8443', '/x'],
     ]
     st = VoxgigStation::Station.new('config' => nil)
     b = bind(st, ->(_c, _u, _d) { [okres, nil] })
@@ -711,6 +715,8 @@ class TestStation < Minitest::Test
       ['api.test', 'https://evil.test:443/x', false],
       ['api.test', 'https://u:p@ss@api.test/x', true],
       ['api.test', 'https://api.test:x@evil.test/x', false],
+      ['api.test', 'https://API.TEST/x', true],
+      ['api.test', 'https://EVIL.TEST/x', false],
     ].each do |host, url, allowed|
       st = VoxgigStation::Station.new('config' => {
         'station' => 1,

@@ -4768,7 +4768,7 @@ class Station {
     size_t colon = authority.rfind(':');
     if (std::string::npos != colon) {
       std::string cand = authority.substr(colon + 1);
-      bool digits = !cand.empty();
+      bool digits = true;
       for (unsigned char c : cand) {
         if (!std::isdigit(c)) {
           digits = false;
@@ -4780,6 +4780,13 @@ class Station {
         port = cand;
       }
     }
+    // As in URL.host: an ASCII host lower-cased, the port read as a number,
+    // and an empty or default port dropped.
+    for (auto& c : hostname) {
+      c = ('A' <= c && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
+    }
+    size_t lead = port.find_first_not_of('0');
+    port = std::string::npos == lead ? (port.empty() ? "" : "0") : port.substr(lead);
     std::string dflt = "http" == scheme ? "80" : ("https" == scheme ? "443" : "");
     host = hostname;
     if (!port.empty() && port != dflt) {

@@ -1900,8 +1900,10 @@ sub _parse_url {
     if ( $url =~ m{^([A-Za-z][A-Za-z0-9+.-]*)://([^/?#]*)([^?#]*)} ) {
         my ( $scheme, $authority, $path ) = ( lc $1, $2, $3 );
         $authority =~ s/^.*@//s;    # userinfo, if any
-        my ( $hostname, $port ) = $authority =~ /^(.*?)(?::(\d+))?$/;
+        my ( $hostname, $port ) = $authority =~ /^(.*?)(?::(\d*))?$/;
         $hostname = '' unless defined $hostname;
+        $hostname =~ tr/A-Z/a-z/;
+        $port = '' eq ( $port // '' ) ? undef : $port + 0;
         my $default =
             'http' eq $scheme  ? 80
           : 'https' eq $scheme ? 443

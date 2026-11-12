@@ -311,7 +311,8 @@ public final class Binding {
   }
 
   /// The host follows the last '@', so a raw '@' in a password stays out
-  /// of it, and a port equal to the scheme's default is dropped.
+  /// of it. As in URL.host, an ASCII host is lower-cased, the port is read
+  /// as a number, and a port equal to the scheme's default is dropped.
   static func urlHost(_ scheme: Substring, _ authority: Substring) -> String {
     var hostport = authority
     if let at = hostport.lastIndex(of: "@") {
@@ -322,6 +323,10 @@ public final class Binding {
     if let colon = hostport.lastIndex(of: ":"), nil == hostport[colon...].firstIndex(of: "]") {
       host = String(hostport[..<colon])
       port = String(hostport[hostport.index(after: colon)...])
+    }
+    host = host.lowercased()
+    if let number = Int(port) {
+      port = String(number)
     }
     let lower = scheme.lowercased()
     let defaultPort = "http" == lower ? "80" : ("https" == lower ? "443" : "")

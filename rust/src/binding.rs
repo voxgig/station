@@ -372,13 +372,15 @@ fn url_host(scheme: &str, authority: &str) -> String {
         }
         _ => (hostport, ""),
     };
+    let host = host.to_ascii_lowercase();
+    let port = port.parse::<u32>().map_or(port.to_string(), |n| n.to_string());
     let default = match scheme.to_ascii_lowercase().as_str() {
         "http" => "80",
         "https" => "443",
         _ => "",
     };
     if port.is_empty() || default == port {
-        host.to_string()
+        host
     } else {
         format!("{}:{}", host, port)
     }

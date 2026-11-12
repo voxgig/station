@@ -211,6 +211,7 @@ int main(int argc, char** argv) {
         {"https://api.test:443/x", "api.test"},
         {"https://u:p@ss@api.test/x", "api.test"},
         {"https://api.test:x@evil.test/x", "evil.test"},
+        {"https://API.TEST/x", "api.test"},
     };
     for (const auto& c : cases) {
       std::string host, hostname, path;
@@ -247,6 +248,10 @@ int main(int argc, char** argv) {
         {"https://u:p@ss@h/x", "h", "/x"},
         {"http://[::1]:8080/x", "[::1]:8080", "/x"},
         {"http://[::1]/x", "[::1]", "/x"},
+        {"https://H/x", "h", "/x"},
+        {"https://h:/x", "h", "/x"},
+        {"https://h:0443/x", "h", "/x"},
+        {"https://h:08443/x", "h:8443", "/x"},
     };
     vs::StationOptions opts;
     opts.has_config = true;

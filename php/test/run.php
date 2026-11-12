@@ -640,6 +640,10 @@ testcase('http_event_host_reads_as_url_host', function () {
         ['https://u:p@ss@h/x', 'h', '/x'],
         ['http://[::1]:8080/x', '[::1]:8080', '/x'],
         ['http://[::1]/x', '[::1]', '/x'],
+        ['https://H/x', 'h', '/x'],
+        ['https://h:/x', 'h', '/x'],
+        ['https://h:0443/x', 'h', '/x'],
+        ['https://h:08443/x', 'h:8443', '/x'],
     ];
     $st = new Station(['config' => null]);
     $b = bind($st, fn($_c, $_u, $_d) => [okres(), null]);
@@ -707,6 +711,8 @@ testcase('hosts_policy_compares_the_hostname_url_hostname_reads', function () {
         ['api.test', 'https://evil.test:443/x', false],
         ['api.test', 'https://u:p@ss@api.test/x', true],
         ['api.test', 'https://api.test:x@evil.test/x', false],
+        ['api.test', 'https://API.TEST/x', true],
+        ['api.test', 'https://EVIL.TEST/x', false],
     ];
     foreach ($cases as [$host, $url, $allowed]) {
         $st = new Station(['config' => [

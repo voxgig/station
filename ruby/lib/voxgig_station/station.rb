@@ -1386,7 +1386,7 @@ module VoxgigStation
         u = URI.parse(fullurl)
         # A relative reference is reported whole, like an unparseable URL.
         if u.scheme && !u.host.to_s.empty?
-          host = u.host.to_s
+          host = u.host.to_s.downcase(:ascii)
           # Mirror the ts URL.host: the port rides along unless it is the
           # scheme default.
           host = host + ':' + u.port.to_s if !u.port.nil? && u.port != u.default_port
