@@ -1943,7 +1943,11 @@ authoritative copy is proxy-side (§8.3).
   backstop.
 - `hosts:` egress allowlist — defaulted from the *proxy-side* view
   of the descriptor's base + server-variable expansion, per §8.3;
-  anything else is a policy edit, not a surprise.
+  anything else is a policy edit, not a surprise. An entry names a
+  host as `URL.hostname` reads it, so an IPv6 host keeps its brackets
+  (`[::1]`). Neither a port nor the userinfo is part of it, and the
+  host is what follows the userinfo's last `@`, whatever a password
+  holds. Every port's suite pins an allow and a deny for each.
 - `budget:` rps/concurrency ceilings (the SDK `ratelimit` feature,
   configured by station, plus proxy-side enforcement in R2).
 - `agent.write:` gates mutating `station_call` **and** replay of

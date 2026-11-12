@@ -255,6 +255,16 @@ module VoxgigStation
     text[0, text.index('://') + 3] + text[(at + 1)..]
   end
 
+  # The hosts policy's key, as URL.hostname reads it: the host after the
+  # userinfo's last `@`, an IPv6 host with its brackets, and no port.
+  def policy_hostname(url)
+    head = %r{\A[a-zA-Z][a-zA-Z0-9+.-]*://([^/?#]*)}.match(url.to_s)
+    return '' if head.nil?
+
+    host = head[1][((head[1].rindex('@') || -1) + 1)..]
+    host.start_with?('[') ? host[/\A\[[^\]]*\]/].to_s : host.split(':', 2).first.to_s
+  end
+
   def keyless(calleropts)
     calleropts.is_a?(Hash) ? calleropts.reject { |k, _| 'apikey' == k } : calleropts
   end

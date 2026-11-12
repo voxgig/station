@@ -876,6 +876,31 @@ testcase('hosts-policy', function()
   checkeq(b.inner_calls[1].fetchdef.redirect, 'manual')
 end)
 
+testcase('hosts-policy-hostname', function()
+  -- An IPv6 host keeps its brackets, and neither a port nor the userinfo,
+  -- a raw `@` in its password among it, reaches the host.
+  local cases = {
+    { '[::1]', 'http://[::1]:8080/x', true },
+    { '[::1]', 'http://[::2]:8080/x', false },
+    { 'api.test', 'https://api.test:443/x', true },
+    { 'api.test', 'https://evil.test:443/x', false },
+    { 'api.test', 'https://u:p@ss@api.test/x', true },
+    { 'api.test', 'https://api.test:x@evil.test/x', false },
+  }
+  for _, c in ipairs(cases) do
+    local station = st.new({ proxy = 'off', config = {
+      station = 1,
+      profiles = { default = { sdk = { taskpad = { policy = { hosts = { c[1] } } } } } },
+    } })
+    local b = bind(station)
+    b.options.apikey = '[station:taskpad]'
+    station.broker:hoist('taskpad', 'v')
+    local _, err = b.utility.fetcher({ client = b.client }, c[2], { headers = {} })
+    local code = type(err) == 'table' and err.code or nil
+    checkeq(code, (not c[3]) and 'station_host_allow' or nil, c[1] .. ' against ' .. c[2])
+  end
+end)
+
 testcase('require-proxy', function()
   local station = st.new({ config = st.NULL, proxy = 'require' })
   local b = bind(station)

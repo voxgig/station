@@ -280,12 +280,14 @@ public final class Binding {
 
   /// The hostname (no port) of a URL, '' when unparseable - the hosts
   /// policy's comparison key, mirroring the canonical port's
-  /// `new URL(u).hostname`.
+  /// `new URL(u).hostname`, which keeps an IPv6 host's brackets.
   public static func hostname(_ url: String) -> String {
     let (host, _) = hostAndPath(url)
     if host.hasPrefix("[") {
-      // [::1]:8080 - the bracketed form keeps its brackets off.
-      return String(host.dropFirst().split(separator: "]").first ?? "")
+      guard let end = host.firstIndex(of: "]") else {
+        return ""
+      }
+      return String(host[...end])
     }
     return String(host.split(separator: ":").first ?? "")
   }

@@ -1,13 +1,14 @@
 # Status: where the next session starts
 
-Snapshot, **2026-11-12**. `main` is at `1170547`. 0.2.0 is released on
+Snapshot, **2026-11-12**. `main` is at `50b072c`. 0.2.0 is released on
 every route, and `main` is ahead of it: the six pull requests of W1
 merged on 2026-11-11 and changed every port's source, and on 2026-11-12
 W5.1 (the proxy builds), W4.3 (the fixture SDKs), W2.1 (the carried
 adapter's place), W2.2 (the Station out of the SDK's options), W2.4
 (passwords refused in a block's `base`), W2.5 (no userinfo in an
 event's whole URL) and W2.3 (the scrub reaches a transport error's
-chain) merged, which completes W2a. The seven
+chain) merged, which completes W2a, and W2.6 (one `op` event per
+operation), the first of W2b. The seven
 decisions were ruled on 2026-11-11. The register
 in [`progress.md`](progress.md) is the per-item authority, and
 [`upstream.md`](upstream.md) tracks what other repositories owe. This
@@ -100,8 +101,9 @@ passing; CI runs them once the fixture lane's patch is applied.
 
 ## In flight
 
-W2.6, in review: one `op` event per operation, in every port. W2.12
-and W2.13, found during W2.1, have no issue filed yet.
+W2.7, in review: the hosts policy reads the hostname as `URL.hostname`
+does, in every port, with the go sweep fix review asked for on W2.6.
+W2.12 and W2.13, found during W2.1, have no issue filed yet.
 
 
 ## Pick this up first
@@ -151,6 +153,8 @@ git push origin --delete chore/comment-policy \
 
 ## Recently settled
 
+- **One `op` event per operation** (W2.6, 2026-11-12, `50b072c`), in
+  every port; [#36] closed.
 - **The scrub reaches the chain behind a transport error** (W2.3,
   2026-11-12, `362b351`), in every port that has one; [#29] closed.
   This completes W2a. Review found one more case in cpp, a
@@ -222,3 +226,4 @@ Each is source or prose the plan schedules:
 [#57]: https://github.com/voxgig/station/issues/57
 [#53]: https://github.com/voxgig/station/issues/53
 [#29]: https://github.com/voxgig/station/issues/29
+[#36]: https://github.com/voxgig/station/issues/36

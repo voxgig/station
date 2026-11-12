@@ -696,6 +696,32 @@ testcase('hosts_policy_denies_off_list_egress', function () {
     eq('station_host_allow', $errs[0]['err']['code']);
 });
 
+// An IPv6 host keeps its brackets, and neither a port nor the userinfo,
+// a raw `@` in its password among it, reaches the host.
+testcase('hosts_policy_compares_the_hostname_url_hostname_reads', function () {
+    putenv('GNARLY_PETS_APIKEY=k');
+    $cases = [
+        ['[::1]', 'http://[::1]:8080/x', true],
+        ['[::1]', 'http://[::2]:8080/x', false],
+        ['api.test', 'https://api.test:443/x', true],
+        ['api.test', 'https://evil.test:443/x', false],
+        ['api.test', 'https://u:p@ss@api.test/x', true],
+        ['api.test', 'https://api.test:x@evil.test/x', false],
+    ];
+    foreach ($cases as [$host, $url, $allowed]) {
+        $st = new Station(['config' => [
+            'station' => 1,
+            'profiles' => ['default' => ['sdk' => [
+                'gnarly-pets' => ['policy' => ['hosts' => [$host]]],
+            ]]],
+        ]]);
+        $b = bind($st, fn($_c, $_u, $_d) => [okres(), null]);
+        [$_res, $err] = ($b['utility']->fetcher)($b['ctx'], $url,
+            ['method' => 'GET', 'headers' => []]);
+        eq($allowed ? null : 'station_host_allow', $err?->code(), $host . ' against ' . $url);
+    }
+});
+
 testcase('hosts_policy_marks_redirects_manual', function () {
     putenv('GNARLY_PETS_APIKEY=k');
     $st = new Station(['config' => [

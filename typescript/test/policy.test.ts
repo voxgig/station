@@ -45,6 +45,32 @@ async function liveRequest(st: Station, slug: string): Promise<any> {
     { headers: {} })
 }
 
+describe('policy-hostname', () => {
+
+  // URL.hostname: an IPv6 host keeps its brackets, and neither a port nor
+  // the userinfo, a raw `@` in its password among it, reaches the host.
+  test('the hosts policy compares the hostname URL.hostname reads', async () => {
+    const cases: [string, string, boolean][] = [
+      ['[::1]', 'http://[::1]:8080/x', true],
+      ['[::1]', 'http://[::2]:8080/x', false],
+      ['api.test', 'https://api.test:443/x', true],
+      ['api.test', 'https://evil.test:443/x', false],
+      ['api.test', 'https://u:p@ss@api.test/x', true],
+      ['api.test', 'https://api.test:x@evil.test/x', false],
+    ]
+    for (const [host, url, allowed] of cases) {
+      const st = policyStation('solar', { hosts: [host] })
+      const { ctx } = fakeClient('solar')
+      ctx.client._mode = 'live'
+      featureBinding(ctx, { station: st })
+      const out = await ctx.utility.fetcher({ client: ctx.client }, url, { headers: {} })
+      equal(allowed ? 200 : 'station_host_allow', allowed ? out.status : out.code,
+        host + ' against ' + url)
+      st.close()
+    }
+  })
+})
+
 describe('policy-mode', () => {
 
   test('mode "block" refuses a live operation, like the hosts policy', async () => {

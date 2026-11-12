@@ -548,6 +548,31 @@ subtest 'status-0 is a transport failure' => sub {
         'statusText surfaced' );
 };
 
+# An IPv6 host keeps its brackets, and neither a port nor the userinfo, a
+# raw `@` in its password among it, reaches the host.
+subtest 'the hosts policy compares the hostname URL.hostname reads' => sub {
+    reset_env();
+    local $ENV{GNARLY_PETS_APIKEY} = 'k';
+    my @cases = (
+        [ '[::1]',    'http://[::1]:8080/x',             1 ],
+        [ '[::1]',    'http://[::2]:8080/x',             0 ],
+        [ 'api.test', 'https://api.test:443/x',          1 ],
+        [ 'api.test', 'https://evil.test:443/x',         0 ],
+        [ 'api.test', 'https://u:p@ss@api.test/x',       1 ],
+        [ 'api.test', 'https://api.test:x@evil.test/x',  0 ],
+    );
+    for my $case (@cases) {
+        my ( $host, $url, $allowed ) = @$case;
+        my $st = Voxgig::Station->new( { config => { station => 1, profiles =>
+              { default => { sdk => { 'gnarly-pets' => { policy => { hosts => [$host] } } } } } } } );
+        my $b = bind_client( $st, sub { return ( okres(), undef ) } );
+        my ( undef, $err ) =
+          $b->{utility}{fetcher}->( $b->{ctx}, $url, { method => 'GET', headers => {} } );
+        is( defined $err ? $err->code : undef,
+            $allowed ? undef : 'station_host_allow', "$host against $url" );
+    }
+};
+
 subtest 'hosts policy denies off-list egress and forces manual redirects' => sub {
     reset_env();
     local $ENV{GNARLY_PETS_APIKEY} = 'k';

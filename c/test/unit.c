@@ -539,6 +539,40 @@ static void test_host_policy(void) {
   vxstn_station_free(st);
 }
 
+/* An IPv6 host keeps its brackets, and neither a port nor the userinfo, a
+   raw `@` in its password among it, reaches the host. */
+static void test_host_policy_hostname(void) {
+  static const struct {
+    const char* host;
+    const char* url;
+    bool allowed;
+  } cases[] = {
+      {"[::1]", "http://[::1]:8080/x", true},
+      {"[::1]", "http://[::2]:8080/x", false},
+      {"api.test", "https://api.test:443/x", true},
+      {"api.test", "https://evil.test:443/x", false},
+      {"api.test", "https://u:p@ss@api.test/x", true},
+      {"api.test", "https://api.test:x@evil.test/x", false},
+  };
+  char config[256];
+  size_t i;
+
+  for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+    vxstn_open_opts opts;
+    vxstn_station* st;
+    memset(&opts, 0, sizeof(opts));
+    opts.proxy = "off";
+    snprintf(config, sizeof(config),
+             "{\"station\":1,\"profiles\":{\"default\":{\"sdk\":"
+             "{\"taskpad\":{\"policy\":{\"hosts\":[\"%s\"]}}}}}}",
+             cases[i].host);
+    opts.config_json = config;
+    st = vxstn_station_new(&opts, NULL);
+    CHECK(cases[i].allowed == vxstn_host_allowed(st, "taskpad", cases[i].url, NULL));
+    vxstn_station_free(st);
+  }
+}
+
 static void test_wrap_order(void) {
   vxstn_error* err;
   {
@@ -1782,6 +1816,7 @@ int main(void) {
   test_secret_precedence();
   test_secret_chain();
   test_host_policy();
+  test_host_policy_hostname();
   test_wrap_order();
   test_ambient();
   test_close_warns();

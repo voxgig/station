@@ -652,6 +652,33 @@ class TestBinding(unittest.TestCase):
         self.assertEqual(0, len(log))
         st.close()
 
+    def test_hosts_policy_compares_the_hostname_url_hostname_reads(self):
+        # An IPv6 host keeps its brackets, and neither a port nor the
+        # userinfo, a raw `@` in its password among it, reaches the host.
+        cases = [
+            ('[::1]', 'http://[::1]:8080/x', True),
+            ('[::1]', 'http://[::2]:8080/x', False),
+            ('api.test', 'https://api.test:443/x', True),
+            ('api.test', 'https://evil.test:443/x', False),
+            ('api.test', 'https://u:p@ss@api.test/x', True),
+            ('api.test', 'https://api.test:x@evil.test/x', False),
+        ]
+        for host, url, allowed in cases:
+            with self.subTest(host=host, url=url):
+                st = Station({'config': {
+                    'station': 1,
+                    'profiles': {'default': {'sdk': {
+                        'gnarly-pets': {'policy': {'hosts': [host]}},
+                    }}},
+                }})
+                ctx, log = bind(st)
+                _res, err = ctx.utility.fetcher(
+                    ctx, url, {'method': 'GET', 'headers': {}})
+                self.assertEqual(None if allowed else 'station_host_allow',
+                                 getattr(err, 'code', err))
+                self.assertEqual(1 if allowed else 0, len(log))
+                st.close()
+
     def test_hosts_policy_sends_manual_redirects(self):
         st = Station({'config': {
             'station': 1,

@@ -13,7 +13,7 @@ import json
 import re
 import threading
 import time
-from urllib.parse import urlparse, urlsplit
+from urllib.parse import urlsplit
 
 from .descriptor import (
     canonical_serialize,
@@ -67,6 +67,16 @@ def _keyless(opts):
 
 
 _AUTHORITY_RE = re.compile(r'[a-zA-Z][a-zA-Z0-9+.-]*://[^/?#]*')
+
+
+def _policy_hostname(url):
+    """The hosts policy's key, as URL.hostname reads it: an IPv6 host keeps
+    its brackets."""
+    try:
+        host = urlsplit(url).hostname or ''
+    except ValueError:
+        return ''
+    return '[' + host + ']' if ':' in host else host
 
 
 def _exc_text(exc):
@@ -642,11 +652,7 @@ class Station:
         # (8.2's rule, applied at the library seam).
         hosts = (profile_plugin.get('policy') or {}).get('hosts')
         if hosts is not None and live:
-            hostname = ''
-            try:
-                hostname = urlparse(fullurl).hostname or ''
-            except Exception:
-                pass
+            hostname = _policy_hostname(fullurl)
             if hostname not in hosts:
                 err = StationError(
                     'station_host_allow',

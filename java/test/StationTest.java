@@ -1418,6 +1418,32 @@ public final class StationTest {
       check(res instanceof Map, "mock path unaffected");
     });
 
+    // An IPv6 host keeps its brackets, and neither a port nor the userinfo,
+    // a raw `@` in its password among it, reaches the host.
+    testcase("transport: the hosts policy compares the hostname URL.hostname reads", () -> {
+      Object[][] cases = {
+        {"[::1]", "http://[::1]:8080/x", true},
+        {"[::1]", "http://[::2]:8080/x", false},
+        {"api.test", "https://api.test:443/x", true},
+        {"api.test", "https://evil.test:443/x", false},
+        {"api.test", "https://u:p@ss@api.test/x", true},
+        {"api.test", "https://api.test:x@evil.test/x", false},
+      };
+      for (Object[] c : cases) {
+        Station st = memoryStation(map("TEST_PLUG_APIKEY", "k"), map(
+            "test-plug", map("policy", map("hosts", List.of(c[0])))));
+        bind(st, new Object(), st.options(map()));
+        String code = null;
+        try {
+          st.transport("test-plug", (String) c[1], map("headers", map()), true, null,
+              (url, def) -> map("status", 200));
+        } catch (StationError err) {
+          code = err.code;
+        }
+        checkeq(code, (Boolean) c[2] ? null : "station_host_allow", c[0] + " against " + c[1]);
+      }
+    });
+
     testcase("transport: manual redirects ride the sent copy under a hosts policy", () -> {
       Station st = memoryStation(map("TEST_PLUG_APIKEY", "k"), map(
           "test-plug", map("policy", map("hosts", List.of("api.good.example")))));

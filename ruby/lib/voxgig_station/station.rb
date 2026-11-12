@@ -535,11 +535,7 @@ module VoxgigStation
       hosts = profile_plugin.is_a?(Hash) &&
         profile_plugin['policy'].is_a?(Hash) ? profile_plugin['policy']['hosts'] : nil
       if hosts.is_a?(Array) && live
-        hostname = begin
-          URI.parse(fullurl).host.to_s
-        rescue StandardError
-          ''
-        end
+        hostname = VoxgigStation.policy_hostname(fullurl)
         unless hosts.include?(hostname)
           err = StationError.new('station_host_allow',
             'egress to "' + hostname + '" denied by the hosts policy of ' \

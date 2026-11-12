@@ -733,13 +733,7 @@ public class Station {
     // library seam).
     Object hosts = Descriptor.getprop(block.get("policy"), "hosts");
     if (hosts instanceof List && live) {
-      String hostname = "";
-      try {
-        String h = URI.create(fullurl).getHost();
-        hostname = null == h ? "" : h;
-      } catch (RuntimeException ignored) {
-        // Unparseable url: hostname stays '', which no allowlist holds.
-      }
+      String hostname = policyHostname(fullurl);
       if (!((List<Object>) hosts).contains(hostname)) {
         StationError err = new StationError("station_host_allow",
             "egress to \"" + hostname + "\" denied by the hosts policy of "
@@ -880,6 +874,24 @@ public class Station {
 
   private static final Pattern AUTHORITY =
       Pattern.compile("^[a-zA-Z][a-zA-Z0-9+.-]*://[^/?#]*");
+
+  // The hosts policy's key, as URL.hostname reads it: the host after the
+  // userinfo's last `@` (URI.getHost refuses a raw one), an IPv6 host with
+  // its brackets, and no port.
+  static String policyHostname(String url) {
+    Matcher head = AUTHORITY.matcher(null == url ? "" : url);
+    if (!head.find()) {
+      return "";
+    }
+    String authority = head.group().substring(head.group().indexOf("://") + 3);
+    String host = authority.substring(authority.lastIndexOf('@') + 1);
+    if (host.startsWith("[")) {
+      int end = host.indexOf(']');
+      return -1 == end ? "" : host.substring(0, end + 1);
+    }
+    int colon = host.indexOf(':');
+    return -1 == colon ? host : host.substring(0, colon);
+  }
 
   /**
    * A URL reported whole loses its userinfo first: a value the broker never

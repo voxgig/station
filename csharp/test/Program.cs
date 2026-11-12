@@ -826,6 +826,39 @@ internal static class Program
             Check(res is Dictionary<string, object>, "mock path unaffected");
         });
 
+        // An IPv6 host keeps its brackets, and neither a port nor the
+        // userinfo, a raw `@` in its password among it, reaches the host.
+        TestCase("transport: the hosts policy compares the hostname URL.hostname reads", () =>
+        {
+            var cases = new (string Host, string Url, bool Allowed)[]
+            {
+                ("[::1]", "http://[::1]:8080/x", true),
+                ("[::1]", "http://[::2]:8080/x", false),
+                ("api.test", "https://api.test:443/x", true),
+                ("api.test", "https://evil.test:443/x", false),
+                ("api.test", "https://u:p@ss@api.test/x", true),
+                ("api.test", "https://api.test:x@evil.test/x", false),
+            };
+            foreach (var c in cases)
+            {
+                Station st = MemoryStation(Map("TEST_PLUG_APIKEY", "k"), Map(
+                    "test-plug", Map("policy", Map("hosts", Vals(c.Host)))));
+                Bind(st, new object(), st.Options(Map()));
+                string code = null;
+                try
+                {
+                    st.Transport("test-plug", c.Url, Map("headers", Map()), true, null,
+                        (url, def) => Map("status", 200));
+                }
+                catch (StationError err)
+                {
+                    code = err.Code;
+                }
+                Check((c.Allowed ? null : "station_host_allow") == code,
+                    c.Host + " against " + c.Url + ": " + code);
+            }
+        });
+
         TestCase("transport: manual redirects ride the sent copy under a hosts policy", () =>
         {
             Station st = MemoryStation(Map("TEST_PLUG_APIKEY", "k"), Map(

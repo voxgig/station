@@ -719,6 +719,33 @@ final class StationTest: XCTestCase {
     XCTAssertTrue(ok, "mock path unaffected")
   }
 
+  // An IPv6 host keeps its brackets, and neither a port nor the userinfo,
+  // a raw `@` in its password among it, reaches the host.
+  func testTransportHostsPolicyComparesTheHostnameURLHostnameReads() throws {
+    setenv("TEST_PLUG_APIKEY", "k", 1)
+    let cases: [(String, String, Bool)] = [
+      ("[::1]", "http://[::1]:8080/x", true),
+      ("[::1]", "http://[::2]:8080/x", false),
+      ("api.test", "https://api.test:443/x", true),
+      ("api.test", "https://evil.test:443/x", false),
+      ("api.test", "https://u:p@ss@api.test/x", true),
+      ("api.test", "https://api.test:x@evil.test/x", false),
+    ]
+    for (host, url, allowed) in cases {
+      let st = try memStation(
+        .map(["test-plug": .map(["policy": .map(["hosts": .list([.str(host)])])])]))
+      let binding = (try bind(st, NSObject()))!.binding
+      var code: String? = nil
+      do {
+        _ = try binding.transport(
+          nil, true, url, "GET", [:], { _, _, _ in true }, { _ in (200, 0) })
+      } catch let err as StationError {
+        code = err.code
+      }
+      XCTAssertEqual(allowed ? nil : "station_host_allow", code, host + " against " + url)
+    }
+  }
+
   func testTransportManualRedirectUnderHostsPolicy() throws {
     setenv("TEST_PLUG_APIKEY", "k", 1)
     let st = try memStation(

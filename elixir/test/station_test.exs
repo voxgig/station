@@ -291,6 +291,39 @@ defmodule Voxgig.StationTest do
     refute String.contains?(out, " k ")
   end
 
+  # An IPv6 host keeps its brackets, and neither a port nor the userinfo, a
+  # raw `@` in its password among it, reaches the host.
+  test "the hosts policy compares the hostname URL.hostname reads" do
+    Voxgig.Station.TestStruct.load()
+
+    cases = [
+      {"[::1]", "http://[::1]:8080/x", true},
+      {"[::1]", "http://[::2]:8080/x", false},
+      {"api.test", "https://api.test:443/x", true},
+      {"api.test", "https://evil.test:443/x", false},
+      {"api.test", "https://u:p@ss@api.test/x", true},
+      {"api.test", "https://api.test:x@evil.test/x", false}
+    ]
+
+    for {host, url, allowed} <- cases do
+      st =
+        Station.new(%{
+          "config" => %{
+            "station" => 1,
+            "profiles" => %{
+              "default" => %{"sdk" => %{"pad" => %{"policy" => %{"hosts" => [host]}}}}
+            }
+          }
+        })
+
+      fctx = Voxgig.Struct.jm(["client", Voxgig.Struct.jm(["mode", "live"])])
+      inner = fn _fctx, _url, _def -> {Voxgig.Struct.jm(["status", 200]), nil} end
+      {_res, err} = Adapter.transport(st, "pad", inner, fctx, url, Voxgig.Struct.jm([]))
+      code = if is_nil(err), do: nil, else: err.code
+      assert (if allowed, do: nil, else: "station_host_allow") == code, host <> " against " <> url
+    end
+  end
+
   test "one failed operation emits one op event" do
     Voxgig.Station.TestStruct.load()
     st = Station.new(%{"config" => nil})
