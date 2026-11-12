@@ -297,6 +297,19 @@ class AdapterFeature
     }
 }
 
+/** The activation entry's hold on its Station, opaque to var_dump and print_r. */
+final class StationHolder
+{
+    public function __construct(public readonly Station $station)
+    {
+    }
+
+    public function __debugInfo(): array
+    {
+        return [];
+    }
+}
+
 /** The activation entry carries a closure; the carried adapter, the Station. */
 function station_of(mixed $handle): ?Station
 {

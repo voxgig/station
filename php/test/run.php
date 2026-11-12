@@ -1976,6 +1976,35 @@ testcase('exposure_a_bound_clients_options_hold_no_secret_after_a_live_request',
     }
 });
 
+/** A generated SDK's station feature, reduced to its binding call. */
+#[\AllowDynamicProperties]
+class InvertedSDK
+{
+    public string $mode = 'live';
+    public array $features;
+    public mixed $binding;
+
+    public function __construct(array $options)
+    {
+        $this->features = [new FakeFeature('station')];
+        $utility = new FakeUtility();
+        $utility->fetcher = fn($c, $u, $d) => [['status' => 200, 'headers' => []], null];
+        $ctx = new FakeCtx($this, $utility, $options, ExposureSDK::CONFIG);
+        $this->binding = \Voxgig\Station\feature_binding($ctx, $options['feature']['station']);
+    }
+}
+
+testcase('exposure_a_station_built_only_for_its_options_lives_to_bind', function () {
+    $options = (function (): array {
+        return (new Station(['config' => null]))->options([]);
+    })();
+    gc_collect_cycles();
+
+    $client = new InvertedSDK($options);
+    ok(null !== $client->binding, 'the options still reach their Station');
+    ok(!str_contains(exposure_shows($options), 'broker'), 'the options dump none of its state');
+});
+
 testcase('exposure_the_callers_own_key_does_not_ride_the_activation_entry', function () {
     $st = Station::open(['config' => null]);
     $client = $st->adopt(ExposureSDK::class, ['apikey' => EXPOSURE_SECRET]);

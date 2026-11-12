@@ -263,13 +263,14 @@ class Station
      */
     /**
      * The activation entry rides in the SDK's options, which an app may
-     * dump, and a closure bound to $this dumps it: so the closure holds
-     * the Station weakly. It is needed only while the SDK is built.
+     * dump, and a closure bound to $this dumps it. A static closure over a
+     * StationHolder dumps as nothing, and keeps a Station that was built
+     * only for its options alive until the SDK binds.
      */
     private function handle(): \Closure
     {
-        $ref = \WeakReference::create($this);
-        return static fn() => $ref->get();
+        $holder = new StationHolder($this);
+        return static fn() => $holder->station;
     }
 
     public static function current(): ?Station
