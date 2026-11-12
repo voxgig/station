@@ -34,6 +34,7 @@ station), `DECISION NEEDED`.
 |---|---|---|---|---|
 | **voxgig/sekreto** | library | `build.yml` checkout | `32b83ac` (voxgig/sekreto#34, 2026-09-16) | `main` is `ee83713` |
 | | | `go/go.mod` | a pseudo-version of `32b83ac` | no `go/v*` tag exists |
+| | | `proxy/go.mod`, since W5.1 | a pseudo-version of `32b83ac` | — |
 | | | `typescript/package.json` | `^0.3.0`, locked 0.3.0 | npm 0.3.0 |
 | | | `javascript/package.json` | `@voxgig/sekreto-js` `^0.2.0`, locked 0.2.0 | npm 0.2.0 |
 | | | `python/pyproject.toml` | `voxgig-sekreto>=0.1` | not on PyPI |
@@ -62,9 +63,9 @@ W4.4 and W4.5 of the plan register:
   port.** The typescript lane links no struct checkout, so it runs
   npm's 0.2.2 from the lockfile, while the other fifteen run struct
   `main`.
-- **Moving the sekreto pin is four edits**, since W1.6: `build.yml`,
-  `go/go.mod`, the npm ranges, and `SEKRETO_C_COMMIT` with a `make
-  vendor-refresh`.
+- **Moving the sekreto pin is five edits**: `build.yml`, `go/go.mod`,
+  `proxy/go.mod` (since W5.1), the npm ranges, and `SEKRETO_C_COMMIT`
+  with a `make vendor-refresh` (since W1.6).
 
 
 ## Registries
@@ -197,7 +198,7 @@ Still not filed, and not among the eleven: `sdkgen-10` and `sdkgen-16`,
 `sekreto-4` to `sekreto-6`, `struct-4` and `plugin-5`. Each is marked
 `NOT FILED` in its row above.
 
-Three findings from this review extend issues that are already open,
+Two findings from this review extend issues that are already open,
 and are better added there than filed new. They have not been added:
 
 - to voxgig/station#31: the Swift dependency names
@@ -207,10 +208,6 @@ and are better added there than filed new. They have not been added:
 - to voxgig/station#39: `structhome.py` looks for a struct checkout
   though `voxgig-struct` is on PyPI, and `pyproject.toml` requires
   `voxgig-sekreto`, which is not.
-- to voxgig/station#46: `proxy/go.mod` requires `sekreto/go v0.0.0`,
-  the placeholder voxgig/station#27 removed from the library; and the
-  proxy's 49 tests pass against sekreto `5cc462e`, so the port is one
-  file.
 
 
 [#37]: https://github.com/voxgig/station/issues/37

@@ -1,0 +1,4 @@
+github.com/voxgig/plugin/go v0.0.0-20260901203214-91f294b7a228 h1:1Ymh0cwv1nKIULf9+EBhsi1G70J9msxA8HqIRQf8T1w=
+github.com/voxgig/plugin/go v0.0.0-20260901203214-91f294b7a228/go.mod h1:JWU6S3ozw+ubz54qiRwWHcq7WoL79d1Ka4xdVDXAoa8=
+github.com/voxgig/sekreto/go v0.0.0-20260916220330-32b83acba90a h1:3qNNhyU86OPx7IstxcBEq5tgFPj/XRkSKLUjlIzKdkI=
+github.com/voxgig/sekreto/go v0.0.0-20260916220330-32b83acba90a/go.mod h1:4exRKJE5U+4sY9gsmczzucjB6HlZ0qy6qZ7fELcbMpI=

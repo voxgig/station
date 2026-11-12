@@ -217,21 +217,78 @@ func (cs *CaptureStore) DumpForScan() string {
 	return b.String()
 }
 
-// scrubText replaces each of values in text, exact match, no length
-// floor (§7: on this boundary the promise is absolute). Reports whether
-// anything was replaced.
-func scrubText(text string, values []string) (string, bool) {
-	changed := false
-	for _, v := range values {
-		if v == "" {
-			continue
-		}
-		if strings.Contains(text, v) {
-			text = strings.ReplaceAll(text, v, redactedMarker)
-			changed = true
+const upperhex = "0123456789ABCDEF"
+
+// encodeQueryValue is the libraries' strict query encoding (§5.3).
+func encodeQueryValue(value string) string {
+	var out strings.Builder
+	for i := 0; i < len(value); i++ {
+		b := value[i]
+		if ('A' <= b && b <= 'Z') || ('a' <= b && b <= 'z') ||
+			('0' <= b && b <= '9') || 0 <= strings.IndexByte("-._~", b) {
+			out.WriteByte(b)
+		} else {
+			out.WriteByte('%')
+			out.WriteByte(upperhex[b>>4])
+			out.WriteByte(upperhex[b&0x0f])
 		}
 	}
-	return text, changed
+	return out.String()
+}
+
+func scrubForms(values []string) []string {
+	forms := []string{}
+	for _, value := range values {
+		if value != "" {
+			forms = append(forms, value, encodeQueryValue(value))
+		}
+	}
+	return forms
+}
+
+// scrubText redacts every form of every value, with no length floor (§7),
+// and reports whether anything was replaced.
+func scrubText(text string, values []string) (string, bool) {
+	forms := scrubForms(values)
+	found := false
+	for _, form := range forms {
+		if strings.Contains(text, form) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return text, false
+	}
+
+	// Every form is matched against the original text and the union of
+	// the matches redacted, so no replacement can split another value.
+	reach := func(at int) int {
+		end := at
+		for _, form := range forms {
+			if at+len(form) > end && strings.HasPrefix(text[at:], form) {
+				end = at + len(form)
+			}
+		}
+		return end
+	}
+	var out strings.Builder
+	for i := 0; i < len(text); {
+		stop := reach(i)
+		if stop == i {
+			out.WriteByte(text[i])
+			i++
+			continue
+		}
+		for j := i + 1; j < stop; j++ {
+			if end := reach(j); end > stop {
+				stop = end
+			}
+		}
+		out.WriteString(redactedMarker)
+		i = stop
+	}
+	return out.String(), true
 }
 
 // scrubHeaders copies headers with redact-list and named-credential

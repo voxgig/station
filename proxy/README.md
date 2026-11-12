@@ -218,16 +218,18 @@ read to a library exactly like proxy absence.
 ## Develop
 
 ```
-make build   # go.work against the sibling sekreto checkout, then build
-make test    # go test -count=1 ./...
+make build        # go.work against the sibling checkouts, then build
+make test         # go test -count=1 ./...
 make vet
+make build-clean  # go.mod and go.sum alone, with no workspace
 make clean
 ```
 
-The generated `go.work` points at the sibling `voxgig/sekreto`
-checkout (`SEKRETO_HOME` overrides the search). The module requires
-`github.com/voxgig/sekreto/go` and nothing else — the proxy holds
-secrets, so it is the hardening focus and keeps a minimal dependency
-surface (§15). The test suite includes `TestContract`, a sequential
-walk of the whole §8 surface against one spawned daemon — read it as
-the protocol narrative.
+The generated `go.work` points at the sibling `voxgig/sekreto` and
+`voxgig/plugin` checkouts (`SEKRETO_HOME` and `PLUGIN_HOME` override
+the search); sekreto's Go module imports plugin. The module requires
+`github.com/voxgig/sekreto/go` and nothing else, at the revision
+station's CI pins — the proxy holds secrets, so it is the hardening
+focus and keeps a minimal dependency surface (§15). The test suite
+includes `TestContract`, a sequential walk of the whole §8 surface
+against one spawned daemon — read it as the protocol narrative.

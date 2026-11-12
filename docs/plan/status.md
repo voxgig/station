@@ -85,7 +85,7 @@ repository generates the SDKs they look for (W4.3).
 | part | state |
 |---|---|
 | `sdkgen-station/` | The feature model and an adapter per target. Never published. ts and js SDKs register themselves; no other target does. |
-| `proxy/` | About 7,800 lines with tests. Does not compile against CI's sekreto pin; its 49 tests pass against the sekreto revision it was written for. No CI lane. |
+| `proxy/` | About 7,900 lines with tests. Builds against CI's sekreto pin since W5.1, with 57 tests. No CI lane until its patch is applied. |
 | attach | In no port. `proxy: 'auto'` records that the proxy is absent without looking for one. |
 | plugin conformance (C4) | Runs in the typescript lane: 144 pass, 0 pinned divergences, 128 skipped with reasons. |
 
