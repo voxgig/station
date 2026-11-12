@@ -738,6 +738,10 @@ internal static class Program
                 new[] { "https://u:p@h/x", "h", "/x" },
                 new[] { "http://[::1]:8080/x", "[::1]:8080", "/x" },
                 new[] { "http://[::1]/x", "[::1]", "/x" },
+                new[] { "https://H/x", "h", "/x" },
+                new[] { "https://h:/x", "h", "/x" },
+                new[] { "https://h:0443/x", "h", "/x" },
+                new[] { "https://h:08443/x", "h:8443", "/x" },
             };
             var want = new List<string>();
             foreach (var c in cases)
@@ -838,6 +842,8 @@ internal static class Program
                 ("api.test", "https://evil.test:443/x", false),
                 ("api.test", "https://u:p@ss@api.test/x", true),
                 ("api.test", "https://api.test:x@evil.test/x", false),
+                ("api.test", "https://API.TEST/x", true),
+                ("api.test", "https://EVIL.TEST/x", false),
             };
             foreach (var c in cases)
             {

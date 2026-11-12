@@ -672,11 +672,14 @@ defmodule Voxgig.Station do
         authority = authority |> String.split("@") |> List.last()
 
         {hostname, port} =
-          case Regex.run(~r/^(.*?)(?::(\d+))?$/, authority) do
+          case Regex.run(~r/^(.*?)(?::(\d*))?$/, authority) do
+            [_, h, ""] -> {h, nil}
             [_, h, p] -> {h, String.to_integer(p)}
             [_, h] -> {h, nil}
             _ -> {authority, nil}
           end
+
+        hostname = String.downcase(hostname, :ascii)
 
         default =
           case scheme do

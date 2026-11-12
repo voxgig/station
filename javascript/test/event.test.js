@@ -76,6 +76,10 @@ describe('http-event', () => {
       ['https://u:p@ss@h/x', 'h', '/x'],
       ['http://[::1]:8080/x', '[::1]:8080', '/x'],
       ['http://[::1]/x', '[::1]', '/x'],
+      ['https://H/x', 'h', '/x'],
+      ['https://h:/x', 'h', '/x'],
+      ['https://h:0443/x', 'h', '/x'],
+      ['https://h:08443/x', 'h:8443', '/x'],
     ]
 
     const st = new Station({ config: null })

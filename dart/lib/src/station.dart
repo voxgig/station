@@ -780,8 +780,8 @@ String withoutUserinfo(String text) {
 }
 
 // The hosts policy's key, as URL.hostname reads it: the host after the
-// userinfo's last `@` (Uri refuses a raw one), an IPv6 host with its
-// brackets, and no port.
+// userinfo's last `@` (Uri refuses a raw one), lower-cased, an IPv6 host
+// with its brackets, and no port.
 String policyHostname(String url) {
   final head = _authority.firstMatch(url);
   if (null == head) {
@@ -789,7 +789,7 @@ String policyHostname(String url) {
   }
   final whole = head.group(0)!;
   final authority = whole.substring(whole.indexOf('://') + 3);
-  final host = authority.substring(authority.lastIndexOf('@') + 1);
+  final host = authority.substring(authority.lastIndexOf('@') + 1).toLowerCase();
   if (host.startsWith('[')) {
     final end = host.indexOf(']');
     return -1 == end ? '' : host.substring(0, end + 1);

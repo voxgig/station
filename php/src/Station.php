@@ -659,7 +659,7 @@ class Station
             ? ($profile_plugin['policy']['hosts'] ?? null) : null;
         if (is_array($hosts) && $live) {
             $hostname = parse_url($fullurl, PHP_URL_HOST);
-            $hostname = is_string($hostname) ? $hostname : '';
+            $hostname = is_string($hostname) ? strtolower($hostname) : '';
             if (!in_array($hostname, $hosts, true)) {
                 $err = new StationError('station_host_allow',
                     'egress to "' . $hostname . '" denied by the hosts policy ' .
@@ -1729,7 +1729,7 @@ class Station
         $path = '';
         $parts = parse_url($fullurl);
         if (is_array($parts) && isset($parts['scheme'], $parts['host'])) {
-            $host = $parts['host'];
+            $host = strtolower($parts['host']);
             // Mirror the ts URL.host: the port rides along unless it is
             // the scheme default.
             $port = $parts['port'] ?? null;
