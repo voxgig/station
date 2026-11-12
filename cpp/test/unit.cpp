@@ -7,6 +7,7 @@
 // middleware, injection) is exercised inside generated SDKs.
 
 #include <algorithm>
+#include <array>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -199,6 +200,23 @@ int main(int argc, char** argv) {
     check(empty_clean, "an empty nested error reads clean, without terminating");
     check(st.reads_clean(std::runtime_error("fetch failed")), "a clean error reads clean");
     check(!st.reads_clean(std::runtime_error("GET " + url)), "a quoting error does not");
+  });
+
+  // The hosts policy compares parse_url's hostname: an IPv6 host keeps its
+  // brackets, and neither a port nor the userinfo, a raw `@` in its
+  // password among it, reaches the host.
+  testcase("hosts-policy-hostname", [] {
+    const std::vector<std::array<std::string, 2>> cases = {
+        {"http://[::1]:8080/x", "[::1]"},
+        {"https://api.test:443/x", "api.test"},
+        {"https://u:p@ss@api.test/x", "api.test"},
+        {"https://api.test:x@evil.test/x", "evil.test"},
+    };
+    for (const auto& c : cases) {
+      std::string host, hostname, path;
+      vs::Station::parse_url(c[0], host, hostname, path);
+      checkeq(hostname, c[1], c[0]);
+    }
   });
 
   testcase("emit-http-whole-without-userinfo", [] {

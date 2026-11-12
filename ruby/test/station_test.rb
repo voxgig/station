@@ -700,6 +700,34 @@ class TestStation < Minitest::Test
     assert_equal 'station_host_allow', errs[0]['err']['code']
   end
 
+  # An IPv6 host keeps its brackets, and neither a port nor the userinfo,
+  # a raw `@` in its password among it, reaches the host.
+  def test_hosts_policy_compares_the_hostname_url_hostname_reads
+    ENV['GNARLY_PETS_APIKEY'] = 'k'
+    [
+      ['[::1]', 'http://[::1]:8080/x', true],
+      ['[::1]', 'http://[::2]:8080/x', false],
+      ['api.test', 'https://api.test:443/x', true],
+      ['api.test', 'https://evil.test:443/x', false],
+      ['api.test', 'https://u:p@ss@api.test/x', true],
+      ['api.test', 'https://api.test:x@evil.test/x', false],
+    ].each do |host, url, allowed|
+      st = VoxgigStation::Station.new('config' => {
+        'station' => 1,
+        'profiles' => { 'default' => { 'sdk' => {
+          'gnarly-pets' => { 'policy' => { 'hosts' => [host] } },
+        } } },
+      })
+      b = bind(st, ->(_c, _u, _d) { [okres, nil] })
+      _res, err = b[:utility].fetcher.call(b[:ctx], url, 'method' => 'GET', 'headers' => {})
+      if allowed
+        assert_nil err, host + ' against ' + url
+      else
+        assert_equal 'station_host_allow', err&.code, host + ' against ' + url
+      end
+    end
+  end
+
   def test_require_proxy_fails_on_the_operation_path
     ENV['GNARLY_PETS_APIKEY'] = 'k'
     st = VoxgigStation::Station.new('config' => nil, 'proxy' => 'require')

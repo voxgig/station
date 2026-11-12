@@ -156,6 +156,7 @@ type Station struct {
 	requireProxy    bool
 	closed          bool
 	ops             map[any]*opState
+	evicted         map[any]*opState
 	lastSweep       int64
 }
 
@@ -561,10 +562,7 @@ func (st *Station) transport(entry *PluginEntry, mode func() string,
 
 	hosts, hasHosts := hostsPolicy(block)
 	if hasHosts && live {
-		hostname := ""
-		if u, err := url.Parse(fullurl); nil == err {
-			hostname = u.Hostname()
-		}
+		hostname := policyHostname(fullurl)
 		allowed := false
 		for _, host := range hosts {
 			if host == hostname {
@@ -666,6 +664,18 @@ func cloneFetchdef(fetchdef map[string]any) map[string]any {
 		out[k] = v
 	}
 	return out
+}
+
+// URL.hostname keeps an IPv6 host's brackets, where url.Hostname drops them.
+func policyHostname(fullurl string) string {
+	u, err := url.Parse(fullurl)
+	if nil != err {
+		return ""
+	}
+	if hostname := u.Hostname(); strings.Contains(hostname, ":") {
+		return "[" + hostname + "]"
+	}
+	return u.Hostname()
 }
 
 func hostsPolicy(block map[string]any) ([]string, bool) {
@@ -786,7 +796,7 @@ func (st *Station) corrOf(opctx any) string {
 	}
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	if state, has := st.ops[opctx]; has {
+	if state := st.opLocked(opctx); nil != state {
 		return state.corr
 	}
 	return ""
@@ -798,20 +808,32 @@ func (st *Station) opEnd(opctx any) (string, int64, bool) {
 	}
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	if state, has := st.ops[opctx]; has {
-		delete(st.ops, opctx)
-		return state.corr, state.start, true
+	state := st.opLocked(opctx)
+	if nil == state {
+		return "", 0, false
 	}
-	return "", 0, false
+	delete(st.ops, opctx)
+	delete(st.evicted, opctx)
+	return state.corr, state.start, true
 }
 
+func (st *Station) opLocked(opctx any) *opState {
+	if state, has := st.ops[opctx]; has {
+		return state
+	}
+	return st.evicted[opctx]
+}
+
+// An evicted operation may still be running, so it waits out one sweep.
 func (st *Station) sweepOpsLocked(now int64) {
 	if 4096 > len(st.ops) || now-st.lastSweep < 60_000 {
 		return
 	}
 	st.lastSweep = now
+	st.evicted = map[any]*opState{}
 	for key, state := range st.ops {
 		if now-state.start > 300_000 {
+			st.evicted[key] = state
 			delete(st.ops, key)
 		}
 	}

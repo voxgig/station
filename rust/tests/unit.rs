@@ -486,6 +486,37 @@ fn prepare_enforces_hosts_policy_and_pins_redirects() {
     Station::reset();
 }
 
+// An IPv6 host keeps its brackets, and neither a port nor the userinfo, a
+// raw `@` in its password among it, reaches the host.
+#[test]
+fn hosts_policy_compares_the_hostname_url_hostname_reads() {
+    let cases = [
+        ("[::1]", "http://[::1]:8080/x", true),
+        ("[::1]", "http://[::2]:8080/x", false),
+        ("api.test", "https://api.test:443/x", true),
+        ("api.test", "https://evil.test:443/x", false),
+        ("api.test", "https://u:p@ss@api.test/x", true),
+        ("api.test", "https://api.test:x@evil.test/x", false),
+    ];
+    for (host, url, allowed) in cases {
+        let station = open_station(station_config(&format!(
+            r#", "sdk": {{ "taskpad": {{ "policy": {{ "hosts": ["{}"] }} }} }}"#,
+            host
+        )));
+        let client: Rc<dyn Any> = Rc::new(());
+        let bound = bind(spec(client, &["test", "station"])).expect("bound");
+        let got = bound
+            .binding
+            .prepare(None, true, url, &BTreeMap::new())
+            .err()
+            .map(|err| err.code);
+        let want = if allowed { None } else { Some("station_host_allow".to_string()) };
+        assert_eq!(want, got, "{} against {}", host, url);
+        station.close();
+        Station::reset();
+    }
+}
+
 #[test]
 fn prepare_fails_closed_under_require() {
     Station::reset();

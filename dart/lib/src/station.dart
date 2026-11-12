@@ -402,11 +402,7 @@ class Station {
     final hostsval = policy is Map ? policy['hosts'] : null;
     final hosts = hostsval is List ? hostsval : null;
     if (null != hosts && live) {
-      var hostname = '';
-      final uri = Uri.tryParse(fullurl.toString());
-      if (null != uri) {
-        hostname = uri.host;
-      }
+      final hostname = policyHostname(fullurl.toString());
       if (!hosts.contains(hostname)) {
         final err = StationError(
             'station_host_allow',
@@ -781,4 +777,23 @@ String withoutUserinfo(String text) {
     return text;
   }
   return text.substring(0, text.indexOf('://') + 3) + text.substring(at + 1);
+}
+
+// The hosts policy's key, as URL.hostname reads it: the host after the
+// userinfo's last `@` (Uri refuses a raw one), an IPv6 host with its
+// brackets, and no port.
+String policyHostname(String url) {
+  final head = _authority.firstMatch(url);
+  if (null == head) {
+    return '';
+  }
+  final whole = head.group(0)!;
+  final authority = whole.substring(whole.indexOf('://') + 3);
+  final host = authority.substring(authority.lastIndexOf('@') + 1);
+  if (host.startsWith('[')) {
+    final end = host.indexOf(']');
+    return -1 == end ? '' : host.substring(0, end + 1);
+  }
+  final colon = host.indexOf(':');
+  return -1 == colon ? host : host.substring(0, colon);
 }

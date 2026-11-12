@@ -620,17 +620,7 @@ namespace Voxgig.Station
             object hosts = Descriptor.GetProp(profilePlugin.GetValueOrDefault("policy"), "hosts");
             if (hosts is IList<object> allowed && live)
             {
-                string hostname = "";
-                try
-                {
-                    var uri = new Uri(fullurl);
-                    hostname = uri.Host ?? "";
-                }
-                catch (UriFormatException)
-                {
-                    // Unparseable url: hostname stays '', which no allowlist
-                    // holds.
-                }
+                string hostname = PolicyHostname(fullurl);
                 if (!allowed.Contains(hostname))
                 {
                     var denied = new StationError("station_host_allow",
@@ -789,6 +779,27 @@ namespace Voxgig.Station
 
         private static readonly Regex Authority =
             new Regex("^[a-zA-Z][a-zA-Z0-9+.-]*://[^/?#]*", RegexOptions.CultureInvariant);
+
+        // The hosts policy's key, as URL.hostname reads it: the host after
+        // the userinfo's last `@` (System.Uri refuses a raw one), an IPv6
+        // host with its brackets, and no port.
+        internal static string PolicyHostname(string url)
+        {
+            Match head = Authority.Match(url ?? "");
+            if (!head.Success)
+            {
+                return "";
+            }
+            string authority = head.Value.Substring(head.Value.IndexOf("://", StringComparison.Ordinal) + 3);
+            string host = authority.Substring(authority.LastIndexOf('@') + 1);
+            if (host.StartsWith("[", StringComparison.Ordinal))
+            {
+                int end = host.IndexOf(']');
+                return -1 == end ? "" : host.Substring(0, end + 1);
+            }
+            int colon = host.IndexOf(':');
+            return -1 == colon ? host : host.Substring(0, colon);
+        }
 
         // A URL reported whole loses its userinfo first: a value the broker
         // never held, so no scrub can find it in the event.

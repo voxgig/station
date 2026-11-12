@@ -989,6 +989,48 @@ void stationCases(void Function(String, FutureOr<void> Function()) testcase) {
         'redirects come back manual under a hosts policy');
   });
 
+  // An IPv6 host keeps its brackets, and neither a port nor the userinfo,
+  // a raw `@` in its password among it, reaches the host.
+  testcase('the hosts policy compares the hostname URL.hostname reads',
+      () async {
+    final cases = [
+      ['[::1]', 'http://[::1]:8080/x', true],
+      ['[::1]', 'http://[::2]:8080/x', false],
+      ['api.test', 'https://api.test:443/x', true],
+      ['api.test', 'https://evil.test:443/x', false],
+      ['api.test', 'https://u:p@ss@api.test/x', true],
+      ['api.test', 'https://api.test:x@evil.test/x', false],
+    ];
+    for (final c in cases) {
+      final st = Station({
+        'proxy': 'off',
+        'config': {
+          'station': 1,
+          'profiles': {
+            'default': {
+              'sdk': {
+                'gnarly-pets': {
+                  'policy': {
+                    'hosts': [c[0]]
+                  }
+                }
+              }
+            }
+          }
+        },
+      });
+      final ctx = makeCtx(
+          inner: (dynamic fctx, dynamic url, dynamic def) async =>
+              {'status': 200, 'headers': {}});
+      (ctx.config['options'] as Map).remove('auth');
+      bindCtx(st, ctx);
+      final out = await ctx.utility.fetcher(FakeCtx(client: ctx.client),
+          c[1], <String, dynamic>{'method': 'GET', 'headers': {}});
+      eq(out is StationError ? out.code : null,
+          true == c[2] ? null : 'station_host_allow', '${c[0]} against ${c[1]}');
+    }
+  });
+
   testcase('require fails closed on the operation path', () async {
     final st = Station({'config': null, 'proxy': 'require'});
     final ctx = makeCtx();

@@ -193,7 +193,6 @@ impl Binding {
         self.corr.borrow().get(ctx_id).map(|(corr, _)| corr.clone())
     }
 
-    /// PrePoint opens the operation; its first terminal stage alone emits.
     pub fn op_done(&self, ctx_id: &str, entity: &str, op: &str, outcome: &str) {
         let (corr, start) = match self.corr.borrow_mut().remove(ctx_id) {
             Some(opened) => opened,
@@ -340,16 +339,13 @@ impl Binding {
 
 pub fn hostname(url: &str) -> String {
     let (host, _path) = host_and_path(url);
-    let bare = match host.find('[') {
-        Some(_) => host
-            .trim_start_matches('[')
-            .split(']')
-            .next()
-            .unwrap_or("")
-            .to_string(),
-        None => host.split(':').next().unwrap_or("").to_string(),
-    };
-    bare
+    if host.starts_with('[') {
+        return match host.find(']') {
+            Some(end) => host[..=end].to_string(),
+            None => String::new(),
+        };
+    }
+    host.split(':').next().unwrap_or("").to_string()
 }
 
 fn host_and_path(url: &str) -> (String, String) {

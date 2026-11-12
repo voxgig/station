@@ -521,6 +521,48 @@ func TestHostsPolicy(t *testing.T) {
 	}
 }
 
+// An IPv6 host keeps its brackets, and neither a port nor the userinfo, a
+// raw `@` in its password among it, reaches the host.
+func TestHostsPolicyComparesTheHostnameURLHostnameReads(t *testing.T) {
+	cases := []struct {
+		host, url string
+		allowed   bool
+	}{
+		{"[::1]", "http://[::1]:8080/x", true},
+		{"[::1]", "http://[::2]:8080/x", false},
+		{"api.test", "https://api.test:443/x", true},
+		{"api.test", "https://evil.test:443/x", false},
+		{"api.test", "https://u:p@ss@api.test/x", true},
+		{"api.test", "https://api.test:x@evil.test/x", false},
+	}
+	for _, c := range cases {
+		st, err := station.New(&station.Options{
+			NoConfig: true,
+			Config: map[string]any{
+				"station": 1,
+				"profiles": map[string]any{"default": map[string]any{
+					"secrets": map[string]any{"providers": []any{
+						map[string]any{"kind": "memory",
+							"values": map[string]string{"FAKEPAD_APIKEY": "k"}},
+					}},
+					"sdk": map[string]any{"fakepad": map[string]any{
+						"policy": map[string]any{"hosts": []any{c.host}},
+					}},
+				}},
+			},
+		})
+		if nil != err {
+			t.Fatal(err)
+		}
+		h := bindOne(t, st, "fakepad", []string{"station"}, okResponse(), "")
+		_, ferr := h.client.fetcher(nil, c.url, map[string]any{"headers": map[string]any{}})
+		serr, denied := ferr.(*station.Error)
+		if c.allowed != (nil == ferr) || (!c.allowed && (!denied || "station_host_allow" != serr.Code)) {
+			t.Fatalf("%s against %s: %v", c.host, c.url, ferr)
+		}
+	}
+}
+
 func TestRequireProxyFailsOnTheOpPath(t *testing.T) {
 	st, err := station.New(&station.Options{NoConfig: true, Proxy: "require"})
 	if nil != err {
