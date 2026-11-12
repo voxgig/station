@@ -29,7 +29,9 @@ in [`../progress.md`](../progress.md).
 
 ## Pending
 
-None.
+| patch | items | what it does | checked |
+|---|---|---|---|
+| `proxy-ci-lane.patch` | W5.1 | Adds a `proxy` job to `build.yml`, beside `versions`: it checks out sekreto at the pinned revision and plugin unpinned, runs `make -C station/proxy build vet test`, then `make -C station/proxy build-clean` with no workspace. | 2026-11-12, on the commit that made the proxy build: `git am` on a clean checkout, actionlint 1.7.12 with shellcheck 0.9.0 over every workflow file, and both of the job's steps run in CI's directory layout against sekreto `32b83ac` and plugin `8605cdc`, all clean. Apply it once that commit is on `main`. |
 
 
 ## Applied
@@ -47,7 +49,6 @@ yet. A lane added before then would be red.
 
 | item | the workflow change | what has to be on `main` first |
 |---|---|---|
-| W5.1 | A `proxy` lane running `make -C station/proxy test` | The proxy building against the sekreto revision CI pins (voxgig/station#46) |
 | W4.3 | A job that generates the fixture SDKs and runs the integration suites against them | The `make` target that generates them |
 | W4.4 | A `ref:` on the `struct` checkout | Stage 5 complete (W4.2). `build.yml` says to pin struct then and not before. |
 | W3.11 | A `port` value for `sdkgen-station` in `release.yml` | The package registered for trusted publishing, and its release scripts |

@@ -1,0 +1,71 @@
+From f8f12557e828de1fbda04b5ab279355dc3130277 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 12 Nov 2026 17:26:20 +0000
+Subject: [PATCH] ci: build, vet and test the proxy daemon
+
+`proxy/` is its own Go module and no job built it, so when sekreto's
+API moved it stopped compiling and nothing went red (voxgig/station#46).
+This adds a `proxy` job beside `versions`. It checks out sekreto at the
+revision the ports job pins and plugin unpinned, since sekreto's Go
+module imports plugin, then:
+
+- builds, vets and tests the module against those checkouts, through
+  the Makefile's workspace;
+- builds and vets it again from go.mod and go.sum alone, with no
+  workspace, as a consumer would.
+
+It is a job of its own, not a step of `ports`, so that a later patch
+adding a lane there does not conflict with this one.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_0167vhgRnddZXZJm3gcM7pwk
+---
+ .github/workflows/build.yml | 32 ++++++++++++++++++++++++++++++++
+ 1 file changed, 32 insertions(+)
+
+diff --git a/.github/workflows/build.yml b/.github/workflows/build.yml
+index b240a16..c61fee4 100644
+--- a/.github/workflows/build.yml
++++ b/.github/workflows/build.yml
+@@ -86,6 +86,38 @@ jobs:
+       - name: The release plan reaches every state it claims to
+         run: make release-plan-test
+ 
++  # The proxy daemon is its own Go module, and no other job builds it: it
++  # stopped compiling once when sekreto's API moved, and nothing went red
++  # (voxgig/station#46). It takes the sekreto revision the ports job pins,
++  # and plugin unpinned, because sekreto's go module imports it.
++  proxy:
++    name: the proxy builds and its suite passes
++    runs-on: ubuntu-latest
++    timeout-minutes: 15
++    steps:
++      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
++        with:
++          path: station
++      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
++        with:
++          repository: voxgig/sekreto
++          ref: 32b83acba90a8e4199be96f56d0cdd5f636c5dfb # sekreto#34
++          path: sekreto
++      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
++        with:
++          repository: voxgig/plugin
++          path: plugin
++      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
++        with:
++          go-version: '1.24'
++      - name: build, vet and test against the sibling checkouts
++        env:
++          SEKRETO_HOME: ${{ github.workspace }}/sekreto
++          PLUGIN_HOME: ${{ github.workspace }}/plugin
++        run: make -C station/proxy build vet test
++      - name: build as a consumer resolves it, from go.mod and go.sum alone
++        run: make -C station/proxy build-clean
++
+   ports:
+     runs-on: ubuntu-latest
+     timeout-minutes: 30
+-- 
+2.43.0
+
