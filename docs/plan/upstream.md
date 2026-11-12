@@ -17,9 +17,14 @@ Checked again on **2026-11-11**: every issue and pull request a row
 below gives as open is still open, and the heads of struct and sdkgen
 had moved, as the pins table says. sdkgen's source was not read again.
 
+On **2026-11-12** the eleven asks that had no issue were filed, on the
+owner's instruction. Before that, the three sdkgen rows were read again
+at sdkgen `9aebaf9` (4.44.0), the two sekreto rows at sekreto
+`ee83713`, and the plugin row at plugin `8605cdc`. All six still held.
+
 States: `DONE`, `OPEN` (an issue or pull request exists upstream),
-`NOT FILED` (station needs it and nothing upstream tracks it; a draft
-is at the end), `WATCH` (nothing is owed, but a change there will reach
+`NOT FILED` (station needs it and nothing upstream tracks it),
+`WATCH` (nothing is owed, but a change there will reach
 station), `DECISION NEEDED`.
 
 
@@ -42,7 +47,7 @@ station), `DECISION NEEDED`.
 | | | `go/go.mod`, indirect | a pseudo-version of `91f294b` (2026-09-01) | `go/v0.2.0` |
 | | | typescript lockfile, transitive | 0.1.7 | npm 0.2.0 |
 | **voxgig/omni** | tests only | `build.yml` checkout | `dcbab7a` (voxgig/omni#36, 2026-08-22) | `main` is `ef55ad0`; npm 0.2.0; `go/v0.2.0` |
-| **voxgig/sdkgen** | generator, for sdkgen-station | `sdkgen-station/package.json` peer | `>=3.6` | npm 4.41.1 on 2026-11-11 |
+| **voxgig/sdkgen** | generator, for sdkgen-station | `sdkgen-station/package.json` peer | `>=3.6` | npm 4.44.0 on 2026-11-12; `main` is `9aebaf9` |
 
 Three things in that table are worth knowing. The first two are rows
 W4.4 and W4.5 of the plan register:
@@ -96,10 +101,10 @@ sections were written.
 | sdkgen-3 | `ReadmeStation`, the agent-guide paragraph, `docs/how-to/use-station.md`, and an error-code catalog (§9.4; §11 items 3 to 5) | in the tree | DONE | Nothing. The how-to leads with the declarative flow. |
 | sdkgen-4 | `configDefinition(model, target.name)` in every `Config_*` component (§9.3) | in the tree | DONE | Nothing. All twenty do; the design still says seventeen (W0.8). |
 | sdkgen-5 | A misspelled feature option is refused | [sdkgen#422] | OPEN | What W1.1 gave up. Every feature defaults to `strict: false`. See also `struct-2`. |
-| sdkgen-6 | An `extend`-carried feature is added at its `featureorder` slot, not appended when its `__after__` anchor is absent | — | NOT FILED | W2.1, for newly generated SDKs. `Main.fragment.ts` skips the name in the ordered loop and adds it afterwards "positioned by its own `__after__` entry"; `FeatureAddUtility.ts` appends when the anchor is missing. |
-| sdkgen-7 | A generated SDK registers itself with station at module load in every target that can express it (§6.2; §11 item 2) | — | NOT FILED | W3.10, and Stage 4's exit outside ts and js. Only `cmp/ts` and `cmp/js` have a `MainStation` fragment. |
+| sdkgen-6 | An `extend`-carried feature is added at its `featureorder` slot, not appended when its `__after__` anchor is absent | [sdkgen#489] | OPEN | Filed 2026-11-12. W2.1, for newly generated SDKs. `Main.fragment.ts` skips the name in the ordered loop and adds it afterwards "positioned by its own `__after__` entry"; `FeatureAddUtility.ts` appends when the anchor is missing. |
+| sdkgen-7 | A generated SDK registers itself with station at module load in every target that can express it (§6.2; §11 item 2) | [sdkgen#490] | OPEN | Filed 2026-11-12. W3.10, and Stage 4's exit outside ts and js. Only `cmp/ts` and `cmp/js` have a `MainStation` fragment, and `ReadmeStation` tells ten targets that loading the package registers it. |
 | sdkgen-8 | `PreDone` runs for every operation that ends | [sdkgen#428] | OPEN | W2.6. It decides which stage station's `op` event can ride. |
-| sdkgen-9 | The SDK does not keep a hoisted credential in its own options | —; related: [sdkgen#274] | NOT FILED | The SDK half of W2.2. [#37] found the key under `options().__derived__.clean.values`. |
+| sdkgen-9 | The SDK does not keep a hoisted credential in its own options | [sdkgen#491]; related: [sdkgen#274] | OPEN | Filed 2026-11-12. The SDK half of W2.2. [#37] found the key under `options().__derived__.clean.values`, and at 4.44.0 `options()` still returns a clone that includes the clean registry. |
 | sdkgen-10 | `Package_*` consumes `collectDeps` in clojure, ocaml and scala, and in haskell and lean in the language pack (§9.2) | —; sdkgen `docs/design/feature-tags.md` | NOT FILED | W7.3. Twelve targets call it now, elixir among them, which the design still lists as missing. ts and js carry feature deps inline; c, cpp and zig vendor. |
 | sdkgen-11 | Feature tags: which features a target can take | sdkgen `docs/design/feature-tags.md`, a proposal dated 2026-08-17 | OPEN | W7.3, for the targets whose features live in one module. |
 | sdkgen-12 | — | [sdkgen#430] | WATCH | It reports that a feature passed in `extend` fires its hooks whatever `active` says. Station's carried adapter rides `extend` and depends on its hooks firing. A fix there has to keep that working. |
@@ -113,8 +118,8 @@ sections were written.
 
 | # | what station needs | upstream | state | gates, and notes |
 |---|---|---|---|---|
-| sekreto-1 | Releases beyond npm, starting where the fleet generates: PyPI and RubyGems, then the rest; and a `go/v*` tag | — | NOT FILED | DEC-1, W3.3 to W3.8. |
-| sekreto-2 | Its Python metadata pins voxgig/plugin | — | NOT FILED | W3.3. `python/pyproject.toml` requires `voxgig-plugin @ git+https://github.com/voxgig/plugin.git#subdirectory=python`, with no revision, so a pinned station and a pinned sekreto still resolve whatever plugin's default branch is that day ([#39]). |
+| sekreto-1 | Releases beyond npm, starting where the fleet generates: PyPI and RubyGems, then the rest; and a `go/v*` tag | [sekreto#43] | OPEN | Filed 2026-11-12. W3.3 to W3.8, on the staged route. PyPI waits on `plugin-5`, since sekreto's Python metadata names plugin by URL. |
+| sekreto-2 | Its Python metadata pins voxgig/plugin | [sekreto#44] | OPEN | Filed 2026-11-12. W3.3. `python/pyproject.toml` requires `voxgig-plugin @ git+https://github.com/voxgig/plugin.git#subdirectory=python`, with no revision, so a pinned station and a pinned sekreto still resolve whatever plugin's default branch is that day ([#39]). |
 | sekreto-3 | `minivault.c` declares what it calls | [sekreto#41] | DONE, closed 2026-10-15 | W1.6 compiles with `-D_DEFAULT_SOURCE` until `SEKRETO_C_COMMIT` moves past the fix. |
 | sekreto-4 | A Swift package and mini vault; AES-GCM for Dart's mini vault; a native crypto module for Lua's | — | NOT FILED | W7.4. From [#58]'s assessment of each port; not re-checked here. |
 | sekreto-5 | An OS-keychain provider (`station.md` §18) | — | NOT FILED | Nothing. Wanted by the design's first draft. |
@@ -139,10 +144,10 @@ The four obligations between the two repositories are in plugin's
 
 | # | what | upstream | state | gates, and notes |
 |---|---|---|---|---|
-| plugin-1 | `contracts.md` records C4a and C4b as `NOT STARTED`. Station has run both in CI since `ce0819b` (2026-08-24): 144 pass, 0 pinned divergences, 128 skipped with reasons, against plugin `8605cdc`. | — | NOT FILED | Nothing. Two rows to correct there, citing the commit. |
+| plugin-1 | `contracts.md` records C4a and C4b as `NOT STARTED`. Station has run both in CI since `ce0819b` (2026-08-24): 144 pass, 0 pinned divergences, 128 skipped with reasons, against plugin `8605cdc`. | [plugin#45] | OPEN | Filed 2026-11-12, as an issue: the draft suggested a two-row pull request, and none was asked for. Nothing here waits on it. |
 | plugin-2 | P3.1, the extraction proof against station | plugin's `progress.md`, item 3.1: `NOT STARTED` | OPEN | Nothing here. Station's half, C3, was discharged by voxgig/station#9. |
 | plugin-3 | `station-and-plugin.md` pins plugin's design at `153c878`. plugin `main` is `8605cdc`. | — | station's to do | Re-pin after reading what changed between the two. plugin's own handover names stale cross-repo pins as the thing its discipline failed to catch. |
-| plugin-4 | Does station take the library as a dependency? | plugin's `progress.md`, item 5.2 | DECISION NEEDED | DEC-3. |
+| plugin-4 | Does station take the library as a dependency? | plugin's `progress.md`, item 5.2; noted in [plugin#45] | OPEN | Ruled here on 2026-11-11: yes (D-2026-11-11-4), and W8 is the work. plugin's own register still shows the decision as needed until [plugin#45] is acted on. |
 | plugin-5 | A PyPI release | — | NOT FILED | `sekreto-2`, and through it W3.3. |
 
 
@@ -169,58 +174,31 @@ the station feature on its default branch: the fourteen that mention
 | sdk-3 | Tags and published packages | [joplin-sdk#2], [linear-sdk#2], [obsidian-sdk#2], [notion-sdk#3] | OPEN | A consumer can pin only a commit. |
 
 
-## Not yet filed
+## Filed on 2026-11-12
 
-Drafts, for the owner to approve. Nothing here has been filed. Each
-becomes a link in its row above once it is.
+Eleven asks had rows and no issue. The owner approved filing them, and
+each was checked against the upstream's current code first.
 
-**In voxgig/sdkgen**
+| | where | issue |
+|---|---|---|
+| `sdkgen-6` | voxgig/sdkgen | [sdkgen#489] |
+| `sdkgen-7` | voxgig/sdkgen | [sdkgen#490] |
+| `sdkgen-9` | voxgig/sdkgen | [sdkgen#491] |
+| `sekreto-1` | voxgig/sekreto | [sekreto#43] |
+| `sekreto-2` | voxgig/sekreto | [sekreto#44] |
+| `plugin-1` | voxgig/plugin | [plugin#45] |
+| W4.1 | voxgig/station | [#66] |
+| W4.2 | voxgig/station | [#67] |
+| W4.3 | voxgig/station | [#68] |
+| W4.4 and W4.5 | voxgig/station | [#69] |
+| W5.5 | voxgig/station | [#70] |
 
-1. *An `extend`-carried feature should be added at its `featureorder`
-   position* (`sdkgen-6`). The constructor skips an active name that
-   has no generated class when `extend` carries it, then adds the
-   `extend` instance afterwards by its own `__after__` entry.
-   `featureAdd` appends when that anchor is absent. Station's carried
-   adapter anchors on `test`, so in live mode it is added last, outside
-   retry, and its own order guard throws (voxgig/station#63).
-   `makeOptions` already computes the right slot for `station`, at index
-   0 or after `test`. Ask: add the `extend` instance at that slot.
-2. *Generate station self-registration beyond ts and js* (`sdkgen-7`).
-   `ReadmeStation` tells every target that importing the package
-   registers it; only the ts and js `Main` components generate the
-   registration (voxgig/station#30). Ask: a registration fragment per
-   target that can express one (Go `init()`, a Python module import,
-   and so on), or README text that says what each target needs.
-3. *The SDK keeps a hoisted credential in `options().__derived__`*
-   (`sdkgen-9`), if [sdkgen#274] is not taken to cover it.
-
-**In voxgig/sekreto**
-
-4. *Publish beyond npm, and tag the Go module* (`sekreto-1`). Station's
-   ports depend on sekreto, so station cannot be published to a
-   registry sekreto is not on. Ask: PyPI and RubyGems first, a `go/v*`
-   tag, and a gemspec and a `composer.json` for the Ruby and PHP ports.
-5. *Pin voxgig/plugin in the Python metadata* (`sekreto-2`).
-
-**In voxgig/plugin**
-
-6. *`contracts.md`: C4a and C4b run in station's CI* (`plugin-1`). A
-   two-row pull request, not an issue.
-
-**In voxgig/station**, where the register has rows and no issue to
-link:
-
-7. *typescript has no completeness guard* (W4.1).
-8. *csharp, swift, dart, elixir and lua lack three corpus sections and
-   the declarative front door* (W4.2).
-9. *The integration suites skip in CI, because nothing generates the
-   SDKs they need* (W4.3).
-10. *CI takes `plugin` and `struct` unpinned, and the typescript lane
-    tests a different struct from every other port* (W4.4).
-11. *No library port can attach to the proxy* (W5.5).
+Still not filed, and not among the eleven: `sdkgen-10` and `sdkgen-16`,
+`sekreto-4` to `sekreto-6`, `struct-4` and `plugin-5`. Each is marked
+`NOT FILED` in its row above.
 
 Three findings from this review extend issues that are already open,
-and are better added there than filed new:
+and are better added there than filed new. They have not been added:
 
 - to voxgig/station#31: the Swift dependency names
   `voxgig/station-swift`, which is not a public repository; the Ruby
@@ -244,6 +222,17 @@ and are better added there than filed new:
 [sdkgen#422]: https://github.com/voxgig/sdkgen/issues/422
 [sdkgen#428]: https://github.com/voxgig/sdkgen/issues/428
 [sdkgen#430]: https://github.com/voxgig/sdkgen/issues/430
+[sdkgen#489]: https://github.com/voxgig/sdkgen/issues/489
+[sdkgen#490]: https://github.com/voxgig/sdkgen/issues/490
+[sdkgen#491]: https://github.com/voxgig/sdkgen/issues/491
+[sekreto#43]: https://github.com/voxgig/sekreto/issues/43
+[sekreto#44]: https://github.com/voxgig/sekreto/issues/44
+[plugin#45]: https://github.com/voxgig/plugin/issues/45
+[#66]: https://github.com/voxgig/station/issues/66
+[#67]: https://github.com/voxgig/station/issues/67
+[#68]: https://github.com/voxgig/station/issues/68
+[#69]: https://github.com/voxgig/station/issues/69
+[#70]: https://github.com/voxgig/station/issues/70
 [sekreto#41]: https://github.com/voxgig/sekreto/issues/41
 [struct#113]: https://github.com/voxgig/struct/issues/113
 [struct#175]: https://github.com/voxgig/struct/issues/175

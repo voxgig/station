@@ -124,7 +124,6 @@ Everything here needs the maintainer, and most of it fits one sitting.
 | Apply a workflow patch, when one is on `main` in [`patch/`](patch/README.md) | A token with the `workflow` scope. A session cannot push a change under `.github/workflows/`, so it commits a patch to `main` instead. None is pending. | W3.11, W4.3, W4.4 and W5.1, when their patches are written |
 | Delete eleven merged branches | The owner ruled on 2026-11-12 that they go. A session cannot do it: its push access refuses a branch deletion (HTTP 403). The list is below. | — |
 | Register `@voxgig/sdkgen-station` for trusted publishing | An npm owner | W3.11 |
-| Approve the upstream drafts for filing | They go to other repositories, and each one notifies people | [`upstream.md`](upstream.md), "Not yet filed" |
 
 
 **The eleven branches to delete.** Each is merged, so nothing is lost:
@@ -146,6 +145,10 @@ git push origin --delete chore/comment-policy \
 
 ## Recently settled
 
+- **Eleven issues are filed** (2026-11-12), for asks that had a row
+  and nothing to link to: three in voxgig/sdkgen, two in
+  voxgig/sekreto, one in voxgig/plugin and five here.
+  [`upstream.md`](upstream.md) lists them.
 - **All seven decisions are ruled** (2026-11-11), and each is a record
   in `docs/design/decisions.md`. Four went as the plan recommended:
   the staged route for non-JavaScript consumers, both proposed records
