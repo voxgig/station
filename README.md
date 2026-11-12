@@ -58,7 +58,10 @@ grammar. Dart, Elixir and Lua run eight sections, and C# and Swift
 nine; the front door is their remaining tranche (see `spec/README.md`).
 
 CI runs every port's unit and corpus suites. The end-to-end suites run
-against real generated SDKs and skip in CI, which generates none.
+against real generated SDKs: `make fixtures` generates them into
+`test/sdk/`, and `make fixtures-test` runs those suites against them,
+failing rather than skipping when one is missing. CI's ports job does
+not generate them, so there they skip.
 
 Deferred per the design's §9.1/§17: scala, clojure, haskell, ocaml,
 zig, lean adapters (monolithic feature modules or static reference
@@ -121,5 +124,5 @@ proxy features `proxy/README.md` lists as deferred.
   to an off-policy host, fat `Set-Cookie` headers, pagination.
 
 Run the spike: `make test` (needs sibling `sekreto`, `struct`, `plugin`
-and `omni` checkouts; the integration suites also need generated SDKs, see
-`typescript/test/*.test.ts`, and skip cleanly without them).
+and `omni` checkouts; the integration suites also need generated SDKs,
+which `make fixtures` writes, and skip cleanly without them).

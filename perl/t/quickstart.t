@@ -44,6 +44,8 @@ my $SERVER_JS = File::Spec->catfile( $HERE, '..', '..', 'test', 'api',
     'taskpad', 'server.js' );
 
 if ( !defined $SDK_DIR || !-e $SERVER_JS ) {
+    BAIL_OUT('STATION_REQUIRE_SDKS is set but there is no generated perl SDK - run `make fixtures`')
+      if $ENV{STATION_REQUIRE_SDKS};
     plan skip_all => 'no generated perl SDK checkout (set STATION_TEST_PERL_SDK)';
 }
 
@@ -322,8 +324,11 @@ subtest 'live tap sees traffic' => sub {
     ok( ( grep { 'http' eq $_ } @seen ), 'tap saw http' );
     ok( ( grep { 'op' eq $_ } @seen ),   'tap saw op' );
     is( $st->status->{mode}, 'solo', 'solo mode' );
-    is_deeply( $st->status->{plugins}, [ { slug => 'taskpad', rung => 'R1' } ],
-        'status plugins' );
+    is_deeply(
+        $st->status->{plugins},
+        [ { name => 'taskpad', api => 'taskpad', slug => 'taskpad', rung => 'R1' } ],
+        'status plugins'
+    );
 
     $st->close;
 };

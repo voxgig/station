@@ -97,7 +97,7 @@ The conformance suite finds the sibling `voxgig/omni` checkout via
 against a generated taskpad PHP SDK (`STATION_TEST_SDKS`, default
 `/home/user/voxgig-sdk`) and the taskpad test server
 (`test/api/taskpad/server.js`), and skips rather than fails when either
-is absent.
+is absent. `make fixtures` at the root generates the SDK.
 
 **Section completeness is a test, not a habit.** `test/run.php`
 declares two named tables - `$DRIVERS`, one subject per corpus section

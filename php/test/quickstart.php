@@ -45,6 +45,10 @@ foreach ([
 $server_js = realpath(__DIR__ . '/../../test/api/taskpad/server.js') ?: '';
 
 if (null === $sdk_dir || '' === $server_js) {
+    if (getenv('STATION_REQUIRE_SDKS')) {
+        echo "fail - STATION_REQUIRE_SDKS is set but there is no generated php SDK - run `make fixtures`\n";
+        exit(1);
+    }
     echo "skip - no generated php SDK checkout (set STATION_TEST_PHP_SDK)\n";
     exit(0);
 }
@@ -348,7 +352,8 @@ testcase('live_tap_sees_traffic', function () use ($base) {
     ok(in_array('http', $seen, true));
     ok(in_array('op', $seen, true));
     eq('solo', $st->status()['mode']);
-    eq([['slug' => 'taskpad', 'rung' => 'R1']], $st->status()['plugins']);
+    eq([['name' => 'taskpad', 'api' => 'taskpad', 'slug' => 'taskpad', 'rung' => 'R1']],
+        $st->status()['plugins']);
 
     $st->close();
 });

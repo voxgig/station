@@ -47,6 +47,13 @@ after(() => { server?.kill() })
 
 beforeEach(() => { Station.reset() })
 
+if (!HAVE_SDKS && process.env.STATION_REQUIRE_SDKS) {
+  test('generated SDKs required', () => {
+    throw new Error('STATION_REQUIRE_SDKS is set but the generated SDKs are ' +
+      'not under ' + SDK_ROOT + ' - run `make fixtures`')
+  })
+}
+
 describe('generated-feature', { skip: !HAVE_SDKS }, () => {
 
   test('inverted binding: new SDK(st.options()) binds and injects', async () => {

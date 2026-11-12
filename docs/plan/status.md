@@ -77,8 +77,10 @@ and `feature`: they took `instanceref` with W1.1. All sixteen read the
 **What green does not cover.** The suites that run against real
 generated SDKs skip in CI in every port that has them: typescript's
 `quickstart`, `gnarly-pets` and `generated-feature`, javascript's two,
-ruby's nine quickstart cases and perl's `t/quickstart.t`. Nothing in the
-repository generates the SDKs they look for (W4.3).
+and the quickstarts of ruby, php and perl. `make fixtures` generates
+those SDKs since W4.3, and against them all eight suites pass, 56
+tests, none skipped; CI runs them once the fixture lane's patch is
+applied.
 
 **The other parts.**
 
