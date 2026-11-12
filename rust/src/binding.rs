@@ -193,22 +193,23 @@ impl Binding {
         self.corr.borrow().get(ctx_id).map(|(corr, _)| corr.clone())
     }
 
+    /// PrePoint opens the operation; its first terminal stage alone emits.
     pub fn op_done(&self, ctx_id: &str, entity: &str, op: &str, outcome: &str) {
         let (corr, start) = match self.corr.borrow_mut().remove(ctx_id) {
-            Some((corr, start)) => (Some(corr), Some(start)),
-            None => (None, None),
+            Some(opened) => opened,
+            None => return,
         };
         self.station.emit(StationEvent {
             t: now_ms(),
             kind: "op".to_string(),
             plugin: Some(self.name.clone()),
             api: Some(self.api.clone()),
-            corr,
+            corr: Some(corr),
             op: Some(OpEvent {
                 entity: entity.to_string(),
                 op: op.to_string(),
                 outcome: outcome.to_string(),
-                duration_ms: start.map(|s| now_ms() - s).unwrap_or(0),
+                duration_ms: now_ms() - start,
             }),
             ..Default::default()
         });

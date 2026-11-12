@@ -826,8 +826,12 @@ class Station:
         self._emit(ev)
 
     def _op_event(self, name, ctx, outcome):
-        """Op events from the hook bridge (design station.md 3 item 3)."""
-        st = getattr(ctx, '_station', None) or {}
+        """Op events from the hook bridge (design station.md 3 item 3).
+        PrePoint opens the operation; its first terminal stage alone emits."""
+        st = getattr(ctx, '_station', None)
+        if not isinstance(st, dict) or st.get('closed'):
+            return
+        st['closed'] = True
         op = getattr(ctx, 'op', None)
         # The py SDK's Operation uses '_' as its no-entity/no-op sentinel;
         # the descriptor's spelling is the entity's own name.

@@ -599,7 +599,8 @@ const char* vxstn_secret_value(vxstn_station* st, const char* name,
 void vxstn_hoist(vxstn_station* st, const char* name, const char* value);
 
 /* The next correlation id ("c1", "c2", ...), owned. Correlates op and
- * http events (design station.md 3 item 3). */
+ * http events (design station.md 3 item 3), and opens the operation for
+ * vxstn_emit_op. */
 char* vxstn_next_corr(vxstn_station* st);
 
 /* Op outcome from the SDK result (design station.md 3 item 3): no
@@ -629,7 +630,9 @@ void vxstn_emit_http(vxstn_station* st, const char* slug, const char* corr,
 void vxstn_emit_err(vxstn_station* st, const char* slug, const char* corr,
                     const char* code, const char* message);
 
-/* Operation event from the hook bridge. */
+/* Operation event from the hook bridge. PrePoint opens the operation and
+ * its first terminal stage alone emits: a correlation vxstn_next_corr did
+ * not open, or one already closed, emits nothing. */
 void vxstn_emit_op(vxstn_station* st, const char* slug, const char* corr,
                    const char* entity, const char* op, const char* outcome,
                    int64_t duration_ms);

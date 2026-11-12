@@ -108,6 +108,23 @@ describe('quickstart', { skip: !HAVE_SDKS }, () => {
     }
   })
 
+  // The generated pipeline reaches PreDone with the 404, then PreUnexpected.
+  test('a failed operation emits one op event', async () => {
+    const station = Station.open({ config: null })
+    const pad = station.connect(loadSDK(),
+      { feature: { test: { active: true, entity: { todo: {} } } } })
+
+    let thrown: any = null
+    try { await pad.Todo().load({ id: 'nope' }) }
+    catch (e: any) { thrown = e }
+    ok(null != thrown, 'load failed')
+
+    const op = station.events().filter((e) => 'op' === e.kind)
+    deepEqual(op.map((e) => [e.op!.op, e.op!.outcome]), [['load', 'err']])
+
+    station.close()
+  })
+
   test('adopt hoists a resident credential', async () => {
     const station = Station.open({ config: null })
     const pad = station.adopt(loadSDK(), { apikey: APIKEY })

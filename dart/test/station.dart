@@ -486,6 +486,28 @@ void stationCases(void Function(String, FutureOr<void> Function()) testcase) {
     eq(ofKind(st, 'construct').length, 1, 'one construct event');
   });
 
+  testcase('one failed operation emits one op event', () {
+    final st = Station({'config': null, 'proxy': 'off'});
+    final binding = bindCtx(st, makeCtx())!;
+
+    // PreDone sees the error result; the pipeline then throws it.
+    final opctx = makeCtx();
+    opctx.op = FakeOp('pet', 'load');
+    opctx.result = FakeResult(ok: false);
+    binding.prePoint(opctx);
+    binding.preDone(opctx);
+    binding.preUnexpected(opctx);
+    binding.preUnexpected(opctx);
+    eq(ofKind(st, 'op').map((e) => e['op']['outcome']).join(','), 'err',
+        'one op event');
+
+    final unopened = makeCtx();
+    unopened.op = FakeOp('pet', 'load');
+    binding.preUnexpected(unopened);
+    eq(ofKind(st, 'op').length, 1,
+        'an operation station never opened emits nothing');
+  });
+
   testcase('binding a second client of the same SDK is station_bound_twice',
       () {
     final st = Station({'config': null, 'proxy': 'off'});

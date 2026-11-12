@@ -733,8 +733,11 @@ class Station {
   }
 
   // Op events from the hook bridge (design §3 item 3).
+  // PrePoint opens the operation; its first terminal stage alone emits (§6).
   _opEvent(name, ctx, outcome) {
-    const st = ctx.station$ || {}
+    const st = ctx.station$
+    if (null == st || st.closed) { return }
+    st.closed = true
     this.emit({
       t: Date.now(), kind: 'op', plugin: name, api: refapi(name), corr: st.corr,
       // ctx.op is the SDK's resolved Operation: name + entity, in the

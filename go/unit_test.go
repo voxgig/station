@@ -596,6 +596,30 @@ func TestEventRingDropsOldestAndTapsSerialize(t *testing.T) {
 	}
 }
 
+func TestOneFailedOperationEmitsOneOpEvent(t *testing.T) {
+	st := newStation(t, map[string]string{"FAKEPAD_APIKEY": "real-key-1"})
+	h := bindOne(t, st, "fakepad", []string{"station"}, okResponse(), "")
+
+	// PreDone sees the error result; the pipeline then throws it.
+	type opctxkey struct{ int }
+	opctx := &opctxkey{}
+	info := station.OpInfo{Entity: "note", Op: "load", Outcome: "err"}
+	h.binding.PrePoint(opctx)
+	h.binding.PreDone(opctx, info)
+	h.binding.PreUnexpected(opctx, info)
+	h.binding.PreUnexpected(opctx, info)
+
+	ops := filterEvents(st.Events(), "op")
+	if 1 != len(ops) || "err" != ops[0].Op.Outcome {
+		t.Fatalf("want one err op event, got %+v", ops)
+	}
+
+	h.binding.PreUnexpected(&opctxkey{1}, info)
+	if 1 != len(filterEvents(st.Events(), "op")) {
+		t.Fatal("an operation station never opened emitted an op event")
+	}
+}
+
 // --- the scrub (design §7 as revised) ---
 
 func TestScrubHasNoLengthFloor(t *testing.T) {

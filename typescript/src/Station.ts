@@ -556,8 +556,11 @@ export class Station {
     })
   }
 
+  // PrePoint opens the operation; its first terminal stage alone emits (§6).
   _opEvent(name: string, ctx: any, outcome: string): void {
-    const st = ctx.station$ || {}
+    const st = ctx.station$
+    if (null == st || st.closed) { return }
+    st.closed = true
     this.emit({
       t: Date.now(), kind: 'op', plugin: name, api: refapi(name), corr: st.corr,
       op: {

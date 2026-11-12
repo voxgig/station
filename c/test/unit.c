@@ -755,6 +755,34 @@ static void test_emit_http_whole_without_userinfo(void) {
   vxstn_station_free(st);
 }
 
+/* PreDone sees the error result; the pipeline then throws it. */
+static void test_one_op_event_per_operation(void) {
+  vxstn_open_opts opts;
+  vxstn_station* st;
+  vxstn_val* events;
+  char* corr;
+  const vxstn_val* op;
+
+  memset(&opts, 0, sizeof(opts));
+  opts.proxy = "off";
+  st = vxstn_station_new(&opts, NULL);
+
+  corr = vxstn_next_corr(st);
+  vxstn_emit_op(st, "vault", corr, "note", "load", "err", 1);
+  vxstn_emit_op(st, "vault", corr, "note", "load", "unexpected", 1);
+  vxstn_emit_op(st, "vault", corr, "note", "load", "unexpected", 1);
+  vxstn_emit_op(st, "vault", NULL, "note", "load", "unexpected", 1);
+  vxstn_emit_op(st, "vault", "c999999", "note", "load", "unexpected", 1);
+
+  events = vxstn_events(st);
+  CHECK(1 == events->len);
+  op = vxstn_map_get(events->items[0], "op");
+  CHECK(0 == strcmp("err", vxstn_strval(vxstn_map_get(op, "outcome"))));
+  vxstn_val_free(events);
+  free(corr);
+  vxstn_station_free(st);
+}
+
 /* ---- Stage 5: the config shape, the mirror, and its invariants ---- */
 
 /* The mirror is only honest if something compares it to the spec. Walk
@@ -1762,6 +1790,7 @@ int main(void) {
   test_emit_http_path();
   test_emit_http_host();
   test_emit_http_whole_without_userinfo();
+  test_one_op_event_per_operation();
   test_shape_mirror();
   test_normalize_config();
   test_validate_config();

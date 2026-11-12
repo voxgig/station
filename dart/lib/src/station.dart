@@ -609,6 +609,7 @@ class Station {
   }
 
   // Op events from the hook bridge (design station.md 3 item 3).
+  // PrePoint opens the operation; its first terminal stage alone emits.
   void opEvent(String slug, dynamic ctx, String outcome) {
     dynamic st;
     try {
@@ -616,12 +617,16 @@ class Station {
     } catch (_e) {
       st = null;
     }
-    final start = st is Map && st['start'] is int ? st['start'] as int : null;
+    if (st is! Map || true == st['closed']) {
+      return;
+    }
+    st['closed'] = true;
+    final start = st['start'] is int ? st['start'] as int : null;
     emit(<String, dynamic>{
       't': _now(),
       'kind': 'op',
       'plugin': slug,
-      'corr': st is Map ? st['corr'] : null,
+      'corr': st['corr'],
       // ctx.op is the SDK's resolved Operation: name + entity, in the
       // descriptor's lowercase spelling.
       'op': {

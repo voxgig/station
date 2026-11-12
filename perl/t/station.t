@@ -745,6 +745,27 @@ subtest 'a query-placed credential reaches the wire, and nothing else' => sub {
     sub with { my ( $self, $slot, $val ) = @_; $self->{$slot} = $val; return $self }
 }
 
+subtest 'one failed operation emits one op event' => sub {
+    reset_env();
+    my $st = Voxgig::Station->new( { config => undef } );
+    my $b  = bind_client( $st, sub { return ( okres(), undef ) } );
+
+    # PreDone sees the error result; the pipeline then throws it.
+    $b->{ctx}{op}     = { entity => 'note', name => 'load' };
+    $b->{ctx}{result} = { ok     => 0 };
+    $b->{feature}->PrePoint( $b->{ctx} );
+    $b->{feature}->PreDone( $b->{ctx} );
+    $b->{feature}->PreUnexpected( $b->{ctx} );
+    $b->{feature}->PreUnexpected( $b->{ctx} );
+
+    my @op = grep { 'op' eq $_->{kind} } @{ $st->events };
+    is_deeply( [ map { $_->{op}{outcome} } @op ], ['err'], 'one op event' );
+
+    $b->{feature}->PreUnexpected( { op => { entity => 'note', name => 'load' } } );
+    is( scalar( grep { 'op' eq $_->{kind} } @{ $st->events } ), 1,
+        'an operation station never opened emits nothing' );
+};
+
 subtest 'a transport error quoting the URL is scrubbed' => sub {
     reset_env();
     local $ENV{GNARLY_PETS_APIKEY} = 'tok!en 1';
