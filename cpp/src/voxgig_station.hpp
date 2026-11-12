@@ -1958,6 +1958,8 @@ inline void scanconfig(const Jval& cfg, std::vector<std::string>& secrets,
           secretvalue(block.get("secret"), bpath + ".secret", secrets);
         }
 
+        userinfo(block.get("base"), bpath + ".base", secrets);
+
         // `options` is passthrough to a generated constructor, so it is
         // the one place a value can hide.
         scan(block.get("options"), bpath + ".options", secrets, reserved);

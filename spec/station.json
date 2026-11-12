@@ -1166,6 +1166,94 @@
       }
      },
      {
+      "err": "station_config_secret: profiles.default.sdk.solar.base is a URL carrying userinfo, which puts a credential in the config file; use the proxy feature's `fromEnv` option instead (\u00a78.6)",
+      "id": "config#base-userinfo-refusal-message-in-full",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "base": "http://me:s3cr3t@127.0.0.1:41184"
+          }
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "err": "station_config_secret",
+      "id": "config#api-base-userinfo",
+      "in": {
+       "profiles": {
+        "default": {
+         "api": {
+          "stripe": {
+           "base": "https://u:p@api.stripe.com"
+          }
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "err": "station_config_secret",
+      "id": "config#unparseable-url-userinfo",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "options": {
+            "proxy": "https://u:s3cret@h x/y"
+           }
+          }
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "err": "station_config_secret",
+      "id": "config#unparseable-base-userinfo",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "base": "https://u:s3cret@h x/y"
+          }
+         }
+        }
+       },
+       "station": 1
+      }
+     },
+     {
+      "id": "config#unparseable-url-at-after-the-authority",
+      "in": {
+       "profiles": {
+        "default": {
+         "sdk": {
+          "solar": {
+           "options": {
+            "proxy": "https://h x/y@z"
+           }
+          }
+         }
+        }
+       },
+       "station": 1
+      },
+      "match": {
+       "out": {
+        "station": 1
+       }
+      }
+     },
+     {
       "doc": true,
       "err": "/sdk\\.a: bass.*sdk\\.b: tuba.*sdk\\.c: oboe/",
       "id": "config#every-error-at-once",

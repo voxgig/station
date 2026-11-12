@@ -302,6 +302,9 @@ def _scan_config(cfg):
                 if 'secret' in block:
                     _secretvalue(block['secret'], bpath + '.secret', secrets)
 
+                if isinstance(block.get('base'), str):
+                    _userinfo(block['base'], bpath + '.base', secrets)
+
                 # `options` is passthrough to a generated constructor, so
                 # it is the one place a value can hide.
                 _scan(block.get('options'), bpath + '.options',

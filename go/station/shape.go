@@ -280,6 +280,10 @@ func scanConfig(cfg any) (secrets []string, reserved []string, invalid []string)
 					secretvalue(val, bpath+".secret", &secrets)
 				}
 
+				if base, ok := block["base"].(string); ok {
+					userinfo(base, bpath+".base", &secrets)
+				}
+
 				// `options` is passthrough to a generated constructor,
 				// so it is the one place a value can hide.
 				scan(block["options"], bpath+".options", &secrets, &reserved)

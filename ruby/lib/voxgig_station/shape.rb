@@ -297,6 +297,8 @@ module VoxgigStation
           # at open(), for the whole file at once.
           secret_value(block['secret'], bpath + '.secret', secrets) if block.key?('secret')
 
+          userinfo(block['base'], bpath + '.base', secrets) if block['base'].is_a?(String)
+
           # `options` is passthrough to a generated constructor, so it is
           # the one place a value can hide.
           scan_node(block['options'], bpath + '.options', secrets, reserved)

@@ -477,6 +477,10 @@ public final class Shape {
             secretvalue(block.get("secret"), bpath + ".secret", scan);
           }
 
+          if (block.get("base") instanceof String) {
+            userinfo((String) block.get("base"), bpath + ".base", scan);
+          }
+
           // `options` is passthrough to a generated constructor, so it is
           // the one place a value can hide.
           scan(block.get("options"), bpath + ".options", scan);
