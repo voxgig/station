@@ -391,6 +391,29 @@ class Station {
     final placeholder = placeholderFor(slug);
     final live = 'live' == _clientMode(fctx);
     final profilePlugin = _pluginProfile(slug);
+    final policy = null == profilePlugin ? null : profilePlugin['policy'];
+
+    // Policy mode (design station.md 16): `block` is the kill switch, and
+    // record, replay and mock need the proxy solo mode lacks, so each
+    // fails closed here as `require` does.
+    final mode = (policy is Map ? policy['mode'] : null) ?? 'live';
+    if ('live' != mode && live) {
+      final err = 'block' == mode
+          ? StationError(
+              'station_blocked',
+              'egress denied: plugin "' +
+                  slug +
+                  '" is policy mode "block", the kill switch (§16)')
+          : StationError(
+              'station_no_proxy',
+              'policy mode "' +
+                  mode.toString() +
+                  '" for plugin "' +
+                  slug +
+                  '" needs an attached proxy, and none is attached');
+      _emitErr(slug, fctx, err);
+      return err;
+    }
 
     // Egress policy (design station.md 16), solo half: the hosts
     // allowlist is enforced at the seam every request crosses. When a
@@ -398,7 +421,6 @@ class Station {
     // response like any other, so a Location off the allowlist cannot
     // pull an automatic credentialed follow-up to an unapproved host
     // (station.md 8.2's rule, applied at the library seam).
-    final policy = null == profilePlugin ? null : profilePlugin['policy'];
     final hostsval = policy is Map ? policy['hosts'] : null;
     final hosts = hostsval is List ? hostsval : null;
     if (null != hosts && live) {

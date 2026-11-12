@@ -644,6 +644,25 @@ class Station:
         live = 'live' == getattr(client, 'mode', None)
         profile_plugin = self.block_for(name) or {}
 
+        # Policy mode (design station.md 16): `block` is the kill switch,
+        # and record, replay and mock need the proxy solo mode lacks, so
+        # each fails closed here as `require` does.
+        mode = (profile_plugin.get('policy') or {}).get('mode')
+        mode = 'live' if mode is None else mode
+        if 'live' != mode and live:
+            if 'block' == mode:
+                err = StationError(
+                    'station_blocked',
+                    'egress denied: plugin "' + name + '" is policy mode '
+                    '"block", the kill switch (§16)')
+            else:
+                err = StationError(
+                    'station_no_proxy',
+                    'policy mode "' + str(mode) + '" for plugin "' + name +
+                    '" needs an attached proxy, and none is attached')
+            self._emit_err(name, fctx, err)
+            return None, err
+
         # Egress policy (design station.md 16), solo half: the hosts
         # allowlist is enforced at the seam every request crosses. When a
         # policy is present, redirects come back manual - a 3xx is a

@@ -220,6 +220,31 @@ int main(int argc, char** argv) {
     }
   });
 
+  testcase("policy-mode-refusal", [] {
+    vs::StationOptions opts;
+    opts.has_config = true;
+    opts.proxy = "off";
+    opts.config = vs::parse_json(R"({"station": 1, "profiles": {"default": {"sdk": {
+      "blocked": {"policy": {"mode": "block", "hosts": ["api.good.example"]}},
+      "recorded": {"policy": {"mode": "record"}},
+      "replayed": {"policy": {"mode": "replay"}},
+      "mocked": {"policy": {"mode": "mock"}},
+      "livened": {"policy": {"mode": "live"}},
+      "open": {"policy": {"hosts": ["api.good.example"]}}}}}})");
+    vs::Station st(opts);
+    std::string msg;
+    checkeq(vs::Station::mode_refusal(st.block_for("blocked"), "blocked", msg),
+            "station_blocked", "block");
+    check(std::string::npos != msg.find("mode \"block\""), msg);
+    for (const char* name : {"recorded", "replayed", "mocked"}) {
+      checkeq(vs::Station::mode_refusal(st.block_for(name), name, msg), "station_no_proxy",
+              name);
+    }
+    for (const char* name : {"livened", "open", "unconfigured"}) {
+      checkeq(vs::Station::mode_refusal(st.block_for(name), name, msg), "", name);
+    }
+  });
+
   testcase("emit-http-whole-without-userinfo", [] {
     vs::StationOptions opts;
     opts.has_config = true;

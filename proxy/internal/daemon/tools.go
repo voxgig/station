@@ -402,7 +402,7 @@ func (s *Server) toolCall(raw json.RawMessage) (any, *toolError) {
 	// egress through the same data plane, so `block` refuses it for the
 	// same reason and with the same code as a library forward.
 	if eff.Mode == ModeBlock {
-		return nil, &toolError{Code: CodeHostAllow, Message: blockedMessage(ref)}
+		return nil, &toolError{Code: CodeBlocked, Message: blockedMessage(ref)}
 	}
 	if !isReadOp(opName) || mutatingMethod(method) {
 		why := fmt.Sprintf("op %q mutates", opName)

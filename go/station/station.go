@@ -2,6 +2,7 @@ package station
 
 import (
 	"errors"
+	"fmt"
 	"net/url"
 	"regexp"
 	"sort"
@@ -559,6 +560,20 @@ func (st *Station) transport(entry *PluginEntry, mode func() string,
 	live := "live" == mode()
 
 	block := st.BlockFor(name)
+
+	// `block` is §16's kill switch; record, replay and mock need the proxy
+	// solo mode lacks, so each fails closed here as `require` does.
+	policyMode, hasMode := asMap(block["policy"])["mode"]
+	if hasMode && nil != policyMode && "live" != policyMode && live {
+		err := fail("station_no_proxy", "policy mode \""+fmt.Sprint(policyMode)+
+			"\" for plugin \""+name+"\" needs an attached proxy, and none is attached")
+		if "block" == policyMode {
+			err = fail("station_blocked", "egress denied: plugin \""+name+
+				"\" is policy mode \"block\", the kill switch (§16)")
+		}
+		st.emitErr(name, opctx, err)
+		return nil, err
+	}
 
 	hosts, hasHosts := hostsPolicy(block)
 	if hasHosts && live {

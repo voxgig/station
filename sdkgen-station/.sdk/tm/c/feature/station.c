@@ -224,6 +224,20 @@ static voxgig_value* station_fetch(Fetcher* self, Context* ctx, const char* url,
 
   live = ctx->client && ctx->client->mode && 0 == strcmp(ctx->client->mode, "live");
 
+  // Policy mode (station design 16): `block` is the kill switch, and
+  // record, replay and mock need the proxy solo mode lacks, so each
+  // fails closed here as `require` does.
+  if (live) {
+    char* mmsg = NULL;
+    const char* mcode = vxstn_mode_refusal(st, sf->slug, &mmsg);
+    if (NULL != mcode) {
+      vxstn_emit_err(st, sf->slug, corr, mcode, mmsg);
+      *err = context_make_error(ctx, mcode, mmsg);
+      free(mmsg);
+      return NULL;
+    }
+  }
+
   // Egress policy (station design 16), solo half: the hosts allowlist
   // is enforced at the seam every request crosses. When a policy is
   // present the fetchdef asks for manual redirects - a 3xx is a

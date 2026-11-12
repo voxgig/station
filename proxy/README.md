@@ -49,7 +49,9 @@ traffic. The authoritative design is
   `voxgig-station approve <ref>` blesses the base/hosts/name triple.
   A changed triple re-enters pending. A descriptor can only *narrow*
   approved policy, never widen it, and never selects a secret.
-  Off-allowlist egress is `station_host_allow`.
+  Off-allowlist egress is `station_host_allow`, and egress for an
+  instance in policy mode `block`, the kill switch, is
+  `station_blocked`, whatever its allowlist says.
 - **R2 grants are per instance** (D-2026-08-24-1): issued at
   registration for approved `resolve: proxy` instances, session-bound,
   15m TTL, renewed only by re-registration, revoked per instance. The
@@ -175,7 +177,7 @@ Every error is `{"error":{"code","message"}}`, codes in §14's house
 grammar. Where the shared catalog (`station/typescript/src/error.ts`,
 pinned by the `errors` corpus section) covers the condition the
 catalog string is used: `station_protocol`, `station_body_limit`,
-`station_host_allow`, `station_grant_expired`,
+`station_host_allow`, `station_blocked`, `station_grant_expired`,
 `station_secret_no_value`, `station_secret_error`,
 `station_config_invalid`.
 

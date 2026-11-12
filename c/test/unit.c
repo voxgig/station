@@ -994,6 +994,39 @@ static vxstn_error* validate_text(const char* text) {
   return err;
 }
 
+static void test_mode_refusal(void) {
+  vxstn_open_opts opts;
+  vxstn_station* st;
+  char* msg = NULL;
+  const char* code;
+
+  memset(&opts, 0, sizeof(opts));
+  opts.proxy = "off";
+  opts.config_json =
+      "{\"station\":1,\"profiles\":{\"default\":{\"sdk\":{"
+      "\"blocked\":{\"policy\":{\"mode\":\"block\",\"hosts\":[\"api.good.example\"]}},"
+      "\"recorded\":{\"policy\":{\"mode\":\"record\"}},"
+      "\"replayed\":{\"policy\":{\"mode\":\"replay\"}},"
+      "\"mocked\":{\"policy\":{\"mode\":\"mock\"}},"
+      "\"livened\":{\"policy\":{\"mode\":\"live\"}},"
+      "\"open\":{\"policy\":{\"hosts\":[\"api.good.example\"]}}}}}}";
+  st = vxstn_station_new(&opts, NULL);
+  CHECK(NULL != st);
+
+  code = vxstn_mode_refusal(st, "blocked", &msg);
+  CHECK_STR(code, "station_blocked");
+  CHECK(NULL != msg && NULL != strstr(msg, "mode \"block\""));
+  free(msg);
+
+  CHECK_STR(vxstn_mode_refusal(st, "recorded", NULL), "station_no_proxy");
+  CHECK_STR(vxstn_mode_refusal(st, "replayed", NULL), "station_no_proxy");
+  CHECK_STR(vxstn_mode_refusal(st, "mocked", NULL), "station_no_proxy");
+  CHECK(NULL == vxstn_mode_refusal(st, "livened", NULL));
+  CHECK(NULL == vxstn_mode_refusal(st, "open", NULL));
+  CHECK(NULL == vxstn_mode_refusal(st, "unconfigured", NULL));
+  vxstn_station_free(st);
+}
+
 static void test_config_text_with_an_unpaired_surrogate(void) {
   vxstn_open_opts opts;
   vxstn_error* err = NULL;
@@ -1854,6 +1887,7 @@ int main(void) {
   test_one_op_event_per_operation();
   test_shape_mirror();
   test_normalize_config();
+  test_mode_refusal();
   test_config_text_with_an_unpaired_surrogate();
   test_validate_config();
   test_feature_merge();

@@ -7,6 +7,7 @@ const CODES: &[&str] = &[
     "station_secret_error",
     "station_secret_name",
     "station_host_allow",
+    "station_blocked",
     "station_grant_expired",
     "station_wrap_order",
     "station_protocol",

@@ -1,8 +1,8 @@
-// A port of the policy-hostname half of typescript/test/policy.test.ts,
-// which is canonical.
+// A port of the policy-hostname and policy-mode halves of
+// typescript/test/policy.test.ts, which is canonical.
 
 const { describe, test } = require('node:test')
-const { equal } = require('node:assert')
+const { equal, match, ok } = require('node:assert')
 
 const { Station } = require('../src/Station')
 const { featureBinding } = require('../src/adapter')
@@ -52,5 +52,63 @@ describe('policy-hostname', () => {
         host + ' against ' + url)
       st.close()
     }
+  })
+})
+
+async function liveRequest(st, slug, mode) {
+  const { ctx } = fakeClient(slug)
+  ctx.client._mode = mode || 'live'
+  featureBinding(ctx, { station: st })
+  return ctx.utility.fetcher({ client: ctx.client }, 'https://api.x.com/v1',
+    { headers: {} })
+}
+
+describe('policy-mode', () => {
+
+  test('mode "block" refuses a live operation with its own code', async () => {
+    const st = policyStation('solar', { mode: 'block' })
+    const out = await liveRequest(st, 'solar')
+
+    ok(out instanceof Error)
+    equal('station_blocked', out.code)
+    match(String(out.message), /mode "block"/)
+
+    const errs = st.events().filter((e) => 'error' === e.kind)
+    equal(1, errs.length)
+    equal('station_blocked', errs[0].err.code)
+    st.close()
+  })
+
+  test('mode "block" wins over a hosts policy that admits the host', async () => {
+    const st = policyStation('solar', { mode: 'block', hosts: ['api.x.com'] })
+    const out = await liveRequest(st, 'solar')
+    equal('station_blocked', out.code)
+    st.close()
+  })
+
+  test('proxy-era modes are accepted grammar that fails station_no_proxy', async () => {
+    for (const mode of ['record', 'replay', 'mock']) {
+      const st = policyStation('solar', { mode })
+      const out = await liveRequest(st, 'solar')
+      ok(out instanceof Error, mode + ' must refuse')
+      equal('station_no_proxy', out.code)
+      st.close()
+    }
+  })
+
+  test('mode "live" and an absent mode both pass traffic', async () => {
+    for (const policy of [{ mode: 'live' }, {}]) {
+      const st = policyStation('solar', policy)
+      const out = await liveRequest(st, 'solar')
+      equal(200, out.status)
+      st.close()
+    }
+  })
+
+  test('mode gates LIVE traffic only, like hosts', async () => {
+    const st = policyStation('solar', { mode: 'block' })
+    const out = await liveRequest(st, 'solar', 'test')
+    equal(200, out.status)
+    st.close()
   })
 })

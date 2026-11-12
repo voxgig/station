@@ -204,7 +204,7 @@ rather than rotting.
   implemented as the pure validator (same `station_sdk_load` message as
   every loader port), so a shared config can be checked here; nothing in
   this port ever imports anything. `station_sdk_load` stays in the
-  error catalog - the `errors` section pins all 29 codes for every port
+  error catalog - the `errors` section pins all 30 codes for every port
   - but is never raised.
 - **No `extend` seam.** The dynamic ports carry the station adapter on
   `extend` so that an SDK generated before the station feature is still

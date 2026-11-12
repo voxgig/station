@@ -524,6 +524,25 @@ module VoxgigStation
       placeholder = VoxgigStation.placeholder_for(name)
       live = 'live' == fctx.client.mode
       profile_plugin = block_for(name)
+      policy = profile_plugin.is_a?(Hash) ? profile_plugin['policy'] : nil
+
+      # Policy mode (design station.md 16): `block` is the kill switch,
+      # and record, replay and mock need the proxy solo mode lacks, so
+      # each fails closed here as `require` does.
+      mode = policy.is_a?(Hash) && !policy['mode'].nil? ? policy['mode'] : 'live'
+      if 'live' != mode && live
+        err = if 'block' == mode
+                StationError.new('station_blocked',
+                  'egress denied: plugin "' + name + '" is policy mode "block", ' \
+                  'the kill switch (§16)')
+              else
+                StationError.new('station_no_proxy',
+                  'policy mode "' + mode.to_s + '" for plugin "' + name + '" needs ' \
+                  'an attached proxy, and none is attached')
+              end
+        emit_err(name, fctx, err)
+        return nil, err
+      end
 
       # Egress policy (design station.md 16), solo half: the hosts
       # allowlist is enforced at the seam every request crosses. The

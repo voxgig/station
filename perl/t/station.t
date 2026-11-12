@@ -630,6 +630,62 @@ subtest 'hosts policy denies off-list egress and forces manual redirects' => sub
     is( $errs->[-1]{err}{code}, 'station_host_allow', 'error event code' );
 };
 
+sub mode_request {
+    my ( $policy, $mode ) = @_;
+    local $ENV{GNARLY_PETS_APIKEY} = 'k';
+    my $st = Voxgig::Station->new(
+        {
+            config => {
+                station  => 1,
+                profiles =>
+                  { default => { sdk => { 'gnarly-pets' => { policy => $policy } } } },
+            }
+        }
+    );
+    my $called = 0;
+    my $b = bind_client( $st, sub { $called = 1; return ( okres(), undef ) } );
+    $b->{client}{mode} = defined $mode ? $mode : 'live';
+    my ( undef, $err ) = $b->{utility}{fetcher}->(
+        $b->{ctx}, 'http://localhost:8903/x', { method => 'GET', headers => {} }
+    );
+    return ( $st, $err, $called );
+}
+
+subtest 'policy mode block refuses with its own code' => sub {
+    reset_env();
+    my ( $st, $err, $called ) = mode_request( { mode => 'block' } );
+    ok( !$called, 'transport not called' );
+    is( ( ref $err ? $err->code : $err ), 'station_blocked', 'code' );
+    like( "$err", qr/mode "block"/, 'message' );
+    my $errs = events_of( $st, 'error' );
+    is_deeply( [ map { $_->{err}{code} } @$errs ], ['station_blocked'], 'error event' );
+
+    ( $st, $err, $called ) =
+      mode_request( { mode => 'block', hosts => ['localhost'] } );
+    ok( !$called, 'block wins over hosts that admit the host' );
+    is( ( ref $err ? $err->code : $err ), 'station_blocked', 'code with hosts' );
+};
+
+subtest 'policy modes that need a proxy fail station_no_proxy' => sub {
+    reset_env();
+    for my $mode (qw(record replay mock)) {
+        my ( undef, $err, $called ) = mode_request( { mode => $mode } );
+        ok( !$called, "$mode: transport not called" );
+        is( ( ref $err ? $err->code : $err ), 'station_no_proxy', "$mode: code" );
+    }
+};
+
+subtest 'policy mode live or absent passes, and only live is gated' => sub {
+    reset_env();
+    for my $case ( [ { mode => 'live' }, 'live' ], [ {}, 'live' ],
+        [ { mode => 'block' }, 'test' ] )
+    {
+        my ( undef, $err, $called ) = mode_request(@$case);
+        is( $err, undef, 'no error' );
+        ok( $called, 'transport called' );
+    }
+};
+
 subtest 'require proxy fails on the operation path' => sub {
     reset_env();
     local $ENV{GNARLY_PETS_APIKEY} = 'k';

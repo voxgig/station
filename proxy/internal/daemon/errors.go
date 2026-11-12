@@ -11,6 +11,7 @@ const (
 	CodeProtocol      = "station_protocol"
 	CodeBodyLimit     = "station_body_limit"
 	CodeHostAllow     = "station_host_allow"
+	CodeBlocked       = "station_blocked"
 	CodeGrantExpired  = "station_grant_expired"
 	CodeSecretNoValue = "station_secret_no_value"
 	CodeSecretError   = "station_secret_error"

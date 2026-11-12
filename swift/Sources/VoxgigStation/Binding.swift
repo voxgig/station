@@ -144,6 +144,24 @@ public final class Binding {
 
     let profilePlugin = station.profilePlugin(slug)
 
+    // Policy mode (design 16): `block` is the kill switch, and record,
+    // replay and mock need the proxy solo mode lacks, so each fails closed
+    // here as `require` does.
+    let mode = profilePlugin.get("policy").get("mode")
+    if live, !mode.isNull, "live" != mode.asStr {
+      let refused =
+        "block" == mode.asStr
+        ? StationError(
+          "station_blocked",
+          "egress denied: plugin \"" + slug + "\" is policy mode \"block\", the kill switch (§16)")
+        : StationError(
+          "station_no_proxy",
+          "policy mode \"" + (mode.asStr ?? "") + "\" for plugin \"" + slug
+            + "\" needs an attached proxy, and none is attached")
+      station.emitErr(slug, corr, refused)
+      throw refused
+    }
+
     // Egress policy (design 16), solo half: the hosts allowlist is
     // enforced at the seam every request crosses. When a policy is
     // present, redirects come back manual - a 3xx is a response like any

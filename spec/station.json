@@ -1971,6 +1971,10 @@
       "out": true
      },
      {
+      "in": "station_blocked",
+      "out": true
+     },
+     {
       "in": "station_grant_expired",
       "out": true
      },

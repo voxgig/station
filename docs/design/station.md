@@ -1841,11 +1841,12 @@ well-behaved:
 
 | code | when |
 |---|---|
-| `station_no_proxy` | attachment `require`d but not achieved within an operation's bounded wait (§2.1), or proxy lost for a `resolve: proxy` plugin |
+| `station_no_proxy` | attachment `require`d but not achieved within an operation's bounded wait (§2.1), or proxy lost for a `resolve: proxy` plugin, or a policy mode only the proxy can serve (`record`, `replay`, `mock`) with none attached (§16) |
 | `station_secret_no_value` | the chain ran and no store had the name (sekreto's `unknown secret`) |
 | `station_secret_error` | a store could not answer — locked vault, refused login, unreachable host; carries sekreto's message verbatim and is never retried against a weaker store (§5.2) |
 | `station_secret_name` | a configured secret name sekreto rejects as malformed, caught at profile load rather than first request |
 | `station_host_allow` | egress denied by the hosts policy |
+| `station_blocked` | egress refused because the instance's policy mode is `block`, the kill switch (§16). Its own code, so a caller can tell an operator's stop from a host off the list |
 | `station_grant_expired` | grant TTL passed and re-registration failed *(reserved for the proxy)* |
 | `station_wrap_order` | the §3.3 position guard tripped |
 | `station_protocol` | wire/descriptor version rejected by the proxy *(reserved for the proxy)* |
@@ -1864,7 +1865,7 @@ catalog is stable across ports, and raised by nothing until D2 ships.
 The declarative front door adds thirteen more —
 `station_config_invalid` through `station_feature_order` — catalogued
 in [`station-declarative-config.md`](./station-declarative-config.md)
-§6.4. Together the two tables are the complete catalog of 29 codes,
+§6.4. Together the two tables are the complete catalog of 30 codes,
 pinned exactly (known and unknown strings both) by the `errors` corpus
 section.
 
@@ -1960,7 +1961,14 @@ authoritative copy is proxy-side (§8.3).
   mutating captures (§6, §7); default false. `agent.read:` default
   true locally, false on remote proxies.
 - `mode: live | record | replay | mock | block` — per plugin, per
-  profile; `block` is the kill switch.
+  profile; `block` is the kill switch. Every port refuses a live request
+  in mode `block` with `station_blocked`, before the hosts policy and
+  before any credential is resolved, and the proxy does the same at its
+  data plane. In solo mode `record`, `replay` and `mock` fail
+  `station_no_proxy`, as `require` does (§2.1), since only the proxy can
+  serve them. Solo mode reads the mode when the station is constructed,
+  so flipping it takes a restart there; live policy change is attached
+  mode's policy long-poll (§8.2).
 
 ## 17. Delivery phasing
 

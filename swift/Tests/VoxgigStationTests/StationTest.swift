@@ -761,6 +761,64 @@ final class StationTest: XCTestCase {
     XCTAssertTrue(ok, "mock path unaffected")
   }
 
+  func modeRequest(_ policy: SJson, _ live: Bool) throws -> (Station, StationError?, Bool) {
+    setenv("TEST_PLUG_APIKEY", "k", 1)
+    let st = try memStation(.map(["test-plug": .map(["policy": policy])]))
+    let binding = (try bind(st, NSObject()))!.binding
+    var called = false
+    var refused: StationError? = nil
+    do {
+      let _: Bool = try binding.transport(
+        nil, live, "http://api.good.example/x", "GET", [:],
+        { _, _, _ in
+          called = true
+          return true
+        }, { _ in (200, 0) })
+    } catch let err as StationError {
+      refused = err
+    }
+    return (st, refused, called)
+  }
+
+  func testPolicyModeBlockRefusesWithItsOwnCode() throws {
+    let policies: [SJson] = [
+      .map(["mode": .str("block")]),
+      .map(["mode": .str("block"), "hosts": .list([.str("api.good.example")])]),
+    ]
+    for policy in policies {
+      let (st, refused, called) = try modeRequest(policy, true)
+      XCTAssertFalse(called, "the transport is not called")
+      XCTAssertEqual("station_blocked", refused?.code, "code")
+      XCTAssertTrue(refused?.message.contains("mode \"block\"") ?? false, "message")
+      var codes: [String] = []
+      for ev in st.events() where "error" == ev.get("kind").asStr {
+        codes.append(ev.get("err").get("code").asStr ?? "")
+      }
+      XCTAssertEqual(["station_blocked"], codes, "one error event")
+    }
+  }
+
+  func testPolicyModesThatNeedAProxyFailStationNoProxy() throws {
+    for mode in ["record", "replay", "mock"] {
+      let (_, refused, called) = try modeRequest(.map(["mode": .str(mode)]), true)
+      XCTAssertFalse(called, mode)
+      XCTAssertEqual("station_no_proxy", refused?.code, mode)
+    }
+  }
+
+  func testPolicyModeLiveOrAbsentPassesAndOnlyLiveIsGated() throws {
+    let cases: [(SJson, Bool)] = [
+      (.map(["mode": .str("live")]), true),
+      (.map(["hosts": .list([.str("api.good.example")])]), true),
+      (.map(["mode": .str("block")]), false),
+    ]
+    for (policy, live) in cases {
+      let (_, refused, called) = try modeRequest(policy, live)
+      XCTAssertNil(refused, "no refusal")
+      XCTAssertTrue(called, "the transport is called")
+    }
+  }
+
   // An IPv6 host keeps its brackets, and neither a port nor the userinfo,
   // a raw `@` in its password among it, reaches the host.
   func testTransportHostsPolicyComparesTheHostnameURLHostnameReads() throws {

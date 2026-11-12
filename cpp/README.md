@@ -130,7 +130,7 @@ SDK's own registrar - before the first `sdk()`.
   raises - so a config shared with a loader port fails the same way in
   both. Nothing in this port ever imports anything.
 - `station_sdk_load` stays in the error catalog (the `errors` corpus
-  section pins all 29 codes for every port) and is raised only by that
+  section pins all 30 codes for every port) and is raised only by that
   validator.
 - `resolve_factory` therefore has TWO paths - the registered factory,
   then the error - and the `station_no_factory` message names only the

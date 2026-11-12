@@ -185,7 +185,7 @@ func (s *Server) handleForward(w http.ResponseWriter, r *http.Request) {
 	// `block` in the proxy-side profile means this instance sends
 	// nothing, whatever the client believes or whether it checks at all.
 	if eff.Mode == ModeBlock {
-		writeError(w, http.StatusForbidden, CodeHostAllow, blockedMessage(ref))
+		writeError(w, http.StatusForbidden, CodeBlocked, blockedMessage(ref))
 		return
 	}
 	if eff.State == StateApproved {

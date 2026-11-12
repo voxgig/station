@@ -502,8 +502,8 @@ func TestPolicyModeBlock(t *testing.T) {
 		if resp.StatusCode != http.StatusForbidden {
 			t.Fatalf("blocked forward = %d, want 403", resp.StatusCode)
 		}
-		if got := errCode(t, resp); got != CodeHostAllow {
-			t.Errorf("code = %q, want %q", got, CodeHostAllow)
+		if got := errCode(t, resp); got != CodeBlocked {
+			t.Errorf("code = %q, want %q", got, CodeBlocked)
 		}
 		if up.count() != before {
 			t.Error("a blocked instance still reached the upstream")
@@ -516,9 +516,9 @@ func TestPolicyModeBlock(t *testing.T) {
 			"plugin": "voxgig-solardemo", "entity": "planet", "op": "list",
 		})
 		code, _ := toolErrCode(t, payload)
-		if !isErr || code != CodeHostAllow {
+		if !isErr || code != CodeBlocked {
 			t.Fatalf("isErr=%v code=%q, want %q (MCP calls are egress too)",
-				isErr, code, CodeHostAllow)
+				isErr, code, CodeBlocked)
 		}
 		if up.count() != before {
 			t.Error("a blocked instance still reached the upstream through station_call")
