@@ -189,6 +189,14 @@ int main(int argc, char** argv) {
       nested_clean = st.reads_clean(err);
     }
     check(!nested_clean, "a nested error quoting the URL is found");
+    // Outside a handler, throw_with_nested captures nothing to rethrow.
+    bool empty_clean = false;
+    try {
+      std::throw_with_nested(std::runtime_error("fetch failed"));
+    } catch (const std::exception& err) {
+      empty_clean = st.reads_clean(err);
+    }
+    check(empty_clean, "an empty nested error reads clean, without terminating");
     check(st.reads_clean(std::runtime_error("fetch failed")), "a clean error reads clean");
     check(!st.reads_clean(std::runtime_error("GET " + url)), "a quoting error does not");
   });

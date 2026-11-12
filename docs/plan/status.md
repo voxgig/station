@@ -1,12 +1,13 @@
 # Status: where the next session starts
 
-Snapshot, **2026-11-12**. `main` is at `94dd0dc`. 0.2.0 is released on
+Snapshot, **2026-11-12**. `main` is at `362b351`. 0.2.0 is released on
 every route, and `main` is ahead of it: the six pull requests of W1
 merged on 2026-11-11 and changed every port's source, and on 2026-11-12
 W5.1 (the proxy builds), W4.3 (the fixture SDKs), W2.1 (the carried
 adapter's place), W2.2 (the Station out of the SDK's options), W2.4
-(passwords refused in a block's `base`) and W2.5 (no userinfo in an
-event's whole URL) merged. The seven
+(passwords refused in a block's `base`), W2.5 (no userinfo in an
+event's whole URL) and W2.3 (the scrub reaches a transport error's
+chain) merged, which completes W2a. The seven
 decisions were ruled on 2026-11-11. The register
 in [`progress.md`](progress.md) is the per-item authority, and
 [`upstream.md`](upstream.md) tracks what other repositories owe. This
@@ -99,19 +100,20 @@ passing; CI runs them once the fixture lane's patch is applied.
 
 ## In flight
 
-W2.3, in review: the scrub after a query placement reaches the chain
-behind a transport error, in every port that has one. It is the last
-item of W2a. W2.12 and W2.13, found during W2.1, have no issue filed
-yet.
+A guard for cpp, in review: review of W2.3 found that a
+`std::nested_exception` holding nothing terminates on rethrow, so the
+walk checks `nested_ptr()` first. W2.12 and W2.13, found during W2.1,
+have no issue filed yet.
 
 
 ## Pick this up first
 
 In this order. Only the release dispatch waits on the maintainer.
 
-1. **0.3.0** (W2.11), once W2.3 merges and W2a is complete. The
-   version bump is an ordinary pull request; the dispatch publishes to
-   npm, which cannot be undone, so it goes when the owner says.
+1. **0.3.0** (W2.11): W2a is complete, and the release should carry
+   the cpp guard above. The version bump is an ordinary pull request;
+   the dispatch publishes to npm, which cannot be undone, so it goes
+   when the owner says.
 2. **W4.1**, a completeness guard in typescript. W1.1, which edited the
    same test file, has landed.
 3. **W0.8**, the design's account of sdkgen.
@@ -151,6 +153,9 @@ git push origin --delete chore/comment-policy \
 
 ## Recently settled
 
+- **The scrub reaches the chain behind a transport error** (W2.3,
+  2026-11-12, `362b351`), in every port that has one; [#29] closed.
+  This completes W2a.
 - **An http event keeps no userinfo from a URL it reports whole**
   (W2.5, 2026-11-12, `94dd0dc`), in every port; [#53] closed.
 - **A password in a block's `base`, or in a URL that does not parse,
@@ -217,3 +222,4 @@ Each is source or prose the plan schedules:
 [#37]: https://github.com/voxgig/station/issues/37
 [#57]: https://github.com/voxgig/station/issues/57
 [#53]: https://github.com/voxgig/station/issues/53
+[#29]: https://github.com/voxgig/station/issues/29

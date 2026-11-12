@@ -4032,14 +4032,19 @@ class Station {
   std::string redact(const std::string& text) const { return broker_.scrub(text); }
 
   // what() cannot be rewritten, so a transport error that quotes a held
-  // value, or nests one that does (std::throw_with_nested), is replaced.
+  // value, or nests one that does (std::throw_with_nested), is replaced. A
+  // nested_exception that captured nothing terminates on rethrow.
   bool reads_clean(const std::exception& err) const {
     std::string text = err.what();
     if (redact(text) != text) {
       return false;
     }
+    const auto* nested = dynamic_cast<const std::nested_exception*>(&err);
+    if (nullptr == nested || nullptr == nested->nested_ptr()) {
+      return true;
+    }
     try {
-      std::rethrow_if_nested(err);
+      nested->rethrow_nested();
     } catch (const std::exception& inner) {
       return reads_clean(inner);
     } catch (...) {
