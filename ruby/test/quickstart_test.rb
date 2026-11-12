@@ -67,7 +67,10 @@ end
 
 class QuickstartRb < Minitest::Test
   def setup
-    skip 'no generated rb SDK checkout (set STATION_TEST_RB_SDK)' unless HAVE_SDK
+    unless HAVE_SDK
+      flunk 'STATION_REQUIRE_SDKS is set but there is no generated rb SDK - run `make fixtures`' if ENV['STATION_REQUIRE_SDKS']
+      skip 'no generated rb SDK checkout (set STATION_TEST_RB_SDK)'
+    end
     VoxgigStation::Station.reset
     ENV.delete('TASKPAD_APIKEY')
   end
@@ -265,7 +268,8 @@ class QuickstartRb < Minitest::Test
     assert_includes seen, 'http'
     assert_includes seen, 'op'
     assert_equal 'solo', st.status['mode']
-    assert_equal [{ 'slug' => 'taskpad', 'rung' => 'R1' }], st.status['plugins']
+    assert_equal [{ 'name' => 'taskpad', 'api' => 'taskpad', 'slug' => 'taskpad', 'rung' => 'R1' }],
+                 st.status['plugins']
 
     st.close
   end

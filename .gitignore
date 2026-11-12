@@ -34,3 +34,6 @@ elixir/_build
 elixir/deps
 *.o
 swift/vendor
+
+# The generated SDKs `make fixtures` writes for the integration suites.
+test/sdk

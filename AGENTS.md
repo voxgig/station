@@ -227,7 +227,13 @@ make pack-diff         # what a release would add to or remove from the package
 make version-check     # every port declares VERSION, + the gate's own mutation test
 make version-set V=X.Y.Z  # move every port to a new version in one diff
 make release-plan      # per port: is VERSION released, and what would a release do
+make fixtures          # generate the SDKs the integration suites need, into test/sdk
+make fixtures-test     # run those suites against them; a missing SDK fails, not skips
 ```
+
+`make fixtures` needs npm registry access, and the typescript and
+javascript ports installed and built: the SDKs it generates are built
+against them, never against the published station.
 
 `make test` and the per-port suites need a **voxgig/omni checkout**
 (`OMNI_HOME`, or a sibling directory); the c port also needs a

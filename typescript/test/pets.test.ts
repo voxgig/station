@@ -50,6 +50,13 @@ after(() => { server?.kill() })
 
 beforeEach(() => { Station.reset() })
 
+if (!HAVE_SDKS && process.env.STATION_REQUIRE_SDKS) {
+  test('generated SDKs required', () => {
+    throw new Error('STATION_REQUIRE_SDKS is set but the generated SDKs are ' +
+      'not under ' + SDK_ROOT + ' - run `make fixtures`')
+  })
+}
+
 describe('gnarly-pets', { skip: !HAVE_SDKS }, () => {
 
   test('Bearer prefix: the injected value rides behind the prefix', async () => {

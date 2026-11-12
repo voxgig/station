@@ -141,6 +141,28 @@ omni-isolation:
 pack-diff:
 	@tools/pack_diff.sh $(PORTS)
 
+# The SDKs the integration suites run against, generated from test/api/ with
+# this checkout's sdkgen-station, never committed. fixtures-test runs those
+# suites against them, and STATION_REQUIRE_SDKS turns a missing SDK from a
+# skip into a failure.
+SDKS ?= $(CURDIR)/test/sdk
+
+.PHONY: fixtures fixtures-test
+fixtures:
+	tools/fixtures.sh $(SDKS)
+
+fixtures-test: export STATION_TEST_SDKS = $(SDKS)
+fixtures-test: export STATION_REQUIRE_SDKS = 1
+# The perl payload carries sekreto but not voxgig/plugin (W3.9), so the station
+# inside a generated perl SDK finds plugin only through PLUGIN_HOME.
+fixtures-test: export PLUGIN_HOME ?= $(abspath $(CURDIR)/../plugin)
+fixtures-test:
+	cd typescript && npx tsc && node --test --test-concurrency=1 dist/test/quickstart.test.js dist/test/generated.test.js dist/test/pets.test.js
+	cd javascript && node --test --test-concurrency=1 test/quickstart.test.js test/pets.test.js
+	cd ruby && ruby test/quickstart_test.rb
+	cd php && php test/quickstart.php
+	cd perl && prove -Ilib -It t/quickstart.t
+
 .PHONY: comments comments-test hooks
 comments:
 	node tools/comment-gate.cjs
