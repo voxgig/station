@@ -254,6 +254,23 @@ subtest 'test feature stays mocked: no injection into mock transports' => sub {
     $station->close;
 };
 
+# The generated pipeline reaches PreDone with the 404, then PreUnexpected.
+subtest 'a failed operation emits one op event' => sub {
+    reset_env();
+    my $station = Voxgig::Station->open( { config => undef } );
+    my $pad     = $station->connect( 'TaskpadSDK',
+        { feature => { test => { active => 1, entity => { todo => {} } } } } );
+
+    my $ok = eval { $pad->Todo->load( { id => 'nope' } ); 1 };
+    ok( !$ok, 'load failed' );
+
+    my @op = @{ events_of( $station, 'op' ) };
+    is_deeply( [ map { [ $_->{op}{op}, $_->{op}{outcome} ] } @op ],
+        [ [ 'load', 'err' ] ], 'one op event' );
+
+    $station->close;
+};
+
 subtest 'inverted binding: SDK->new($station->options)' => sub {
     reset_env();
     local $ENV{TASKPAD_APIKEY} = $APIKEY;

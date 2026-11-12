@@ -645,6 +645,37 @@ internal static class Program
             Check(caught.Message.Contains("[redacted]"), "scrub marker: " + caught.Message);
         });
 
+        TestCase("hooks: one failed operation emits one op event", () =>
+        {
+            Station st = MemoryStation(Map("TEST_PLUG_APIKEY", "real-key-3"), null);
+            Bind(st, new object(), st.Options(Map()));
+
+            // PreDone sees the error result; the pipeline then throws it.
+            string corr = st.NextCorr();
+            long start = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            st.OpEvent("test-plug", corr, start, "note", "load", "err");
+            st.OpEvent("test-plug", corr, start, "note", "load", "unexpected");
+            st.OpEvent("test-plug", corr, start, "note", "load", "unexpected");
+
+            var outcomes = new List<string>();
+            foreach (var ev in st.Events())
+            {
+                if ("op".Equals(ev["kind"]))
+                {
+                    outcomes.Add((string)((IDictionary<string, object>)ev["op"])["outcome"]);
+                }
+            }
+            Check("err" == string.Join(",", outcomes), "one op event: " + string.Join(",", outcomes));
+
+            st.OpEvent("test-plug", null, null, "note", "load", "unexpected");
+            int count = 0;
+            foreach (var ev in st.Events())
+            {
+                count += "op".Equals(ev["kind"]) ? 1 : 0;
+            }
+            Check(1 == count, "an operation station never opened emits nothing");
+        });
+
         TestCase("transport: no injection into mock transports", () =>
         {
             Station st = MemoryStation(Map("TEST_PLUG_APIKEY", "real-key-3"), null);

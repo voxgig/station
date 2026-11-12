@@ -1,5 +1,5 @@
 const { describe, test } = require('node:test')
-const { deepStrictEqual } = require('node:assert')
+const { deepStrictEqual, equal } = require('node:assert')
 
 const { Station } = require('../src/Station')
 const { featureBinding } = require('../src/adapter')
@@ -89,6 +89,33 @@ describe('http-event', () => {
     const http = st.events().filter((e) => 'http' === e.kind)
     deepStrictEqual(http.map((e) => [e.http.host, e.http.path]),
       cases.map(([, host, path]) => [host, path]))
+
+    st.close()
+  })
+})
+
+describe('op-event', () => {
+
+  // A failed operation reaches PreDone with its error result, and then
+  // PreUnexpected as the pipeline throws it.
+  test('one failed operation emits one op event', () => {
+    const st = new Station({ config: null })
+    const { ctx } = fakeClient('vault')
+    const binding = featureBinding(ctx, { station: st })
+
+    const opctx = { op: { entity: 'note', name: 'load' }, result: { ok: false } }
+    binding.PrePoint(opctx)
+    binding.PreDone(opctx)
+    binding.PreUnexpected(opctx)
+    binding.PreUnexpected(opctx)
+
+    const op = st.events().filter((e) => 'op' === e.kind)
+    deepStrictEqual(op.map((e) => e.op.outcome), ['err'])
+    equal(op[0].corr, opctx.station$.corr)
+
+    binding.PreUnexpected({ op: { entity: 'note', name: 'load' } })
+    equal(1, st.events().filter((e) => 'op' === e.kind).length,
+      'an operation station never opened emits nothing')
 
     st.close()
   })

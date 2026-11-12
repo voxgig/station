@@ -587,6 +587,34 @@ fn close_warns_on_unmatched_profile_plugin_keys() {
 // --- op events --------------------------------------------------------------
 
 #[test]
+fn one_failed_operation_emits_one_op_event() {
+    let station = open_station(station_config(""));
+    let client: Rc<dyn Any> = Rc::new(());
+    let bound = bind(spec(client, &["test", "station"])).expect("bound");
+    let binding = &bound.binding;
+
+    // PreDone sees the error result; the pipeline then throws it.
+    binding.op_start("CTX9");
+    binding.op_done("CTX9", "note", "load", "err");
+    binding.op_done("CTX9", "note", "load", "unexpected");
+    binding.op_done("CTX9", "note", "load", "unexpected");
+
+    let op = events_of(&station, "op");
+    let outcomes: Vec<&str> = op
+        .iter()
+        .map(|e| e.op.as_ref().unwrap().outcome.as_str())
+        .collect();
+    assert_eq!(vec!["err"], outcomes);
+
+    binding.op_done("NEVER", "note", "load", "unexpected");
+    assert_eq!(
+        1,
+        events_of(&station, "op").len(),
+        "an operation station never opened emits nothing"
+    );
+}
+
+#[test]
 fn op_events_correlate_with_http_events() {
     let station = open_station(station_config(""));
     let client: Rc<dyn Any> = Rc::new(());

@@ -938,6 +938,28 @@ testcase('a_transport_error_cause_chain_is_scrubbed', function () {
     }
 });
 
+testcase('one_failed_operation_emits_one_op_event', function () {
+    $st = new Station(['config' => null]);
+    $b = bind($st, fn($_c, $_u, $_d) => [okres(), null]);
+
+    // PreDone sees the error result; the pipeline then throws it.
+    $b['ctx']->op = new FakeOp('note', 'load');
+    $b['ctx']->result = new FakeResult(false);
+    $b['feature']->PrePoint($b['ctx']);
+    $b['feature']->PreDone($b['ctx']);
+    $b['feature']->PreUnexpected($b['ctx']);
+    $b['feature']->PreUnexpected($b['ctx']);
+
+    $op = array_values(array_filter($st->events(), fn($e) => 'op' === $e['kind']));
+    eq(['err'], array_map(fn($e) => $e['op']['outcome'], $op));
+
+    $unopened = clone $b['ctx'];
+    $unopened->meta = [];
+    $b['feature']->PreUnexpected($unopened);
+    eq(1, count(array_filter($st->events(), fn($e) => 'op' === $e['kind'])),
+        'an operation station never opened emits nothing');
+});
+
 testcase('a_status_0_response_after_a_placement_is_scrubbed', function () {
     putenv('GNARLY_PETS_APIKEY=tok!en 1');
     $st = new Station(['config' => null]);

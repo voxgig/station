@@ -792,17 +792,17 @@ func (st *Station) corrOf(opctx any) string {
 	return ""
 }
 
-func (st *Station) opEnd(opctx any) (string, int64) {
+func (st *Station) opEnd(opctx any) (string, int64, bool) {
 	if nil == opctx {
-		return "", 0
+		return "", 0, false
 	}
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	if state, has := st.ops[opctx]; has {
 		delete(st.ops, opctx)
-		return state.corr, state.start
+		return state.corr, state.start, true
 	}
-	return "", 0
+	return "", 0, false
 }
 
 func (st *Station) sweepOpsLocked(now int64) {
@@ -818,11 +818,11 @@ func (st *Station) sweepOpsLocked(now int64) {
 }
 
 func (st *Station) opEvent(name string, opctx any, info OpInfo, outcome string) {
-	corr, start := st.opEnd(opctx)
-	duration := int64(0)
-	if 0 != start {
-		duration = nowMs() - start
+	corr, start, opened := st.opEnd(opctx)
+	if !opened {
+		return
 	}
+	duration := nowMs() - start
 	st.emit(Event{
 		T: nowMs(), Kind: "op", Plugin: name, API: RefApi(name), Corr: corr,
 		Op: &OpEvent{

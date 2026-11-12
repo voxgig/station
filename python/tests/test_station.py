@@ -14,6 +14,7 @@ import shutil
 import sys
 import tempfile
 import traceback
+import types
 import unittest
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -427,6 +428,30 @@ class TestBinding(unittest.TestCase):
         self.assertNotIsInstance(err, Opaque)
         self.assertIn('[redacted]', str(err))
         self.assertIsNone(err.__context__)
+
+    def test_one_failed_operation_emits_one_op_event(self):
+        st = Station({'config': None})
+        ctx, _log = bind(st, mode='test')
+        adapter = ctx.client.features[-1]
+
+        # PreDone sees the error result; the pipeline then throws it.
+        opctx = types.SimpleNamespace(
+            op=types.SimpleNamespace(entity='note', name='load'),
+            result=types.SimpleNamespace(ok=False, err=None), entity=None)
+        adapter.PrePoint(opctx)
+        adapter.PreDone(opctx)
+        adapter.PreUnexpected(opctx)
+        adapter.PreUnexpected(opctx)
+
+        op = [e for e in st.events() if 'op' == e['kind']]
+        self.assertEqual(['err'], [e['op']['outcome'] for e in op])
+        self.assertEqual(opctx._station['corr'], op[0]['corr'])
+
+        adapter.PreUnexpected(types.SimpleNamespace(
+            op=types.SimpleNamespace(entity='note', name='load'), entity=None))
+        self.assertEqual(1, len([e for e in st.events() if 'op' == e['kind']]),
+                         'an operation station never opened emits nothing')
+        st.close()
 
     def test_no_injection_into_mock_transports(self):
         st = Station({'config': None})

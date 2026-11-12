@@ -817,11 +817,38 @@ testcase('hooks', function()
   checkeq(st.result_outcome({ result = { ok = false } }), 'err')
   checkeq(st.result_outcome({ result = { err = 'x' } }), 'err')
   checkeq(st.result_outcome({}), 'unknown')
-  bridge.PreUnexpected({ op = { entity = '_', name = '_' } })
+  local unopened = { op = { entity = '_', name = '_' } }
+  bridge.PrePoint(unopened)
+  bridge.PreUnexpected(unopened)
   local last = station:events()
   local ev = last[#last]
   checkeq(ev.op.entity, '')
   checkeq(ev.op.outcome, 'unexpected')
+end)
+
+testcase('one-op-event-per-operation', function()
+  local station = st.new({ config = st.NULL, proxy = 'off' })
+  local bridge = bind(station).adapter._binding
+  local function ops()
+    local out = {}
+    for _, ev in ipairs(station:events()) do
+      if ev.kind == 'op' then
+        out[#out + 1] = ev.op.outcome
+      end
+    end
+    return out
+  end
+
+  -- PreDone sees the error result; the pipeline then throws it.
+  local opctx = { op = { entity = 'task', name = 'load' }, result = { ok = false } }
+  bridge.PrePoint(opctx)
+  bridge.PreDone(opctx)
+  bridge.PreUnexpected(opctx)
+  bridge.PreUnexpected(opctx)
+  checkeq(table.concat(ops(), ','), 'err')
+
+  bridge.PreUnexpected({ op = { entity = 'task', name = 'load' } })
+  checkeq(#ops(), 1, 'an operation station never opened emits nothing')
 end)
 
 testcase('hosts-policy', function()

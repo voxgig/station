@@ -472,6 +472,25 @@ final class StationTest: XCTestCase {
     XCTAssertNil(binding.corrOf("ctx1"), "correlation closed")
   }
 
+  func testOneFailedOperationEmitsOneOpEvent() throws {
+    let st = try memStation()
+    let binding = (try bind(st, NSObject()))!.binding
+
+    // PreDone sees the error result; the pipeline then throws it.
+    binding.opStart("ctx9")
+    binding.opDone("ctx9", "note", "load", "err")
+    binding.opDone("ctx9", "note", "load", "unexpected")
+    binding.opDone("ctx9", "note", "load", "unexpected")
+
+    let outcomes = st.events().filter { "op" == $0.get("kind").asStr }
+      .map { $0.get("op").get("outcome").asStr ?? "" }
+    XCTAssertEqual(["err"], outcomes, "one op event")
+
+    binding.opDone("never-opened", "note", "load", "unexpected")
+    XCTAssertEqual(1, st.events().filter { "op" == $0.get("kind").asStr }.count,
+      "an operation station never opened emits nothing")
+  }
+
   func testTransportPlacesAQueryCredentialEncodedAndNothingElse() throws {
     setenv("TEST_PLUG_APIKEY", "tok!en 1", 1)
     let st = try memStation()

@@ -1274,6 +1274,33 @@ public final class StationTest {
       check(!shown.toString().contains("tok%21en%201"), shown.toString());
     });
 
+    testcase("hooks: one failed operation emits one op event", () -> {
+      Station st = memoryStation(map("TEST_PLUG_APIKEY", "real-key-3"), null);
+      bind(st, new Object(), st.options(map()));
+
+      // PreDone sees the error result; the pipeline then throws it.
+      String corr = st.nextCorr();
+      Long start = System.currentTimeMillis();
+      st.opEvent("test-plug", corr, start, "note", "load", "err");
+      st.opEvent("test-plug", corr, start, "note", "load", "unexpected");
+      st.opEvent("test-plug", corr, start, "note", "load", "unexpected");
+
+      List<Object> ops = new ArrayList<>();
+      for (Map<String, Object> ev : st.events()) {
+        if ("op".equals(ev.get("kind"))) {
+          ops.add(((Map<String, Object>) ev.get("op")).get("outcome"));
+        }
+      }
+      checkeq(ops, List.of("err"), "one op event");
+
+      st.opEvent("test-plug", null, null, "note", "load", "unexpected");
+      int count = 0;
+      for (Map<String, Object> ev : st.events()) {
+        count += "op".equals(ev.get("kind")) ? 1 : 0;
+      }
+      checkeq(count, 1, "an operation station never opened emits nothing");
+    });
+
     testcase("transport: no injection into mock transports", () -> {
       Station st = memoryStation(map("TEST_PLUG_APIKEY", "real-key-3"), null);
       bind(st, new Object(), st.options(map()));

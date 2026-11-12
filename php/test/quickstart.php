@@ -282,6 +282,27 @@ testcase('test_feature_stays_mocked_no_injection_into_mock_transports', function
     $station->close();
 });
 
+// The generated pipeline reaches PreDone with the 404, then PreUnexpected.
+testcase('a_failed_operation_emits_one_op_event', function () {
+    $station = Station::open(['config' => null]);
+    $pad = $station->connect(\TaskpadSDK::class, [
+        'feature' => ['test' => ['active' => true, 'entity' => ['todo' => []]]],
+    ]);
+
+    $thrown = null;
+    try {
+        $pad->Todo()->load(['id' => 'nope']);
+    } catch (\Throwable $e) {
+        $thrown = $e;
+    }
+    ok(null !== $thrown, 'load failed');
+
+    $op = array_values(array_filter($station->events(), fn($e) => 'op' === $e['kind']));
+    eq([['load', 'err']], array_map(fn($e) => [$e['op']['op'], $e['op']['outcome']], $op));
+
+    $station->close();
+});
+
 testcase('inverted_binding_new_sdk_of_station_options', function () use ($base) {
     putenv('TASKPAD_APIKEY=' . APIKEY);
 

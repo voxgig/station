@@ -973,9 +973,12 @@ sub _transport {
 }
 
 # Op events from the hook bridge (design station.md 3 item 3).
+# PrePoint opens the operation; its first terminal stage alone emits.
 sub _op_event {
     my ( $self, $name, $ctx, $outcome ) = @_;
-    my $st = ref( $ctx->{'station$'} ) eq 'HASH' ? $ctx->{'station$'} : {};
+    my $st = $ctx->{'station$'};
+    return if ref($st) ne 'HASH' || $st->{closed};
+    $st->{closed} = 1;
 
     # ctx->{op} is the SDK's resolved Operation: name + entity, with '_'
     # as the generated Perl SDKs' absence sentinel.

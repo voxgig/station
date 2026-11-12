@@ -561,10 +561,19 @@ defmodule Voxgig.Station.Adapter do
     end
   end
 
+  # PrePoint opens the operation; its first terminal stage alone emits.
   defp op_event(station, slug, ctx, outcome) do
     stn = S.getprop(ctx, "station$")
-    corr = if S.ismap(stn), do: S.getprop(stn, "corr"), else: nil
-    start = if S.ismap(stn), do: S.getprop(stn, "start"), else: nil
+
+    if S.ismap(stn) and true != S.getprop(stn, "closed") do
+      S.setprop(stn, "closed", true)
+      emit_op(station, slug, ctx, stn, outcome)
+    end
+  end
+
+  defp emit_op(station, slug, ctx, stn, outcome) do
+    corr = S.getprop(stn, "corr")
+    start = S.getprop(stn, "start")
 
     # ctx.op is the SDK's resolved Operation: name + entity, with "_" as
     # the generated Elixir SDKs' absence sentinel.

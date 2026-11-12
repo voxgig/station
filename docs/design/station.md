@@ -353,7 +353,14 @@ by the generated station feature and consists of:
 3. **Semantic events.** `PrePoint`, `PreDone`, and `PreUnexpected`
    hooks emit operation-level events (entity, op, outcome, duration)
    correlated with the HTTP-level events from the middleware via a
-   per-operation id carried on the SDK's own `ctx`.
+   per-operation id carried on the SDK's own `ctx`. **One `op` event
+   per operation:** `PrePoint` opens the operation, and the first
+   terminal stage after it closes the operation and emits. A failure
+   reaches `PreDone` with its error result and then `PreUnexpected` as
+   the pipeline throws it, so it emits once, with the outcome `err`. A
+   terminal stage for an operation station never opened, or has
+   already closed, emits nothing. sdkgen's `metrics` feature counts
+   operations the same way.
 4. **Credential placement.** The feature never handles secret values.
    It arranges for `options.apikey` to hold a placeholder and lets the
    middleware perform injection (§5).

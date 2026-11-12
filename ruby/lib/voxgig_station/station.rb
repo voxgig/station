@@ -636,9 +636,12 @@ module VoxgigStation
     end
 
     # Op events from the hook bridge (design station.md 3 item 3).
+    # PrePoint opens the operation; its first terminal stage alone emits.
     def _op_event(name, ctx, outcome)
       st = ctx.instance_variable_get(:@_station)
-      st = {} unless st.is_a?(Hash)
+      return if !st.is_a?(Hash) || st['closed']
+
+      st['closed'] = true
 
       # ctx.op is the SDK's resolved Operation: name + entity, with '_'
       # as the generated Ruby SDKs' absence sentinel.

@@ -518,6 +518,28 @@ class TestStation < Minitest::Test
     end
   end
 
+  def test_one_failed_operation_emits_one_op_event
+    st = VoxgigStation::Station.new('config' => nil)
+    b = bind(st, ->(_c, _u, _d) { [okres, nil] })
+
+    # PreDone sees the error result; the pipeline then throws it.
+    b[:ctx].op = FakeOp.new('note', 'load')
+    b[:ctx].result = FakeResult.new(false)
+    b[:feature].PrePoint(b[:ctx])
+    b[:feature].PreDone(b[:ctx])
+    b[:feature].PreUnexpected(b[:ctx])
+    b[:feature].PreUnexpected(b[:ctx])
+
+    op = st.events.select { |e| 'op' == e['kind'] }
+    assert_equal ['err'], op.map { |e| e['op']['outcome'] }
+
+    unopened = FakeCtx.new(b[:ctx].client, b[:utility], {}, CONFIG)
+    unopened.op = FakeOp.new('note', 'load')
+    b[:feature].PreUnexpected(unopened)
+    assert_equal 1, st.events.count { |e| 'op' == e['kind'] },
+      'an operation station never opened emits nothing'
+  end
+
   def test_no_injection_into_mock_transports
     ENV['GNARLY_PETS_APIKEY'] = 'never-on-mock'
     st = VoxgigStation::Station.new('config' => nil)

@@ -395,7 +395,9 @@ Every release moves every port (`make version-set`), and one dispatch
 of `release.yml` on that commit ships all three.
 0.3.0 changes behaviour that 0.2.0 shipped: [#60] checks feature options
 as the SDK does, [#48] changes message text, and [#58] makes the C port
-refuse a provider kind it used to warn about. Its release notes say so.
+refuse a provider kind it used to warn about. Its release notes say so,
+and name [#36] too if it lands first: a failed operation then emits one
+`op` event where 0.2.0 emitted two or three.
 
 
 ## 7. The clients

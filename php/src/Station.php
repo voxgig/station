@@ -850,10 +850,14 @@ class Station
     }
 
     /** Op events from the hook bridge (design station.md 3 item 3). */
+    /** PrePoint opens the operation; its first terminal stage alone emits. */
     public function _op_event(string $name, mixed $ctx, string $outcome): void
     {
         $st = is_array($ctx->meta ?? null) ? ($ctx->meta['station'] ?? null) : null;
-        $st = is_array($st) ? $st : [];
+        if (!is_array($st) || !empty($st['closed'])) {
+            return;
+        }
+        $ctx->meta['station']['closed'] = true;
 
         // ctx->op is the SDK's resolved Operation: name + entity, with
         // '_' as the generated PHP SDKs' absence sentinel.

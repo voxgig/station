@@ -202,6 +202,20 @@ class QuickstartRb < Minitest::Test
     station.close
   end
 
+  # The generated pipeline reaches PreDone with the 404, then PreUnexpected.
+  def test_a_failed_operation_emits_one_op_event
+    station = VoxgigStation::Station.open('config' => nil)
+    pad = station.connect(TaskpadSDK,
+      'feature' => { 'test' => { 'active' => true, 'entity' => { 'todo' => {} } } })
+
+    assert_raises(StandardError) { pad.Todo.load('id' => 'nope') }
+
+    op = station.events.select { |e| 'op' == e['kind'] }
+    assert_equal [%w[load err]], op.map { |e| [e['op']['op'], e['op']['outcome']] }
+
+    station.close
+  end
+
   def test_inverted_binding_new_sdk_of_station_options
     ENV['TASKPAD_APIKEY'] = APIKEY
 

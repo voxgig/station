@@ -32,6 +32,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.WeakHashMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
@@ -52,6 +53,9 @@ public class Station {
   private static String ambientOpts = null;
 
   private static final AtomicLong CORR = new AtomicLong(0);
+
+  // Operations PrePoint opened and no terminal stage has closed yet.
+  private final Set<String> openOps = ConcurrentHashMap.newKeySet();
 
   // Station wraps installed on any client's transport slot, process-wide:
   // the java spelling of the ts `__station__` marker (a lambda cannot
@@ -616,7 +620,9 @@ public class Station {
 
   /** A fresh per-operation correlation id (design 3 item 3). */
   public String nextCorr() {
-    return "c" + CORR.incrementAndGet();
+    String corr = "c" + CORR.incrementAndGet();
+    openOps.add(corr);
+    return corr;
   }
 
   private PluginEntry boundEntry(Object client) {
@@ -851,9 +857,15 @@ public class Station {
     return true;
   }
 
-  /** Op events from the hook bridge (design 3 item 3). */
+  /**
+   * Op events from the hook bridge (design 3 item 3). PrePoint opens the
+   * operation; its first terminal stage alone emits.
+   */
   public void opEvent(String name, String corr, Long start,
       String entity, String opname, String outcome) {
+    if (null == corr || !openOps.remove(corr)) {
+      return;
+    }
     Map<String, Object> op = new LinkedHashMap<>();
     op.put("entity", null == entity ? "" : entity);
     op.put("op", null == opname ? "" : opname);

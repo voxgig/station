@@ -1919,9 +1919,13 @@ function Station:_scrubbed_text(val)
 end
 
 -- Op events from the hook bridge (design station.md 3 item 3).
+-- PrePoint opens the operation; its first terminal stage alone emits.
 function Station:_op_event(slug, ctx, outcome)
-  local st = type(ctx) == 'table' and type(ctx['station$']) == 'table' and
-    ctx['station$'] or {}
+  local st = type(ctx) == 'table' and ctx['station$'] or nil
+  if type(st) ~= 'table' or st.closed then
+    return
+  end
+  st.closed = true
 
   -- ctx.op is the SDK's resolved Operation: name + entity, with '_' as
   -- the generated Lua SDKs' absence sentinel (core/context resolve_op).

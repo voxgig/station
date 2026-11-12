@@ -10,6 +10,7 @@
 
 defmodule Voxgig.StationTest do
   use ExUnit.Case, async: false
+  @compile {:no_warn_undefined, Voxgig.Struct}
 
   alias Voxgig.Station
   alias Voxgig.Station.Adapter
@@ -288,6 +289,23 @@ defmodule Voxgig.StationTest do
     refute out =~ "long-secret-value"
     assert out =~ "[redacted]"
     refute String.contains?(out, " k ")
+  end
+
+  test "one failed operation emits one op event" do
+    Voxgig.Station.TestStruct.load()
+    st = Station.new(%{"config" => nil})
+    binding = %{station: st, slug: "joplin"}
+    opnode = fn -> Voxgig.Struct.jm(["entity", "note", "name", "load"]) end
+
+    # PreDone sees the error result; the pipeline then throws it.
+    ctx = Voxgig.Struct.jm(["op", opnode.(), "result", Voxgig.Struct.jm(["ok", false])])
+    Enum.each(["PrePoint", "PreDone", "PreUnexpected", "PreUnexpected"], &Adapter.hook(binding, &1, ctx))
+
+    ops = fn -> for %{"kind" => "op"} = ev <- Station.events(st), do: ev["op"]["outcome"] end
+    assert ["err"] == ops.()
+
+    Adapter.hook(binding, "PreUnexpected", Voxgig.Struct.jm(["op", opnode.()]))
+    assert 1 == length(ops.()), "an operation station never opened emits nothing"
   end
 
   defmodule UrlError do

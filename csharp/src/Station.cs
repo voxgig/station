@@ -16,6 +16,7 @@
 // generated FetcherFunc type); everything the wrap DOES lives here.
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Runtime.CompilerServices;
@@ -34,6 +35,10 @@ namespace Voxgig.Station
         private static readonly object AmbientGate = new object();
 
         private static long corrSeq = 0;
+
+        // Operations PrePoint opened and no terminal stage has closed yet.
+        private readonly ConcurrentDictionary<string, bool> openOps =
+            new ConcurrentDictionary<string, bool>();
 
         // Station wraps installed on any client's transport slot,
         // process-wide: the C# spelling of the ts `__station__` marker (a
@@ -555,8 +560,10 @@ namespace Voxgig.Station
         /// <summary>A fresh per-operation correlation id (design 3 item 3).</summary>
         public string NextCorr()
         {
-            return "c" + Interlocked.Increment(ref corrSeq)
+            string corr = "c" + Interlocked.Increment(ref corrSeq)
                 .ToString(CultureInfo.InvariantCulture);
+            openOps[corr] = true;
+            return corr;
         }
 
         private PluginEntry BoundEntry(object client)
@@ -764,6 +771,11 @@ namespace Voxgig.Station
         public void OpEvent(string slug, string corr, long? start,
             string entity, string opname, string outcome)
         {
+            // PrePoint opens the operation; its first terminal stage alone emits.
+            if (null == corr || !openOps.TryRemove(corr, out bool _))
+            {
+                return;
+            }
             var ev = Event("op", slug, corr);
             ev["op"] = new Dictionary<string, object>
             {

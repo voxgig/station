@@ -2165,6 +2165,10 @@ struct vxstn_station {
   bool require_proxy;
   bool closed;
   int64_t corr_seq;
+  /* Operations PrePoint opened and no terminal stage has closed yet. */
+  int64_t* open_ops;
+  size_t nopen;
+  size_t capopen;
 };
 
 static vxstn_station* AMBIENT = NULL;
@@ -2527,6 +2531,7 @@ void vxstn_station_free(vxstn_station* st) {
     vxstn_val_free(st->descriptors[i].warnings);
   }
   free(st->descriptors);
+  free(st->open_ops);
   free(st);
 }
 
@@ -3027,7 +3032,35 @@ char* vxstn_next_corr(vxstn_station* st) {
   vxstn_sb sb;
   vxstn_sb_init(&sb);
   vxstn_sb_putf(&sb, "c%lld", (long long)(NULL == st ? 0 : ++st->corr_seq));
+  if (NULL != st) {
+    if (st->nopen == st->capopen) {
+      st->capopen = 0 == st->capopen ? 8 : 2 * st->capopen;
+      st->open_ops = (int64_t*)realloc(st->open_ops, st->capopen * sizeof(int64_t));
+    }
+    st->open_ops[st->nopen++] = st->corr_seq;
+  }
   return sb.buf;
+}
+
+/* True once for a correlation vxstn_next_corr opened, which it closes. */
+static bool op_close(vxstn_station* st, const char* corr) {
+  char* end = NULL;
+  long long seq;
+  size_t i;
+  if (NULL == corr || 'c' != corr[0]) {
+    return false;
+  }
+  seq = strtoll(corr + 1, &end, 10);
+  if (end == corr + 1 || '\0' != *end) {
+    return false;
+  }
+  for (i = 0; i < st->nopen; i++) {
+    if (st->open_ops[i] == seq) {
+      st->open_ops[i] = st->open_ops[--st->nopen];
+      return true;
+    }
+  }
+  return false;
 }
 
 const char* vxstn_outcome(bool has_result, bool has_err, bool ok) {
@@ -3174,7 +3207,7 @@ void vxstn_emit_op(vxstn_station* st, const char* slug, const char* corr,
                    int64_t duration_ms) {
   vxstn_val* ev;
   vxstn_val* opv;
-  if (NULL == st) {
+  if (NULL == st || !op_close(st, corr)) {
     return;
   }
   ev = vxstn_map();

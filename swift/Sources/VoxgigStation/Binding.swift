@@ -78,17 +78,21 @@ public final class Binding {
 
   /// PreDone / PreUnexpected: close the op with the outcome the adapter
   /// read from the SDK result ('ok' | 'err' | 'unknown' | 'unexpected').
+  /// PrePoint opens the operation; its first terminal stage alone emits.
   public func opDone(_ ctxId: String, _ entity: String, _ opname: String, _ outcome: String) {
     gate.lock()
-    let opened = corr.removeValue(forKey: ctxId)
+    let removed = corr.removeValue(forKey: ctxId)
     gate.unlock()
+    guard let opened = removed else {
+      return
+    }
 
-    station.emit(station.event("op", slug, opened?.corr, [
+    station.emit(station.event("op", slug, opened.corr, [
       "op": .map([
         "entity": .str(entity),
         "op": .str(opname),
         "outcome": .str(outcome),
-        "durationMs": .num(Double(nil == opened ? 0 : Station.now() - opened!.start)),
+        "durationMs": .num(Double(Station.now() - opened.start)),
       ])
     ]))
   }

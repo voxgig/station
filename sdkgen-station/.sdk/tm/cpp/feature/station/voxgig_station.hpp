@@ -5192,11 +5192,17 @@ class Station {
     return res;
   }
 
-  // Op events from the hook bridge (design station.md 3 item 3).
+  // Op events from the hook bridge (design station.md 3 item 3). PrePoint
+  // opens the operation; its first terminal stage alone emits, and
+  // clearing the slot closes it.
   void _op_event(const std::string& name, const ::sdk::CtxPtr& ctx,
                  const std::string& outcome) {
     std::string corr = _corr_of(ctx);
+    if (corr.empty()) {
+      return;
+    }
     long long start = _start_of(ctx);
+    ::sdk::map_put(ctx->shared, "station$", ::sdk::vmap());
 
     // ctx->op is the SDK's resolved Operation: name + entity, with '_'
     // as the generated C++ SDK's absence sentinel.
@@ -5212,8 +5218,7 @@ class Station {
       opname = "";
     }
 
-    emit_op(name, corr, entity, opname, outcome,
-            0 != start ? now_ms() - start : 0);
+    emit_op(name, corr, entity, opname, outcome, now_ms() - start);
   }
 #endif  // SDK_CORE_TYPES_HPP
 
