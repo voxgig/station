@@ -391,7 +391,7 @@ class Station {
     final placeholder = placeholderFor(slug);
     final live = 'live' == _clientMode(fctx);
     final profilePlugin = _pluginProfile(slug);
-    final policy = null == profilePlugin ? null : profilePlugin['policy'];
+    final policy = blockOf(_profile, slug)?['policy'];
 
     // Policy mode (design station.md 16): `block` is the kill switch, and
     // record, replay and mock need the proxy solo mode lacks, so each

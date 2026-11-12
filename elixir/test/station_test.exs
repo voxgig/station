@@ -416,6 +416,28 @@ defmodule Voxgig.StationTest do
     end
   end
 
+  test "an api block's policy reaches an instance with no sdk block" do
+    Voxgig.Station.TestStruct.load()
+
+    for {policy, url, code} <- [
+          {%{"mode" => "block"}, "http://localhost:8903/x", "station_blocked"},
+          {%{"hosts" => ["api.good.example"]}, "http://evil.example/x", "station_host_allow"}
+        ] do
+      st =
+        Station.new(%{
+          "config" => %{
+            "station" => 1,
+            "profiles" => %{"default" => %{"api" => %{"pad" => %{"policy" => policy}}}}
+          }
+        })
+
+      fctx = Voxgig.Struct.jm(["client", Voxgig.Struct.jm(["mode", "live"])])
+      inner = fn _fctx, _url, _def -> {Voxgig.Struct.jm(["status", 200]), nil} end
+      {_res, err} = Adapter.transport(st, "pad", inner, fctx, url, Voxgig.Struct.jm([]))
+      assert code == (err && err.code)
+    end
+  end
+
   test "policy modes that need a proxy fail station_no_proxy" do
     for mode <- ["record", "replay", "mock"] do
       {_st, err, called} = mode_request(%{"mode" => mode}, "live")

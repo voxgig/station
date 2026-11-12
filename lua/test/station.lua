@@ -969,6 +969,24 @@ testcase('policy-mode-block', function()
   end
 end)
 
+testcase('policy-from-the-api-block', function()
+  -- An instance with no sdk block of its own takes its api's policy.
+  for _, c in ipairs({
+    { { mode = 'block' }, 'http://api.good.example/api/task', 'station_blocked' },
+    { { hosts = { 'api.good.example' } }, 'http://evil.example/api/task', 'station_host_allow' },
+  }) do
+    local station = st.new({ proxy = 'off', config = {
+      station = 1,
+      profiles = { default = { api = { taskpad = { policy = c[1] } } } },
+    } })
+    local b = bind(station)
+    b.options.apikey = '[station:taskpad]'
+    station.broker:hoist('taskpad', 'v')
+    local _, err = b.utility.fetcher({ client = b.client }, c[2], { headers = {} })
+    checkeq(type(err) == 'table' and err.code or nil, c[3], c[3])
+  end
+end)
+
 testcase('policy-mode-needs-proxy', function()
   for _, mode in ipairs({ 'record', 'replay', 'mock' }) do
     local _, err, calls = mode_request({ mode = mode })

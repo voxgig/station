@@ -1824,8 +1824,9 @@ function Station:_transport(slug, inner, fctx, fullurl, fetchdef)
     fctx.client.mode or ''
   local live = 'live' == mode
   local profile_plugin = self.profile.sdk[slug]
-  local policy = type(profile_plugin) == 'table' and
-    type(profile_plugin.policy) == 'table' and profile_plugin.policy or {}
+  local block = M.block_of(self.profile, slug)
+  local policy = type(block) == 'table' and
+    type(block.policy) == 'table' and block.policy or {}
 
   -- Policy mode (design station.md 16): `block` is the kill switch, and
   -- record, replay and mock need the proxy solo mode lacks, so each fails

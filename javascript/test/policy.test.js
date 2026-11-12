@@ -86,6 +86,18 @@ describe('policy-mode', () => {
     st.close()
   })
 
+  test("an api block's policy reaches an instance with no sdk block", async () => {
+    const st = new Station({
+      config: {
+        station: 1,
+        profiles: { default: { api: { solar: { policy: { mode: 'block' } } } } },
+      },
+    })
+    const out = await liveRequest(st, 'solar')
+    equal('station_blocked', out.code)
+    st.close()
+  })
+
   test('proxy-era modes are accepted grammar that fails station_no_proxy', async () => {
     for (const mode of ['record', 'replay', 'mock']) {
       const st = policyStation('solar', { mode })

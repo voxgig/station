@@ -96,6 +96,18 @@ describe('policy-mode', () => {
     st.close()
   })
 
+  test("an api block's policy reaches an instance with no sdk block", async () => {
+    const st = new Station({
+      config: {
+        station: 1,
+        profiles: { default: { api: { solar: { policy: { mode: 'block' } } } } },
+      },
+    })
+    const out = await liveRequest(st, 'solar')
+    equal('station_blocked', (out as any).code)
+    st.close()
+  })
+
   test('proxy-era modes are accepted grammar that fails station_no_proxy', async () => {
     // record|replay|mock are §16 vocabulary a proxy-era config already
     // writes. Solo accepts the config (not a validation error) and the

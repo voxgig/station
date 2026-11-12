@@ -342,8 +342,8 @@ defmodule Voxgig.Station.Adapter do
       placeholder = Secrets.placeholder_for(slug)
       client = S.getprop(fctx, "client")
       live = nil != client and "live" == S.getprop(client, "mode")
-      profile_plugin = Station.profile_plugin(station, slug)
-      policy = if is_map(profile_plugin), do: profile_plugin["policy"], else: nil
+      block = Station.block_for(station, slug)
+      policy = if is_map(block), do: block["policy"], else: nil
 
       # Policy mode (design station.md 16): `block` is the kill switch, and
       # record, replay and mock need the proxy solo mode lacks, so each
