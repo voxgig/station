@@ -17,7 +17,10 @@ one dependency the modem principle allowed, design §10) and
 [voxgig/struct](https://github.com/voxgig/struct) validates
 `station.json` against the shape (design §4, §9) — `validateConfig` runs
 at `open()`, not only under test. JSON parsing borrows sekreto's own
-`Json.java`. Nothing else is added.
+`Json.java`, which reads whatever it can, so `station.json` is first
+checked against RFC 8259 by a small strict reader in this port: a file
+that is not JSON is `station_config_invalid`, not a config. Nothing
+else is added.
 
 Neither is published yet, so `make` finds them the way this port already
 found voxgig/omni: `SEKRETO_HOME` / `STRUCT_HOME`, then `../../struct`,

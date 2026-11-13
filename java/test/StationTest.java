@@ -1633,6 +1633,28 @@ public final class StationTest {
       }
     });
 
+    testcase("parseConfig: a text sekreto's reader would accept is refused unless it is JSON", () -> {
+      for (String bad : List.of(
+          "{\"station\": 1,", "{\"station\": 1}}", "{ not json", "[1,2", "[1,]",
+          "{\"a\": 01}", "{\"a\": 1.}", "{\"a\": .5}", "{\"a\": \"\\q\"}",
+          "{\"a\": \"\\u12g4\"}", "{\"a\": \"\u0001\"}", "{\"a\" 1}", "{a: 1}",
+          "{\"a\": tru}", "", "  ", "\ufeff{}", "[".repeat(600) + "]".repeat(600))) {
+        try {
+          Profile.parseConfig(bad, null);
+          check(false, "refused: " + bad);
+        } catch (StationError err) {
+          checkeq(err.code, "station_config_invalid", "code for " + bad);
+          check(err.getMessage().startsWith(
+              "station_config_invalid: station.json is not valid JSON: "), err.getMessage());
+        }
+      }
+      Map<String, Object> good = Profile.parseConfig("{\"station\": 1, \"profiles\": {"
+          + "\"default\": {\"n\": [-0.5E-3, 1e5, 0, true, false, null, {}, []],"
+          + " \"s\": \"\\u00e9\\n\\\"\\/\"}}}", null);
+      checkeq(Descriptor.getprop(Descriptor.getprop(Descriptor.getprop(good, "profiles"),
+          "default"), "s"), "\u00e9\n\"/", "valid JSON still decodes as before");
+    });
+
     testcase("open: `package` is warned about once per api, never honoured", () -> {
       Station st = memoryStation(map(),
           map("pad", map(), "pad$eu", map()),

@@ -84,6 +84,7 @@ public final class Profile {
           where + " has an unpaired surrogate escape in " + literal);
     }
     try {
+      StrictJson.check(text);
       return Descriptor.asmap(Json.parse(text));
     } catch (RuntimeException err) {
       throw new StationError("station_config_invalid",

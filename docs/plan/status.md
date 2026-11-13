@@ -1,6 +1,6 @@
 # Status: where the next session starts
 
-Snapshot, **2026-11-12**. `main` is at `5fc9e31`. 0.2.0 is released on
+Snapshot, **2026-11-13**. `main` is at `79ce914`. 0.2.0 is released on
 every route, and `main` is ahead of it: the six pull requests of W1
 merged on 2026-11-11 and changed every port's source, and on 2026-11-12
 W5.1 (the proxy builds), W4.3 (the fixture SDKs), W2.1 (the carried
@@ -9,8 +9,9 @@ adapter's place), W2.2 (the Station out of the SDK's options), W2.4
 event's whole URL) and W2.3 (the scrub reaches a transport error's
 chain) merged, which completes W2a, and from W2b, W2.6 (one `op` event
 per operation), W2.7 (the policy's hostname), W2.8 (the event's host),
-W2.9 (unpaired surrogate escapes), W2.10 (the kill switch) and W2.12
-(the list form of `options.feature`). The seven
+W2.9 (unpaired surrogate escapes), W2.10 (the kill switch), W2.12
+(the list form of `options.feature`) and, on 2026-11-13, W2.13 (the
+declared feature order). The seven
 decisions were ruled on 2026-11-11. The register
 in [`progress.md`](progress.md) is the per-item authority, and
 [`upstream.md`](upstream.md) tracks what other repositories owe. This
@@ -104,12 +105,10 @@ passing; CI runs them once the fixture lane's patch is applied.
 
 ## In flight
 
-W2.13, in review: the declarative path hands the constructor the
-resolved order as sdkgen's list, in init order, in all eleven ports
-that have it, and `create()`'s per-call features join the §8.3 merge.
-Every port had handed over a map, which the generated `makeOptions`
-orders by name. W2.14 and W2.15, found during W2.9, have no issue filed
-yet.
+W2.14, in review: java refuses a `station.json` that is not JSON,
+with a strict reader of its own ahead of sekreto's, and the corpus
+case W2.9 held back is in. W2.15, found during W2.9, has no issue
+filed yet.
 
 
 ## Pick this up first
