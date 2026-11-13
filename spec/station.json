@@ -1520,6 +1520,22 @@
        },
        "station": 1
       }
+     },
+     {
+      "doc": true,
+      "err": "station_config_invalid: station.json is not valid JSON",
+      "id": "config#text-not-json",
+      "in": "{\"station\": 1,"
+     },
+     {
+      "err": "station_config_invalid: station.json is not valid JSON",
+      "id": "config#text-trailing-text-is-not-json",
+      "in": "{\"station\": 1}}"
+     },
+     {
+      "err": "station_config_invalid: station.json is not valid JSON",
+      "id": "config#text-a-bare-word-is-not-json",
+      "in": "{ not json"
      }
     ]
    },

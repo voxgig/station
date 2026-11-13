@@ -57,7 +57,9 @@ what `sdk(name)`, `create`, and a named `connect`, `adopt` or
 `config` is the §4.2 pipeline, normalize then validate. An entry whose
 `in` is a string is a `station.json` text rather than a parsed config:
 the port reads it with the same function that reads the file, which is
-where an unpaired surrogate escape is refused before decoding. One of
+where an unpaired surrogate escape is refused before decoding, and a
+text that is not JSON is refused at all, however much of it a lenient
+decoder could read. One of
 those entries spells its expected value with a raw UTF-8 character
 rather than an escape, on purpose: omni's rust, c and cpp runners, at
 the commit CI pins, decode each `\u` escape on its own, so an escaped
