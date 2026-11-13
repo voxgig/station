@@ -19,6 +19,7 @@ use Voxgig::Station::Factory qw(provide reset_factories);
 # an inert `base` feature. The wire answers one status per attempt.
 our @STATUSES;
 our @SENT;
+our @CALLS;
 
 our $CONFIG = {
     main    => { name => 'taskpad', slug => 'taskpad', version => '1.0.0', target => 'perl' },
@@ -42,6 +43,7 @@ our $CONFIG = {
         }
         elsif ( 'retry' eq $self->{name} ) {
             $ctx->{utility}{fetcher} = sub {
+                push @main::CALLS, 'retry';
                 my ( $res, $err ) = $inner->(@_);
                 for ( 1 .. 2 ) {
                     last if defined $err || 503 != $res->{status};
@@ -51,7 +53,8 @@ our $CONFIG = {
             };
         }
         else {
-            $ctx->{utility}{fetcher} = sub { return $inner->(@_) };
+            my $name = $self->{name};
+            $ctx->{utility}{fetcher} = sub { push @main::CALLS, $name; return $inner->(@_) };
         }
         return;
     }
@@ -99,7 +102,13 @@ sub feature_add {
 
     sub new {
         my ( $class, $options ) = @_;
-        my $fmap = ref( $options->{feature} ) eq 'HASH' ? $options->{feature} : {};
+
+        # A list is init order as given; a hash is ordered as above.
+        my $listed = ref( $options->{feature} ) eq 'ARRAY' ? $options->{feature} : undef;
+        my $fmap =
+            $listed ? { map { my %e = %$_; delete $e{name}; ( $_->{name} => \%e ) } @$listed }
+          : ref( $options->{feature} ) eq 'HASH' ? $options->{feature}
+          :                                       {};
         my $self = bless {
             mode     => ( ( $fmap->{test} || {} )->{active} ? 'test' : 'live' ),
             features => [],
@@ -120,7 +129,7 @@ sub feature_add {
             config  => $CONFIG,
         };
 
-        for my $fname ( main::featureorder($fmap) ) {
+        for my $fname ( $listed ? map { $_->{name} } @$listed : main::featureorder($fmap) ) {
             next unless ( $fmap->{$fname} || {} )->{active};
             my $known = exists $CONFIG->{feature}{$fname};
             main::feature_add( $self->{features}, PlacementFeature->new( $known ? $fname : 'base' ) );
@@ -168,6 +177,7 @@ sub fresh {
     my (@statuses) = @_;
     @STATUSES = @statuses;
     @SENT     = ();
+    @CALLS    = ();
     Voxgig::Station->reset;
     reset_factories();
     $ENV{TASKPAD_APIKEY} = 'taskpad-key';
@@ -263,6 +273,26 @@ subtest 'the declarative path places it the same way' => sub {
     $client->list;
     is( scalar @SENT, 2 );
     is_deeply( wire($st), [ [ 'http', 503 ], [ 'http', 200 ], [ 'op', 'ok' ] ] );
+    $st->close;
+};
+
+subtest 'a declared order the alphabet disagrees with reaches the wire' => sub {
+    fresh(200);
+    provide( 'taskpad', { construct => sub { PlacementSDK->new(@_) }, config => $CONFIG } );
+    my $feature = { retry => {}, cache => { order => { before => 'retry' } } };
+    my $st      = Voxgig::Station->new(
+        {
+            config => {
+                station  => 1,
+                profiles => { default => { sdk => { taskpad => { feature => $feature } } } },
+            },
+        }
+    );
+    my $client = $st->sdk('taskpad');
+
+    is_deeply( names($client), [qw(station retry cache)] );
+    $client->list;
+    is_deeply( \@CALLS, [qw(cache retry)], 'cache wraps retry' );
     $st->close;
 };
 

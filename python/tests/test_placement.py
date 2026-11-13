@@ -36,6 +36,7 @@ def generated_sdk(slug, statuses):
         'entity': {},
     }
     sent = []
+    calls = []
 
     def wire(_ctx, url, _fetchdef):
         sent.append(url)
@@ -54,6 +55,7 @@ def generated_sdk(slug, statuses):
                 ctx.utility.fetcher = mock
             elif 'retry' == self.name:
                 def retry(c, url, fdef):
+                    calls.append('retry')
                     res, err = inner(c, url, fdef)
                     for _ in range(2):
                         if err is not None or 503 != res['status']:
@@ -62,7 +64,12 @@ def generated_sdk(slug, statuses):
                     return res, err
                 ctx.utility.fetcher = retry
             else:
-                ctx.utility.fetcher = lambda c, url, fdef: inner(c, url, fdef)
+                name = self.name
+
+                def passthrough(c, url, fdef):
+                    calls.append(name)
+                    return inner(c, url, fdef)
+                ctx.utility.fetcher = passthrough
 
     def featureorder(fmap):
         names = sorted(fmap.keys())
@@ -114,14 +121,19 @@ def generated_sdk(slug, statuses):
     class SDK:
         def __init__(self, options):
             self.options = dict(options or {})
-            fmap = self.options.get('feature') or {}
+            # A list is init order as given; a dict is ordered as above.
+            given = self.options.get('feature')
+            listed = given if isinstance(given, list) else None
+            fmap = given or {} if listed is None else {
+                f['name']: {k: v for k, v in f.items() if 'name' != k} for f in listed}
             self.mode = 'test' if (fmap.get('test') or {}).get('active') is True else 'live'
             self.features = []
             self.utility = Utility()
             self.ctx = Ctx(self, self.utility, self.options)
 
             extend = self.options.get('extend') or []
-            for fname in featureorder(fmap):
+            order = featureorder(fmap) if listed is None else [f['name'] for f in listed]
+            for fname in order:
                 if (fmap.get(fname) or {}).get('active') is True:
                     if fname not in config['feature'] and \
                             any(fname == getattr(f, 'name', None) for f in extend):
@@ -151,6 +163,7 @@ def generated_sdk(slug, statuses):
             return res
 
     SDK.config = config
+    SDK.calls = calls
     return SDK, config, sent
 
 
@@ -262,6 +275,21 @@ class TestCarriedAdapterPlacement(unittest.TestCase):
         self.assertEqual(2, len(sent))
         self.assertEqual([['http', 503], ['http', 200], ['op', 'ok']],
                          wire_events(st))
+        st.close()
+
+    def test_a_declared_order_the_alphabet_disagrees_with_reaches_the_wire(self):
+        SDK, config, _sent = generated_sdk('taskpad', [200])
+        provide('taskpad', {'construct': SDK, 'config': config})
+        st = Station({'config': {
+            'station': 1,
+            'profiles': {'default': {'sdk': {'taskpad': {'feature': {
+                'retry': {}, 'cache': {'order': {'before': 'retry'}}}}}}},
+        }})
+        client = st.sdk('taskpad')
+
+        self.assertEqual(['station', 'retry', 'cache'], names(client))
+        client.list()
+        self.assertEqual(['cache', 'retry'], SDK.calls, 'cache wraps retry')
         st.close()
 
 

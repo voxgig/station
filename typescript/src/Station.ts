@@ -9,7 +9,7 @@ import {
 import { FactoryEntry, factoryFor, provide } from './factory'
 import { loadAsync, loadSync } from './loader'
 import {
-  checkfeatures, checkpin, composefeatures, featuresources, mergefeatures,
+  checkfeatures, checkpin, composefeatures, featuremap, featuresources, mergefeatures,
   resolveorder,
 } from './feature'
 import { normalizeConfig, validateConfig } from './shape'
@@ -640,18 +640,14 @@ export class Station {
         faults.map((f) => f.message).join('; '))
     }
 
-    const resolved = this.featuresOf(name)
-    const fmap: { [k: string]: any } = {}
-    for (const f of composefeatures(
-      resolveorder(resolved.merged).filter((o) => 'station' !== o.name))) {
-      const { name: fname, ...rest } = f
-      fmap[fname] = rest
-    }
+    // §3.3 step 9: per-call features are the last source of the §8.3 merge.
+    const { station: own, ...extra } = featuremap((overrides || {}).feature)
+    const feature = composefeatures(
+      resolveorder(mergefeatures([this.featuresOf(name).merged, extra]))
+        .filter((o) => 'station' !== o.name))
+    if (null != own && 'object' === typeof own) { feature.push({ ...own, name: 'station' }) }
 
-    const opts = {
-      ...instanceOptions(block, overrides),
-      feature: { ...fmap, ...((overrides || {}).feature || {}) },
-    }
+    const opts = { ...instanceOptions(block, overrides), feature }
 
     if (null != as && as !== name) { this.aliasOf.set(as, name) }
 
@@ -660,8 +656,7 @@ export class Station {
       extend: [...((opts as any).extend || []), adapterFeature(this, opts)],
     }
 
-    // The instance name reaches the adapter the same way it does on the
-    // imperative path, so registration has one spelling (§7.5).
+    // The instance name reaches the adapter as on the imperative path (§7.5).
     return entry.construct(this.options(as ?? name, withAdapter))
   }
 
@@ -987,8 +982,6 @@ function withoutUserinfo(text: string): string {
   return text.slice(0, text.indexOf('://') + 3) + text.slice(at + 1)
 }
 
-// The activation entry rides in the SDK's options, which an app may
-// serialise: it carries a closure, never the Station, and no caller key.
 function stationOf(feature: any): any {
   if (!Array.isArray(feature)) { return feature?.station || {} }
   const { name: _name, ...own } = feature.find((f: any) => 'station' === f?.name) || {}
@@ -1006,6 +999,7 @@ function withStation(feature: any, own: any): any {
   return rest
 }
 
+// The activation entry rides in options an app may serialise: a closure, no key.
 function activation(station: Station, calleropts: any): any {
   return { active: true, station: () => station, calleropts: keyless(calleropts) }
 }

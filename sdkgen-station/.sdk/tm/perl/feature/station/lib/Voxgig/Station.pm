@@ -150,7 +150,7 @@ use Voxgig::Station::Descriptor qw(
 );
 use Voxgig::Station::Factory qw(factory_for);
 use Voxgig::Station::Feature qw(
-  checkfeatures checkpin composefeatures featuresources mergefeatures
+  checkfeatures checkpin composefeatures featuremap featuresources mergefeatures
   resolveorder
 );
 use Voxgig::Station::Loader qw(load_sync);
@@ -1189,45 +1189,36 @@ sub build {
             join( '; ', map { $_->{message} } @$faults ) );
     }
 
-    # 8.4: compose the merged feature map into the ORDERED form and hand
-    # it to the constructor. No new seam - it is the same
-    # `options.feature` map connect() already uses for station's own
-    # placement, with more in it.
+    # 8.4: compose the merged features into the ORDERED ARRAY FORM and
+    # hand it to the constructor. A hash would not carry the order: the
+    # generated make_options sorts one by name. Per-call features are the
+    # last source of the 8.3 merge (3.3 step 9), so the resolver orders
+    # them with the rest.
     #
     # Station's own entry is composed AFTER the user merge and always
     # wins, which is why `station` is dropped here and re-added by
     # options(): a config file that can switch off the component reading
     # it is not a surface, it is a trap. `feature.station` is already
     # station_feature_reserved at validation, so this is the second half
-    # of one rule rather than a second rule.
-    my $fmap = ordered_map();
-    for my $row (
-        @{
-            composefeatures(
-                [ grep { 'station' ne $_->{name} }
-                      @{ resolveorder( $resolved->{merged} ) } ]
-            )
-        }
-      )
-    {
-        my $fname = $row->{name};
-        my $rest  = ordered_map();
-        for my $key ( mapkeys($row) ) {
-            next if 'name' eq $key;
-            $rest->{$key} = $row->{$key};
-        }
-        $fmap->{$fname} = $rest;
+    # of one rule rather than a second rule. A caller's own per-call
+    # entry rides through to options(), as on connect().
+    my $overmap = ref($overrides) eq 'HASH' ? $overrides : {};
+    my $extra = ordered_map();
+    my $given = featuremap( $overmap->{feature} );
+    $extra->{$_} = $given->{$_} for grep { 'station' ne $_ } mapkeys($given);
+    my $feature = composefeatures(
+        [ grep { 'station' ne $_->{name} }
+              @{ resolveorder( mergefeatures( [ $resolved->{merged}, $extra ] ) ) } ]
+    );
+    if ( ref( $given->{station} ) eq 'HASH' ) {
+        my $own = ordered_map();
+        $own->{$_} = $given->{station}{$_} for mapkeys( $given->{station} );
+        $own->{name} = 'station';
+        push @$feature, $own;
     }
 
-    my $overmap = ref($overrides) eq 'HASH' ? $overrides : {};
     my $opts = instance_options( $block, $overmap );
-
-    my $overfeature =
-      ref( $overmap->{feature} ) eq 'HASH' ? $overmap->{feature} : {};
-    my $merged_feature = ordered_map();
-    $merged_feature->{$_} = $fmap->{$_}        for mapkeys($fmap);
-    $merged_feature->{$_} = $overfeature->{$_} for mapkeys($overfeature);
-    $opts->{feature} = $merged_feature;
+    $opts->{feature} = $feature;
 
     # RECORD THE ALIAS, NOT THE FIELDS. Carrying the declared `secret`
     # through the feature options and stopping there leaves `policy`,

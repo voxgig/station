@@ -815,6 +815,13 @@ PAD_CONFIG = {
 }
 
 
+def byname(feature):
+    """What a generated SDK reads from sdkgen's list form: entries by name."""
+    if not isinstance(feature, list):
+        return feature or {}
+    return {f['name']: {k: v for k, v in f.items() if 'name' != k} for f in feature}
+
+
 class FakeSDK:
     def __init__(self, options):
         self.options = dict(options)
@@ -823,7 +830,7 @@ class FakeSDK:
         self.log = []
         self.utility = FakeUtility(base_fetcher(self.log))
         ctx = FakeCtx(self, self.utility, self.options, self.config)
-        fopts = (self.options.get('feature') or {}).get('station') or {}
+        fopts = byname(self.options.get('feature')).get('station') or {}
         for f in self.options.get('extend') or []:
             self.features.append(f)
             f.init(ctx, fopts)
@@ -1030,7 +1037,7 @@ class TestLoaderImport(unittest.TestCase):
         # The instance name reaches the constructor the same way it does
         # on the imperative path, so registration has one spelling.
         self.assertEqual(
-            'pad', client.options['feature']['station']['instance'])
+            'pad', byname(client.options['feature'])['station']['instance'])
         st.close()
 
     def test_load_preloads_the_declared_packages(self):
@@ -1134,19 +1141,44 @@ class TestDeclarative(unittest.TestCase):
                          st.sdk('pad$eu').options['apikey'])
         st.close()
 
-    def test_the_composed_feature_map_is_ordered_and_station_free(self):
+    def test_the_composed_features_are_init_ordered_with_station_placed(self):
         st = Station({'config': cfg(sdk={'pad': {'feature': {
             'retry': {'retries': 3},
             'ratelimit': {'order': {'after': 'retry'}},
         }}})})
         client = st.sdk('pad')
-        fmap = client.options['feature']
-        # `station` is composed by options(), after the user merge, so
-        # it is never taken from the config's own map.
-        self.assertEqual(['retry', 'ratelimit', 'station'], list(fmap.keys()))
+        listed = client.options['feature']
+        fmap = byname(listed)
+        # Init order, innermost first: ratelimit inside retry. `station`
+        # is composed by options(), after the user merge, in its place.
+        self.assertEqual(['station', 'ratelimit', 'retry'], [f['name'] for f in listed])
         self.assertEqual({'active': True, 'retries': 3}, fmap['retry'])
-        # RESERVED_KEYS never reach the SDK's option map.
+        # RESERVED_KEYS never reach the SDK's options.
         self.assertNotIn('order', fmap['ratelimit'])
+        st.close()
+
+    def test_a_constraint_the_alphabet_disagrees_with_decides_the_order(self):
+        st = Station({'config': cfg(sdk={'pad': {'feature': {
+            'retry': {},
+            'ratelimit': {'order': {'before': 'retry'}},
+        }}})})
+        names = [f['name'] for f in st.sdk('pad').options['feature']]
+        # ratelimit outside retry, so retry initialises first; a dict would
+        # have been sorted by name, putting ratelimit inside.
+        self.assertEqual(['station', 'retry', 'ratelimit'], names)
+        st.close()
+
+    def test_create_feature_overrides_are_the_last_source_of_the_merge(self):
+        st = Station({'config': cfg(sdk={'pad': {'feature': {
+            'retry': {'retries': 2}}}})})
+        tuned = st.create('pad', {'feature': {'retry': {'retries': 5},
+                                              'ratelimit': {'order': {'before': 'retry'}}}})
+        self.assertEqual({'active': True, 'retries': 5},
+                         byname(tuned.options['feature'])['retry'])
+        self.assertEqual(['station', 'retry', 'ratelimit'],
+                         [f['name'] for f in tuned.options['feature']])
+        listed = st.create('pad', {'feature': [{'name': 'retry', 'retries': 7}]})
+        self.assertEqual(7, byname(listed.options['feature'])['retry']['retries'])
         st.close()
 
     def test_an_unknown_feature_option_fails_the_build(self):

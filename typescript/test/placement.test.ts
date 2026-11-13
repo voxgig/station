@@ -22,6 +22,7 @@ function generatedSDK(slug: string, statuses: number[]) {
   }
 
   const sent: string[] = []
+  const calls: string[] = []
   const wire = async (_ctx: any, url: string) => {
     sent.push(url)
     return { status: statuses[sent.length - 1] ?? 200, headers: { get: () => null } }
@@ -36,13 +37,17 @@ function generatedSDK(slug: string, statuses: number[]) {
       }
       else if ('retry' === name) {
         ctx.utility.fetcher = async (c: any, url: string, def: any) => {
+          calls.push(name)
           let res = await inner(c, url, def)
           for (let i = 0; i < 2 && 503 === res.status; i++) { res = await inner(c, url, def) }
           return res
         }
       }
       else {
-        ctx.utility.fetcher = async (c: any, url: string, def: any) => inner(c, url, def)
+        ctx.utility.fetcher = async (c: any, url: string, def: any) => {
+          calls.push(name)
+          return inner(c, url, def)
+        }
       }
     },
   })
@@ -77,12 +82,19 @@ function generatedSDK(slug: string, statuses: number[]) {
     _ctx: any
 
     constructor(options: any) {
-      const opts = { ...options, feature: options?.feature || {} }
+      // A list is init order as given; a map is ordered as above.
+      const list = Array.isArray(options?.feature) ? options.feature : null
+      const opts = {
+        ...options,
+        feature: null == list ? options?.feature || {}
+          : Object.fromEntries(list.map(({ name, ...rest }: any) => [name, rest])),
+      }
       this._ctx = { client: this, utility: { fetcher: wire }, options: opts, config }
       if (true === opts.feature.test?.active) { this._mode = 'test' }
 
       const extend = opts.extend || []
-      for (const fname of featureorder(opts.feature)) {
+      const order = null == list ? featureorder(opts.feature) : list.map((f: any) => f.name)
+      for (const fname of order) {
         if (opts.feature[fname]?.active) {
           if (null == config.feature[fname] && extend.some((f: any) => fname === f.name)) {
             continue
@@ -109,7 +121,7 @@ function generatedSDK(slug: string, statuses: number[]) {
     }
   }
 
-  return { SDK, config, sent }
+  return { SDK, config, sent, calls }
 }
 
 function names(client: any): string[] {
@@ -214,6 +226,22 @@ describe('the carried adapter in a generated constructor', () => {
     await client.list()
     equal(sent.length, 2)
     deepStrictEqual(wire(station), [['http', 503], ['http', 200], ['op', 'ok']])
+    station.close()
+  })
+
+  test('a declared order the alphabet disagrees with reaches the wire', async () => {
+    resetFactories()
+    const { SDK, config, calls } = generatedSDK('taskpad', [200])
+    provide('taskpad', { construct: (o: any) => new SDK(o), config })
+    const feature = { retry: {}, cache: { order: { before: 'retry' } } }
+    const station = new Station({
+      config: { station: 1, profiles: { default: { sdk: { taskpad: { feature } } } } },
+    })
+    const client = station.sdk('taskpad')
+
+    deepStrictEqual(names(client), ['station', 'retry', 'cache'])
+    await client.list()
+    deepStrictEqual(calls, ['cache', 'retry'], 'cache wraps retry')
     station.close()
   })
 })

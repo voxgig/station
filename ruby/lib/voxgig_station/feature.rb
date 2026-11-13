@@ -144,8 +144,8 @@ module VoxgigStation
   # hashes iterate in insertion order, so the corpus's authored key order
   # is the declaration order.
   #
-  # Returns OUTERMOST FIRST, which is the array form the constructor
-  # takes and the direction plugin's chain composes in.
+  # Returns OUTERMOST FIRST, the direction plugin's chain composes in;
+  # compose_features turns it into the constructor's init order.
   def resolve_order(merged)
     merged = {} unless merged.is_a?(Hash)
     names = merged.keys.select { |n| feature_active?(merged[n]) }
@@ -230,9 +230,9 @@ module VoxgigStation
       'orderable (§8.4)')
   end
 
-  # Compose the merged map into the ORDERED ARRAY FORM the constructor
-  # takes. No new seam: it is what connect() already does for station's
-  # own placement, with more in it.
+  # Compose the resolved order into the ARRAY FORM the constructor takes.
+  # The resolver runs outermost first; the array is init order, innermost
+  # first, because each wrapper wraps what the earlier ones left.
   def compose_features(ordered)
     ordered.map do |o|
       entry = o['entry'].is_a?(Hash) ? o['entry'] : {}
@@ -243,6 +243,17 @@ module VoxgigStation
         out[k] = v
       end
       out
+    end.reverse
+  end
+
+  # sdkgen's ordered list form of options['feature'], or a map, as a map.
+  def feature_map(feature)
+    return (feature.is_a?(Hash) ? feature : {}) unless feature.is_a?(Array)
+
+    feature.each_with_object({}) do |f, out|
+      next unless f.is_a?(Hash) && f['name'].is_a?(String)
+
+      out[f['name']] = f.reject { |k, _| 'name' == k }
     end
   end
 

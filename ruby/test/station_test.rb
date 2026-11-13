@@ -160,6 +160,13 @@ SOLAR_CONFIG = {
   'entity' => {},
 }.freeze
 
+# What a generated SDK reads from sdkgen's list form: the entries by name.
+def byname(feature)
+  return feature || {} unless feature.is_a?(Array)
+
+  feature.to_h { |f| [f['name'], f.reject { |k, _| 'name' == k }] }
+end
+
 class SolarSDK
   attr_reader :options, :client, :utility, :ctx
 
@@ -171,7 +178,7 @@ class SolarSDK
     @client.options = options
     @ctx = FakeCtx.new(@client, @utility, options, SOLAR_CONFIG)
 
-    fopts = (options['feature'] || {})['station'] || {}
+    fopts = byname(options['feature'])['station'] || {}
     (options['extend'] || []).each do |f|
       @client.features << f
       f.init(@ctx, fopts)
@@ -188,7 +195,7 @@ class SelfSolarSDK < FakeClient
     utility = FakeUtility.new
     utility.fetcher = ->(_c, _u, _d) { [{ 'status' => 200 }, nil] }
     ctx = FakeCtx.new(self, utility, options, SOLAR_CONFIG)
-    fopts = (options['feature'] || {})['station'] || {}
+    fopts = byname(options['feature'])['station'] || {}
     (options['extend'] || []).each do |f|
       @features << f
       f.init(ctx, fopts)
@@ -1287,11 +1294,40 @@ class TestStation < Minitest::Test
     } } })
 
     client = st.sdk('solar')
-    fmap = client.options['feature']
+    listed = client.options['feature']
+    fmap = byname(listed)
 
-    assert_equal ['retry', 'debug', 'station'], fmap.keys
+    # Init order, innermost first: debug inside retry, station placed.
+    assert_equal ['station', 'debug', 'retry'], listed.map { |f| f['name'] }
     assert_equal({ 'active' => true, 'max' => 3 }, fmap['retry'])
     assert_equal true, fmap['station']['active']
+  end
+
+  # A hash would have been sorted by name by the generated make_options.
+  def test_a_constraint_the_alphabet_disagrees_with_decides_the_order
+    VoxgigStation::Station.provide('solar', SOLAR_FACTORY)
+    st = solar_station('sdk' => { 'solar' => { 'feature' => {
+      'retry' => {}, 'debug' => { 'order' => { 'after' => 'retry' } },
+    } } })
+
+    assert_equal ['station', 'debug', 'retry'],
+      st.sdk('solar').options['feature'].map { |f| f['name'] }
+  end
+
+  def test_create_feature_overrides_are_the_last_source_of_the_merge
+    VoxgigStation::Station.provide('solar', SOLAR_FACTORY)
+    st = solar_station('sdk' => { 'solar' => { 'feature' => {
+      'retry' => { 'max' => 2 },
+    } } })
+
+    tuned = st.create('solar', 'feature' => {
+      'retry' => { 'max' => 5 }, 'debug' => { 'order' => { 'before' => 'retry' } },
+    })
+    assert_equal({ 'active' => true, 'max' => 5 }, byname(tuned.options['feature'])['retry'])
+    assert_equal ['station', 'retry', 'debug'], tuned.options['feature'].map { |f| f['name'] }
+
+    listed = st.create('solar', 'feature' => [{ 'name' => 'retry', 'max' => 7 }])
+    assert_equal 7, byname(listed.options['feature'])['retry']['max']
   end
 
   # --- features_of and the fleet view (design station.md 8.7) ---

@@ -20,7 +20,7 @@ const {
 const { factoryFor, provide } = require('./factory')
 const { loadAsync, loadSync } = require('./loader')
 const {
-  checkfeatures, checkpin, composefeatures, featuresources, mergefeatures,
+  checkfeatures, checkpin, composefeatures, featuremap, featuresources, mergefeatures,
   resolveorder,
 } = require('./feature')
 const { normalizeConfig, validateConfig } = require('./shape')
@@ -854,30 +854,26 @@ class Station {
         faults.map((f) => f.message).join('; '))
     }
 
-    // §8.4: compose the merged feature map into the ORDERED form and
-    // hand it to the constructor. No new seam - it is the same
-    // `options.feature` map `connect()` already uses for station's own
-    // placement, with more in it, and a JS object preserves the
-    // insertion order of string keys so the order rides the map.
+    // §8.4: compose the merged features into the ORDERED ARRAY FORM and
+    // hand it to the constructor. A map would not carry the order: the
+    // generated makeOptions sorts one by name. Per-call features are the
+    // last source of the §8.3 merge (§3.3 step 9), so the resolver orders
+    // them with the rest.
     //
     // Station's own entry is composed AFTER the user merge and always
     // wins (§8.4), which is why `station` is dropped here and added by
     // `options()`: a config file that can switch off the component
     // reading it is not a surface, it is a trap. `feature.station` is
     // already `station_feature_reserved` at validation, so this is the
-    // second half of one rule rather than a second rule.
-    const resolved = this.featuresOf(name)
-    const fmap = {}
-    for (const f of composefeatures(
-      resolveorder(resolved.merged).filter((o) => 'station' !== o.name))) {
-      const { name: fname, ...rest } = f
-      fmap[fname] = rest
-    }
+    // second half of one rule rather than a second rule. A caller's own
+    // per-call entry rides through to `options()`, as on `connect()`.
+    const { station: own, ...extra } = featuremap((overrides || {}).feature)
+    const feature = composefeatures(
+      resolveorder(mergefeatures([this.featuresOf(name).merged, extra]))
+        .filter((o) => 'station' !== o.name))
+    if (null != own && 'object' === typeof own) { feature.push({ ...own, name: 'station' }) }
 
-    const opts = {
-      ...instanceOptions(block, overrides),
-      feature: { ...fmap, ...((overrides || {}).feature || {}) },
-    }
+    const opts = { ...instanceOptions(block, overrides), feature }
 
     // §5.3, and `create`'s own doc comment: "the SECRET NAME does not
     // follow the assigned tag: it resolves from the DECLARED instance
@@ -1326,8 +1322,6 @@ function withoutUserinfo(text) {
   return text.slice(0, text.indexOf('://') + 3) + text.slice(at + 1)
 }
 
-// The activation entry rides in the SDK's options, which an app may
-// serialise: it carries a closure, never the Station, and no caller key.
 function stationOf(feature) {
   if (!Array.isArray(feature)) { return feature?.station || {} }
   const { name: _name, ...own } = feature.find((f) => 'station' === f?.name) || {}
@@ -1345,6 +1339,8 @@ function withStation(feature, own) {
   return rest
 }
 
+// The activation entry rides in the SDK's options, which an app may
+// serialise: it carries a closure, never the Station, and no caller key.
 function activation(station, calleropts) {
   return { active: true, station: () => station, calleropts: keyless(calleropts) }
 }

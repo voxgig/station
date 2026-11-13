@@ -1003,7 +1003,14 @@ func (st *Station) Build(name string, as string, overrides map[string]any) (
 		return nil, fail(faults[0].Code, FaultMessages(faults))
 	}
 
-	rows, err := ResolveOrder(resolved.Merged, resolved.Declared)
+	// Per-call features join the §8.3 merge last (§3.3 step 9). A map
+	// would not carry the order: the generated makeOptions sorts one.
+	extra, extraOrder := FeatureMap(overrides["feature"])
+	own := extra["station"]
+	delete(extra, "station")
+	sources := []map[string]any{resolved.Merged, extra}
+	rows, err := ResolveOrder(MergeFeatures(sources),
+		MergeFeatureOrder(sources, [][]string{resolved.Declared, extraOrder}))
 	if nil != err {
 		return nil, err
 	}
@@ -1013,23 +1020,21 @@ func (st *Station) Build(name string, as string, overrides map[string]any) (
 			kept = append(kept, row)
 		}
 	}
-	fmap := map[string]any{}
+	feature := []any{}
 	for _, one := range ComposeFeatures(kept) {
-		fname := asString(one["name"])
-		rest := map[string]any{}
-		for k, v := range one {
-			if "name" != k {
-				rest[k] = v
-			}
+		feature = append(feature, one)
+	}
+	if ownmap, is := own.(map[string]any); is {
+		entry := map[string]any{}
+		for k, v := range ownmap {
+			entry[k] = v
 		}
-		fmap[fname] = rest
+		entry["name"] = "station"
+		feature = append(feature, entry)
 	}
 
 	opts := InstanceOptions(block, overrides)
-	for k, v := range asMap(overrides["feature"]) {
-		fmap[k] = v
-	}
-	opts["feature"] = fmap
+	opts["feature"] = feature
 
 	registerAs := name
 	if "" != as && as != name {

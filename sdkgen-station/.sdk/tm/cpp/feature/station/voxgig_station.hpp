@@ -2260,8 +2260,8 @@ inline std::vector<std::string> listof(const Jval& v) {
 // remaining ties break by DECLARATION POSITION, so the result is a
 // stable topological sort with no alphabetical accident in it.
 //
-// Returns OUTERMOST FIRST, which is the array form the constructor
-// takes and the direction the chain composes in.
+// Returns OUTERMOST FIRST, the direction the chain composes in;
+// compose_features turns it into the constructor's init order.
 inline std::vector<Ordered> resolve_order(const Jval& merged) {
   std::vector<std::string> names;
   for (const auto& kv : merged.mval) {
@@ -2403,9 +2403,11 @@ inline void check_pin(const std::vector<Ordered>& ordered) {
   }
 }
 
-// Compose the ordered rows into the ARRAY FORM the generated
-// constructor already accepts. Reserved keys are not options and are
-// never passed through to the SDK's own option map.
+// Compose the resolved order into the ARRAY FORM the generated
+// constructor takes. Reserved keys are not options and are never passed
+// through to the SDK's own option map. The resolver runs outermost
+// first; the array is init order, innermost first, because each wrapper
+// wraps what the earlier ones left.
 inline Jval compose_features(const std::vector<Ordered>& ordered) {
   Jval out = Jval::list();
   for (const auto& row : ordered) {
@@ -2422,6 +2424,27 @@ inline Jval compose_features(const std::vector<Ordered>& ordered) {
       }
     }
     out.push(entry);
+  }
+  std::reverse(out.lval.begin(), out.lval.end());
+  return out;
+}
+
+// sdkgen's ordered list form of options.feature, or a map, as a map.
+inline Jval feature_map(const Jval& feature) {
+  if (!feature.islist()) {
+    return feature.ismap() ? feature : Jval::map();
+  }
+  Jval out = Jval::map();
+  for (const auto& item : feature.lval) {
+    if (item.ismap() && item.get("name").isstr()) {
+      Jval entry = Jval::map();
+      for (const auto& kv : item.mval) {
+        if ("name" != kv.first) {
+          entry.set(kv.first, kv.second);
+        }
+      }
+      out.set(item.get("name").sval, entry);
+    }
   }
   return out;
 }
@@ -4569,40 +4592,39 @@ class Station {
       throw StationError(faults[0].code, fault_messages(faults));
     }
 
-    // Compose the merged map into the ordered form the constructor
-    // takes. Station's own entry is composed AFTER the user merge and
-    // always wins, which is why `station` is dropped here and re-added
-    // by options_for: a config file that can switch off the component
-    // reading it is not a surface, it is a trap. `feature.station` is
-    // already station_feature_reserved at validation, so this is the
-    // second half of one rule rather than a second rule.
+    // §8.4: the merged features reach the constructor as sdkgen's
+    // ordered list, since a generated constructor sorts a map by name.
+    // Per-call features are the last source of the §8.3 merge (§3.3 step
+    // 9), so the resolver orders them with the rest. Station's own entry
+    // is composed AFTER the user merge and always wins, which is why
+    // `station` is dropped here and re-added by options_for: a config
+    // file that can switch off the component reading it is not a
+    // surface, it is a trap. A caller's own per-call entry rides through.
+    Jval given = feature_map(overrides.ismap() ? overrides.get("feature") : Jval::absent());
+    Jval extra = Jval::map();
+    for (const auto& kv : given.mval) {
+      if ("station" != kv.first) {
+        extra.set(kv.first, kv.second);
+      }
+    }
     std::vector<Ordered> rows;
-    for (const auto& row : resolve_order(resolved.merged)) {
+    for (const auto& row : resolve_order(merge_features({resolved.merged, extra}))) {
       if ("station" != row.name) {
         rows.push_back(row);
       }
     }
-    Jval fmap = Jval::map();
-    for (const auto& composed : compose_features(rows).lval) {
-      Jval rest = Jval::map();
-      for (const auto& kv : composed.mval) {
-        if ("name" != kv.first) {
-          rest.set(kv.first, kv.second);
-        }
+    Jval feature = compose_features(rows);
+    if (given.get("station").ismap()) {
+      Jval own = Jval::map();
+      for (const auto& kv : given.get("station").mval) {
+        own.set(kv.first, kv.second);
       }
-      fmap.set(composed.get("name").str_or(""), rest);
+      own.set("name", Jval::str("station"));
+      feature.push(own);
     }
 
     Jval opts = instance_options(block, overrides);
-    if (overrides.ismap()) {
-      Jval ofeature = overrides.get("feature");
-      if (ofeature.ismap()) {
-        for (const auto& kv : ofeature.mval) {
-          fmap.set(kv.first, kv.second);
-        }
-      }
-    }
-    opts.set("feature", fmap);
+    opts.set("feature", feature);
 
     // RECORD THE ALIAS, NOT THE FIELDS. Carrying the declared `secret`
     // through the feature options and stopping there leaves `policy`,

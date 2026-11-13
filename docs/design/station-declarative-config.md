@@ -1589,6 +1589,12 @@ instance, applied one level down — and it runs across all six sources in
 5. overlay profile — `api.<slug>.feature`
 6. overlay profile — `sdk.<name>.feature`
 
+Per-call features, the `feature` of `create(name, overrides)`, are a
+seventh source above all six (§3.3 step 9), merged the same way, so a
+per-call key tunes a declared entry without replacing it, and the
+resolver places what the call adds. Either form is read, a map or
+sdkgen's list by entry name.
+
 Same principle as §3.3: profile specificity outranks block specificity,
 and within a profile the narrower block wins. Same defaults-after-merge
 rule too — a `feature` entry mentioned at one level with only a tuning
@@ -1600,11 +1606,12 @@ because it is the §3.3 defect one level down.
 
 Station composes the merged feature map into the **ordered array form**
 and hands it to the constructor. No new seam: the generated
-`makeOptions` already takes that form. Not yet so: the declarative path
-hands over a map, which `makeOptions` orders by name (W2.13 in
-`docs/plan/progress.md`). `connect()`, `adopt()` and `options()` do take
-the array form from a caller, and put station's entry in its pinned
-place in it: after `test`, or first.
+`makeOptions` already takes that form, and a map would not do, because
+`makeOptions` orders a map by name. The array is init order, innermost
+first: the reverse of the resolved onion, which runs outermost first,
+the direction plugin's chain composes in. `connect()`, `adopt()` and
+`options()` take the array form from a caller too, and put station's
+entry in its pinned place in it: after `test`, or first.
 
 Order matters only for the features that wrap the transport, and it
 matters a lot — nesting decides whether a cache hit skips a retry or

@@ -3624,6 +3624,34 @@ static const vxstn_val* station_entry_of(const vxstn_val* feature) {
   return vxstn_is_map(feature) ? vxstn_getk(feature, "station") : NULL;
 }
 
+/* sdkgen's ordered list form of options.feature, or a map, as a map
+   without the entry named `skip`. Owned. */
+static vxstn_val* feature_map_without(const vxstn_val* feature, const char* skip) {
+  vxstn_val* out = vxstn_map();
+  size_t i, k;
+  for (k = 0; vxstn_is_map(feature) && k < feature->mlen; k++) {
+    if (0 != strcmp(skip, feature->keys[k])) {
+      vxstn_map_set(out, feature->keys[k], vxstn_clone(feature->vals[k]));
+    }
+  }
+  for (i = 0; vxstn_is_list(feature) && i < feature->len; i++) {
+    const vxstn_val* item = feature->items[i];
+    const char* name = vxstn_strval(vxstn_map_get(item, "name"));
+    vxstn_val* entry;
+    if (!vxstn_is_map(item) || '\0' == name[0] || 0 == strcmp(skip, name)) {
+      continue;
+    }
+    entry = vxstn_map();
+    for (k = 0; k < item->mlen; k++) {
+      if (0 != strcmp("name", item->keys[k])) {
+        vxstn_map_set(entry, item->keys[k], vxstn_clone(item->vals[k]));
+      }
+    }
+    vxstn_map_set(out, name, entry);
+  }
+  return out;
+}
+
 /* A list is init order as given, so station takes its pinned place
    itself: right after test, or first. Takes entry; owned. */
 static vxstn_val* with_station(const vxstn_val* feature, vxstn_val* entry) {
@@ -4088,9 +4116,10 @@ static void* build(vxstn_station* st, const char* name, const char* as,
   vxstn_val* faults;
   vxstn_val* ordered;
   vxstn_val* composed;
-  vxstn_val* fmap;
+  vxstn_val* feature;
   vxstn_val* opts;
   vxstn_val* options;
+  const vxstn_val* given;
   char* api;
   void* client;
   size_t i;
@@ -4172,14 +4201,25 @@ static void* build(vxstn_station* st, const char* name, const char* as,
   }
   vxstn_val_free(faults);
 
-  /* design 8.4: compose the merged map into the ORDERED form and hand
-     it to the constructor. Station's own entry is composed AFTER the
-     user merge and always wins, which is why `station` is dropped here
-     and re-added by vxstn_options: a config file that can switch off
-     the component reading it is not a surface, it is a trap.
-     feature.station is already station_feature_reserved at validation,
-     so this is the second half of one rule rather than a second rule. */
-  ordered = vxstn_resolve_order(vxstn_map_get(resolved, "merged"), err);
+  /* design 8.4: compose the merged features into the ORDERED ARRAY FORM
+     and hand it to the constructor; a generated make_options sorts a map
+     by name. Per-call features are the last source of the 8.3 merge (3.3
+     step 9), so the resolver orders them with the rest. Station's own
+     entry is composed AFTER the user merge and always wins, which is why
+     `station` is dropped here and re-added by vxstn_options: a config
+     file that can switch off the component reading it is not a surface,
+     it is a trap. A caller's own per-call entry rides through. */
+  given = vxstn_getk(overrides, "feature");
+  {
+    vxstn_val* sources = vxstn_list();
+    vxstn_val* merged;
+    vxstn_list_push(sources, vxstn_clone(vxstn_map_get(resolved, "merged")));
+    vxstn_list_push(sources, feature_map_without(given, "station"));
+    merged = vxstn_merge_features(sources);
+    vxstn_val_free(sources);
+    ordered = vxstn_resolve_order(merged, err);
+    vxstn_val_free(merged);
+  }
   if (NULL == ordered) {
     vxstn_val_free(resolved);
     return NULL;
@@ -4187,34 +4227,21 @@ static void* build(vxstn_station* st, const char* name, const char* as,
   composed = vxstn_compose_features(ordered);
   vxstn_val_free(ordered);
 
-  fmap = vxstn_map();
+  feature = vxstn_list();
   for (i = 0; i < composed->len; i++) {
-    const vxstn_val* row = composed->items[i];
-    const char* fname = vxstn_strval(vxstn_map_get(row, "name"));
-    vxstn_val* body = vxstn_map();
-    size_t k;
-    if (0 == strcmp("station", fname)) {
-      continue;
+    if (!feature_named(composed->items[i], "station")) {
+      vxstn_list_push(feature, vxstn_clone(composed->items[i]));
     }
-    for (k = 0; k < row->mlen; k++) {
-      if (0 == strcmp("name", row->keys[k])) {
-        continue;
-      }
-      vxstn_map_set(body, row->keys[k], vxstn_clone(row->vals[k]));
-    }
-    vxstn_map_set(fmap, fname, body);
   }
   vxstn_val_free(composed);
+  if (vxstn_is_map(station_entry_of(given))) {
+    vxstn_val* own = vxstn_clone(station_entry_of(given));
+    vxstn_map_set(own, "name", vxstn_str("station"));
+    vxstn_list_push(feature, own);
+  }
 
   opts = vxstn_instance_options(block, overrides);
-  {
-    const vxstn_val* overfeature = vxstn_getk(overrides, "feature");
-    size_t k;
-    for (k = 0; vxstn_is_map(overfeature) && k < overfeature->mlen; k++) {
-      vxstn_map_set(fmap, overfeature->keys[k], vxstn_clone(overfeature->vals[k]));
-    }
-  }
-  vxstn_map_set(opts, "feature", fmap);
+  vxstn_map_set(opts, "feature", feature);
 
   /* THE ALIAS IS RECORDED, NOT THE FIELDS (design 5.3). Carrying the
      declared `secret` through the feature options and stopping there

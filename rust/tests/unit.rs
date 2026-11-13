@@ -1016,6 +1016,27 @@ fn camelify_splits_on_non_alphanumerics() {
 
 // --- the factory table (design §6.2) ----------------------------------------
 
+// One entry of options.feature, read as a generated SDK reads it: from
+// sdkgen's ordered list by name, or from a map by key.
+fn feature_entry(feature: Option<&Json>, name: &str) -> Option<Json> {
+    match feature {
+        Some(Json::List(items)) => items
+            .iter()
+            .find(|item| matches!(jget(item, "name"), Some(Json::Str(found)) if name == found))
+            .cloned(),
+        Some(other) => jget(other, name).cloned(),
+        None => None,
+    }
+}
+
+fn feature_list_names(client: &Rc<dyn Any>) -> Vec<String> {
+    let options = client.downcast_ref::<RefCell<Json>>().expect("the fake's options").borrow();
+    match jget(&options, "feature") {
+        Some(Json::List(items)) => items.iter().map(|item| jstr(item, "name")).collect(),
+        _ => panic!("the constructor was not handed the list form"),
+    }
+}
+
 // A generated crate's constructor, as station calls it. It stands in for
 // the generated adapter: it BINDS, with the station feature options
 // station built - which is where the instance name rides (§7.5).
@@ -1023,10 +1044,7 @@ fn fake_factory() -> Factory {
     Factory {
         construct: Rc::new(|options: &Json| {
             let client: Rc<dyn Any> = Rc::new(RefCell::new(options.clone()));
-            let fopts = jget(options, "feature")
-                .and_then(|f| jget(f, "station"))
-                .cloned()
-                .unwrap_or(Json::Null);
+            let fopts = feature_entry(jget(options, "feature"), "station").unwrap_or(Json::Null);
             let mut bspec = spec(client.clone(), &["test", "station"]);
             bspec.feature_opts = fopts;
             bind(bspec);
@@ -1054,6 +1072,45 @@ fn provide_is_idempotent_and_conflicts_loudly() {
         Ok(_) => panic!("a different factory must conflict"),
     };
     assert_eq!("station_factory_conflict", err.code);
+    reset_factories();
+}
+
+#[test]
+fn the_declared_order_reaches_the_constructor_as_init_order() {
+    Station::reset();
+    reset_factories();
+    let mut factory = fake_factory();
+    factory.config = parse(&canonical_serialize(&config()).replace(
+        r#""feature":{"test":{}}"#,
+        r#""feature":{"ratelimit":{},"retry":{},"test":{}}"#,
+    ));
+    provide("taskpad", factory).expect("provided");
+    let station = open_station(station_config(
+        r#", "sdk": { "taskpad": { "feature": { "retry": { "retries": 2 },
+             "ratelimit": { "order": { "before": "retry" } } } } }"#,
+    ));
+
+    // ratelimit outside retry, so retry initialises first; a map would
+    // have been sorted by name by the generated constructor.
+    let built = station.sdk("taskpad").expect("built");
+    assert_eq!(feature_list_names(&built), ["station", "retry", "ratelimit"]);
+
+    let tuned = station
+        .create("taskpad", Some(&parse(r#"{ "feature": { "retry": { "retries": 5 }, "test": {} } }"#)))
+        .expect("created");
+    assert_eq!(feature_list_names(&tuned), ["test", "station", "retry", "ratelimit"]);
+    let options = tuned.downcast_ref::<RefCell<Json>>().expect("options").borrow().clone();
+    let retry = feature_entry(jget(&options, "feature"), "retry").expect("retry");
+    assert!(matches!(jget(&retry, "retries"), Some(Json::Num(n)) if 5.0 == *n));
+    assert!(matches!(jget(&retry, "active"), Some(Json::Bool(true))));
+
+    let listed = station
+        .create("taskpad", Some(&parse(r#"{ "feature": [{ "name": "retry", "retries": 7 }] }"#)))
+        .expect("created");
+    let options = listed.downcast_ref::<RefCell<Json>>().expect("options").borrow().clone();
+    let retry = feature_entry(jget(&options, "feature"), "retry").expect("retry");
+    assert!(matches!(jget(&retry, "retries"), Some(Json::Num(n)) if 7.0 == *n));
+    Station::reset();
     reset_factories();
 }
 

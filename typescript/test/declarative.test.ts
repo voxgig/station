@@ -6,6 +6,13 @@ import { Station } from '../src/Station'
 import { camelify, checkPackage, factoryFromModule } from '../src/loader'
 import { provide, provided, resetFactories } from '../src/factory'
 
+// What a generated SDK reads from sdkgen's list form: the entries by name.
+function byname(feature: any): any {
+  return Array.isArray(feature)
+    ? Object.fromEntries(feature.map(({ name, ...rest }: any) => [name, rest]))
+    : feature || {}
+}
+
 function fakeSDK(slug: string, feature?: Record<string, any>) {
   const config: any = {
     main: { slug, name: slug, version: '1.0.0' },
@@ -21,7 +28,7 @@ function fakeSDK(slug: string, feature?: Record<string, any>) {
     constructor(options: any) {
       this.options = options
       built++
-      const fopts = options?.feature?.station
+      const fopts = byname(options?.feature).station
       if (null != fopts) {
         // eslint-disable-next-line @typescript-eslint/no-var-requires
         const { featureBinding } = require('../src/adapter')
@@ -220,7 +227,8 @@ describe('declarative-front-door', () => {
     })
 
     const built = st.sdk('stripe$t')
-    const f = built.options.feature
+    const list = built.options.feature
+    const f = Object.fromEntries(list.map((e: any) => [e.name, e]))
 
     // A FLEET-WIDE DEFAULT REACHED AN INSTANCE THAT NEVER MENTIONS IT,
     // and a per-instance tweak composed with the api-level one rather
@@ -229,13 +237,60 @@ describe('declarative-front-door', () => {
     equal(5, f.retry.retries)
     equal(true, f.retry.active)
 
-    // Order rides the map: the constraint put cache inside retry, and
-    // alphabet - which would have put cache first - is not consulted.
-    deepStrictEqual(Object.keys(f).filter((k) => 'station' !== k),
-      ['log', 'retry', 'cache'])
+    // The array form is init order, innermost first: the constraint put
+    // cache inside retry, and log, declared first, sits outermost.
+    deepStrictEqual(list.map((e: any) => e.name), ['station', 'cache', 'retry', 'log'])
 
     equal(undefined, f.cache.order)
 
+    st.close()
+  })
+
+  test('a constraint the alphabet disagrees with still decides the nesting', () => {
+    const stripe = fakeSDK('stripe', { retry: {}, cache: {} })
+    provide('stripe', { construct: (o) => new stripe.SDK(o), config: stripe.config })
+
+    const st = station({
+      'stripe$t': {
+        feature: {
+          retry: { active: true },
+          cache: { active: true, order: { before: 'retry' } },
+        },
+      },
+    })
+
+    // cache outside retry, so retry initialises first. A map would have
+    // been ordered by name, putting cache inside retry instead.
+    deepStrictEqual(st.sdk('stripe$t').options.feature.map((e: any) => e.name),
+      ['station', 'retry', 'cache'])
+    st.close()
+  })
+
+  test("create()'s feature overrides are the last source of the merge", () => {
+    const stripe = fakeSDK('stripe', { retry: {}, cache: {}, test: {} })
+    provide('stripe', { construct: (o) => new stripe.SDK(o), config: stripe.config })
+
+    const st = station({
+      'stripe$t': { feature: { retry: { active: true, retries: 2 } } },
+    })
+    const named = (client: any) =>
+      Object.fromEntries(client.options.feature.map((e: any) => [e.name, e]))
+
+    const tuned = st.create('stripe$t', {
+      feature: { retry: { retries: 5 }, cache: { order: { before: 'retry' } } },
+    })
+    const tf = named(tuned)
+    equal(5, tf.retry.retries, 'an override key wins')
+    equal(true, tf.retry.active, 'without dropping what it did not name')
+    deepStrictEqual(tuned.options.feature.map((e: any) => e.name),
+      ['station', 'retry', 'cache'], 'and the resolver places what it adds')
+
+    const listed = st.create('stripe$t', {
+      feature: [{ name: 'test', active: true }, { name: 'retry', retries: 7 }],
+    })
+    equal(7, named(listed).retry.retries, 'the list form is read by name')
+    deepStrictEqual(listed.options.feature.map((e: any) => e.name),
+      ['test', 'station', 'retry'], 'test stays the base')
     st.close()
   })
 
@@ -324,7 +379,7 @@ function retrofitSDK(slug: string) {
           utility: { fetcher: async () => ({ status: 200 }) },
           options: { feature: {} },
           config,
-        }, options?.feature?.station || {})
+        }, byname(options?.feature).station || {})
       }
     }
   }

@@ -728,7 +728,7 @@ void* vxstn_sdk(vxstn_station* st, const char* name, vxstn_error** err);
 /* An UNCACHED client of a declared instance, registered under an
  * auto-assigned integer tag - the per-request or test-double case.
  * `overrides` (may be NULL) is merged over the block's options, and its
- * `feature` map over the composed one. */
+ * `feature`, a map or sdkgen's list, joins the 8.3 merge last. */
 void* vxstn_create(vxstn_station* st, const char* name, const vxstn_val* overrides,
                    vxstn_error** err);
 

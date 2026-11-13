@@ -10,6 +10,7 @@
 package com.voxgig.station;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -155,8 +156,8 @@ public final class Feature {
    * remaining ties break by declaration position, so the result is a stable
    * topological sort with no alphabetical accident in it.
    *
-   * <p>Returns OUTERMOST FIRST, which is the array form the constructor
-   * takes and the direction plugin's chain composes in. Java keeps the
+   * <p>Returns OUTERMOST FIRST, the direction plugin's chain composes in;
+   * composefeatures turns it into the constructor's init order. Java keeps the
    * declaration order for free: omni and sekreto both parse JSON objects
    * into LinkedHashMap, so `merged`'s key order IS the authored order.
    */
@@ -329,9 +330,11 @@ public final class Feature {
   }
 
   /**
-   * Compose the ordered rows into the ARRAY FORM the generated constructor
-   * already accepts: `{name, active: true}` plus every key of the entry
-   * except the reserved ones. No new seam.
+   * Compose the resolved order into the ARRAY FORM the generated
+   * constructor takes: `{name, active: true}` plus every key of the entry
+   * except the reserved ones. The resolver runs outermost first; the
+   * array is init order, innermost first, because each wrapper wraps what
+   * the earlier ones left.
    */
   public static List<Map<String, Object>> composefeatures(List<Ordered> ordered) {
     List<Map<String, Object>> out = new ArrayList<>();
@@ -347,6 +350,22 @@ public final class Feature {
         row.put(e.getKey(), e.getValue());
       }
       out.add(row);
+    }
+    Collections.reverse(out);
+    return out;
+  }
+
+  /** sdkgen's ordered list form of options.feature, or a map, as a map. */
+  public static Map<String, Object> featuremap(Object feature) {
+    if (!(feature instanceof List)) {
+      return new LinkedHashMap<>(Descriptor.asmap(feature));
+    }
+    Map<String, Object> out = new LinkedHashMap<>();
+    for (Object f : (List<Object>) feature) {
+      if (f instanceof Map && Descriptor.getprop(f, "name") instanceof String) {
+        Map<String, Object> entry = new LinkedHashMap<>(Descriptor.asmap(f));
+        out.put((String) entry.remove("name"), entry);
+      }
     }
     return out;
   }

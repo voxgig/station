@@ -762,31 +762,28 @@ module VoxgigStation
           faults.map { |f| f['message'] }.join('; '))
       end
 
-      # 8.4: compose the merged feature map into the ORDERED form and
-      # hand it to the constructor. No new seam - it is the same
-      # `options['feature']` map connect() already uses for station's own
-      # placement, with more in it, and a Ruby hash preserves insertion
-      # order so the order rides the map.
+      # 8.4: compose the merged features into the ORDERED ARRAY FORM and
+      # hand it to the constructor. A hash would not carry the order: the
+      # generated make_options sorts one by name. Per-call features are
+      # the last source of the 8.3 merge (3.3 step 9), so the resolver
+      # orders them with the rest.
       #
       # Station's own entry is composed AFTER the user merge and always
       # wins (8.4), which is why `station` is dropped here and re-added
       # by options(): a config file that can switch off the component
       # reading it is not a surface, it is a trap. `feature.station` is
       # already station_feature_reserved at validation, so this is the
-      # second half of one rule rather than a second rule.
-      fmap = {}
-      ordered = VoxgigStation.resolve_order(resolved['merged'])
-        .reject { |o| 'station' == o['name'] }
-      VoxgigStation.compose_features(ordered).each do |f|
-        rest = f.dup
-        fname = rest.delete('name')
-        fmap[fname] = rest
-      end
+      # second half of one rule rather than a second rule. A caller's own
+      # per-call entry rides through to options(), as on connect().
+      extra = VoxgigStation.feature_map(overrides.is_a?(Hash) ? overrides['feature'] : nil).dup
+      own = extra.delete('station')
+      merged = VoxgigStation.merge_features([resolved['merged'], extra])
+      feature = VoxgigStation.compose_features(
+        VoxgigStation.resolve_order(merged).reject { |o| 'station' == o['name'] })
+      feature << own.merge('name' => 'station') if own.is_a?(Hash)
 
       opts = VoxgigStation.instance_options(block, overrides)
-      over_feature = overrides.is_a?(Hash) && overrides['feature'].is_a?(Hash) ?
-        overrides['feature'] : {}
-      opts['feature'] = fmap.merge(over_feature)
+      opts['feature'] = feature
 
       # 5.3: THE ALIAS IS RECORDED, NOT THE FIELDS. Carrying the declared
       # `secret` through the feature options and stopping there leaves

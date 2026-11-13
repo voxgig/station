@@ -1,6 +1,7 @@
 package station_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -19,6 +20,39 @@ func fakeSDKConfig(slug string, features map[string]any) map[string]any {
 	return config
 }
 
+// byname reads options.feature as a generated SDK does: sdkgen's list
+// form by entry name, or a map as it is.
+func byname(feature any) map[string]any {
+	if fmap, is := feature.(map[string]any); is {
+		return fmap
+	}
+	out := map[string]any{}
+	list, _ := feature.([]any)
+	for _, item := range list {
+		entry, _ := item.(map[string]any)
+		if name, named := entry["name"].(string); named {
+			own := map[string]any{}
+			for k, v := range entry {
+				if "name" != k {
+					own[k] = v
+				}
+			}
+			out[name] = own
+		}
+	}
+	return out
+}
+
+func featureNames(feature any) string {
+	list, _ := feature.([]any)
+	out := []string{}
+	for _, item := range list {
+		entry, _ := item.(map[string]any)
+		out = append(out, fmt.Sprint(entry["name"]))
+	}
+	return strings.Join(out, ",")
+}
+
 func fakeFactory(config map[string]any) station.Factory {
 	return station.Factory{
 		Config: config,
@@ -30,8 +64,7 @@ func fakeFactory(config map[string]any) station.Factory {
 				options["apikey"] = ""
 			}
 
-			fmap, _ := options["feature"].(map[string]any)
-			fopts, _ := fmap["station"].(map[string]any)
+			fopts, _ := byname(options["feature"])["station"].(map[string]any)
 
 			inner := client.fetcher
 			station.Bind(&station.BindSpec{
@@ -841,6 +874,56 @@ func TestOptionsNamesTheInstanceFromATopLevelInstanceOrAs(t *testing.T) {
 		if "notes$eu" != strings.Join(names, ",") {
 			t.Fatalf("%v: registered as %v", named, names)
 		}
+	}
+}
+
+func TestTheDeclaredOrderReachesTheConstructorAsInitOrder(t *testing.T) {
+	provideFake(t, "fakepad", map[string]any{"retry": map[string]any{}, "cache": map[string]any{}})
+	st := declarative(t, map[string]any{
+		"default": map[string]any{
+			"sdk": map[string]any{
+				"fakepad": map[string]any{
+					"feature": map[string]any{
+						"retry": map[string]any{"active": true, "retries": 2},
+						"cache": map[string]any{"order": map[string]any{"before": "retry"}},
+					},
+				},
+			},
+		},
+	})
+	client, err := st.SDK("fakepad")
+	if nil != err {
+		t.Fatal(err)
+	}
+	// cache outside retry, so retry initialises first; a map would have
+	// been sorted by name by the generated makeOptions.
+	if got := featureNames(client.(*fakeClient).options["feature"]); "station,retry,cache" != got {
+		t.Fatalf("handed: %v", got)
+	}
+
+	tuned, err := st.Create("fakepad", map[string]any{
+		"feature": map[string]any{"retry": map[string]any{"retries": 5}, "test": map[string]any{}},
+	})
+	if nil != err {
+		t.Fatal(err)
+	}
+	handed := tuned.(*fakeClient).options["feature"]
+	if got := featureNames(handed); "test,station,retry,cache" != got {
+		t.Fatalf("tuned: %v", got)
+	}
+	retry := byname(handed)["retry"].(map[string]any)
+	if 5 != retry["retries"] || true != retry["active"] {
+		t.Fatalf("a per-call key merges over the declared entry: %v", retry)
+	}
+
+	listed, err := st.Create("fakepad", map[string]any{
+		"feature": []any{map[string]any{"name": "retry", "retries": 7}},
+	})
+	if nil != err {
+		t.Fatal(err)
+	}
+	if 7 != byname(listed.(*fakeClient).options["feature"])["retry"].(map[string]any)["retries"] {
+		t.Fatalf("the list form is read by name: %v", listed.(*fakeClient).options["feature"])
 	}
 }
 

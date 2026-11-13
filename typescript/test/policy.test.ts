@@ -45,6 +45,13 @@ async function liveRequest(st: Station, slug: string): Promise<any> {
     { headers: {} })
 }
 
+// What a generated SDK reads from sdkgen's list form: the entries by name.
+function byname(feature: any): any {
+  return Array.isArray(feature)
+    ? Object.fromEntries(feature.map(({ name, ...rest }: any) => [name, rest]))
+    : feature || {}
+}
+
 describe('policy-hostname', () => {
 
   // URL.hostname: an IPv6 host keeps its brackets, and neither a port nor
@@ -205,7 +212,7 @@ describe('policy-budget', () => {
       _mode = 'test'
       constructor(options: any) {
         this.options = options
-        const fopts = options?.feature?.station
+        const fopts = byname(options?.feature).station
         if (null != fopts) {
           featureBinding({
             client: this,
@@ -231,7 +238,7 @@ describe('policy-budget', () => {
     const st = policyStation('solar', { budget: { rps: 3, concurrency: 2 } })
     const client: any = st.sdk('solar')
 
-    deepStrictEqual(client.options.feature.ratelimit,
+    deepStrictEqual(byname(client.options.feature).ratelimit,
       { active: true, rate: 3, burst: 2 })
     st.close()
   })
@@ -244,7 +251,7 @@ describe('policy-budget', () => {
       { ratelimit: { rate: 10, burst: 7 } })
     const client: any = st.sdk('solar')
 
-    deepStrictEqual(client.options.feature.ratelimit,
+    deepStrictEqual(byname(client.options.feature).ratelimit,
       { active: true, rate: 3, burst: 7 })
     st.close()
   })
