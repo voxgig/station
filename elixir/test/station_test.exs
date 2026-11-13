@@ -65,6 +65,47 @@ defmodule Voxgig.StationTest do
     end
   end
 
+  # The corpus is JSON text, so it cannot carry these bytes.
+  test "config: station.json is read as UTF-8, and refused when it is not" do
+    dir = Path.join(System.tmp_dir!(), "station-utf8-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(Path.join(dir, ".git"))
+    file = Path.join(dir, "station.json")
+
+    doc = fn note ->
+      ~S({"station": 1, "profiles": {"default": {"sdk": {"joplin": {"options": {"note": ") <>
+        note <> ~S("}}}}}})
+    end
+
+    try do
+      File.write!(file, doc.("\u00e9\u{1F600}"))
+      config = Profile.load_config(dir)
+      note = config["profiles"]["default"]["sdk"]["joplin"]["options"]["note"]
+      assert ["\u00e9", "\u{1F600}"] == String.codepoints(note)
+
+      for {shape, bytes} <- [
+            stray: <<0xE9>>,
+            overlong: <<0xC0, 0xAF>>,
+            surrogate: <<0xED, 0xA0, 0x80>>,
+            outofrange: <<0xF4, 0x90, 0x80, 0x80>>,
+            truncated: <<0xF0, 0x9F, 0x98>>
+          ] do
+        File.write!(file, doc.(bytes))
+        err = assert_raise Error, fn -> Profile.load_config(dir) end
+        assert "station_config_invalid" == err.code, Atom.to_string(shape)
+
+        assert "station_config_invalid: station.json at " <> file <> " is not UTF-8" ==
+                 Exception.message(err)
+      end
+
+      File.write!(file, <<0xEF, 0xBB, 0xBF>> <> doc.("ok"))
+      err = assert_raise Error, fn -> Profile.load_config(dir) end
+      assert "station_config_invalid" == err.code
+      assert String.contains?(Exception.message(err), " is not valid JSON: ")
+    after
+      File.rm_rf!(dir)
+    end
+  end
+
   # --- ambient instance (design station.md 10.2) ---
 
   test "open is idempotent; conflicting options are an error" do

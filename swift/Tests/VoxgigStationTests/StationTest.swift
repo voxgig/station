@@ -540,6 +540,48 @@ final class StationTest: XCTestCase {
     }
   }
 
+  // The corpus is JSON text, so it cannot carry these bytes.
+  func testStationJsonIsReadAsUTF8AndRefusedWhenItIsNot() throws {
+    let dir = NSTemporaryDirectory() + "station-utf8-" + UUID().uuidString
+    try FileManager.default.createDirectory(
+      atPath: dir + "/.git", withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(atPath: dir) }
+    let file = dir + "/station.json"
+    func write(_ note: [UInt8], _ head: [UInt8] = []) {
+      let doc = Array(#"{ "station": 1, "profiles": { "default": { "sdk": { "joplin": { "options": { "note": ""#.utf8)
+        + note + Array(#"" } } } } } }"#.utf8)
+      XCTAssertTrue(FileManager.default.createFile(atPath: file, contents: Data(head + doc)))
+    }
+
+    write(Array("\u{e9}\u{1F600}".utf8))
+    let note = try Profile.loadConfig(dir)?.get("profiles").get("default").get("sdk")
+      .get("joplin").get("options").get("note").asStr
+    XCTAssertEqual("\u{e9}\u{1F600}", note, "raw UTF-8 reads as its characters")
+
+    let notUtf8: KeyValuePairs<String, [UInt8]> = [
+      "stray": [0xe9], "overlong": [0xc0, 0xaf], "surrogate": [0xed, 0xa0, 0x80],
+      "outofrange": [0xf4, 0x90, 0x80, 0x80], "truncated": [0xf0, 0x9f, 0x98],
+    ]
+    for (shape, bytes) in notUtf8 {
+      write(bytes)
+      do {
+        _ = try Profile.loadConfig(dir)
+        XCTFail(shape + " is refused, not read as no config")
+      } catch let err as StationError {
+        XCTAssertEqual(
+          "station_config_invalid: station.json at " + file + " is not UTF-8", err.message, shape)
+      }
+    }
+
+    write(Array("ok".utf8), [0xef, 0xbb, 0xbf])
+    do {
+      _ = try Profile.loadConfig(dir)
+      XCTFail("a byte order mark is refused")
+    } catch let err as StationError {
+      XCTAssertTrue(err.message.contains(" is not valid JSON: "), err.message)
+    }
+  }
+
   func testOneFailedOperationEmitsOneOpEvent() throws {
     let st = try memStation()
     let binding = (try bind(st, NSObject()))!.binding

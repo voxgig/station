@@ -38,7 +38,14 @@ module VoxgigStation
     file = find_config_file(from)
     return nil if file.nil?
 
-    parse_config(File.read(file), file)
+    # RFC 8259 8.1: the text is UTF-8. A byte order mark stays in the
+    # text, where the JSON parse refuses it.
+    text = File.binread(file).force_encoding(Encoding::UTF_8)
+    unless text.valid_encoding?
+      raise StationError.new('station_config_invalid', "station.json at #{file} is not UTF-8")
+    end
+
+    parse_config(text, file)
   end
 
   # A file that is not JSON is a CONFIG error, not a raw parse error

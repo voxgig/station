@@ -988,6 +988,34 @@ class TestStation < Minitest::Test
     end
   end
 
+  # The corpus is JSON text, so it cannot carry these bytes.
+  def test_load_config_reads_utf8_and_refuses_text_that_is_not
+    Dir.mktmpdir do |dir|
+      file = File.join(dir, 'station.json')
+      doc = lambda do |note|
+        '{ "station": 1, "profiles": { "default": { "sdk": { "joplin": { "options": { "note": "'.b +
+          note.b + '" } } } } } }'.b
+      end
+
+      File.binwrite(file, doc.call("\u00e9\u{1F600}"))
+      note = VoxgigStation.load_config(dir).dig('profiles', 'default', 'sdk', 'joplin', 'options', 'note')
+      assert_equal ["\u00e9", "\u{1F600}"], note.chars
+
+      {
+        stray: "\xE9", overlong: "\xC0\xAF", surrogate: "\xED\xA0\x80",
+        outofrange: "\xF4\x90\x80\x80", truncated: "\xF0\x9F\x98"
+      }.each do |shape, bytes|
+        File.binwrite(file, doc.call(bytes.b))
+        err = assert_raises(VoxgigStation::StationError, shape.to_s) { VoxgigStation.load_config(dir) }
+        assert_equal "station_config_invalid: station.json at #{file} is not UTF-8", err.message, shape.to_s
+      end
+
+      File.binwrite(file, "\xEF\xBB\xBF".b + doc.call('ok'))
+      err = assert_raises(VoxgigStation::StationError) { VoxgigStation.load_config(dir) }
+      assert_includes err.message, ' is not valid JSON: '
+    end
+  end
+
   # --- the factory table (design station.md 6.2) ---
 
   def test_provide_is_idempotent_for_one_pair_and_conflicts_on_another

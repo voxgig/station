@@ -158,9 +158,9 @@ void vxstn_val_free(vxstn_val* v);
 vxstn_val* vxstn_parse_json(const char* text, char** errmsg);
 
 /* station.json text, parsed. NULL + *err station_config_invalid when the
- * text is not JSON, or holds an unpaired surrogate escape, which I-JSON
- * forbids: decoders disagree about one, so the text is scanned before it
- * is decoded. Owned. */
+ * text is not UTF-8, is not JSON, or holds an unpaired surrogate escape,
+ * which I-JSON forbids: decoders disagree about one, so the text is
+ * scanned before it is decoded. Owned. */
 vxstn_val* vxstn_parse_config(const char* text, vxstn_error** err);
 
 /* =========================================================================

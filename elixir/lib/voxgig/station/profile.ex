@@ -66,6 +66,10 @@ defmodule Voxgig.Station.Profile do
   def parse_config(text, file \\ nil) do
     where = if nil == file, do: "station.json", else: "station.json at " <> file
 
+    if not String.valid?(text) do
+      Error.fail("station_config_invalid", where <> " is not UTF-8")
+    end
+
     case unpaired_surrogate(text) do
       nil ->
         :ok

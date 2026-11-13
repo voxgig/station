@@ -1321,6 +1321,14 @@ has rules:**
   port scans the text before it decodes it, and the refusal quotes the
   first string literal holding one, escapes and all, as the file spells
   it. An escaped pair is one character, in every port.
+- **The file is UTF-8** (RFC 8259 §8.1), in the strict form, and bytes
+  that are not are `station_config_invalid` too: `station.json at
+  <file> is not UTF-8`. An overlong sequence, an encoded surrogate, a
+  code point past U+10FFFF and a truncated sequence are all refused.
+  Before this was the rule, one port or another replaced such bytes with
+  U+FFFD, read them as Latin-1, or took the file for no file at all. A
+  byte order mark is not stripped: it stays part of the text, so a file
+  that begins with one is not JSON.
 - **Availability errors are fatal at first use.** A package that will not
   import, an api with no factory, an instance marked inactive — these
   fail at `station.sdk(name)`, not at `open()`. At 20 SDKs a process
@@ -1331,7 +1339,7 @@ New error codes for `station.md` §14's catalog:
 
 | code | when |
 |---|---|
-| `station_config_invalid` | the text is not JSON or holds an unpaired surrogate escape, or struct validation failed; message carries every error with paths |
+| `station_config_invalid` | the text is not UTF-8, is not JSON or holds an unpaired surrogate escape, or struct validation failed; message carries every error with paths |
 | `station_config_secret` | a credential-shaped key in an `options` block (§5.2) |
 | `station_no_instance` | `sdk(ref)` for an undeclared ref; message lists the declared ones |
 | `station_instance_api` | `connect(SDK, {as})` given a full ref whose name is not the SDK's api slug (§6.1) |

@@ -1616,6 +1616,51 @@ fn an_unpaired_surrogate_escape_is_refused() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+// The corpus is JSON text, so it cannot carry these bytes.
+#[test]
+fn station_json_is_read_as_utf8_and_refused_when_it_is_not() {
+    let dir = std::env::temp_dir().join(format!("station-utf8-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let file = dir.join("station.json");
+    let doc = |note: &[u8]| -> Vec<u8> {
+        let mut out = br#"{ "station": 1, "profiles": { "default": { "sdk": { "joplin": { "options": { "note": ""#.to_vec();
+        out.extend_from_slice(note);
+        out.extend_from_slice(br#"" } } } } } }"#);
+        out
+    };
+
+    std::fs::write(&file, doc("\u{e9}\u{1F600}".as_bytes())).expect("write");
+    let config = voxgig_station::load_config(Some(&dir)).expect("loaded").expect("found");
+    let note = jget(&config, "profiles")
+        .and_then(|p| jget(p, "default"))
+        .and_then(|p| jget(p, "sdk"))
+        .and_then(|p| jget(p, "joplin"))
+        .and_then(|p| jget(p, "options"))
+        .and_then(|p| jget(p, "note"));
+    assert!(matches!(note, Some(Json::Str(found)) if "\u{e9}\u{1F600}" == found));
+
+    let not_utf8: [(&str, &[u8]); 5] = [
+        ("stray", &[0xe9]),
+        ("overlong", &[0xc0, 0xaf]),
+        ("surrogate", &[0xed, 0xa0, 0x80]),
+        ("outofrange", &[0xf4, 0x90, 0x80, 0x80]),
+        ("truncated", &[0xf0, 0x9f, 0x98]),
+    ];
+    for (shape, bytes) in not_utf8 {
+        std::fs::write(&file, doc(bytes)).expect("write");
+        let err = voxgig_station::load_config(Some(&dir)).expect_err(shape);
+        assert_eq!("station_config_invalid", err.code, "{}", shape);
+        assert_eq!(format!("station.json at {} is not UTF-8", file.display()), err.msg, "{}", shape);
+    }
+
+    let mut bom = vec![0xef, 0xbb, 0xbf];
+    bom.extend(doc(b"ok"));
+    std::fs::write(&file, bom).expect("write");
+    let err = voxgig_station::load_config(Some(&dir)).expect_err("refused");
+    assert!(err.msg.contains(" is not valid JSON: "), "{}", err.msg);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 // --- the fleet view (design §8.7) -------------------------------------------
 
 #[test]

@@ -12,6 +12,9 @@ import com.voxgig.sekreto.Json;
 import com.voxgig.sekreto.Sekreto;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -60,12 +63,22 @@ public final class Profile {
     if (null == file) {
       return null;
     }
-    String text;
+    byte[] bytes;
     try {
-      text = new String(
-          Files.readAllBytes(Paths.get(file)), StandardCharsets.UTF_8);
+      bytes = Files.readAllBytes(Paths.get(file));
     } catch (IOException err) {
       throw new RuntimeException("station: cannot read " + file + ": " + err.getMessage(), err);
+    }
+    // RFC 8259 8.1: the text is UTF-8. A byte order mark stays in the text,
+    // where the JSON check refuses it.
+    String text;
+    try {
+      text = StandardCharsets.UTF_8.newDecoder()
+          .onMalformedInput(CodingErrorAction.REPORT)
+          .onUnmappableCharacter(CodingErrorAction.REPORT)
+          .decode(ByteBuffer.wrap(bytes)).toString();
+    } catch (CharacterCodingException err) {
+      throw new StationError("station_config_invalid", "station.json at " + file + " is not UTF-8");
     }
     return parseConfig(text, file);
   }

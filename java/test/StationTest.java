@@ -1655,6 +1655,65 @@ public final class StationTest {
           "default"), "s"), "\u00e9\n\"/", "valid JSON still decodes as before");
     });
 
+    // The corpus is JSON text, so it cannot carry these bytes.
+    testcase("loadConfig: station.json is read as UTF-8, and refused when it is not", () -> {
+      File dir = Files.createTempDirectory("station-config-").toFile();
+      File file = new File(dir, "station.json");
+      java.util.function.Function<byte[], byte[]> doc = note -> {
+        byte[] head = ("{ \"station\": 1, \"profiles\": { \"default\": { \"sdk\": "
+            + "{ \"joplin\": { \"options\": { \"note\": \"").getBytes(StandardCharsets.UTF_8);
+        byte[] tail = "\" } } } } } }".getBytes(StandardCharsets.UTF_8);
+        byte[] out = new byte[head.length + note.length + tail.length];
+        System.arraycopy(head, 0, out, 0, head.length);
+        System.arraycopy(note, 0, out, head.length, note.length);
+        System.arraycopy(tail, 0, out, head.length + note.length, tail.length);
+        return out;
+      };
+      try {
+        Files.write(file.toPath(), doc.apply("\u00e9\ud83d\ude00".getBytes(StandardCharsets.UTF_8)));
+        Object note = Descriptor.getprop(Descriptor.getprop(Descriptor.getprop(Descriptor.getprop(
+            Descriptor.getprop(Profile.loadConfig(dir.getPath()), "profiles"), "default"), "sdk"),
+            "joplin"), "options");
+        checkeq(Descriptor.getprop(note, "note"), "\u00e9\ud83d\ude00", "raw UTF-8 reads as its characters");
+
+        String[] shapes = {"stray", "overlong", "surrogate", "outofrange", "truncated"};
+        int[][] notUtf8 = {
+          {0xe9}, {0xc0, 0xaf}, {0xed, 0xa0, 0x80}, {0xf4, 0x90, 0x80, 0x80}, {0xf0, 0x9f, 0x98},
+        };
+        for (int i = 0; i < shapes.length; i++) {
+          byte[] bytes = new byte[notUtf8[i].length];
+          for (int j = 0; j < bytes.length; j++) {
+            bytes[j] = (byte) notUtf8[i][j];
+          }
+          Files.write(file.toPath(), doc.apply(bytes));
+          try {
+            Profile.loadConfig(dir.getPath());
+            check(false, shapes[i] + " must be refused");
+          } catch (StationError err) {
+            checkeq(err.getMessage(), "station_config_invalid: station.json at " + file.getPath()
+                + " is not UTF-8", shapes[i]);
+          }
+        }
+
+        byte[] ok = doc.apply("ok".getBytes(StandardCharsets.UTF_8));
+        byte[] bom = new byte[ok.length + 3];
+        bom[0] = (byte) 0xef;
+        bom[1] = (byte) 0xbb;
+        bom[2] = (byte) 0xbf;
+        System.arraycopy(ok, 0, bom, 3, ok.length);
+        Files.write(file.toPath(), bom);
+        try {
+          Profile.loadConfig(dir.getPath());
+          check(false, "a byte order mark must be refused");
+        } catch (StationError err) {
+          check(err.getMessage().contains(" is not valid JSON: "), err.getMessage());
+        }
+      } finally {
+        file.delete();
+        dir.delete();
+      }
+    });
+
     testcase("open: `package` is warned about once per api, never honoured", () -> {
       Station st = memoryStation(map(),
           map("pad", map(), "pad$eu", map()),

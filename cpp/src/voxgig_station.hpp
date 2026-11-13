@@ -2709,11 +2709,43 @@ inline std::string find_config_file(const std::string& from = "") {
   return "";
 }
 
+// RFC 8259 §8.1 asks for UTF-8, read strictly: no overlong form, no
+// surrogate, nothing past U+10FFFF.
+inline bool valid_utf8(const std::string& text) {
+  size_t i = 0;
+  while (i < text.size()) {
+    unsigned char lead = static_cast<unsigned char>(text[i]);
+    size_t more = lead < 0x80 ? 0 : 0xC0 == (lead & 0xE0) ? 1 : 0xE0 == (lead & 0xF0) ? 2
+                : 0xF0 == (lead & 0xF8) ? 3 : 4;
+    if (4 == more || i + more >= text.size()) {
+      return false;
+    }
+    uint32_t cp = 0 == more ? lead : lead & (0x3F >> more);
+    for (size_t k = 1; k <= more; k++) {
+      unsigned char next = static_cast<unsigned char>(text[i + k]);
+      if (0x80 != (next & 0xC0)) {
+        return false;
+      }
+      cp = (cp << 6) | (next & 0x3F);
+    }
+    static const uint32_t least[] = {0, 0x80, 0x800, 0x10000};
+    if (cp < least[more] || (0xD800 <= cp && 0xDFFF >= cp) || 0x10FFFF < cp) {
+      return false;
+    }
+    i += more + 1;
+  }
+  return true;
+}
+
 // station.json text, parsed; a non-empty `file` names it in a refusal.
 // Decoders disagree about an unpaired surrogate escape, which I-JSON
-// forbids, so the text is scanned before it is decoded.
+// forbids, so the text is scanned before it is decoded. A byte order mark
+// stays in the text, where the JSON parse refuses it.
 inline Jval parse_config(const std::string& text, const std::string& file = "") {
   std::string where = "station.json" + (file.empty() ? std::string() : " at " + file);
+  if (!valid_utf8(text)) {
+    throw StationError("station_config_invalid", where + " is not UTF-8");
+  }
   std::string literal = jsonparse::unpairedsurrogate(text);
   if (!literal.empty()) {
     throw StationError("station_config_invalid",

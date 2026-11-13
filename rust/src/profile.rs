@@ -42,10 +42,18 @@ pub fn load_config(from: Option<&Path>) -> Result<Option<Json>, StationError> {
         Some(file) => file,
         None => return Ok(None),
     };
-    let text = std::fs::read_to_string(&file).map_err(|err| {
+    let bytes = std::fs::read(&file).map_err(|err| {
         StationError::new(
             "station_config_invalid",
             format!("station.json at {} cannot be read: {}", file.display(), err),
+        )
+    })?;
+    // RFC 8259 §8.1: the text is UTF-8. A byte order mark stays in the
+    // text, where the JSON parse refuses it.
+    let text = String::from_utf8(bytes).map_err(|_| {
+        StationError::new(
+            "station_config_invalid",
+            format!("station.json at {} is not UTF-8", file.display()),
         )
     })?;
     parse_config(&text, Some(&file.display().to_string())).map(Some)

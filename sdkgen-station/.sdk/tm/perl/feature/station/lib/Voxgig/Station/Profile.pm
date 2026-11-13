@@ -11,6 +11,7 @@ use warnings;
 use utf8;
 
 use Cwd ();
+use Encode ();
 use File::Basename ();
 use File::Spec ();
 use JSON::PP ();
@@ -61,8 +62,15 @@ sub load_config {
       or Voxgig::Station::Error::fail( 'station_no_plugin',
         'cannot read station.json: ' . $file );
     local $/ = undef;
-    my $text = <$handle>;
+    my $bytes = <$handle>;
     close($handle);
+
+    # RFC 8259 8.1: the text is UTF-8. A byte order mark stays in the
+    # text, where the JSON parse refuses it.
+    my $text = eval { Encode::decode( 'UTF-8', $bytes, Encode::FB_CROAK ) };
+    Voxgig::Station::Error::fail( 'station_config_invalid',
+        'station.json at ' . $file . ' is not UTF-8' )
+      unless defined $text;
     return parse_config( $text, $file );
 }
 

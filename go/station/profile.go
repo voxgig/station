@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/voxgig/sekreto/go/sekreto"
 )
@@ -83,6 +84,11 @@ func ParseConfig(text []byte, file string) (any, *Order, error) {
 	where := "station.json"
 	if "" != file {
 		where += " at " + file
+	}
+	// RFC 8259 §8.1: the text is UTF-8. A byte order mark stays in it, where
+	// the JSON parse refuses it.
+	if !utf8.Valid(text) {
+		return nil, nil, fail("station_config_invalid", where+" is not UTF-8")
 	}
 	if literal, found := unpairedSurrogate(text); found {
 		return nil, nil, fail("station_config_invalid",

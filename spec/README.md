@@ -63,7 +63,9 @@ decoder could read. One of
 those entries spells its expected value with a raw UTF-8 character
 rather than an escape, on purpose: omni's rust, c and cpp runners, at
 the commit CI pins, decode each `\u` escape on its own, so an escaped
-pair in an `out` would reach them as two broken halves.
+pair in an `out` would reach them as two broken halves. A text that is
+not UTF-8 cannot be written here at all, since this file is JSON, so
+each port's own suite pins that refusal, and a byte order mark's.
 
 The sections that need live SDK machinery - `inject` (copy-on-inject,
 placeholder-safe `ctrl.explain`), `order` (wrap position, retry

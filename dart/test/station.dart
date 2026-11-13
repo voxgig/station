@@ -12,6 +12,7 @@
 // notice rather than fail.
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import '../lib/voxgig_station.dart';
@@ -199,6 +200,54 @@ void stationCases(void Function(String, FutureOr<void> Function()) testcase) {
                   ' has an unpaired surrogate escape in "x\\ud800"' ==
               err.message,
           err.message);
+    } finally {
+      dir.deleteSync(recursive: true);
+    }
+  });
+
+  // The corpus is JSON text, so it cannot carry these bytes.
+  testcase('config: station.json is read as UTF-8, and refused when it is not', () {
+    final dir = Directory.systemTemp.createTempSync('station-utf8-');
+    Directory(dir.path + '/.git').createSync();
+    final file = dir.path + '/station.json';
+    List<int> doc(List<int> note) => [
+          ...utf8.encode('{ "station": 1, "profiles": { "default": { "sdk": '
+              '{ "joplin": { "options": { "note": "'),
+          ...note,
+          ...utf8.encode('" } } } } } }'),
+        ];
+    try {
+      File(file).writeAsBytesSync(doc(utf8.encode('\u00e9\u{1F600}')));
+      final note = loadConfig(dir.path)['profiles']['default']['sdk']['joplin']
+          ['options']['note'] as String;
+      check(2 == note.runes.length && '\u00e9\u{1F600}' == note,
+          'raw UTF-8 reads as its characters');
+
+      const notUtf8 = {
+        'stray': [0xe9],
+        'overlong': [0xc0, 0xaf],
+        'surrogate': [0xed, 0xa0, 0x80],
+        'outofrange': [0xf4, 0x90, 0x80, 0x80],
+        'truncated': [0xf0, 0x9f, 0x98],
+      };
+      for (final entry in notUtf8.entries) {
+        File(file).writeAsBytesSync(doc(entry.value));
+        try {
+          loadConfig(dir.path);
+          check(false, entry.key + ' is refused');
+        } on StationError catch (err) {
+          check('station_config_invalid: station.json at ' + file + ' is not UTF-8' ==
+              err.message, entry.key + ': ' + err.message);
+        }
+      }
+
+      File(file).writeAsBytesSync([0xef, 0xbb, 0xbf, ...doc(utf8.encode('ok'))]);
+      try {
+        loadConfig(dir.path);
+        check(false, 'a byte order mark is refused');
+      } on StationError catch (err) {
+        check(err.message.contains(' is not valid JSON: '), err.message);
+      }
     } finally {
       dir.deleteSync(recursive: true);
     }

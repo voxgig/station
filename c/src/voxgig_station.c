@@ -837,6 +837,36 @@ static long unpaired_surrogate(const char* text, size_t n, size_t* len) {
   return -1;
 }
 
+/* RFC 8259 8.1 asks for UTF-8, read strictly: no overlong form, no
+   surrogate, nothing past U+10FFFF. */
+static bool valid_utf8(const char* text, size_t n) {
+  static const uint32_t least[] = {0, 0x80, 0x800, 0x10000};
+  size_t i = 0;
+  while (i < n) {
+    unsigned char lead = (unsigned char)text[i];
+    size_t more = lead < 0x80 ? 0 : 0xC0 == (lead & 0xE0) ? 1 : 0xE0 == (lead & 0xF0) ? 2
+                : 0xF0 == (lead & 0xF8) ? 3 : 4;
+    uint32_t cp;
+    size_t k;
+    if (4 == more || i + more >= n) {
+      return false;
+    }
+    cp = 0 == more ? lead : (uint32_t)(lead & (0x3F >> more));
+    for (k = 1; k <= more; k++) {
+      unsigned char next = (unsigned char)text[i + k];
+      if (0x80 != (next & 0xC0)) {
+        return false;
+      }
+      cp = (cp << 6) | (next & 0x3F);
+    }
+    if (cp < least[more] || (0xD800 <= cp && 0xDFFF >= cp) || 0x10FFFF < cp) {
+      return false;
+    }
+    i += more + 1;
+  }
+  return true;
+}
+
 vxstn_val* vxstn_parse_config(const char* text, vxstn_error** err) {
   const char* src = NULL == text ? "" : text;
   size_t n = strlen(src);
@@ -850,7 +880,11 @@ vxstn_val* vxstn_parse_config(const char* text, vxstn_error** err) {
     *err = NULL;
   }
   vxstn_sb_init(&msg);
-  if (-1 != at) {
+  /* A byte order mark is valid UTF-8 and stays in the text, where the
+     JSON parse refuses it. */
+  if (!valid_utf8(src, n)) {
+    vxstn_seterr(err, "station_config_invalid", "station.json is not UTF-8");
+  } else if (-1 != at) {
     vxstn_sb_put(&msg, "station.json has an unpaired surrogate escape in ");
     vxstn_sb_putn(&msg, src + at, len);
     vxstn_seterr(err, "station_config_invalid", msg.buf);
