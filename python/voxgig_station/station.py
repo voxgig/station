@@ -27,6 +27,7 @@ from .feature import (
     check_features,
     check_pin,
     compose_features,
+    feature_map,
     feature_sources,
     merge_features,
     resolve_order,
@@ -1019,29 +1020,28 @@ class Station:
             raise StationError(faults[0]['code'],
                                '; '.join(f['message'] for f in faults))
 
-        # 8.4: compose the merged feature map into the ORDERED form and
-        # hand it to the constructor. No new seam - it is the same
-        # `options.feature` map connect() already uses for station's own
-        # placement, with more in it, and a py dict preserves insertion
-        # order so the order rides the map.
+        # 8.4: compose the merged features into the ORDERED ARRAY FORM
+        # and hand it to the constructor. A dict would not carry the
+        # order: the generated make_options sorts one by name. Per-call
+        # features are the last source of the 8.3 merge (3.3 step 9), so
+        # the resolver orders them with the rest.
         #
         # Station's own entry is composed AFTER the user merge and always
         # wins (8.4), which is why `station` is dropped here and added by
         # options(): a config file that can switch off the component
         # reading it is not a surface, it is a trap. `feature.station` is
         # already station_feature_reserved at validation, so this is the
-        # second half of one rule rather than a second rule.
-        fmap = {}
-        ordered = [o for o in resolve_order(resolved['merged'])
-                   if 'station' != o['name']]
-        for f in compose_features(ordered):
-            rest = dict(f)
-            fname = rest.pop('name')
-            fmap[fname] = rest
+        # second half of one rule rather than a second rule. A caller's
+        # own per-call entry rides through to options(), as on connect().
+        extra = dict(feature_map((overrides or {}).get('feature')))
+        own = extra.pop('station', None)
+        merged = merge_features([resolved['merged'], extra])
+        feature = compose_features(
+            [o for o in resolve_order(merged) if 'station' != o['name']])
+        if isinstance(own, dict):
+            feature.append({**own, 'name': 'station'})
 
         opts = instance_options(block, overrides)
-        feature = dict(fmap)
-        feature.update((overrides or {}).get('feature') or {})
         opts['feature'] = feature
 
         # 5.3: THE ALIAS IS RECORDED, NOT THE FIELDS. Carrying the

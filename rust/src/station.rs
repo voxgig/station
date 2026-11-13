@@ -12,8 +12,8 @@ use crate::error::{is_known_code, StationError};
 use crate::events::{ErrEvent, EventBuffer, StationEvent, TapFn};
 use crate::factory::{factory_for, provide, Factory, FactoryEntry};
 use crate::feature::{
-    check_features, check_pin, compose_features, fault_messages, feature_names, feature_sources,
-    merge_features, resolve_order,
+    check_features, check_pin, compose_features, fault_messages, feature_map, feature_names,
+    feature_sources, merge_features, resolve_order,
 };
 use crate::instance::{instance_ref, named_ref};
 use crate::jsonx::{jget, jobj, jstr, jtext, jtextof, now_ms};
@@ -662,38 +662,33 @@ impl Station {
             ));
         }
 
-        // here and re-added by options_for: a config file that can switch
-        // off the component reading it is not a surface, it is a trap.
-        // THE MAP CANNOT CARRY THE ORDER - a generated Rust constructor
-        // invariant - the pin - bind() still verifies and fails loudly
-        let rows = resolve_order(&resolved.merged, &resolved.declared)?;
-        let kept: Vec<crate::feature::Ordered> = rows
+        // §8.4: the merged features reach the constructor as sdkgen's
+        // ordered list; a generated constructor sorts a map by name.
+        // Per-call features join the §8.3 merge last (§3.3 step 9).
+        // Station's own entry is re-added by options_for, so no config
+        // can switch off its reader; a caller's per-call entry rides.
+        let (mut extra, extra_order) = feature_map(overrides.and_then(|o| jget(o, "feature")));
+        let own = extra.remove("station");
+        let merged = merge_features(&[Some(&resolved.merged), Some(&Json::Map(extra))]);
+        let mut declared = resolved.declared.clone();
+        for fname in extra_order {
+            if "station" != fname && !declared.contains(&fname) {
+                declared.push(fname);
+            }
+        }
+        let kept: Vec<crate::feature::Ordered> = resolve_order(&merged, &declared)?
             .into_iter()
             .filter(|row| "station" != row.name)
             .collect();
-        let mut features: BTreeMap<String, Json> = BTreeMap::new();
-        for one in compose_features(&kept) {
-            let fname = jstr(&one, "name");
-            let rest: BTreeMap<String, Json> = match &one {
-                Json::Map(entries) => entries
-                    .iter()
-                    .filter(|(key, _)| "name" != key.as_str())
-                    .map(|(key, val)| (key.clone(), val.clone()))
-                    .collect(),
-                _ => BTreeMap::new(),
-            };
-            features.insert(fname, Json::Map(rest));
+        let mut features = compose_features(&kept);
+        if let Some(Json::Map(fields)) = own {
+            let mut entry = fields.clone();
+            entry.insert("name".to_string(), Json::Str("station".to_string()));
+            features.push(Json::Map(entry));
         }
 
         let mut options = instance_options(&block, overrides);
-        if let Some(Json::Map(extra)) = overrides {
-            if let Some(Json::Map(over)) = extra.get("feature") {
-                for (key, val) in over.iter() {
-                    features.insert(key.clone(), val.clone());
-                }
-            }
-        }
-        options.insert("feature".to_string(), Json::Map(features));
+        options.insert("feature".to_string(), Json::List(features));
 
         let mut register_as = name.to_string();
         if let Some(tag) = as_tag {

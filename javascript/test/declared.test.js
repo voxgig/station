@@ -31,6 +31,13 @@ function recorder() {
   return { NotesSDK, seen }
 }
 
+// What a generated SDK reads from sdkgen's list form: the entries by name.
+function byname(feature) {
+  return Array.isArray(feature)
+    ? Object.fromEntries(feature.map(({ name, ...rest }) => [name, rest]))
+    : feature || {}
+}
+
 // Binds through the adapter, the way a generated SDK does.
 function bindingSDK(slug, feature) {
   const config = {
@@ -49,7 +56,7 @@ function bindingSDK(slug, feature) {
         utility: { fetcher: async () => ({ status: 200 }) },
         options: { feature: {} },
         config,
-      }, options.feature.station)
+      }, byname(options.feature).station)
     }
   }
   return { config, SDK }
@@ -164,6 +171,38 @@ describe('declared-options-and-feature-schema', () => {
     ok(warns[0].includes('[headers]'), warns[0])
     ok(warns[0].includes('{ instance: "notes" }'), warns[0])
     st.close()
+  })
+
+  test('the declared order reaches the constructor as init order', () => {
+    resetFactories()
+    try {
+      const pad = bindingSDK('pad', { retry: {}, cache: {}, log: {}, test: {} })
+      provide('pad', { construct: (o) => new pad.SDK(o), config: pad.config })
+      const names = (client) => client.options.feature.map((e) => e.name)
+      const st = station({
+        pad: {
+          feature: {
+            log: { active: true },
+            retry: { active: true, retries: 2 },
+            cache: { active: true, order: { before: 'retry' } },
+          },
+        },
+      })
+
+      // cache outside retry, log declared first and so outermost; a map
+      // would have been ordered by name by the generated makeOptions.
+      deepStrictEqual(names(st.sdk('pad')), ['station', 'retry', 'cache', 'log'])
+
+      const tuned = st.create('pad', { feature: { retry: { retries: 5 }, test: {} } })
+      deepStrictEqual(names(tuned), ['test', 'station', 'retry', 'cache', 'log'])
+      deepStrictEqual(byname(tuned.options.feature).retry, { active: true, retries: 5 },
+        'a per-call key merges over the declared entry')
+
+      const listed = st.create('pad', { feature: [{ name: 'retry', retries: 7 }] })
+      equal(7, byname(listed.options.feature).retry.retries, 'the list form is read by name')
+      st.close()
+    }
+    finally { resetFactories() }
   })
 
   test('sdk() takes the test feature options its optspec declares', () => {

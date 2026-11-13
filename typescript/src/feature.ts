@@ -261,9 +261,9 @@ function speckinds(spec: any): string[] | null {
   return [kindof(spec)]
 }
 
-/** Compose the merged map into the ORDERED ARRAY FORM the constructor
- * takes. No new seam: it is what `connect()` already does for station's
- * own placement, with more in it. */
+/** Compose the resolved order into the ARRAY FORM the constructor takes.
+ * The resolver runs outermost first; the array is init order, innermost
+ * first, because each wrapper wraps what the earlier ones left. */
 export function composefeatures(ordered: Ordered[]): any[] {
   return ordered.map((o) => {
     const entry = ismap(o.entry) ? o.entry : {}
@@ -273,7 +273,20 @@ export function composefeatures(ordered: Ordered[]): any[] {
       out[k] = entry[k]
     }
     return out
-  })
+  }).reverse()
+}
+
+/** sdkgen's ordered list form of `options.feature`, or a map, as a map. */
+export function featuremap(feature: any): { [name: string]: any } {
+  if (!Array.isArray(feature)) { return ismap(feature) ? feature : {} }
+  const out: { [name: string]: any } = {}
+  for (const f of feature) {
+    if (ismap(f) && 'string' === typeof f.name) {
+      const { name, ...entry } = f
+      out[name] = entry
+    }
+  }
+  return out
 }
 
 function kindof(v: any): string {

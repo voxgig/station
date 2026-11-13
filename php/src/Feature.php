@@ -151,8 +151,8 @@ function feature_active(mixed $entry): bool
  * remaining ties break by DECLARATION POSITION, so the result is a
  * stable topological sort with no alphabetical accident in it.
  *
- * Returns OUTERMOST FIRST, which is the array form the constructor takes
- * and the direction plugin's chain composes in.
+ * Returns OUTERMOST FIRST, the direction plugin's chain composes in;
+ * compose_features turns it into the constructor's init order.
  *
  * @return array<int, array{name: string, band: int|float, entry: mixed}>
  */
@@ -489,9 +489,9 @@ function spec_kinds(mixed $spec): ?array
 }
 
 /**
- * Compose the merged map into the ORDERED ARRAY FORM the constructor
- * takes. No new seam: it is what connect() already does for station's
- * own placement, with more in it.
+ * Compose the resolved order into the ARRAY FORM the constructor takes.
+ * The resolver runs outermost first; the array is init order, innermost
+ * first, because each wrapper wraps what the earlier ones left.
  *
  * @param array<int, array{name: string, band: int|float, entry: mixed}> $ordered
  * @return array<int, array<string, mixed>>
@@ -509,6 +509,27 @@ function compose_features(array $ordered): array
             $one[(string) $k] = $v;
         }
         $out[] = $one;
+    }
+    return array_reverse($out);
+}
+
+/**
+ * sdkgen's ordered list form of options['feature'], or a map, as a map.
+ *
+ * @return array<string, mixed>
+ */
+function feature_map(mixed $feature): array
+{
+    if (is_map($feature)) {
+        return map_entries($feature);
+    }
+    $out = [];
+    foreach (is_array($feature) ? $feature : [] as $f) {
+        if (is_array($f) && is_string($f['name'] ?? null)) {
+            $name = $f['name'];
+            unset($f['name']);
+            $out[$name] = $f;
+        }
     }
     return $out;
 }

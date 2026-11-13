@@ -425,17 +425,19 @@ vxstn_error* vxstn_check_pin(const vxstn_val* ordered) {
   return err;
 }
 
-/* Compose the ordered rows into the ARRAY FORM the generated
+/* Compose the resolved order into the ARRAY FORM the generated
  * constructor takes: { name, active: true, ...entry minus the reserved
  * keys }. Reserved keys are not options and are never passed through to
- * the SDK's own option map. Owned. */
+ * the SDK's own option map. The resolver runs outermost first; the array
+ * is init order, innermost first, because each wrapper wraps what the
+ * earlier ones left. Owned. */
 vxstn_val* vxstn_compose_features(const vxstn_val* ordered) {
   vxstn_val* out = vxstn_list();
   size_t i;
   if (!vxstn_is_list(ordered)) {
     return out;
   }
-  for (i = 0; i < ordered->len; i++) {
+  for (i = ordered->len; i-- > 0;) {
     const vxstn_val* row = ordered->items[i];
     const vxstn_val* entry = vxstn_map_get(row, "entry");
     vxstn_val* item = vxstn_map();

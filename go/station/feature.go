@@ -322,12 +322,14 @@ func FeatureNames(ordered []OrderedFeature) []string {
 	return out
 }
 
-// ComposeFeatures composes the ordered rows into the ORDERED ARRAY FORM
-// the constructor takes. No new seam: it is what the inverted binding
-// already does for station's own placement, with more in it.
+// ComposeFeatures composes the resolved order into the ARRAY FORM the
+// constructor takes. The resolver runs outermost first; the array is
+// init order, innermost first, because each wrapper wraps what the
+// earlier ones left.
 func ComposeFeatures(ordered []OrderedFeature) []map[string]any {
 	out := make([]map[string]any, 0, len(ordered))
-	for _, row := range ordered {
+	for i := len(ordered) - 1; i >= 0; i-- {
+		row := ordered[i]
 		entry := asMap(row.Entry)
 		one := map[string]any{"name": row.Name, "active": true}
 		for _, k := range sortedKeys(entry) {
@@ -339,6 +341,44 @@ func ComposeFeatures(ordered []OrderedFeature) []map[string]any {
 		out = append(out, one)
 	}
 	return out
+}
+
+// FeatureMap reads options.feature in either form, sdkgen's ordered list
+// of named entries or a map, as a fresh map and its declaration order:
+// the list's, or nil for a map, which has none.
+func FeatureMap(feature any) (map[string]any, []string) {
+	out := map[string]any{}
+	var items []any
+	switch given := feature.(type) {
+	case map[string]any:
+		for k, v := range given {
+			out[k] = v
+		}
+		return out, nil
+	case []any:
+		items = given
+	case []map[string]any:
+		for _, one := range given {
+			items = append(items, one)
+		}
+	}
+	order := []string{}
+	for _, item := range items {
+		entry := asMap(item)
+		name, named := entry["name"].(string)
+		if !named {
+			continue
+		}
+		own := map[string]any{}
+		for k, v := range entry {
+			if "name" != k {
+				own[k] = v
+			}
+		}
+		out[name] = own
+		order = append(order, name)
+	}
+	return out, order
 }
 
 // ---------------------------------------------------------------------

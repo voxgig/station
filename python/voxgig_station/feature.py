@@ -115,8 +115,8 @@ def resolve_order(merged):
     remaining ties break by declaration position, so the result is a
     stable topological sort with no alphabetical accident in it.
 
-    Returns OUTERMOST FIRST, which is the array form the constructor
-    takes and the direction plugin's chain composes in."""
+    Returns OUTERMOST FIRST, the direction plugin's chain composes in;
+    compose_features turns it into the constructor's init order."""
     names = [n for n in merged if active(merged[n])]
     pos = {n: i for i, n in enumerate(names)}
 
@@ -206,9 +206,10 @@ def check_pin(ordered):
 
 
 def compose_features(ordered):
-    """Compose the merged map into the ORDERED ARRAY FORM the constructor
-    takes. No new seam: it is what `connect()` already does for station's
-    own placement, with more in it."""
+    """Compose the resolved order into the ARRAY FORM the constructor
+    takes. The resolver runs outermost first; the array is init order,
+    innermost first, because each wrapper wraps what the earlier ones
+    left."""
     out = []
     for o in ordered:
         entry = o['entry'] if _ismap(o['entry']) else {}
@@ -218,6 +219,19 @@ def compose_features(ordered):
                 continue
             row[k] = v
         out.append(row)
+    out.reverse()
+    return out
+
+
+def feature_map(feature):
+    """sdkgen's ordered list form of `options.feature`, or a map, as a
+    map."""
+    if not isinstance(feature, list):
+        return feature if _ismap(feature) else {}
+    out = {}
+    for f in feature:
+        if _ismap(f) and isinstance(f.get('name'), str):
+            out[f['name']] = {k: v for k, v in f.items() if 'name' != k}
     return out
 
 

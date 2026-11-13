@@ -1145,6 +1145,19 @@ testcase('env_profile_selected_unless_opt_wins', function () {
 // Unit: the declarative front door (station.md 4, 6, 8)
 // =====================================================================
 
+/** What a generated SDK reads from sdkgen's list form: the entries by name. */
+function byname(mixed $feature): array
+{
+    if (!is_array($feature) || [] === $feature || !array_is_list($feature)) {
+        return is_array($feature) ? $feature : [];
+    }
+    $out = [];
+    foreach ($feature as $f) {
+        $out[$f['name']] = array_diff_key($f, ['name' => true]);
+    }
+    return $out;
+}
+
 /**
  * A miniature GENERATED SDK, for the declarative path: its constructor
  * takes the options map station builds and inits the features it was
@@ -1174,8 +1187,7 @@ class FakeSDK
         foreach (($options['extend'] ?? []) as $f) {
             $this->client->features[] = $f;
         }
-        $fopts = is_array($options['feature']['station'] ?? null)
-            ? $options['feature']['station'] : [];
+        $fopts = byname($options['feature'] ?? null)['station'] ?? [];
         foreach ($this->client->features as $f) {
             if (is_object($f) && method_exists($f, 'init')) {
                 $f->init($this->ctx, $fopts);
@@ -1647,8 +1659,7 @@ class SelfBoundSDK extends FakeClient
         $utility = new FakeUtility();
         $utility->fetcher = fn($_c, $_u, $_d) => [okres(), null];
         $ctx = new FakeCtx($this, $utility, $options, SDKCONFIG);
-        $fopts = is_array($options['feature']['station'] ?? null)
-            ? $options['feature']['station'] : [];
+        $fopts = byname($options['feature'] ?? null)['station'] ?? [];
         foreach (($options['extend'] ?? []) as $f) {
             $this->features[] = $f;
             $f->init($ctx, $fopts);
@@ -1798,6 +1809,26 @@ testcase('a_native_callable_is_a_function_option', function () {
     eq(1, count(check_features(['retry' => ['label' => fn() => null]], $d)));
 });
 
+testcase('the_declared_order_reaches_the_constructor_as_init_order', function () {
+    provide('solar', solarfactory());
+    $st = new Station(['config' => solarconfig(['solar' => ['feature' => [
+        'retry' => ['retries' => 2],
+        'test' => ['active' => true],
+    ]]])]);
+    $names = fn($client) => array_column($client->options['feature'], 'name');
+    // test is the base, so it initialises first and station sits on it.
+    eq(['test', 'station', 'retry'], $names($st->sdk('solar')));
+
+    $tuned = $st->create('solar', ['feature' => [
+        'retry' => ['retries' => 5], 'cache' => ['order' => ['before' => 'retry']]]]);
+    eq(['test', 'station', 'retry', 'cache'], $names($tuned));
+    eq(['active' => true, 'retries' => 5], byname($tuned->options['feature'])['retry']);
+
+    $listed = $st->create('solar', ['feature' => [['name' => 'retry', 'retries' => 7]]]);
+    eq(7, byname($listed->options['feature'])['retry']['retries']);
+    $st->close();
+});
+
 testcase('sdk_takes_the_test_feature_options_its_optspec_declares', function () {
     $config = SDKCONFIG;
     $config['main']['slug'] = 'joplin';
@@ -1839,6 +1870,7 @@ class PlacementFeature
             $ctx->utility->fetcher = fn($c, $u, $d) => [['status' => 200, 'headers' => []], null];
         } elseif ('retry' === $this->name) {
             $ctx->utility->fetcher = function ($c, $u, $d) use ($inner) {
+                PlacementSDK::$calls[] = 'retry';
                 [$res, $err] = $inner($c, $u, $d);
                 for ($i = 0; $i < 2 && null === $err && 503 === $res['status']; $i++) {
                     [$res, $err] = $inner($c, $u, $d);
@@ -1846,7 +1878,11 @@ class PlacementFeature
                 return [$res, $err];
             };
         } else {
-            $ctx->utility->fetcher = fn($c, $u, $d) => $inner($c, $u, $d);
+            $name = $this->name;
+            $ctx->utility->fetcher = function ($c, $u, $d) use ($inner, $name) {
+                PlacementSDK::$calls[] = $name;
+                return $inner($c, $u, $d);
+            };
         }
     }
 }
@@ -1918,6 +1954,9 @@ class PlacementSDK
     /** @var list<string> */
     public static array $sent = [];
 
+    /** @var list<string> */
+    public static array $calls = [];
+
     public string $mode = 'live';
     public array $features = [];
     public array $options;
@@ -1926,7 +1965,16 @@ class PlacementSDK
     public function __construct(array $options)
     {
         $this->options = $options;
-        $fmap = is_array($options['feature'] ?? null) ? $options['feature'] : [];
+        // A list is init order as given; a map is ordered as above.
+        $given = is_array($options['feature'] ?? null) ? $options['feature'] : [];
+        $listed = [] !== $given && array_is_list($given);
+        $fmap = $given;
+        if ($listed) {
+            $fmap = [];
+            foreach ($given as $f) {
+                $fmap[$f['name']] = array_diff_key($f, ['name' => true]);
+            }
+        }
         if (true === ($fmap['test']['active'] ?? null)) {
             $this->mode = 'test';
         }
@@ -1939,7 +1987,8 @@ class PlacementSDK
         $ctx = new FakeCtx($this, $this->utility, $options, self::CONFIG);
 
         $extend = is_array($options['extend'] ?? null) ? $options['extend'] : [];
-        foreach (placement_order($fmap) as $fname) {
+        $order = $listed ? array_column($given, 'name') : placement_order($fmap);
+        foreach ($order as $fname) {
             if (true !== ($fmap[$fname]['active'] ?? null)) {
                 continue;
             }
@@ -2008,6 +2057,7 @@ function placement_case(array $statuses, callable $body): void
 {
     PlacementSDK::$statuses = $statuses;
     PlacementSDK::$sent = [];
+    PlacementSDK::$calls = [];
     putenv('TASKPAD_APIKEY=taskpad-key');
     try {
         $body();
@@ -2092,6 +2142,23 @@ testcase('placement_the_declarative_path_places_it_the_same_way', function () {
         $client->list();
         eq(2, count(PlacementSDK::$sent));
         eq([['http', 503], ['http', 200], ['op', 'ok']], placement_wire($st));
+        $st->close();
+    });
+});
+
+testcase('placement_a_declared_order_the_alphabet_disagrees_with_reaches_the_wire', function () {
+    placement_case([200], function () {
+        provide('taskpad', ['construct' => fn(array $o) => new PlacementSDK($o),
+            'config' => PlacementSDK::CONFIG]);
+        $st = new Station(['config' => ['station' => 1, 'profiles' => ['default' => [
+            'sdk' => ['taskpad' => ['feature' => [
+                'retry' => ['active' => true],
+                'cache' => ['active' => true, 'order' => ['before' => 'retry']],
+            ]]]]]]]);
+        $client = $st->sdk('taskpad');
+        eq(['station', 'retry', 'cache'], placement_names($client));
+        $client->list();
+        eq(['cache', 'retry'], PlacementSDK::$calls);
         $st->close();
     });
 });

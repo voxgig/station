@@ -35,7 +35,7 @@ use Voxgig::Station::Struct qw(mapkeys ordered_map);
 use Exporter 'import';
 our @EXPORT_OK = qw(
   BAND_DEFAULT BAND_STATION BAND_TEST RESERVED_KEYS
-  checkfeatures checkpin composefeatures defaultband featuresources
+  checkfeatures checkpin composefeatures defaultband featuremap featuresources
   mergefeatures resolveorder
 );
 
@@ -174,8 +174,8 @@ sub _listof {
 # remaining ties break by declaration position, so the result is a
 # stable topological sort with no alphabetical accident in it.
 #
-# Returns OUTERMOST FIRST, which is the array form the constructor takes
-# and the direction plugin's chain composes in.
+# Returns OUTERMOST FIRST, the direction plugin's chain composes in;
+# composefeatures turns it into the constructor's init order.
 sub resolveorder {
     my ($merged) = @_;
     $merged = {} unless _ismap($merged);
@@ -269,9 +269,9 @@ sub checkpin {
     return;
 }
 
-# Compose the ordered rows into the ARRAY FORM the generated constructor
-# already accepts. No new seam: it is what connect() already does for
-# station's own placement, with more in it.
+# Compose the resolved order into the ARRAY FORM the constructor takes.
+# The resolver runs outermost first; the array is init order, innermost
+# first, because each wrapper wraps what the earlier ones left.
 sub composefeatures {
     my ($ordered) = @_;
     my @out;
@@ -284,7 +284,21 @@ sub composefeatures {
         }
         push @out, $out;
     }
-    return \@out;
+    return [ reverse @out ];
+}
+
+# sdkgen's ordered list form of options.feature, or a map, as a map.
+sub featuremap {
+    my ($feature) = @_;
+    return $feature if _ismap($feature);
+    my $out = ordered_map();
+    for my $f ( @{ _islist($feature) ? $feature : [] } ) {
+        next unless _ismap($f) && defined $f->{name} && !ref $f->{name};
+        my $entry = ordered_map();
+        $entry->{$_} = $f->{$_} for grep { 'name' ne $_ } mapkeys($f);
+        $out->{ $f->{name} } = $entry;
+    }
+    return $out;
 }
 
 # ---------------------------------------------------------------------

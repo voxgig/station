@@ -1126,33 +1126,37 @@ public class Station {
       throw new StationError(faults.get(0).code, Feature.faultMessages(faults));
     }
 
-    // Design 8.4: compose the merged feature map into the ORDERED form and
-    // hand it to the constructor. Station's own entry is composed AFTER the
-    // user merge and always wins, which is why `station` is dropped here
-    // and re-added by options(): a config file that can switch off the
-    // component reading it is not a surface, it is a trap. `feature.station`
-    // is already station_feature_reserved at validation, so this is the
-    // second half of one rule rather than a second rule.
+    // Design 8.4: compose the merged features into the ORDERED ARRAY FORM
+    // and hand it to the constructor. A map would not carry the order: the
+    // generated makeOptions sorts one by name. Per-call features are the
+    // last source of the 8.3 merge (3.3 step 9), so the resolver orders
+    // them with the rest.
     //
-    // A LinkedHashMap keeps the composed order, so it rides the options map
-    // the same way a JavaScript object's insertion order does.
+    // Station's own entry is composed AFTER the user merge and always
+    // wins, which is why `station` is dropped here and re-added by
+    // options(): a config file that can switch off the component reading
+    // it is not a surface, it is a trap. `feature.station` is already
+    // station_feature_reserved at validation, so this is the second half
+    // of one rule rather than a second rule. A caller's own per-call entry
+    // rides through to options(), as on connect().
+    Map<String, Object> extra = Feature.featuremap(Descriptor.getprop(overrides, "feature"));
+    Object own = extra.remove("station");
     List<Feature.Ordered> rows = new ArrayList<>();
-    for (Feature.Ordered row : Feature.resolveorder(merged)) {
+    for (Feature.Ordered row : Feature.resolveorder(
+        Feature.mergefeatures(List.<Object>of(merged, extra)))) {
       if (!"station".equals(row.name)) {
         rows.add(row);
       }
     }
-    Map<String, Object> fmap = new LinkedHashMap<>();
-    for (Map<String, Object> one : Feature.composefeatures(rows)) {
-      Map<String, Object> rest = new LinkedHashMap<>(one);
-      Object fname = rest.remove("name");
-      fmap.put(String.valueOf(fname), rest);
+    List<Object> feature = new ArrayList<>(Feature.composefeatures(rows));
+    if (own instanceof Map) {
+      Map<String, Object> stationEntry = new LinkedHashMap<>(Descriptor.asmap(own));
+      stationEntry.put("name", "station");
+      feature.add(stationEntry);
     }
 
     Map<String, Object> built = Profile.instanceOptions(block, overrides);
-    fmap.putAll(Descriptor.asmap(
-        Descriptor.getprop(overrides, "feature")));
-    built.put("feature", fmap);
+    built.put("feature", feature);
 
     // RECORD THE ALIAS, NOT THE FIELDS. Carrying the declared `secret`
     // through the feature options and stopping there leaves `policy`,

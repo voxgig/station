@@ -273,12 +273,14 @@ pub fn feature_names(ordered: &[Ordered]) -> Vec<String> {
     ordered.iter().map(|row| row.name.clone()).collect()
 }
 
-/// Compose the merged map into the ORDERED ARRAY FORM the generated
-/// constructor takes. No new seam: it is what the binding already does
-/// for station's own placement, with more in it. RESERVED_KEYS are not
+/// Compose the resolved order into the ARRAY FORM the generated
+/// constructor takes, RESERVED_KEYS dropped. The resolver runs outermost
+/// first; the array is init order, innermost first, because each wrapper
+/// wraps what the earlier ones left.
 pub fn compose_features(ordered: &[Ordered]) -> Vec<Json> {
     ordered
         .iter()
+        .rev()
         .map(|row| {
             let mut out: BTreeMap<String, Json> = BTreeMap::new();
             out.insert("name".to_string(), Json::Str(row.name.clone()));
@@ -294,6 +296,30 @@ pub fn compose_features(ordered: &[Ordered]) -> Vec<Json> {
             Json::Map(out)
         })
         .collect()
+}
+
+/// sdkgen's ordered list form of options.feature, or a map, as a map and
+/// its declaration order: the list's, or the map's keys.
+pub fn feature_map(feature: Option<&Json>) -> (BTreeMap<String, Json>, Vec<String>) {
+    match feature {
+        Some(Json::Map(entries)) => (entries.clone(), entries.keys().cloned().collect()),
+        Some(Json::List(items)) => {
+            let mut out = BTreeMap::new();
+            let mut order = Vec::new();
+            for item in items {
+                if let Json::Map(entry) = item {
+                    if let Some(Json::Str(name)) = entry.get("name") {
+                        let mut own = entry.clone();
+                        own.remove("name");
+                        out.insert(name.clone(), Json::Map(own));
+                        order.push(name.clone());
+                    }
+                }
+            }
+            (out, order)
+        }
+        _ => (BTreeMap::new(), Vec::new()),
+    }
 }
 
 // ---------------------------------------------------------------------

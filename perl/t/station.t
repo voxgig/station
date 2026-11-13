@@ -175,7 +175,12 @@ sub reset_env {
             config  => $CONFIG,
         };
 
-        my $fopts = $self->{options}{feature}{station};
+        # sdkgen's list form names its entries; a generated SDK reads them so.
+        my $given = $self->{options}{feature};
+        my ($fopts) =
+          ref($given) eq 'ARRAY'
+          ? grep { 'station' eq ( $_->{name} // '' ) } @$given
+          : ( ( $given || {} )->{station} );
         for my $feature ( @{ $self->{options}{extend} || [] } ) {
             push @{ $self->{features} }, $feature;
             $feature->init( $self->{ctx}, { %{ $fopts || {} } } );
@@ -1707,18 +1712,34 @@ subtest 'the composed feature order reaches the constructor' => sub {
     );
 
     # `test` substitutes the base transport so it takes the innermost
-    # band; everything else is band 0, outside it. A perl hash would
-    # answer differently on every run, so the composed map is an ORDERED
-    # map all the way to the constructor.
+    # band; everything else is band 0, outside it. The constructor takes
+    # sdkgen's ordered list, in init order: innermost first.
     is_deeply( $st->features_of('gnarly-pets')->{ordered},
         [ 'retry', 'station', 'test' ], 'station is pinned outside the base' );
 
     my $sdk = $st->sdk('gnarly-pets');
     is_deeply(
-        [ grep { 'station' ne $_ } mapkeys( $sdk->{options}{feature} ) ],
-        [ 'retry', 'test' ],
-        'the constructor got them outermost first'
+        [ map { $_->{name} } @{ $sdk->{options}{feature} } ],
+        [ 'test', 'station', 'retry' ],
+        'the constructor got them innermost first'
     );
+
+    # A constraint the alphabet disagrees with still decides the nesting,
+    # and create()'s per-call features join the same merge.
+    my $tuned = $st->create( 'gnarly-pets',
+        { feature => { retry => { retries => 5 }, cache => { order => { before => 'retry' } } } } );
+    is_deeply(
+        [ map { $_->{name} } @{ $tuned->{options}{feature} } ],
+        [ 'test', 'station', 'retry', 'cache' ],
+        'cache outside retry'
+    );
+    my ($retry) = grep { 'retry' eq $_->{name} } @{ $tuned->{options}{feature} };
+    is( $retry->{retries}, 5, 'a per-call key merges over the declared entry' );
+    ok( $retry->{active}, 'without dropping what it did not name' );
+    my $listed =
+      $st->create( 'gnarly-pets', { feature => [ { name => 'retry', retries => 7 } ] } );
+    my ($lretry) = grep { 'retry' eq $_->{name} } @{ $listed->{options}{feature} };
+    is( $lretry->{retries}, 7, 'the list form is read by name' );
 
     # ...and 6.1's inverted binding takes the instance name as an
     # OPTIONAL LEADING argument, so every existing options({...}) call is

@@ -101,8 +101,8 @@ function defaultband(name) {
 // remaining ties break by declaration position, so the result is a
 // stable topological sort with no alphabetical accident in it.
 //
-// Returns OUTERMOST FIRST, which is the array form the constructor
-// takes and the direction plugin's chain composes in.
+// Returns OUTERMOST FIRST, the direction plugin's chain composes in;
+// composefeatures turns it into the constructor's init order.
 function resolveorder(merged) {
   const names = Object.keys(merged).filter((n) => active(merged[n]))
   const pos = new Map()
@@ -337,9 +337,9 @@ function speckinds(spec) {
   return [kindof(spec)]
 }
 
-// Compose the merged map into the ORDERED ARRAY FORM the constructor
-// takes. No new seam: it is what `connect()` already does for station's
-// own placement, with more in it.
+// Compose the resolved order into the ARRAY FORM the constructor takes.
+// The resolver runs outermost first; the array is init order, innermost
+// first, because each wrapper wraps what the earlier ones left.
 function composefeatures(ordered) {
   return ordered.map((o) => {
     const entry = ismap(o.entry) ? o.entry : {}
@@ -349,7 +349,20 @@ function composefeatures(ordered) {
       out[k] = entry[k]
     }
     return out
-  })
+  }).reverse()
+}
+
+// sdkgen's ordered list form of `options.feature`, or a map, as a map.
+function featuremap(feature) {
+  if (!Array.isArray(feature)) { return ismap(feature) ? feature : {} }
+  const out = {}
+  for (const f of feature) {
+    if (ismap(f) && 'string' === typeof f.name) {
+      const { name, ...entry } = f
+      out[name] = entry
+    }
+  }
+  return out
 }
 
 function kindof(v) {
@@ -373,6 +386,7 @@ module.exports = {
   checkpin,
   composefeatures,
   defaultband,
+  featuremap,
   featuresources,
   mergefeatures,
   resolveorder,

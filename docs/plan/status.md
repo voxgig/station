@@ -1,6 +1,6 @@
 # Status: where the next session starts
 
-Snapshot, **2026-11-12**. `main` is at `c9f6f76`. 0.2.0 is released on
+Snapshot, **2026-11-12**. `main` is at `5fc9e31`. 0.2.0 is released on
 every route, and `main` is ahead of it: the six pull requests of W1
 merged on 2026-11-11 and changed every port's source, and on 2026-11-12
 W5.1 (the proxy builds), W4.3 (the fixture SDKs), W2.1 (the carried
@@ -9,7 +9,8 @@ adapter's place), W2.2 (the Station out of the SDK's options), W2.4
 event's whole URL) and W2.3 (the scrub reaches a transport error's
 chain) merged, which completes W2a, and from W2b, W2.6 (one `op` event
 per operation), W2.7 (the policy's hostname), W2.8 (the event's host),
-W2.9 (unpaired surrogate escapes) and W2.10 (the kill switch). The seven
+W2.9 (unpaired surrogate escapes), W2.10 (the kill switch) and W2.12
+(the list form of `options.feature`). The seven
 decisions were ruled on 2026-11-11. The register
 in [`progress.md`](progress.md) is the per-item authority, and
 [`upstream.md`](upstream.md) tracks what other repositories owe. This
@@ -88,7 +89,7 @@ generated SDKs skip in CI in every port that has them: typescript's
 `quickstart`, `gnarly-pets` and `generated-feature`, javascript's two,
 and the quickstarts of ruby, php and perl. `make fixtures` generates
 those SDKs since W4.3. With W2.1's retrofit suites, `make
-fixtures-test` runs thirteen suites, 61 tests, none skipped, all
+fixtures-test` runs thirteen suites, 77 tests, none skipped, all
 passing; CI runs them once the fixture lane's patch is applied.
 
 **The other parts.**
@@ -103,12 +104,12 @@ passing; CI runs them once the fixture lane's patch is applied.
 
 ## In flight
 
-W2.12, in review: `connect()`, `adopt()` and `options()` take sdkgen's
-ordered list form of `options.feature` in all sixteen ports, with
-station placed after `test`. Seven ports had dropped every listed
-feature silently. W2.13, found during W2.1, and W2.14 and W2.15, found
-during W2.9, have no issue filed yet. W2.13 now also owns
-`overrides.feature` on `create()` and `sdk()`.
+W2.13, in review: the declarative path hands the constructor the
+resolved order as sdkgen's list, in init order, in all eleven ports
+that have it, and `create()`'s per-call features join the §8.3 merge.
+Every port had handed over a map, which the generated `makeOptions`
+orders by name. W2.14 and W2.15, found during W2.9, have no issue filed
+yet.
 
 
 ## Pick this up first

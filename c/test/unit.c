@@ -1307,10 +1307,56 @@ static int CONSTRUCTED = 0;
 /* A generated C SDK's constructor, in miniature: it takes the options
    station composed and binds through the ambient station, exactly as
    the generated feature/station.c adapter does. */
+/* One entry of options.feature, read as a generated SDK reads it: from
+   sdkgen's ordered list by name, or from a map by key. Borrowed. */
+static const vxstn_val* feature_entry(const vxstn_val* options, const char* name) {
+  const vxstn_val* feature = vxstn_map_get(options, "feature");
+  size_t i;
+  for (i = 0; vxstn_is_list(feature) && i < feature->len; i++) {
+    if (0 == strcmp(name, vxstn_strval(vxstn_map_get(feature->items[i], "name")))) {
+      return feature->items[i];
+    }
+  }
+  return vxstn_map_get(feature, name);
+}
+
+/* What a generated make_options hands its features: the list as a map by
+   name, the list's own order aside. Canonical JSON, owned. */
+static char* feature_json(const vxstn_val* options) {
+  const vxstn_val* feature = vxstn_map_get(options, "feature");
+  vxstn_val* byname;
+  char* json;
+  size_t i;
+  if (!vxstn_is_list(feature)) {
+    return vxstn_canonical(feature);
+  }
+  byname = vxstn_map();
+  for (i = 0; i < feature->len; i++) {
+    vxstn_map_set(byname, vxstn_strval(vxstn_map_get(feature->items[i], "name")),
+                  vxstn_clone(feature->items[i]));
+  }
+  json = vxstn_canonical(byname);
+  vxstn_val_free(byname);
+  return json;
+}
+
+/* "a,b,c" from the entry names of a list-form feature. */
+static void feature_order(const vxstn_val* options, char* buf, size_t size) {
+  const vxstn_val* feature = vxstn_map_get(options, "feature");
+  size_t i;
+  buf[0] = '\0';
+  for (i = 0; vxstn_is_list(feature) && i < feature->len; i++) {
+    if (0 < i) {
+      strncat(buf, ",", size - strlen(buf) - 1);
+    }
+    strncat(buf, vxstn_strval(vxstn_map_get(feature->items[i], "name")), size - strlen(buf) - 1);
+  }
+}
+
 static void* fake_construct(const vxstn_val* options, void* ud) {
   fake_client* c = (fake_client*)calloc(1, sizeof(fake_client));
   vxstn_station* st = vxstn_current();
-  char* fjson = vxstn_canonical(vxstn_map_get(options, "feature"));
+  char* fjson = feature_json(options);
   vxstn_binding* binding = vxstn_register(st, c, SOLAR_CONFIG, fjson, NULL, NULL);
   (void)ud;
   c->options = vxstn_clone(options);
@@ -1343,7 +1389,7 @@ static const char* JOPLIN_CONFIG =
 
 static void* joplin_construct(const vxstn_val* options, void* ud) {
   fake_client* c = (fake_client*)calloc(1, sizeof(fake_client));
-  char* fjson = vxstn_canonical(vxstn_map_get(options, "feature"));
+  char* fjson = feature_json(options);
   vxstn_binding* binding =
       vxstn_register(vxstn_current(), c, JOPLIN_CONFIG, fjson, NULL, NULL);
   (void)ud;
@@ -1733,15 +1779,18 @@ static void test_declarative(void) {
      feature map does too - with the api-level `retry` in it. */
   CHECK_STR(vxstn_strval(vxstn_map_get(a->options, "base")),
             "https://eu.solar.example.com");
-  CHECK(2 == vxstn_map_get(vxstn_map_get(vxstn_map_get(a->options, "feature"),
-                                         "retry"),
-                           "max")
-                 ->i);
+  CHECK(2 == vxstn_map_get(feature_entry(a->options, "retry"), "max")->i);
   /* Station's own entry is composed AFTER the user merge and always
      wins, so it is added by vxstn_options rather than by the config. */
-  CHECK(vxstn_map_get(vxstn_map_get(vxstn_map_get(a->options, "feature"), "station"),
-                      "active")
-            ->b);
+  CHECK(vxstn_map_get(feature_entry(a->options, "station"), "active")->b);
+  /* sdkgen's list form, init order: station innermost, then the
+     budget's ratelimit and the api's retry, outermost last. */
+  {
+    char names[128];
+    feature_order(a->options, names, sizeof(names));
+    CHECK_STR(names, "station,ratelimit,retry");
+  }
+
 
   /* The declared `secret` wins over the derived default, and the
      registry stores the effective name. */
@@ -1862,6 +1911,64 @@ static void test_declarative(void) {
   vxstn_reset();
 }
 
+/* create()'s per-call features join the merge: log, declared outside
+   retry, is placed by the resolver rather than by the alphabet, and retry
+   keeps the api's max beside the per-call key. */
+static void test_create_feature_overrides(void) {
+  vxstn_open_opts opts;
+  vxstn_station* st;
+  vxstn_error* err = NULL;
+  vxstn_val* config = vxstn_parse_json(SOLAR_CONFIG, NULL);
+  vxstn_val* over = vxstn_parse_json(
+      "{\"feature\":{\"log\":{\"order\":{\"before\":\"retry\"}},"
+      "\"retry\":{\"wait\":5}}}",
+      NULL);
+  fake_client* made = NULL;
+  char names[128];
+
+  vxstn_reset_factories();
+  vxstn_reset();
+  memset(&opts, 0, sizeof(opts));
+  opts.proxy = "off";
+  opts.config_json = FLEET_CONFIG;
+  st = vxstn_open(&opts, &err);
+  CHECK(NULL != st && NULL == err);
+  CHECK(NULL != vxstn_provide("solar", fake_construct, NULL, config, &err));
+
+  if (NULL != st) {
+    made = (fake_client*)vxstn_create(st, "solar$eu", over, &err);
+  }
+  CHECK(NULL != made && NULL == err);
+  if (NULL != made) {
+    feature_order(made->options, names, sizeof(names));
+    CHECK_STR(names, "station,retry,log,ratelimit");
+    CHECK(2 == vxstn_map_get(feature_entry(made->options, "retry"), "max")->i);
+    CHECK(5 == vxstn_map_get(feature_entry(made->options, "retry"), "wait")->i);
+  }
+
+  fake_free(made);
+
+  /* sdkgen's list form is read by entry name. */
+  {
+    vxstn_val* listed_over =
+        vxstn_parse_json("{\"feature\":[{\"name\":\"retry\",\"wait\":7}]}", NULL);
+    fake_client* listed =
+        NULL == st ? NULL : (fake_client*)vxstn_create(st, "solar$eu", listed_over, &err);
+    CHECK(NULL != listed && NULL == err);
+    if (NULL != listed) {
+      CHECK(7 == vxstn_map_get(feature_entry(listed->options, "retry"), "wait")->i);
+    }
+    fake_free(listed);
+    vxstn_val_free(listed_over);
+  }
+
+  vxstn_val_free(over);
+  vxstn_val_free(config);
+  vxstn_reset_factories();
+  vxstn_station_free(st);
+  vxstn_reset();
+}
+
 static void test_declarative_feature_faults(void) {
   vxstn_open_opts opts;
   vxstn_station* st;
@@ -1970,6 +2077,7 @@ int main(void) {
   test_factory_table();
   test_check_package();
   test_declarative();
+  test_create_feature_overrides();
   test_declarative_feature_faults();
   test_declarative_optspec();
   test_open_validates();

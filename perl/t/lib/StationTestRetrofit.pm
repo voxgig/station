@@ -38,9 +38,15 @@ our $config = {
             options => $options,
             config  => $config,
         };
+        # sdkgen's list form names its entries; a generated SDK reads them so.
+        my $given = $options->{feature};
+        my ($entry) =
+          ref($given) eq 'ARRAY'
+          ? grep { 'station' eq ( $_->{name} // '' ) } @$given
+          : ( ( $given || {} )->{station} );
         for my $feature ( @{ $options->{extend} || [] } ) {
             push @{ $self->{features} }, $feature;
-            $feature->init( $ctx, { %{ $options->{feature}{station} || {} } } );
+            $feature->init( $ctx, { %{ $entry || {} } } );
         }
         return $self;
     }

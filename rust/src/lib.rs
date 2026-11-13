@@ -23,7 +23,7 @@ pub use crate::factory::{
     factory_for, provide, provided, reset_factories, ConstructFn, Factory, FactoryEntry,
 };
 pub use crate::feature::{
-    active, check_features, check_pin, compose_features, default_band, fault_messages,
+    active, check_features, check_pin, compose_features, default_band, fault_messages, feature_map,
     feature_names, feature_sources, merge_features, resolve_order, Fault, Ordered, BAND_DEFAULT,
     BAND_STATION, BAND_TEST, RESERVED_KEYS,
 };

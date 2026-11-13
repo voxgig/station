@@ -279,6 +279,19 @@ public final class StationTest {
     return val instanceof String ? (String) val : null;
   }
 
+  /** What a generated SDK reads from sdkgen's list form: the entries by name. */
+  static Map<String, Object> byname(Object feature) {
+    if (!(feature instanceof List)) {
+      return Descriptor.asmap(feature);
+    }
+    Map<String, Object> out = new LinkedHashMap<>();
+    for (Object f : (List<Object>) feature) {
+      Map<String, Object> entry = new LinkedHashMap<>(Descriptor.asmap(f));
+      out.put(String.valueOf(entry.remove("name")), entry);
+    }
+    return out;
+  }
+
   static List<Object> featureNames(Object feature) {
     List<Object> names = new ArrayList<>();
     for (Object f : (List<Object>) feature) {
@@ -372,8 +385,7 @@ public final class StationTest {
 
     public PadSDK(Map<String, Object> options) {
       this.options = options;
-      Map<String, Object> fopts = Descriptor.asmap(
-          Descriptor.getprop(options.get("feature"), "station"));
+      Map<String, Object> fopts = Descriptor.asmap(byname(options.get("feature")).get("station"));
       Station st = Station.from(fopts);
       this.binding = null == st ? null : st.featureBinding(this,
           List.of("station"), null, padconfig(), options, fopts);
@@ -845,8 +857,7 @@ public final class StationTest {
             "optspec", map("entity", "`$MAP`", "net", "`$MAP`"),
             "strict", false, "transport", "base")));
         Station.provide("joplin", new Factory(options -> {
-          Map<String, Object> fopts = Descriptor.asmap(
-              Descriptor.getprop(options.get("feature"), "station"));
+          Map<String, Object> fopts = Descriptor.asmap(byname(options.get("feature")).get("station"));
           Station.from(fopts).featureBinding(new Object(), List.of("station"), null,
               config, options, fopts);
           return options;
@@ -937,6 +948,37 @@ public final class StationTest {
       checkeq(featureNames(placed), List.of("retry", "test", "station"), "the caller's entry moves");
       checkeq(Descriptor.getprop(placed.get(2), "instance"), "pad$eu", "and is kept");
       checkeq(moved.get("prefix"), "/eu", "the instance is read from the list");
+    });
+
+    testcase("front door: the declared order reaches the constructor as init order", () -> {
+      Factory.resetFactories();
+      try {
+        Station.provide("pad", new Factory(PadSDK::new, padconfig()));
+        Station st = memoryStation(map("PAD_APIKEY", "k"), map("pad", map("feature", map(
+            "retry", map("retries", 2L),
+            "ratelimit", map("order", map("before", "retry"))))));
+
+        // ratelimit outside retry, so retry initialises first; a map would
+        // have been sorted by name by the generated makeOptions.
+        PadSDK pad = (PadSDK) st.sdk("pad");
+        checkeq(featureNames(pad.options.get("feature")),
+            List.of("station", "retry", "ratelimit"), "init order");
+
+        PadSDK tuned = (PadSDK) st.create("pad", map("feature", map(
+            "retry", map("retries", 5L), "test", map())));
+        checkeq(featureNames(tuned.options.get("feature")),
+            List.of("test", "station", "retry", "ratelimit"), "the per-call test is the base");
+        Map<String, Object> retry = Descriptor.asmap(byname(tuned.options.get("feature")).get("retry"));
+        checkeq(retry.get("retries"), 5L, "a per-call key merges over the declared entry");
+        checkeq(retry.get("active"), true, "without dropping what it did not name");
+
+        PadSDK listed = (PadSDK) st.create("pad",
+            map("feature", List.of(map("name", "retry", "retries", 7L))));
+        checkeq(Descriptor.asmap(byname(listed.options.get("feature")).get("retry")).get("retries"),
+            7L, "the list form is read by name");
+      } finally {
+        Factory.resetFactories();
+      }
     });
 
     testcase("front door: warm dedupes by secret name; an unknown name is a miss", () -> {
@@ -1119,8 +1161,7 @@ public final class StationTest {
     testcase("options: activation entry carries the handle", () -> {
       Station st = memoryStation(map(), null);
       Map<String, Object> options = st.options(map("base", "http://x:1"));
-      Map<String, Object> entry = Descriptor.asmap(
-          Descriptor.getprop(options.get("feature"), "station"));
+      Map<String, Object> entry = Descriptor.asmap(byname(options.get("feature")).get("station"));
       check(Boolean.TRUE.equals(entry.get("active")), "active");
       check(st == entry.get("station"), "handle rides the options");
       check("http://x:1".equals(options.get("base")), "caller opts kept");

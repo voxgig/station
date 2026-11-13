@@ -97,6 +97,28 @@ std::string specfile(const std::string& name) {
   return "";
 }
 
+// One entry of options.feature, read as a generated SDK reads it: from
+// sdkgen's ordered list by name, or from a map by key.
+vs::Jval entry_of(const vs::Jval& feature, const std::string& name) {
+  if (!feature.islist()) {
+    return feature.get(name);
+  }
+  for (const auto& item : feature.lval) {
+    if (name == item.get("name").str_or("")) {
+      return item;
+    }
+  }
+  return vs::Jval::absent();
+}
+
+std::string feature_names(const vs::Jval& feature) {
+  std::string out;
+  for (const auto& item : feature.lval) {
+    out += (out.empty() ? "" : ",") + item.get("name").str_or("");
+  }
+  return out;
+}
+
 // A stand-in generated constructor: it hands back the options station
 // built, which is what the assertions below are about. A real one
 // returns the SDK; the library cannot name that type, which is why a
@@ -855,9 +877,9 @@ int main(int argc, char** argv) {
     checkeq(built.get("base").str_or(""), "http://a", "the block's base reaches options");
     checkeq(vs::canonical_serialize(built.get("timeout")), "5",
             "the block's options reach options");
-    checkeq(built.get("feature").get("station").get("instance").str_or(""),
+    checkeq(entry_of(built.get("feature"), "station").get("instance").str_or(""),
             "gnarly-pets", "the instance name rides the feature options");
-    check(built.get("feature").get("station").get("active").bval,
+    check(entry_of(built.get("feature"), "station").get("active").bval,
           "station's own entry is composed last and always wins");
 
     // create() is UNCACHED and takes the lowest free integer tag, so an
@@ -879,6 +901,41 @@ int main(int argc, char** argv) {
     checkeq(rows[1].name, "gnarly-pets$eu", "sorted by name");
     check(!rows[2].active, "gnarly-pets$off is declared and barred");
     check(!rows[1].live, "a declared instance is not live until built");
+    vs::reset_factories();
+  });
+
+  testcase("declared-order-reaches-the-constructor-as-init-order", [] {
+    vs::reset_factories();
+    vs::Factory factory;
+    factory.config = petconfig();
+    factory.config.set("feature", vs::parse_json(R"({ "retry": {}, "cache": {}, "test": {} })"));
+    factory.construct = petconstruct();
+    vs::provide("gnarly-pets", factory);
+    vs::StationOptions opts;
+    opts.has_config = true;
+    opts.config = vs::parse_json(R"({ "station": 1, "profiles": { "default": {
+      "sdk": { "gnarly-pets": { "feature": {
+        "retry": { "retries": 2 }, "cache": { "order": { "before": "retry" } } } } }
+      } } })");
+    vs::Station st(opts);
+
+    // cache outside retry, so retry initialises first; a map would have
+    // been sorted by name by the generated constructor.
+    vs::Jval built = *std::static_pointer_cast<vs::Jval>(st.sdk("gnarly-pets"));
+    checkeq(feature_names(built.get("feature")), "station,retry,cache", "init order");
+
+    vs::Jval tuned = *std::static_pointer_cast<vs::Jval>(st.create("gnarly-pets",
+        vs::parse_json(R"({ "feature": { "retry": { "retries": 5 }, "test": {} } })")));
+    checkeq(feature_names(tuned.get("feature")), "test,station,retry,cache",
+            "the per-call test is the base");
+    vs::Jval retry = entry_of(tuned.get("feature"), "retry");
+    checkeq(vs::canonical_serialize(retry.get("retries")), "5", "a per-call key merges");
+    check(retry.get("active").bval, "without dropping what it did not name");
+
+    vs::Jval listed = *std::static_pointer_cast<vs::Jval>(st.create("gnarly-pets",
+        vs::parse_json(R"({ "feature": [ { "name": "retry", "retries": 7 } ] })")));
+    checkeq(vs::canonical_serialize(entry_of(listed.get("feature"), "retry").get("retries")),
+            "7", "the list form is read by name");
     vs::reset_factories();
   });
 

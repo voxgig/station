@@ -3,7 +3,7 @@ import { describe, test } from 'node:test'
 import { deepStrictEqual, equal, ok, throws } from 'node:assert'
 
 import {
-  checkfeatures, checkpin, composefeatures, defaultband, featuresources,
+  checkfeatures, checkpin, composefeatures, defaultband, featuremap, featuresources,
   mergefeatures, resolveorder,
 } from '../src/feature'
 import { normalizeDescriptor } from '../src/descriptor'
@@ -135,6 +135,20 @@ describe('feature-order', () => {
       retry: { active: true, retries: 3, order: { band: 0 } },
     }))
     deepStrictEqual(composed, [{ name: 'retry', active: true, retries: 3 }])
+  })
+
+  test('composing turns the onion into init order, innermost first', () => {
+    const merged = { cache: {}, retry: {}, test: {} }
+    deepStrictEqual(resolveorder(merged).map((o) => o.name), ['cache', 'retry', 'test'])
+    deepStrictEqual(composefeatures(resolveorder(merged)).map((f) => f.name),
+      ['test', 'retry', 'cache'])
+  })
+
+  test('featuremap reads the list form by name', () => {
+    deepStrictEqual(featuremap([{ name: 'retry', retries: 2 }, { nameless: true }, 'x']),
+      { retry: { retries: 2 } })
+    deepStrictEqual(featuremap({ retry: {} }), { retry: {} })
+    deepStrictEqual(featuremap(undefined), {})
   })
 })
 

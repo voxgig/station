@@ -35,8 +35,9 @@ module PlacementSDK
   class Feature
     attr_reader :name
 
-    def initialize(name)
+    def initialize(name, calls = [])
       @name = name
+      @calls = calls
     end
 
     def get_name
@@ -45,11 +46,14 @@ module PlacementSDK
 
     def init(ctx, _fopts)
       inner = ctx.utility.fetcher
+      calls = @calls
+      name = @name
       ctx.utility.fetcher =
         case @name
         when 'test' then ->(_c, _u, _d) { [{ 'status' => 200 }, nil] }
         when 'retry'
           lambda do |c, url, fdef|
+            calls << name
             res, err = inner.call(c, url, fdef)
             2.times do
               break unless err.nil? && 503 == res['status']
@@ -58,7 +62,11 @@ module PlacementSDK
             end
             [res, err]
           end
-        else ->(c, url, fdef) { inner.call(c, url, fdef) }
+        else
+          lambda do |c, url, fdef|
+            calls << name
+            inner.call(c, url, fdef)
+          end
         end
     end
   end
@@ -100,6 +108,7 @@ module PlacementSDK
       'entity' => {},
     }
     sent = []
+    calls = []
     wire = lambda do |_c, url, _d|
       sent << url
       [{ 'status' => statuses[sent.length - 1] || 200 }, nil]
@@ -110,19 +119,25 @@ module PlacementSDK
 
       define_method(:initialize) do |options|
         @options = options
-        fmap = options['feature'].is_a?(Hash) ? options['feature'] : {}
+        # A list is init order as given; a hash is ordered as above.
+        listed = options['feature'].is_a?(Array) ? options['feature'] : nil
+        fmap = if listed
+                 listed.to_h { |f| [f['name'], f.reject { |k, _| 'name' == k }] }
+               else
+                 options['feature'].is_a?(Hash) ? options['feature'] : {}
+               end
         @mode = fmap['test'].is_a?(Hash) && true == fmap['test']['active'] ? 'test' : 'live'
         @features = []
         @utility = Utility.new
         @utility.fetcher = wire
         @ctx = Ctx.new(self, @utility, options, config)
 
-        PlacementSDK.featureorder(fmap).each do |fname|
+        (listed ? listed.map { |f| f['name'] } : PlacementSDK.featureorder(fmap)).each do |fname|
           fopts = fmap[fname]
           next unless fopts.is_a?(Hash) && true == fopts['active']
 
           known = config['feature'].key?(fname)
-          PlacementSDK.feature_add(@features, Feature.new(known ? fname : 'base'))
+          PlacementSDK.feature_add(@features, Feature.new(known ? fname : 'base', calls))
         end
         (options['extend'] || []).each do |f|
           PlacementSDK.feature_add(@features, f) if f.respond_to?(:get_name)
@@ -145,7 +160,7 @@ module PlacementSDK
       end
     end
 
-    { sdk: sdk, config: config, sent: sent }
+    { sdk: sdk, config: config, sent: sent, calls: calls }
   end
 end
 
@@ -251,6 +266,24 @@ class PlacementTest < Minitest::Test
     client.list
     assert_equal 2, built[:sent].length
     assert_equal [['http', 503], ['http', 200], %w[op ok]], wire(st)
+    st.close
+  end
+
+  def test_a_declared_order_the_alphabet_disagrees_with_reaches_the_wire
+    built = PlacementSDK.build('taskpad', [200])
+    VoxgigStation.provide('taskpad',
+      'construct' => ->(o) { built[:sdk].new(o) }, 'config' => built[:config])
+    st = VoxgigStation::Station.new('config' => {
+      'station' => 1,
+      'profiles' => { 'default' => { 'sdk' => { 'taskpad' => { 'feature' => {
+        'retry' => {}, 'cache' => { 'order' => { 'before' => 'retry' } },
+      } } } } },
+    })
+    client = st.sdk('taskpad')
+
+    assert_equal %w[station retry cache], names(client)
+    client.list
+    assert_equal %w[cache retry], built[:calls], 'cache wraps retry'
     st.close
   end
 end
