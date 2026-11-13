@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/voxgig/sekreto/go/sekreto"
 )
@@ -213,8 +214,12 @@ func loadStationConfig(path string, profileName string) (*stationConfig, error) 
 	if err != nil {
 		return nil, fmt.Errorf("station: cannot read config %s: %w", path, err)
 	}
-	// encoding/json would replace an unpaired surrogate escape with U+FFFD,
-	// merging keys that differ only there; the library refuses the file too.
+	// encoding/json would replace bytes that are not UTF-8, and an unpaired
+	// surrogate escape, with U+FFFD, merging keys that differ only there;
+	// the library refuses the file too.
+	if !utf8.Valid(text) {
+		return nil, fmt.Errorf("station: config %s is not UTF-8", path)
+	}
 	if literal, found := unpairedSurrogate(text); found {
 		return nil, fmt.Errorf("station: config %s has an unpaired surrogate escape in %s",
 			path, literal)

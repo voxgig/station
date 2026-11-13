@@ -1,6 +1,6 @@
 # Status: where the next session starts
 
-Snapshot, **2026-11-13**. `main` is at `cb29b1b`. 0.2.0 is released on
+Snapshot, **2026-11-13**. `main` is at `4fe4700`. 0.2.0 is released on
 every route, and `main` is ahead of it: the six pull requests of W1
 merged on 2026-11-11 and changed every port's source, and on 2026-11-12
 W5.1 (the proxy builds), W4.3 (the fixture SDKs), W2.1 (the carried
@@ -111,8 +111,10 @@ passing; CI runs them once the fixture lane's patch is applied.
 
 ## In flight
 
-Nothing. Every W2 fix is merged; the one W2 item left is the 0.3.0
-release (W2.11), and it waits on the owner.
+W2.15's follow-up, in review: the proxy daemon reads its own
+`station.json`, and refuses bytes that are not UTF-8 too, as the
+library does. With it, every W2 fix is merged; the one W2 item left is
+the 0.3.0 release (W2.11), and it waits on the owner.
 
 
 ## Pick this up first
@@ -140,7 +142,7 @@ Everything here needs the maintainer, and most of it fits one sitting.
 
 | what | why a human | rows |
 |---|---|---|
-| Apply a workflow patch, when one is on `main` in [`patch/`](patch/README.md) | A token with the `workflow` scope. A session cannot push a change under `.github/workflows/`, so it commits a patch to `main` instead. Two are pending, both on `main`: `proxy-ci-lane.patch` and `fixtures-ci-lane.patch`. They apply in either order. | W5.1 and W4.3 now; W3.11 and W4.4 when theirs are written |
+| Apply a workflow patch, when one is on `main` in [`patch/`](patch/README.md) | A token with the `workflow` scope. A session cannot push a change under `.github/workflows/`, so it commits a patch to `main` instead. Two are pending, both on `main`: `proxy-ci-lane.patch` and `fixtures-ci-lane.patch`. They apply in either order, re-checked against `main` on 2026-11-13. | W5.1 and W4.3 now; W3.11 and W4.4 when theirs are written |
 | Delete eleven merged branches | The owner ruled on 2026-11-12 that they go. A session cannot do it: its push access refuses a branch deletion (HTTP 403). The list is below. | — |
 | Register `@voxgig/sdkgen-station` for trusted publishing | An npm owner | W3.11 |
 
