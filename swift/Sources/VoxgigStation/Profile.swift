@@ -42,8 +42,18 @@ public enum Profile {
     guard let file = findConfigFile(from) else {
       return nil
     }
-    guard let text = try? String(contentsOfFile: file, encoding: .utf8) else {
+    guard let data = FileManager.default.contents(atPath: file) else {
       return nil
+    }
+    // RFC 8259 8.1: the text is UTF-8. Newer Foundations drop a byte order
+    // mark while decoding, so it is refused before the decode.
+    if data.starts(with: [0xEF, 0xBB, 0xBF]) {
+      throw StationError(
+        "station_config_invalid",
+        "station.json at " + file + " is not valid JSON: it begins with a byte order mark")
+    }
+    guard let text = String(data: data, encoding: .utf8) else {
+      throw StationError("station_config_invalid", "station.json at " + file + " is not UTF-8")
     }
     return try parseConfig(text, file)
   }

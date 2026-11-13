@@ -35,8 +35,16 @@ def load_config(from_dir=None):
     file = find_config_file(from_dir)
     if file is None:
         return None
-    with open(file, encoding='utf-8') as handle:
-        return parse_config(handle.read(), file)
+    # RFC 8259 8.1: the text is UTF-8. A byte order mark stays in the
+    # text, where the JSON parse refuses it.
+    with open(file, 'rb') as handle:
+        raw = handle.read()
+    try:
+        text = raw.decode('utf-8')
+    except UnicodeDecodeError:
+        raise StationError(
+            'station_config_invalid', 'station.json at ' + file + ' is not UTF-8')
+    return parse_config(text, file)
 
 
 def parse_config(text, file=None):

@@ -310,6 +310,66 @@ internal static class Program
             }
         });
 
+        // The corpus is JSON text, so it cannot carry these bytes.
+        TestCase("config: station.json is read as UTF-8, and refused when it is not", () =>
+        {
+            string dir = Path.Combine(Path.GetTempPath(), "station-utf8-" + Guid.NewGuid());
+            Directory.CreateDirectory(Path.Combine(dir, ".git"));
+            string file = Path.Combine(dir, "station.json");
+            Func<byte[], byte[]> doc = note => System.Linq.Enumerable.ToArray(System.Linq.Enumerable.Concat(
+                System.Linq.Enumerable.Concat(System.Text.Encoding.UTF8.GetBytes(
+                    "{ \"station\": 1, \"profiles\": { \"default\": { \"sdk\": { \"joplin\": "
+                    + "{ \"options\": { \"note\": \""), note),
+                System.Text.Encoding.UTF8.GetBytes("\" } } } } } }")));
+            try
+            {
+                File.WriteAllBytes(file, doc(System.Text.Encoding.UTF8.GetBytes("\u00e9\U0001F600")));
+                var note = Descriptor.GetProp(Descriptor.GetProp(Descriptor.GetProp(Descriptor.GetProp(
+                    Descriptor.GetProp(Descriptor.GetProp(Profile.LoadConfig(dir), "profiles"), "default"),
+                    "sdk"), "joplin"), "options"), "note");
+                Check("\u00e9\U0001F600" == (string)note, "raw UTF-8 reads as its characters");
+
+                var notUtf8 = new (string Shape, byte[] Bytes)[]
+                {
+                    ("stray", new byte[] { 0xe9 }),
+                    ("overlong", new byte[] { 0xc0, 0xaf }),
+                    ("surrogate", new byte[] { 0xed, 0xa0, 0x80 }),
+                    ("outofrange", new byte[] { 0xf4, 0x90, 0x80, 0x80 }),
+                    ("truncated", new byte[] { 0xf0, 0x9f, 0x98 }),
+                };
+                foreach (var (shape, bytes) in notUtf8)
+                {
+                    File.WriteAllBytes(file, doc(bytes));
+                    try
+                    {
+                        Profile.LoadConfig(dir);
+                        Check(false, shape + " is refused");
+                    }
+                    catch (StationError err)
+                    {
+                        Check("station_config_invalid: station.json at " + file + " is not UTF-8"
+                            == err.Message, shape + ": " + err.Message);
+                    }
+                }
+
+                File.WriteAllBytes(file, System.Linq.Enumerable.ToArray(System.Linq.Enumerable.Concat(
+                    new byte[] { 0xef, 0xbb, 0xbf }, doc(System.Text.Encoding.UTF8.GetBytes("ok")))));
+                try
+                {
+                    Profile.LoadConfig(dir);
+                    Check(false, "a byte order mark is refused");
+                }
+                catch (StationError err)
+                {
+                    Check(err.Message.Contains(" is not valid JSON: "), err.Message);
+                }
+            }
+            finally
+            {
+                Directory.Delete(dir, true);
+            }
+        });
+
         TestCase("events: ring overflow drops oldest, counted", () =>
         {
             var buffer = new EventBuffer(2);

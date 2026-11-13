@@ -1608,6 +1608,28 @@ testcase('config_scope_reads_the_repo_review_boundary', function () {
         $e = raises(fn() => \Voxgig\Station\load_config($dir), 'station_config_invalid');
         eq('station_config_invalid: station.json at ' . $dir . '/station.json'
             . ' has an unpaired surrogate escape in "x\\ud800"', $e->getMessage());
+
+        // The corpus is JSON text, so it cannot carry these bytes.
+        $doc = fn(string $note) => '{ "station": 1, "profiles": { "default": { "sdk": '
+            . '{ "joplin": { "options": { "note": "' . $note . '" } } } } } }';
+        file_put_contents($dir . '/station.json', $doc("\u{e9}\u{1F600}"));
+        $note = \Voxgig\Station\load_config($dir)['profiles']['default']['sdk']['joplin']['options']['note'];
+        eq(["\u{e9}", "\u{1F600}"], preg_split('//u', $note, -1, PREG_SPLIT_NO_EMPTY));
+
+        $notUtf8 = [
+            'stray' => "\xe9", 'overlong' => "\xc0\xaf", 'surrogate' => "\xed\xa0\x80",
+            'outofrange' => "\xf4\x90\x80\x80", 'truncated' => "\xf0\x9f\x98",
+        ];
+        foreach ($notUtf8 as $shape => $bytes) {
+            file_put_contents($dir . '/station.json', $doc($bytes));
+            $e = raises(fn() => \Voxgig\Station\load_config($dir), 'station_config_invalid');
+            eq('station_config_invalid: station.json at ' . $dir . '/station.json is not UTF-8',
+                $e->getMessage(), $shape);
+        }
+
+        file_put_contents($dir . '/station.json', "\xef\xbb\xbf" . $doc('ok'));
+        $e = raises(fn() => \Voxgig\Station\load_config($dir), 'station_config_invalid');
+        ok(str_contains($e->getMessage(), ' is not valid JSON: '), $e->getMessage());
     } finally {
         @unlink($dir . '/station.json');
         @rmdir($dir);

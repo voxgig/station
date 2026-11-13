@@ -47,6 +47,48 @@ func TestAnUnpairedSurrogateEscapeIsRefused(t *testing.T) {
 	}
 }
 
+// The corpus is JSON text, so it cannot carry these bytes.
+func TestStationJsonIsReadAsUTF8AndRefusedWhenItIsNot(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "station.json")
+	doc := func(note string) []byte {
+		return []byte(`{ "station": 1, "profiles": { "default": { "sdk": ` +
+			`{ "joplin": { "options": { "note": "` + note + `" } } } } } }`)
+	}
+	write := func(raw []byte) {
+		if err := os.WriteFile(file, raw, 0o644); nil != err {
+			t.Fatal(err)
+		}
+	}
+
+	write(doc("\u00e9\U0001F600"))
+	config, err := station.LoadConfig(dir)
+	if nil != err {
+		t.Fatal(err)
+	}
+	note := config["profiles"].(map[string]any)["default"].(map[string]any)["sdk"].(map[string]any)["joplin"].(map[string]any)["options"].(map[string]any)["note"]
+	if "\u00e9\U0001F600" != note {
+		t.Fatalf("raw UTF-8 reads as its characters: %q", note)
+	}
+
+	for _, bad := range []struct{ shape, bytes string }{
+		{"stray", "\xe9"}, {"overlong", "\xc0\xaf"}, {"surrogate", "\xed\xa0\x80"},
+		{"outofrange", "\xf4\x90\x80\x80"}, {"truncated", "\xf0\x9f\x98"},
+	} {
+		write(doc(bad.bytes))
+		_, err = station.LoadConfig(dir)
+		if want := "station_config_invalid: station.json at " + file + " is not UTF-8"; nil == err || want != err.Error() {
+			t.Fatalf("%s: err = %v, want %s", bad.shape, err, want)
+		}
+	}
+
+	write(append([]byte("\xef\xbb\xbf"), doc("ok")...))
+	_, err = station.LoadConfig(dir)
+	if nil == err || !strings.Contains(err.Error(), " is not valid JSON: ") {
+		t.Fatalf("a byte order mark: %v", err)
+	}
+}
+
 func TestDeclarationOrderIsNotSortedOrder(t *testing.T) {
 	dir := t.TempDir()
 	// zeta before alpha: declared order and sorted order disagree, so a

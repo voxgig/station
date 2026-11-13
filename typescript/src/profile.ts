@@ -155,7 +155,19 @@ export function findConfigFile(from?: string): string | null {
 export function loadConfig(from?: string): StationConfig | null {
   const file = findConfigFile(from)
   if (null == file) { return null }
-  return parseConfig(Fs.readFileSync(file, 'utf8'), file)
+  return parseConfig(utf8text(Fs.readFileSync(file), file), file)
+}
+
+// RFC 8259 §8.1: the text is UTF-8. A byte order mark stays in the text,
+// where the JSON parse refuses it.
+function utf8text(bytes: Buffer, file: string): string {
+  try {
+    return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes)
+  }
+  catch (_err: any) {
+    throw new StationError('station_config_invalid',
+      'station.json at ' + file + ' is not UTF-8')
+  }
 }
 
 // A file that is not JSON is a config error, not a raw SyntaxError

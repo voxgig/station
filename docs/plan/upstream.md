@@ -136,6 +136,7 @@ sections were written.
 | struct-3 | — | [struct#178], a parity pull request across its ports | WATCH | W4.4. It changes behaviour, and station's CI takes struct `main`. |
 | struct-4 | Packages on Packagist and Maven Central | — | NOT FILED | W3.5, W3.6. It is on every other registry station's ports use. |
 | struct-5 | Perl's `parse_json` decodes an escaped surrogate pair as one character | — | NOT FILED | Found by W2.9: it decodes each `\u` escape on its own, so `\ud83d\ude00` arrives as two surrogate characters (run, at `055ac4a`). Station's perl joins the halves after it reads (`jsonform`), and the corpus holds it to that. |
+| struct-6 | Perl's `parse_json` reads a value that begins with an unexpected character as an empty number | — | NOT FILED | Found by W2.15: `x`, `{"a": x}` and a text that begins with a byte order mark each print `Argument "" isn't numeric in int`, then are refused at the next delimiter, as trailing data or a missing `,` (run, at `055ac4a`). The text is refused either way, so station's answer is right; the warning reaches its perl suite's output, and the refusal names the wrong fault. |
 
 
 ## voxgig/plugin
@@ -197,8 +198,8 @@ each was checked against the upstream's current code first.
 | W5.5 | voxgig/station | [#70] |
 
 Still not filed, and not among the eleven: `sdkgen-10` and `sdkgen-16`,
-`sekreto-4` to `sekreto-6`, `struct-4` and `plugin-5`. Each is marked
-`NOT FILED` in its row above.
+`sekreto-4` to `sekreto-6`, `struct-4` to `struct-6`, `plugin-5` and
+`omni-3`. Each is marked `NOT FILED` in its row above.
 
 Two findings from this review extend issues that are already open,
 and are better added there than filed new. They have not been added:

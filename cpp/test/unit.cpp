@@ -622,6 +622,47 @@ int main(int argc, char** argv) {
     fs::remove_all(root);
   });
 
+  // The corpus is JSON text, so it cannot carry these bytes.
+  testcase("station-json-is-read-as-utf8-and-refused-when-it-is-not", [] {
+    namespace fs = std::filesystem;
+    fs::path root = fs::temp_directory_path() / "vstation-utf8";
+    fs::remove_all(root);
+    fs::create_directories(root / ".git");
+    std::string file = (root / "station.json").string();
+    auto write = [&file](const std::string& note, const std::string& head = "") {
+      std::ofstream out(file, std::ios::binary);
+      out << head << R"({ "station": 1, "profiles": { "default": { "sdk": { "joplin": )"
+          << R"({ "options": { "note": ")" << note << R"(" } } } } } })";
+    };
+
+    write("\xC3\xA9\xF0\x9F\x98\x80");
+    checkeq(vs::load_config(root.string()).get("profiles").get("default").get("sdk")
+                .get("joplin").get("options").get("note").str_or(""),
+            "\xC3\xA9\xF0\x9F\x98\x80", "raw UTF-8 keeps its bytes");
+
+    for (const std::string& bad : {std::string("\xE9"), std::string("\xC0\xAF"),
+                                   std::string("\xED\xA0\x80"), std::string("\xF4\x90\x80\x80"),
+                                   std::string("\xF0\x9F\x98")}) {
+      write(bad);
+      try {
+        vs::load_config(root.string());
+        check(false, "refused: " + bad);
+      } catch (const vs::StationError& err) {
+        checkeq(std::string(err.what()),
+                "station_config_invalid: station.json at " + file + " is not UTF-8", "message");
+      }
+    }
+
+    write("ok", "\xEF\xBB\xBF");
+    try {
+      vs::load_config(root.string());
+      check(false, "a byte order mark must be refused");
+    } catch (const vs::StationError& err) {
+      check(std::string::npos != std::string(err.what()).find(" is not valid JSON: "), err.what());
+    }
+    fs::remove_all(root);
+  });
+
   testcase("legacy-config-warning-event-on-register", [] {
     vs::StationOptions opts;
     opts.has_config = true;

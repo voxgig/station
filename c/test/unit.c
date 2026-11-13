@@ -1460,6 +1460,35 @@ static void test_declarative_optspec(void) {
   vxstn_reset();
 }
 
+/* The corpus is JSON text, so it cannot carry these bytes. */
+static void test_parse_config_reads_utf8(void) {
+  static const char* const bad[] = {"\xE9", "\xC0\xAF", "\xED\xA0\x80", "\xF4\x90\x80\x80",
+                                    "\xF0\x9F\x98"};
+  char text[160];
+  vxstn_error* err = NULL;
+  vxstn_val* config;
+  size_t i;
+
+  config = vxstn_parse_config("{\"note\": \"\xC3\xA9\xF0\x9F\x98\x80\"}", &err);
+  CHECK(NULL != config && NULL == err);
+  CHECK_STR(vxstn_strval(vxstn_map_get(config, "note")), "\xC3\xA9\xF0\x9F\x98\x80");
+  vxstn_val_free(config);
+
+  for (i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+    snprintf(text, sizeof(text), "{\"note\": \"%s\"}", bad[i]);
+    err = NULL;
+    CHECK(NULL == vxstn_parse_config(text, &err));
+    CHECK(NULL != err && 0 == strcmp(err->code, "station_config_invalid"));
+    CHECK_STR(NULL == err ? "" : err->message, "station_config_invalid: station.json is not UTF-8");
+    vxstn_error_free(err);
+  }
+
+  err = NULL;
+  CHECK(NULL == vxstn_parse_config("\xEF\xBB\xBF{\"note\": \"ok\"}", &err));
+  CHECK(NULL != err && NULL != strstr(err->message, " is not valid JSON: "));
+  vxstn_error_free(err);
+}
+
 static void test_options_named(void) {
   vxstn_open_opts opts;
   vxstn_station* st;
@@ -2073,6 +2102,7 @@ int main(void) {
   test_optspec_and_strict();
   test_options_named();
   test_options_top_level_names();
+  test_parse_config_reads_utf8();
   test_options_list_form();
   test_factory_table();
   test_check_package();

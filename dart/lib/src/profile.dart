@@ -49,7 +49,22 @@ dynamic loadConfig([String? from]) {
   if (null == file) {
     return null;
   }
-  return parseConfig(File(file).readAsStringSync(), file);
+  return parseConfig(_utf8Text(File(file).readAsBytesSync(), file), file);
+}
+
+// RFC 8259 8.1: the text is UTF-8. dart's decoder drops a byte order mark,
+// which every other port refuses as JSON, so the bytes are read for one.
+String _utf8Text(List<int> bytes, String file) {
+  if (3 <= bytes.length && 0xef == bytes[0] && 0xbb == bytes[1] && 0xbf == bytes[2]) {
+    throw StationError('station_config_invalid',
+        'station.json at ' + file + ' is not valid JSON: it begins with a byte order mark');
+  }
+  try {
+    return utf8.decode(bytes);
+  } on FormatException {
+    throw StationError(
+        'station_config_invalid', 'station.json at ' + file + ' is not UTF-8');
+  }
 }
 
 // A file that is not JSON is a config error, not a raw FormatException

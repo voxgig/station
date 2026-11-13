@@ -1,6 +1,6 @@
 # Status: where the next session starts
 
-Snapshot, **2026-11-13**. `main` is at `79ce914`. 0.2.0 is released on
+Snapshot, **2026-11-13**. `main` is at `1e4a123`. 0.2.0 is released on
 every route, and `main` is ahead of it: the six pull requests of W1
 merged on 2026-11-11 and changed every port's source, and on 2026-11-12
 W5.1 (the proxy builds), W4.3 (the fixture SDKs), W2.1 (the carried
@@ -11,7 +11,7 @@ chain) merged, which completes W2a, and from W2b, W2.6 (one `op` event
 per operation), W2.7 (the policy's hostname), W2.8 (the event's host),
 W2.9 (unpaired surrogate escapes), W2.10 (the kill switch), W2.12
 (the list form of `options.feature`) and, on 2026-11-13, W2.13 (the
-declared feature order). The seven
+declared feature order) and W2.14 (java's strict JSON). The seven
 decisions were ruled on 2026-11-11. The register
 in [`progress.md`](progress.md) is the per-item authority, and
 [`upstream.md`](upstream.md) tracks what other repositories owe. This
@@ -41,7 +41,12 @@ wrong status file is worse than none.**
   thing that caught two faults (W1). dart 3.14, elixir 1.14 and lua 5.4
   were installed here on 2026-11-12 for W2.1, and their suites pass;
   CI runs elixir 1.18. swift 6.0.3 was installed here for W2.12, from
-  swift.org's tarball, and the swift suite passes with it.
+  swift.org's tarball, and the swift suite passes with it. lua 5.3
+  was installed beside 5.4 for W2.15, since the lua port claims 5.3
+  and its `utf8.len` is laxer there; `test/station.lua` passes on both.
+  swift 6.4.2, the version CI runs, was installed beside 6.0.3 for
+  W2.15, after CI found their Foundations decode a byte order mark
+  differently; the swift suite passes on both.
 - **The gates.** `make version-check`, `vendor-check`, `comments` and
   `omni-isolation` pass on the merged tree.
 - **`make release-plan` now refuses, as it should.** It says
@@ -105,10 +110,10 @@ passing; CI runs them once the fixture lane's patch is applied.
 
 ## In flight
 
-W2.14, in review: java refuses a `station.json` that is not JSON,
-with a strict reader of its own ahead of sekreto's, and the corpus
-case W2.9 held back is in. W2.15, found during W2.9, has no issue
-filed yet.
+W2.15, in review: every port reads `station.json` as strict UTF-8 and
+refuses bytes that are not, and a byte order mark stays in the text,
+where it is refused as not JSON. It is the last W2 fix; with it merged,
+only the 0.3.0 release (W2.11) is left in W2.
 
 
 ## Pick this up first

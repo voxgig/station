@@ -245,6 +245,45 @@ testcase('config: an unpaired surrogate escape is refused', function()
     ' has an unpaired surrogate escape in "x\\ud800"', 'message')
 end)
 
+-- The corpus is JSON text, so it cannot carry these bytes.
+testcase('config: station.json is read as UTF-8, and refused when it is not', function()
+  local dir = os.tmpname()
+  os.remove(dir)
+  os.execute('mkdir -p ' .. dir .. '/.git')
+  local file = dir .. '/station.json'
+  local function load(text)
+    local handle = io.open(file, 'wb')
+    handle:write(text)
+    handle:close()
+    return pcall(st.load_config, dir)
+  end
+  local function doc(note)
+    return '{"station": 1, "profiles": {"default": {"sdk": {"joplin": ' ..
+      '{"options": {"note": "' .. note .. '"}}}}}}'
+  end
+  local results = {}
+  for _, note in ipairs({ '\xC3\xA9\xF0\x9F\x98\x80', '\xE9', '\xC0\xAF',
+    '\xED\xA0\x80', '\xF4\x90\x80\x80', '\xF0\x9F\x98' }) do
+    results[#results + 1] = { load(doc(note)) }
+  end
+  local bomok, bomerr = load('\xEF\xBB\xBF' .. doc('ok'))
+  os.execute('rm -rf ' .. dir)
+
+  check(results[1][1], 'raw UTF-8 loads')
+  local note = results[1][2].profiles.default.sdk.joplin.options.note
+  checkeq(note, '\xC3\xA9\xF0\x9F\x98\x80', 'raw UTF-8 reads as its bytes')
+  checkeq(utf8.len(note), 2, 'two characters')
+  for i = 2, #results do
+    check(not results[i][1], 'refused: case ' .. i)
+    checkeq(results[i][2].code, 'station_config_invalid', 'code')
+    checkeq(results[i][2].message, 'station_config_invalid: station.json at ' .. file ..
+      ' is not UTF-8', 'message')
+  end
+  check(not bomok, 'a byte order mark is refused')
+  checkeq(bomerr.code, 'station_config_invalid', 'code')
+  check(string.find(bomerr.message, ' is not valid JSON: ', 1, true) ~= nil, bomerr.message)
+end)
+
 testcase('parse_json', function()
   local v = st.parse_json('{"a":[1,2],"b":null,"c":"x\\u00e9","d":{}}')
   checkeq(v.a[2], 2)

@@ -60,6 +60,11 @@ function load_config(?string $from = null): ?array
     if (false === $text) {
         return null;
     }
+    // RFC 8259 8.1: the text is UTF-8. A byte order mark stays in the
+    // text, where the JSON parse refuses it.
+    if (1 !== preg_match('//u', $text)) {
+        throw new StationError('station_config_invalid', 'station.json at ' . $file . ' is not UTF-8');
+    }
     return parse_config($text, $file);
 }
 

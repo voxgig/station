@@ -2068,4 +2068,42 @@ subtest 'load_config refuses an unpaired surrogate escape' => sub {
         'message names the file and the literal' );
 };
 
+# The corpus is JSON text, so it cannot carry these bytes.
+subtest 'load_config reads UTF-8, and refuses text that is not' => sub {
+    my $dir  = File::Temp::tempdir( CLEANUP => 1 );
+    my $file = File::Spec->catfile( $dir, 'station.json' );
+    my $doc  = sub {
+        '{ "station": 1, "profiles": { "default": { "sdk": { "joplin": { "options": { "note": "'
+          . $_[0] . '" } } } } } }';
+    };
+    my $write = sub {
+        open( my $out, '>:raw', $file ) or die "cannot write $file: $!";
+        print {$out} $_[0];
+        close($out);
+    };
+
+    $write->( $doc->("\xc3\xa9\xf0\x9f\x98\x80") );
+    my $note = Voxgig::Station::Profile::load_config($dir)->{profiles}{default}{sdk}{joplin}{options}{note};
+    is_deeply( [ split //, $note ], [ "\x{e9}", "\x{1f600}" ], 'raw UTF-8 reads as its characters' );
+
+    my @not_utf8 = (
+        stray      => "\xe9",
+        overlong   => "\xc0\xaf",
+        surrogate  => "\xed\xa0\x80",
+        outofrange => "\xf4\x90\x80\x80",
+        truncated  => "\xf0\x9f\x98",
+    );
+    my $err;
+    while ( my ( $shape, $bytes ) = splice( @not_utf8, 0, 2 ) ) {
+        $write->( $doc->($bytes) );
+        $err = eval { Voxgig::Station::Profile::load_config($dir); 1 } ? undef : $@;
+        is( $err->{message}, 'station_config_invalid: station.json at ' . $file . ' is not UTF-8',
+            "refused: $shape" );
+    }
+
+    $write->( "\xef\xbb\xbf" . $doc->('ok') );
+    $err = eval { Voxgig::Station::Profile::load_config($dir); 1 } ? undef : $@;
+    like( $err->{message}, qr/ is not valid JSON: /, 'a byte order mark' );
+};
+
 done_testing();

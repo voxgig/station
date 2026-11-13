@@ -1638,6 +1638,37 @@ class TestLoadConfig(unittest.TestCase):
             ' has an unpaired surrogate escape in "x\\ud800"',
             str(caught.exception))
 
+    # The corpus is JSON text, so it cannot carry these bytes.
+    def test_station_json_is_read_as_utf8_and_refused_when_it_is_not(self):
+        def doc(note):
+            return (b'{ "station": 1, "profiles": { "default": { "sdk": '
+                    b'{ "joplin": { "options": { "note": "' + note + b'" } } } } } }')
+
+        def write(raw):
+            with open(self._file, 'wb') as handle:
+                handle.write(raw)
+
+        write(doc('\u00e9\U0001F600'.encode('utf-8')))
+        note = load_config(self._dir)['profiles']['default']['sdk']['joplin']['options']['note']
+        self.assertEqual(['\u00e9', '\U0001F600'], list(note))
+
+        not_utf8 = {
+            'stray': b'\xe9', 'overlong': b'\xc0\xaf', 'surrogate': b'\xed\xa0\x80',
+            'outofrange': b'\xf4\x90\x80\x80', 'truncated': b'\xf0\x9f\x98',
+        }
+        for shape, raw in not_utf8.items():
+            with self.subTest(shape):
+                write(doc(raw))
+                with self.assertRaises(StationError) as caught:
+                    load_config(self._dir)
+                self.assertEqual('station_config_invalid: station.json at ' + self._file +
+                                 ' is not UTF-8', str(caught.exception))
+
+        write(b'\xef\xbb\xbf' + doc(b'ok'))
+        with self.assertRaises(StationError) as caught:
+            load_config(self._dir)
+        self.assertIn(' is not valid JSON: ', str(caught.exception))
+
     def test_well_formed_json_still_loads(self):
         self._write('{ "station": 1 }')
         self.assertEqual({'station': 1}, load_config(self._dir))

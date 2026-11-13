@@ -12,6 +12,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Text;
 using System.Text.Json;
 
 using Voxgig.Sekreto;
@@ -67,7 +68,19 @@ namespace Voxgig.Station
             {
                 return null;
             }
-            return ParseConfig(File.ReadAllText(file), file);
+            // RFC 8259 8.1: the text is UTF-8. A byte order mark stays in
+            // the text, where the JSON check refuses it.
+            string text;
+            try
+            {
+                text = new UTF8Encoding(false, true).GetString(File.ReadAllBytes(file));
+            }
+            catch (DecoderFallbackException)
+            {
+                throw new StationError("station_config_invalid",
+                    "station.json at " + file + " is not UTF-8");
+            }
+            return ParseConfig(text, file);
         }
 
         /// <summary>
