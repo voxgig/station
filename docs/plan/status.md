@@ -1,6 +1,6 @@
 # Status: where the next session starts
 
-Snapshot, **2026-11-13**. `main` is at `1e4a123`. 0.2.0 is released on
+Snapshot, **2026-11-13**. `main` is at `cb29b1b`. 0.2.0 is released on
 every route, and `main` is ahead of it: the six pull requests of W1
 merged on 2026-11-11 and changed every port's source, and on 2026-11-12
 W5.1 (the proxy builds), W4.3 (the fixture SDKs), W2.1 (the carried
@@ -11,7 +11,8 @@ chain) merged, which completes W2a, and from W2b, W2.6 (one `op` event
 per operation), W2.7 (the policy's hostname), W2.8 (the event's host),
 W2.9 (unpaired surrogate escapes), W2.10 (the kill switch), W2.12
 (the list form of `options.feature`) and, on 2026-11-13, W2.13 (the
-declared feature order) and W2.14 (java's strict JSON). The seven
+declared feature order), W2.14 (java's strict JSON) and W2.15 (strict
+UTF-8), which completes W2b. The seven
 decisions were ruled on 2026-11-11. The register
 in [`progress.md`](progress.md) is the per-item authority, and
 [`upstream.md`](upstream.md) tracks what other repositories owe. This
@@ -110,10 +111,8 @@ passing; CI runs them once the fixture lane's patch is applied.
 
 ## In flight
 
-W2.15, in review: every port reads `station.json` as strict UTF-8 and
-refuses bytes that are not, and a byte order mark stays in the text,
-where it is refused as not JSON. It is the last W2 fix; with it merged,
-only the 0.3.0 release (W2.11) is left in W2.
+Nothing. Every W2 fix is merged; the one W2 item left is the 0.3.0
+release (W2.11), and it waits on the owner.
 
 
 ## Pick this up first
@@ -123,7 +122,9 @@ In this order. Only the release dispatch waits on the maintainer.
 1. **0.3.0** (W2.11): W2a is complete, with the cpp guard review found
    after W2.3. The version bump is an ordinary pull request; the
    dispatch publishes to npm, which cannot be undone, so it goes when
-   the owner says.
+   the owner says. W2b is merged too, which the plan put in 0.3.x, so
+   a release from `main` now carries it, and its notes must name W2b's
+   behaviour changes as well as the three in `plan.md` §6.
 2. **W4.1**, a completeness guard in typescript. W1.1, which edited the
    same test file, has landed.
 3. **W0.8**, the design's account of sdkgen.
@@ -163,6 +164,12 @@ git push origin --delete chore/comment-policy \
 
 ## Recently settled
 
+- **The W2 fixes are all merged** (2026-11-12 and 13): the kill switch
+  (W2.10, `c9f6f76`), the list form of `options.feature` (W2.12,
+  `5fc9e31`), the declared feature order (W2.13, `79ce914`), java's
+  strict JSON (W2.14, `1e4a123`) and strict UTF-8 in every port
+  (W2.15, `cb29b1b`). W2.15 found that CI's swift 6.4.2 drops a byte
+  order mark that 6.0.3 keeps, and `struct-6`.
 - **Every port refuses an unpaired surrogate escape in `station.json`**
   (W2.9, 2026-11-12, `a525c81`), and reads an escaped pair as one
   character; [#61] closed. It found W2.14 and W2.15, and two upstream
