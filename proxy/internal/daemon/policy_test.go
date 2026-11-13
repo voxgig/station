@@ -52,6 +52,39 @@ func TestConfigWithAnUnpairedSurrogateEscapeIsRefused(t *testing.T) {
 	}
 }
 
+func TestConfigIsReadAsUTF8AndRefusedWhenItIsNot(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "station.json")
+	write := func(head, note string) {
+		text := head + `{"station": 1, "profiles": {"default": {"sdk": ` +
+			`{"joplin": {"options": {"note": "` + note + `"}}}}}}`
+		if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	write("", "\u00e9\U0001F600")
+	if _, err := loadStationConfig(path, "default"); nil != err {
+		t.Fatalf("raw UTF-8 loads: %v", err)
+	}
+
+	for _, bad := range []struct{ shape, bytes string }{
+		{"stray", "\xe9"}, {"overlong", "\xc0\xaf"}, {"surrogate", "\xed\xa0\x80"},
+		{"outofrange", "\xf4\x90\x80\x80"}, {"truncated", "\xf0\x9f\x98"},
+	} {
+		write("", bad.bytes)
+		_, err := loadStationConfig(path, "default")
+		if want := "station: config " + path + " is not UTF-8"; nil == err || want != err.Error() {
+			t.Fatalf("%s: err = %v, want %s", bad.shape, err, want)
+		}
+	}
+
+	write("\xef\xbb\xbf", "ok")
+	if _, err := loadStationConfig(path, "default"); nil == err ||
+		!strings.Contains(err.Error(), " is not valid JSON: ") {
+		t.Fatalf("a byte order mark: %v", err)
+	}
+}
+
 // --- §8.3: pending -> approve -> narrow-not-widen ----------------------
 
 func TestPolicyAuthority(t *testing.T) {
