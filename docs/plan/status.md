@@ -1,6 +1,6 @@
 # Status: where the next session starts
 
-Snapshot, **2026-11-13**. `main` is at `4fe4700`. 0.2.0 is released on
+Snapshot, **2026-11-13**. `main` is at `2f68eaf`. 0.2.0 is released on
 every route, and `main` is ahead of it: the six pull requests of W1
 merged on 2026-11-11 and changed every port's source, and on 2026-11-12
 W5.1 (the proxy builds), W4.3 (the fixture SDKs), W2.1 (the carried
@@ -111,10 +111,9 @@ passing; CI runs them once the fixture lane's patch is applied.
 
 ## In flight
 
-W2.15's follow-up, in review: the proxy daemon reads its own
-`station.json`, and refuses bytes that are not UTF-8 too, as the
-library does. With it, every W2 fix is merged; the one W2 item left is
-the 0.3.0 release (W2.11), and it waits on the owner.
+Nothing. Every W2 fix is merged, W2.15's follow-up for the proxy
+daemon among them; the one W2 item left is the 0.3.0 release (W2.11),
+and it waits on the owner.
 
 
 ## Pick this up first
@@ -170,7 +169,7 @@ git push origin --delete chore/comment-policy \
   (W2.10, `c9f6f76`), the list form of `options.feature` (W2.12,
   `5fc9e31`), the declared feature order (W2.13, `79ce914`), java's
   strict JSON (W2.14, `1e4a123`) and strict UTF-8 in every port
-  (W2.15, `cb29b1b`). W2.15 found that CI's swift 6.4.2 drops a byte
+  (W2.15, `cb29b1b`), and in the proxy daemon (`2f68eaf`). W2.15 found that CI's swift 6.4.2 drops a byte
   order mark that 6.0.3 keeps, and `struct-6`.
 - **Every port refuses an unpaired surrogate escape in `station.json`**
   (W2.9, 2026-11-12, `a525c81`), and reads an escaped pair as one
