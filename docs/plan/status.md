@@ -44,6 +44,9 @@ wrong status file is worse than none.**
   swift.org's tarball, and the swift suite passes with it. lua 5.3
   was installed beside 5.4 for W2.15, since the lua port claims 5.3
   and its `utf8.len` is laxer there; `test/station.lua` passes on both.
+  swift 6.4.2, the version CI runs, was installed beside 6.0.3 for
+  W2.15, after CI found their Foundations decode a byte order mark
+  differently; the swift suite passes on both.
 - **The gates.** `make version-check`, `vendor-check`, `comments` and
   `omni-isolation` pass on the merged tree.
 - **`make release-plan` now refuses, as it should.** It says
