@@ -1736,6 +1736,10 @@ subtest 'the composed feature order reaches the constructor' => sub {
     my ($retry) = grep { 'retry' eq $_->{name} } @{ $tuned->{options}{feature} };
     is( $retry->{retries}, 5, 'a per-call key merges over the declared entry' );
     ok( $retry->{active}, 'without dropping what it did not name' );
+    my $listed =
+      $st->create( 'gnarly-pets', { feature => [ { name => 'retry', retries => 7 } ] } );
+    my ($lretry) = grep { 'retry' eq $_->{name} } @{ $listed->{options}{feature} };
+    is( $lretry->{retries}, 7, 'the list form is read by name' );
 
     # ...and 6.1's inverted binding takes the instance name as an
     # OPTIONAL LEADING argument, so every existing options({...}) call is

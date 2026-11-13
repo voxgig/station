@@ -1947,6 +1947,21 @@ static void test_create_feature_overrides(void) {
   }
 
   fake_free(made);
+
+  /* sdkgen's list form is read by entry name. */
+  {
+    vxstn_val* listed_over =
+        vxstn_parse_json("{\"feature\":[{\"name\":\"retry\",\"wait\":7}]}", NULL);
+    fake_client* listed =
+        NULL == st ? NULL : (fake_client*)vxstn_create(st, "solar$eu", listed_over, &err);
+    CHECK(NULL != listed && NULL == err);
+    if (NULL != listed) {
+      CHECK(7 == vxstn_map_get(feature_entry(listed->options, "retry"), "wait")->i);
+    }
+    fake_free(listed);
+    vxstn_val_free(listed_over);
+  }
+
   vxstn_val_free(over);
   vxstn_val_free(config);
   vxstn_reset_factories();
