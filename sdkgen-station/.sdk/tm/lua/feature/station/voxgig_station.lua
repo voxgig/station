@@ -865,7 +865,7 @@ end
 -- which I-JSON forbids, so the text is scanned before it is decoded.
 function M.parse_config(text, file)
   local where = 'station.json' .. (file == nil and '' or ' at ' .. file)
-  -- Lua 5.3's utf8.len lets an encoded surrogate through.
+  -- Not every Lua's utf8.len refuses an encoded surrogate.
   if utf8.len(text) == nil or string.find(text, '\xED[\xA0-\xBF]') then
     fail('station_config_invalid', where .. ' is not UTF-8')
   end

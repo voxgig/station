@@ -45,7 +45,7 @@ public enum Profile {
     guard let data = FileManager.default.contents(atPath: file) else {
       return nil
     }
-    // RFC 8259 8.1: the text is UTF-8. Newer Foundations drop a byte order
+    // RFC 8259 8.1: the text is UTF-8. Foundation can drop a byte order
     // mark while decoding, so it is refused before the decode.
     if data.starts(with: [0xEF, 0xBB, 0xBF]) {
       throw StationError(
