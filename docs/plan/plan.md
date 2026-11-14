@@ -390,8 +390,8 @@ No decision is open.
 | release | carries | gate |
 |---|---|---|
 | **0.2.0** | Released: on npm 2026-10-16 and 17, and the Go tag on 2026-11-10. | Done; W0's housekeeping remains |
-| **0.3.0** | W1, which is on `main`, and W2a. The first release to recommend for live use. | W2a's exit |
-| **0.3.x** | W2b, W3's port packaging, W4. | each item's own exit |
+| **0.3.0** | Released 2026-11-14 from `ef358d6`: W1, W2a and W2b, which landed before it. The first release to recommend for live use. | Done |
+| **0.3.x** | W3's port packaging, W4. | each item's own exit |
 | **0.4.0** | Attach in typescript and javascript, with the proxy binary released beside them. Phase 1's exit. | W5 items 1–7 |
 
 Every release moves every port (`make version-set`), and one dispatch
