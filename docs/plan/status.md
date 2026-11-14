@@ -1,8 +1,8 @@
 # Status: where the next session starts
 
-Snapshot, **2026-11-13**. `main` is at `2f68eaf`. 0.2.0 is released on
-every route, and `main` is ahead of it: the six pull requests of W1
-merged on 2026-11-11 and changed every port's source, and on 2026-11-12
+Snapshot, **2026-11-14**. `main` is at `ef358d6`, and **0.3.0 is
+released from it on every route** (W2.11). It carries all of this:
+the six pull requests of W1 merged on 2026-11-11 and changed every port's source, and on 2026-11-12
 W5.1 (the proxy builds), W4.3 (the fixture SDKs), W2.1 (the carried
 adapter's place), W2.2 (the Station out of the SDK's options), W2.4
 (passwords refused in a block's `base`), W2.5 (no userinfo in an
@@ -111,19 +111,17 @@ passing; CI runs them once the fixture lane's patch is applied.
 
 ## In flight
 
-W2.11, the 0.3.0 release, which the owner approved on 2026-11-14.
-The bump to 0.3.0 is in review, with the release notes in
-`docs/release/0.3.0.md`; one dispatch of `release.yml` on its merged
-commit follows. Every W2 fix is merged.
+The owner's request of 2026-11-14: station-view and station-mcp as
+plugins station loads when asked to, stubs for now, and likeness
+loading both. It begins W8 in typescript, with its design note.
 
 
 ## Pick this up first
 
 In this order. Only the release dispatch waits on the maintainer.
 
-1. **0.3.0** (W2.11): approved by the owner on 2026-11-14, and in
-   flight. If a run publishes and then fails before tagging, read
-   "Irreversible" in `AGENTS.md` before doing anything else.
+1. **W8, for station-view and station-mcp**: the owner's request of
+   2026-11-14, in flight.
 2. **W4.1**, a completeness guard in typescript. W1.1, which edited the
    same test file, has landed.
 3. **W0.8**, the design's account of sdkgen.
@@ -163,6 +161,9 @@ git push origin --delete chore/comment-policy \
 
 ## Recently settled
 
+- **0.3.0 is released on all three routes** (W2.11, 2026-11-14, from
+  `ef358d6`, run 43608982834): both npm packages as `latest`, with
+  provenance, and the three tags. Release notes: `docs/release/0.3.0.md`.
 - **The W2 fixes are all merged** (2026-11-12 and 13): the kill switch
   (W2.10, `c9f6f76`), the list form of `options.feature` (W2.12,
   `5fc9e31`), the declared feature order (W2.13, `79ce914`), java's
