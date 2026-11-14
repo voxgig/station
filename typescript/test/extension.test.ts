@@ -66,6 +66,25 @@ test('use is idempotent for one definition, and refuses another under its name',
   st.close()
 })
 
+test('a closed station takes no extension', () => {
+  const st = station()
+  st.close()
+  Assert.throws(() => st.use({ name: 'late' }),
+    (err: any) => 'station_no_plugin' === err.code && /station is closed/.test(err.message))
+  Assert.deepStrictEqual(st.extensions(), [])
+})
+
+test('a name Object.prototype holds is refused as a bad name, before the host sees it', () => {
+  const st = station()
+  for (const name of ['constructor', 'toString', 'hasOwnProperty']) {
+    Assert.throws(() => st.use({ name }), (err: any) => 'plugin_bad_name' === err.code, name)
+  }
+  Assert.deepStrictEqual(st.extensions(), [])
+  st.use({ name: 'tostring' })
+  Assert.deepStrictEqual(st.extensions(), [{ name: 'tostring', status: 'live' }])
+  st.close()
+})
+
 test('an extension that fails to activate raises and is listed failed', () => {
   const st = station()
   Assert.throws(() => st.use({ name: 'broken', activate() { throw new Error('no') } }),

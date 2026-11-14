@@ -27,7 +27,7 @@ export function makeextensions(station: unknown): Extensions {
   host.load(STATION)
   host.activate(STATION)
 
-  const used: { [name: string]: Definition } = {}
+  const used = new Map<string, Definition>()
 
   return {
     use(definition, options) {
@@ -36,12 +36,17 @@ export function makeextensions(station: unknown): Extensions {
         throw new PluginError('plugin_ref_reserved',
           'ref is reserved by the host: ' + STATION, { ref: STATION })
       }
-      if (undefined !== used[name] && used[name] !== definition) {
+      // plugin's host keeps its instances in a plain object.
+      if (Object.prototype.hasOwnProperty.call(Object.prototype, name)) {
+        throw new PluginError('plugin_bad_name',
+          'extension name is held by Object.prototype: ' + name, { name })
+      }
+      if (used.has(name) && used.get(name) !== definition) {
         throw new PluginError('plugin_ref_duplicate',
           'extension already loaded: ' + name, { ref: name })
       }
       host.define(definition)
-      used[name] = definition
+      used.set(name, definition)
       host.load(name, { options: options || {} })
       host.activate(name)
     },
