@@ -931,6 +931,9 @@ export class Station {
   /** Load an extension, a voxgig/plugin definition, and take it live. It
    * reads this Station as `inst.host().exports('station/station')`. */
   use(definition: Definition, options?: { [key: string]: any }): this {
+    if (this.closed) {
+      throw new StationError('station_no_plugin', 'station is closed')
+    }
     if (null === this.ext) { this.ext = makeextensions(this) }
     this.ext.use(definition, options)
     return this

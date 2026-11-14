@@ -56,10 +56,14 @@ of them.
 4. **Plugin's errors.** A failing definition raises voxgig/plugin's
    `PluginError`, with plugin's codes (`plugin_activate_failed` and the
    rest). Station adds no code of its own, because its error catalog is
-   shared by every port. It raises two of plugin's itself:
-   `plugin_ref_reserved` for an extension named `station`, and
+   shared by every port. It raises three of plugin's itself:
+   `plugin_ref_reserved` for an extension named `station`;
    `plugin_ref_duplicate` for a second, different definition under a
-   name in use. `use()` with the same definition again does nothing.
+   name in use; and `plugin_bad_name` for a name `Object.prototype`
+   holds, such as `constructor`, which plugin 0.2.0's host cannot store
+   (`plugin-7`). `use()` with the same definition again does nothing. A
+   closed Station takes no extension: `use()` raises
+   `station_no_plugin`, as `connect()` and `sdk()` do.
 5. **The public API, and nothing else.** An extension holds the Station
    itself, so it can call what any caller can. No secret value is
    reachable that way: events are scrubbed before they are buffered,
@@ -69,7 +73,7 @@ of them.
    every extension down in reverse ref order: `deactivate`, then its
    releases, newest first, then `close`.
 
-## Two things plugin 0.2.0 decides
+## Three things plugin 0.2.0 decides
 
 - **The `station` ref is not reserved through plugin.** A host can
   reserve a name with `makehost({ reserved })`, but in 0.2.0 an
@@ -78,6 +82,11 @@ of them.
   reserved list again without the host-owned flag (`plugin-6` in
   `upstream.md`). Station declares its own instance as an ordinary one
   and refuses the name in `use()`.
+- **Names `Object.prototype` holds.** The host keeps its instances in a
+  plain object, so `declare` finds `Object.prototype.constructor` for an
+  instance named `constructor`, and fails with a `TypeError`
+  (`plugin-7`). plugin's name grammar accepts seven such names. Station
+  refuses all seven before the host sees one.
 - **Two copies of plugin.** sekreto 0.3.0 takes `@voxgig/plugin`
   `^0.1.3`, and station `^0.2.0`, so an install holds both
   (`sekreto-7`). The two hosts never meet, so nothing crosses between

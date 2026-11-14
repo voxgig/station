@@ -113,9 +113,11 @@ passing; CI runs them once the fixture lane's patch is applied.
 
 The owner's request of 2026-11-14 (D-2026-11-14-1): station-view and
 station-mcp as plugins station loads when asked to, stubs for now, and
-likeness loading both. W8.6, in review: typescript hosts extensions
-(`docs/design/station-extensions.md`). The two stub packages follow,
-then likeness, which needs a station release with `use()` in it.
+likeness loading both. W8.6: typescript hosts extensions
+(`docs/design/station-extensions.md`, voxgig/station#93), and both stubs
+are merged in their repositories. Review's two edges are closed in a
+follow-up, in review. likeness is next, and needs a station release with
+`use()` in it, which waits on the owner.
 
 
 ## Pick this up first

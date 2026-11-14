@@ -154,6 +154,7 @@ The four obligations between the two repositories are in plugin's
 | plugin-4 | Does station take the library as a dependency? | plugin's `progress.md`, item 5.2; noted in [plugin#45] | OPEN | Ruled here on 2026-11-11: yes (D-2026-11-11-4), and W8 is the work. plugin's own register still shows the decision as needed until [plugin#45] is acted on. |
 | plugin-5 | A PyPI release | — | NOT FILED | `sekreto-2`, and through it W3.3. |
 | plugin-6 | A host-declared instance under a reserved name cannot be activated | — | NOT FILED | Found by W8.6: after `hostdeclare('station')`, `activate('station')` fails `plugin_ref_reserved`, because `activate` reloads the instance through `declare`, which checks the reserved list again without the host-owned flag (run, at 0.2.0). Station does not reserve `station` through plugin, and refuses the name in `use()` instead. |
+| plugin-7 | The host keeps its instances in a plain object | — | NOT FILED | Found by review of W8.6: an instance named `constructor` makes `declare` read `Object.prototype.constructor` as an existing instance, and fail with `TypeError: Cannot read properties of undefined (reading 'name')` (run, at 0.2.0). `checkname` accepts seven names `Object.prototype` holds, `constructor` and `toString` among them. Station refuses those seven in `use()` as `plugin_bad_name`. |
 
 
 ## voxgig/omni
@@ -200,8 +201,8 @@ each was checked against the upstream's current code first.
 | W5.5 | voxgig/station | [#70] |
 
 Still not filed, and not among the eleven: `sdkgen-10` and `sdkgen-16`,
-`sekreto-4` to `sekreto-7`, `struct-4` to `struct-6`, `plugin-5`,
-`plugin-6` and `omni-3`. Each is marked `NOT FILED` in its row above.
+`sekreto-4` to `sekreto-7`, `struct-4` to `struct-6`, `plugin-5` to
+`plugin-7`, and `omni-3`. Each is marked `NOT FILED` in its row above.
 
 Two findings from this review extend issues that are already open,
 and are better added there than filed new. They have not been added:
