@@ -111,21 +111,19 @@ passing; CI runs them once the fixture lane's patch is applied.
 
 ## In flight
 
-Nothing. Every W2 fix is merged, W2.15's follow-up for the proxy
-daemon among them; the one W2 item left is the 0.3.0 release (W2.11),
-and it waits on the owner.
+W2.11, the 0.3.0 release, which the owner approved on 2026-11-14.
+The bump to 0.3.0 is in review, with the release notes in
+`docs/release/0.3.0.md`; one dispatch of `release.yml` on its merged
+commit follows. Every W2 fix is merged.
 
 
 ## Pick this up first
 
 In this order. Only the release dispatch waits on the maintainer.
 
-1. **0.3.0** (W2.11): W2a is complete, with the cpp guard review found
-   after W2.3. The version bump is an ordinary pull request; the
-   dispatch publishes to npm, which cannot be undone, so it goes when
-   the owner says. W2b is merged too, which the plan put in 0.3.x, so
-   a release from `main` now carries it, and its notes must name W2b's
-   behaviour changes as well as the three in `plan.md` §6.
+1. **0.3.0** (W2.11): approved by the owner on 2026-11-14, and in
+   flight. If a run publishes and then fails before tagging, read
+   "Irreversible" in `AGENTS.md` before doing anything else.
 2. **W4.1**, a completeness guard in typescript. W1.1, which edited the
    same test file, has landed.
 3. **W0.8**, the design's account of sdkgen.
