@@ -111,9 +111,11 @@ passing; CI runs them once the fixture lane's patch is applied.
 
 ## In flight
 
-The owner's request of 2026-11-14: station-view and station-mcp as
-plugins station loads when asked to, stubs for now, and likeness
-loading both. It begins W8 in typescript, with its design note.
+The owner's request of 2026-11-14 (D-2026-11-14-1): station-view and
+station-mcp as plugins station loads when asked to, stubs for now, and
+likeness loading both. W8.6, in review: typescript hosts extensions
+(`docs/design/station-extensions.md`). The two stub packages follow,
+then likeness, which needs a station release with `use()` in it.
 
 
 ## Pick this up first

@@ -343,6 +343,12 @@ None of it is designed yet, so the first item is the design:
 4. The other thirteen ports, in the tiers §2.2 gives them. Each needs
    plugin installable in its language, which is the question
    D-2026-11-11-1 answers for sekreto.
+5. The documents that say station builds natively.
+6. Extensions (D-2026-11-14-1): a Station hosts the voxgig/plugin
+   definitions a caller hands it, station-view and station-mcp first,
+   as stubs (`station-extensions.md`). typescript first, then
+   javascript. It takes the canonical's dependency on plugin ahead of
+   item 2, for extension hosting only.
 
 **Exit:** no port carries a native implementation of what plugin
 defines, every port passes station's own corpus unchanged, and the

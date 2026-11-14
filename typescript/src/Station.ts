@@ -1,6 +1,8 @@
 import { adapterFeature } from './adapter'
 import { StationError } from './error'
 import { EventBuffer } from './events'
+import { makeextensions } from './extension'
+import type { Definition, ExtensionRow, Extensions } from './extension'
 import { canonicalSerialize, normalizeDescriptor, secretnameDefault } from './descriptor'
 import {
   blockOf, configScope, instanceOptions, loadConfig, refapi, resolveProfile,
@@ -125,6 +127,7 @@ export class Station {
   private aliasOf = new Map<string, string>()
 
   private closed = false
+  private ext: Extensions | null = null
 
   // Ambient instance (design §10.2): open() is the idempotent
   // process-wide singleton; a second open() with conflicting options is
@@ -925,6 +928,23 @@ export class Station {
     return this.buffer.tap(fn)
   }
 
+  /** Load an extension, a voxgig/plugin definition, and take it live. It
+   * reads this Station as `inst.host().exports('station/station')`. */
+  use(definition: Definition, options?: { [key: string]: any }): this {
+    if (null === this.ext) { this.ext = makeextensions(this) }
+    this.ext.use(definition, options)
+    return this
+  }
+
+  extensions(): ExtensionRow[] {
+    return null === this.ext ? [] : this.ext.list()
+  }
+
+  /** An extension's export, as `<name>/<key>`. */
+  extension(spec: string): any {
+    return null === this.ext ? undefined : this.ext.exports(spec)
+  }
+
   status(): any {
     return {
       mode: 'solo',
@@ -946,6 +966,10 @@ export class Station {
 
   close(): void {
     if (this.closed) { return }
+    if (null !== this.ext) {
+      this.ext.close()
+      this.ext = null
+    }
     for (const slug of Object.keys(this.profile.sdk)) {
       if (!this.registry.has(slug)) {
         this.emit({

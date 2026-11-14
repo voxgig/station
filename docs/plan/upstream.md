@@ -125,6 +125,7 @@ sections were written.
 | sekreto-4 | A Swift package and mini vault; AES-GCM for Dart's mini vault; a native crypto module for Lua's | — | NOT FILED | W7.4. From [#58]'s assessment of each port; not re-checked here. |
 | sekreto-5 | An OS-keychain provider (`station.md` §18) | — | NOT FILED | Nothing. Wanted by the design's first draft. |
 | sekreto-6 | Are the publish-time `aql` vault and the `boru` provider one vault or two? (`station.md` §18) | — | NOT FILED | Nothing. An open design question. |
+| sekreto-7 | Its TypeScript port takes `@voxgig/plugin` `^0.1.3` | — | NOT FILED | Found by W8.6: station's typescript takes `^0.2.0`, so an install holds 0.2.0 and sekreto's 0.1.7 (run). Harmless while the two hosts never meet; one copy once sekreto moves to 0.2. |
 
 
 ## voxgig/struct
@@ -152,6 +153,7 @@ The four obligations between the two repositories are in plugin's
 | plugin-3 | `station-and-plugin.md` pins plugin's design at `153c878`. plugin `main` is `8605cdc`. | — | station's to do | Re-pin after reading what changed between the two. plugin's own handover names stale cross-repo pins as the thing its discipline failed to catch. |
 | plugin-4 | Does station take the library as a dependency? | plugin's `progress.md`, item 5.2; noted in [plugin#45] | OPEN | Ruled here on 2026-11-11: yes (D-2026-11-11-4), and W8 is the work. plugin's own register still shows the decision as needed until [plugin#45] is acted on. |
 | plugin-5 | A PyPI release | — | NOT FILED | `sekreto-2`, and through it W3.3. |
+| plugin-6 | A host-declared instance under a reserved name cannot be activated | — | NOT FILED | Found by W8.6: after `hostdeclare('station')`, `activate('station')` fails `plugin_ref_reserved`, because `activate` reloads the instance through `declare`, which checks the reserved list again without the host-owned flag (run, at 0.2.0). Station does not reserve `station` through plugin, and refuses the name in `use()` instead. |
 
 
 ## voxgig/omni
@@ -198,8 +200,8 @@ each was checked against the upstream's current code first.
 | W5.5 | voxgig/station | [#70] |
 
 Still not filed, and not among the eleven: `sdkgen-10` and `sdkgen-16`,
-`sekreto-4` to `sekreto-6`, `struct-4` to `struct-6`, `plugin-5` and
-`omni-3`. Each is marked `NOT FILED` in its row above.
+`sekreto-4` to `sekreto-7`, `struct-4` to `struct-6`, `plugin-5`,
+`plugin-6` and `omni-3`. Each is marked `NOT FILED` in its row above.
 
 Two findings from this review extend issues that are already open,
 and are better added there than filed new. They have not been added:
