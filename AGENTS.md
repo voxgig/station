@@ -27,13 +27,14 @@ take. The second is **voxgig/struct**, which validates `station.json` at
 `docs/design/station.md` names the pair. Do not "clean up" either one.
 
 The third is **voxgig/plugin**, accepted by the owner on 2026-11-11
-(`docs/design/decisions.md`, D-2026-11-11-4). No port takes it directly
-yet: it arrives port by port, canonical first, as workstream W8 of
-`docs/plan/plan.md`, and that workstream starts with a design note. Until
-a port's turn comes, a direct plugin dependency in it is still out of
-place. Where plugin already appears, it came through sekreto: `go/go.mod`
-lists it as indirect, and the c port builds sekreto's core on plugin's C
-host.
+(`docs/design/decisions.md`, D-2026-11-11-4). It arrives port by port,
+canonical first, as workstream W8 of `docs/plan/plan.md`. typescript
+takes it directly, `^0.2.0`, to host extensions (W8.6, D-2026-11-14-1,
+`docs/design/station-extensions.md`); W8's replacement of native code
+still starts with W8.1's design note. In any other port, a direct plugin
+dependency is out of place until its turn comes. Where plugin appears
+there, it came through sekreto: `go/go.mod` lists it as indirect, and the
+c port builds sekreto's core on plugin's C host.
 
 ELEVEN of the sixteen ports take sekreto in shipped code, by seven different
 mechanisms — so a sekreto compatibility sweep has eleven places to look, not

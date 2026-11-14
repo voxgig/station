@@ -1436,7 +1436,9 @@ design *forbids* them from growing. The rule:
 > library implements exactly: config/profile loading, the credential
 > placeholder + copy-on-inject middleware, the event buffer/batcher,
 > the descriptor normalizer + canonical serializer, the wire-protocol
-> client (tier A/B only), and the ambient instance. Nothing else — no
+> client (tier A/B only), the ambient instance, and, since
+> D-2026-11-14-1, a host for the extensions a caller hands it, which is
+> voxgig/plugin's host and not station's own code. Nothing else — no
 > OTel, no storage, no TLS configuration beyond the platform default,
 > and **no secret store clients**, because that is sekreto's job.
 
@@ -1446,8 +1448,10 @@ validates `station.json`
 ([`station-declarative-config.md`](./station-declarative-config.md)
 §4, §9) — and both are taken rather than reimplemented for the same
 reason this rule exists. (A third was accepted on 2026-11-11:
-voxgig/plugin, [`decisions.md`](./decisions.md) D-2026-11-11-4. No
-port takes it yet.) In nine of the ten sekreto ports it costs
+voxgig/plugin, [`decisions.md`](./decisions.md) D-2026-11-11-4.
+typescript takes it to host extensions,
+[`station-extensions.md`](./station-extensions.md); no other port takes
+it yet.) In nine of the ten sekreto ports it costs
 nothing against the budget: sekreto carries zero third-party
 dependencies of its own, so `station → sekreto` adds one well-tested
 library and no transitive tree at all, and struct is the same kind of

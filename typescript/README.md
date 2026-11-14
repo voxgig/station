@@ -12,9 +12,30 @@ station's behaviour; every other port is a translation of them, and a
 change belongs here first.
 
 Secrets are brokered through `@voxgig/sekreto`; the config grammar
-validates through [voxgig/struct](https://github.com/voxgig/struct).
-Those are the only two runtime dependencies a station library takes
-(design §10).
+validates through [voxgig/struct](https://github.com/voxgig/struct);
+extensions are hosted through [voxgig/plugin](https://github.com/voxgig/plugin).
+Those are the three runtime dependencies a station library may take
+(design §10), and this port is the first to take plugin directly.
+
+## Extensions
+
+An extension is a voxgig/plugin definition a caller hands to a Station.
+Nothing is loaded otherwise: not by installing a package, and not by
+`station.json`.
+
+```ts
+const station = new Station({ profile: 'default' }).use(StationView, { /* options */ })
+
+station.extensions()            // [{ name: 'view', status: 'live' }]
+station.extension('view/view')  // an extension's export, as '<name>/<key>'
+station.close()                 // takes every extension down first
+```
+
+An extension reads the Station as `inst.host().exports('station/station')`
+in its `activate`. [voxgig/station-view](https://github.com/voxgig/station-view)
+and [voxgig/station-mcp](https://github.com/voxgig/station-mcp) are the
+first two. The rules are in
+[`docs/design/station-extensions.md`](../docs/design/station-extensions.md).
 
 ## One entry
 
@@ -57,6 +78,7 @@ for nothing else.
 | `src/secrets.ts` | the sekreto-backed broker + the placeholder |
 | `src/profile.ts` | profile selection, the ref grammar, the §3.3 merge, `station.json` lookup and config scope |
 | `src/events.ts` | the bounded event ring + tap |
+| `src/extension.ts` | the voxgig/plugin host extensions run in, the Station its first instance |
 | `src/error.ts` | the error-code catalog |
 | `src/types.ts` | shared types; the descriptor and event shapes are pinned by the corpus, so evolve them additively |
 | `src/omnihome.ts` | locates the sibling voxgig/omni checkout (test plumbing — it is not shipped) |

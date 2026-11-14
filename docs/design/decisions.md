@@ -218,7 +218,8 @@ the measured cost per port is far from what §2.1 estimated.
 
 ## D-2026-11-11-5 — station-view waits for the proxy and attach
 
-**Status: parked by the owner on 2026-11-11 (DEC-6). Gates:
+**Status: parked by the owner on 2026-11-11 (DEC-6); its "no code"
+superseded by D-2026-11-14-1 on 2026-11-14. Gates:
 voxgig/station-view.**
 
 What station-view reads is not decided. No work is done on it, and the
@@ -250,3 +251,35 @@ Consequences: none for the plan. It depends only on the released
 TypeScript library, so nothing waits on it.
 
 Revisit when: 0.3.0 is out (W2.11).
+
+## D-2026-11-14-1 — station-view and station-mcp are extensions a Station loads when asked
+
+**Status: requested by the owner on 2026-11-14. Supersedes the "no
+code" of D-2026-11-11-5. Gates: voxgig/station-view,
+voxgig/station-mcp, voxgig/likeness.**
+
+The owner asked for voxgig/station-view, and a new repository,
+voxgig/station-mcp, to be plugins voxgig/station loads optionally, with
+stub implementations for now, and for likeness to load both.
+
+So a Station hosts extensions: voxgig/plugin definitions a caller hands
+to `use()`, in a voxgig/plugin host whose first instance is the Station
+itself (`station-extensions.md`). typescript goes first.
+
+Consequences:
+- station's typescript port takes `@voxgig/plugin` directly, ahead of
+  W8.1's note, for extension hosting only (W8.6).
+- station-view gets code: a stub that reads one process's in-memory
+  event ring, one of the two sources D-2026-11-11-5 left open. Which
+  source the real view reads is still open.
+- station-mcp exists, as a stub answering two of the proxy's tools from
+  the Station's public API, in the application's process.
+- likeness loads both, in its TypeScript port.
+
+Open: where station-mcp's real MCP surface runs. The design puts the
+agent surface in the proxy (`station.md` §7), where no SDK code runs
+and an agent cannot reach a secret. Served from an application's
+process, it would not have that property. The stub decides nothing
+about it, since it has no transport.
+
+Revisit when: station-mcp grows a transport, or attach ships.
