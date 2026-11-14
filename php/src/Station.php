@@ -41,7 +41,7 @@ require_once __DIR__ . '/Factory.php';
 require_once __DIR__ . '/Loader.php';
 require_once __DIR__ . '/Adapter.php';
 
-const VERSION = '0.2.0';
+const VERSION = '0.3.0';
 
 /**
  * The ref grammar is the JOINT identity model's (station-and-plugin.md
