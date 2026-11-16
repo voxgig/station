@@ -102,6 +102,7 @@ the plan depends on all of them.
 | **W6** | Phase 2's remainder | §6, §17 | W5 | anyone |
 | **W7** | Phase 3 | §8.4, §9.1, §17 | W5, and upstream | anyone, plus upstream |
 | **W8** | Take voxgig/plugin as a dependency | `station-and-plugin.md`; D-2026-11-11-4 | its own design note | anyone; canonical first |
+| **W9** | Observe traffic locally | `station-extensions.md`; D-2026-11-16-1 | W8's item 6, done in typescript | anyone; typescript first |
 
 ```
 W0 ──► W1 ──┬──► W2 ──► release 0.3.0 ──► W5.5 onward (attach) ──► W6 ──► W7
@@ -109,6 +110,7 @@ W0 ──► W1 ──┬──► W2 ──► release 0.3.0 ──► W5.5 onw
             └──► W4
 W5.1 (the proxy builds, and CI holds it) depends on nothing and can start today.
 W8 (plugin as a dependency) starts with a design note, which depends on nothing.
+W9 (observe traffic locally) rests on W8's item 6, which is done in typescript.
 ```
 
 W0 and W1 are done, but for one stale passage of the design (W0.8). W1
@@ -354,6 +356,37 @@ None of it is designed yet, so the first item is the design:
 defines, every port passes station's own corpus unchanged, and the
 documents that say station builds natively say what it does now.
 
+### W9. Observe traffic locally
+
+Directed by the owner on 2026-11-16 (D-2026-11-16-1). A user drives an
+MCP, its tools call a generated SDK, the SDK calls a generated local
+mock, and a local web page shows the calls. Nothing is published for
+it: the repositories link to each other through ignored dependency
+directories, as `tools/fixtures.sh` already links `sdkgen-station`.
+
+1. Extension points, in typescript. An extension can add feature
+   options, callbacks among them, to every SDK the Station builds, and
+   is told of each client bound (`station-extensions.md`).
+2. `ts-seed`, a target in voxgig/sdkgen-validpack: a generated library
+   of test data for an API's entities, deterministic from a seed,
+   readable, and valid against the API definition's schemas.
+3. `ts-mock`, a target there that requires `ts-seed`: a generated
+   local HTTP mock of the API.
+4. station-mcp serves MCP, with tools in the shape sdkgen's go-mcp
+   target gives its own.
+5. station-view collects what sdkgen's `telemetry`, `debug`, `audit`
+   and `metrics` features report, and station's own events where an
+   SDK lacks them, and serves a page that filters them.
+6. A demonstration and its test: one command, and a tool call over MCP
+   that is read back from the view.
+7. likeness as the live test.
+
+Items 2 and 3 are in another repository and can run beside item 1.
+Items 4 and 5 need item 1, and item 6 needs the five before it.
+
+**Exit:** the demonstration's test passes from clean checkouts of the
+four repositories, linked, with no package published for it.
+
 
 ## 5. The decisions
 
@@ -370,7 +403,7 @@ DEC-3, DEC-6 and DEC-7.
 | DEC-3 | Does station take voxgig/plugin as a dependency? | **Yes, now**, port by port. Recommended: keep it deferred | D-2026-11-11-4 |
 | DEC-4 | How far does an event's host follow `URL.host`? | Three forms are normalised; long-form IPv6 is named as outside the rule | D-2026-11-11-2 |
 | DEC-5 | What is the kill switch's contract? | `station_blocked` now; no solo reload yet | D-2026-11-11-3 |
-| DEC-6 | What does station-view read? | **Parked** until the proxy and attach ship. Recommended: the proxy | D-2026-11-11-5 |
+| DEC-6 | What does station-view read? | **Parked** on 2026-11-11 until the proxy and attach ship. Ruled on 2026-11-16: sdkgen's telemetry features, and station's own events for an SDK without them, in process | D-2026-11-11-5, D-2026-11-16-1 |
 | DEC-7 | What is seneca-station? | **Parked** until 0.3.0. Recommended: a one-page design first | D-2026-11-11-6 |
 
 What each ruling changes in this plan:
@@ -385,8 +418,10 @@ What each ruling changes in this plan:
   plugin port, no second consumer of plugin exists, and the cost the
   design estimated has not been measured.
 - **DEC-4** and **DEC-5** turn [#55] and [#64] into ordinary W2b work.
-- **DEC-6** and **DEC-7** take both empty repositories out of the plan
-  until the release each one waits for.
+- **DEC-7** takes seneca-station out of the plan until 0.3.0. That
+  release is out, so its revisit is due.
+- **DEC-6** took station-view out of the plan too, until the owner
+  directed W9 on 2026-11-16.
 
 No decision is open.
 
@@ -414,8 +449,9 @@ and name [#36] too if it lands first: a failed operation then emits one
 | client | state | what it needs from this plan |
 |---|---|---|
 | **voxgig/likeness** | Stages 0 and 1 done; Stage 2 at 9 of 20 cells; Stage 3 not started. On station 0.2.0 in every port that pins it. CI green. | A release carrying [#51], for eight Go entries, and [#58], for the C port; [#36] and [#61] for parity. The rest is the generated SDKs: see [`upstream.md`](upstream.md). |
-| **voxgig/station-view** | Tooling only. No code, no design. | Nothing now. Parked until the proxy and attach ship, which is 0.4.0 (D-2026-11-11-5). |
-| **senecajs/seneca-station** | A README. No code, no design. | Nothing now. Parked until 0.3.0 (D-2026-11-11-6). |
+| **voxgig/station-view** | A stub extension in typescript (W8.6). | W9: the extension points, then its own item, W9.5. |
+| **voxgig/station-mcp** | A stub extension in typescript (W8.6). No CI. | W9: the extension points, then its own item, W9.4. |
+| **senecajs/seneca-station** | A README. No code, no design. | Nothing now. It was parked until 0.3.0 (D-2026-11-11-6), which is released, so its revisit is due. |
 
 
 ## 8. Risks

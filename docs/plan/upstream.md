@@ -113,6 +113,7 @@ sections were written.
 | sdkgen-14 | A TLS trust option in every transport | [sdkgen#408] | OPEN | likeness's Obsidian source. Station passes `options.tls` through and owns none of it. |
 | sdkgen-15 | Does sdkgen adopt voxgig/plugin? (plugin's design §17.2) | plugin's register, item 6.2 | DECISION NEEDED | Nothing here. It is the "second consumer" this plan wanted DEC-3 to wait for. DEC-3 was ruled without it on 2026-11-11 (D-2026-11-11-4), so until sdkgen decides, station is plugin's only consumer. |
 | sdkgen-16 | A public `client.extend()` late-attach seam (`station.md` §18) | — | NOT FILED | Nothing. It would upgrade `adopt()` beyond construction time; v1 does not need it. |
+| sdkgen-17 | One id for a call across `telemetry`'s span, `debug`'s entry and `audit`'s record | — | NOT FILED | W9.5. The span carries `traceId` and `spanId`, the audit record carries `correlationId`, the context's id, and the debug entry carries no id of its own (read, at 4.44.0). station-view joins the three by client, operation and time until they share one. |
 
 
 ## voxgig/sekreto
@@ -200,7 +201,8 @@ each was checked against the upstream's current code first.
 | W4.4 and W4.5 | voxgig/station | [#69] |
 | W5.5 | voxgig/station | [#70] |
 
-Still not filed, and not among the eleven: `sdkgen-10` and `sdkgen-16`,
+Still not filed, and not among the eleven: `sdkgen-10`, `sdkgen-16` and
+`sdkgen-17`,
 `sekreto-4` to `sekreto-7`, `struct-4` to `struct-6`, `plugin-5` to
 `plugin-7`, and `omni-3`. Each is marked `NOT FILED` in its row above.
 

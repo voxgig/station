@@ -219,8 +219,8 @@ the measured cost per port is far from what §2.1 estimated.
 ## D-2026-11-11-5 — station-view waits for the proxy and attach
 
 **Status: parked by the owner on 2026-11-11 (DEC-6); its "no code"
-superseded by D-2026-11-14-1 on 2026-11-14. Gates:
-voxgig/station-view.**
+superseded by D-2026-11-14-1 on 2026-11-14, and its question ruled on
+2026-11-16 by D-2026-11-16-1. Gates: voxgig/station-view.**
 
 What station-view reads is not decided. No work is done on it, and the
 question is not put again, until the proxy and attach have shipped.
@@ -255,8 +255,9 @@ Revisit when: 0.3.0 is out (W2.11).
 ## D-2026-11-14-1 — station-view and station-mcp are extensions a Station loads when asked
 
 **Status: requested by the owner on 2026-11-14. Supersedes the "no
-code" of D-2026-11-11-5. Gates: voxgig/station-view,
-voxgig/station-mcp, voxgig/likeness.**
+code" of D-2026-11-11-5. Its open question is answered for now, and its
+likeness consequence deferred, by D-2026-11-16-1. Gates:
+voxgig/station-view, voxgig/station-mcp, voxgig/likeness.**
 
 The owner asked for voxgig/station-view, and a new repository,
 voxgig/station-mcp, to be plugins voxgig/station loads optionally, with
@@ -283,3 +284,65 @@ process, it would not have that property. The stub decides nothing
 about it, since it has no transport.
 
 Revisit when: station-mcp grows a transport, or attach ships.
+
+## D-2026-11-16-1 — Traffic is observed locally first: a view over sdkgen's telemetry features, an MCP that drives it, and generated mocks
+
+**Status: directed by the owner on 2026-11-16, with four points ruled
+by question the same day. Gates: voxgig/station-view,
+voxgig/station-mcp, voxgig/sdkgen-validpack, voxgig/likeness.**
+
+The owner's direction. Nothing is published yet, and the repositories
+link to each other locally. station-view exposes a local web interface
+for observing and filtering API traffic made through the SDKs, using
+sdkgen's telemetry features and the hooks they provide. station-mcp
+exposes an MCP a user drives to generate that traffic. likeness is the
+live test eventually, and local mocks come first: voxgig/sdkgen-validpack
+gains a target that generates a local mock for an API, in TypeScript,
+which depends on a second target there that generates schema-valid,
+human-readable test data deterministically from a seed.
+
+Ruled by question:
+
+1. **What station-view reads.** The callbacks of sdkgen's `telemetry`,
+   `debug` and `audit` features and the counters of `metrics`, wired
+   into every SDK a Station builds that carries them; and station's own
+   `http` and `op` events for an SDK generated without them.
+2. **station-mcp's tools** take the shape sdkgen's go-mcp target gives
+   its own, per bound SDK: `<slug>_list` and `<slug>_load`, and
+   `_create`, `_update`, `_patch` and `_remove` when writes are on,
+   each taking `entity` and a `query` or `data` map. `station_status`
+   and `station_integrations` stay.
+3. **No third-party runtime dependency** in station-view's server and
+   page, in station-mcp's server, or in the generated mock.
+4. **"Schema-valid" means valid against the API definition's schemas**,
+   read through apidef's resolved definition, as sdkgen's own
+   definition tests read it. The model alone carries no enum, range,
+   pattern or nested shape.
+
+Consequences:
+- The work is W9 of the plan. Station gains two extension points, so
+  that an extension can add feature options to the SDKs a Station
+  builds, and learn of each client it binds.
+- station-mcp serves MCP from the application's process. That answers
+  D-2026-11-14-1's open question for now. The proxy's surface
+  (`station.md` §7) is unchanged, and is still where an agent cannot
+  reach a secret; a tool's result here passes through the Station's
+  redaction.
+- station-view's server runs in the application's process first. A
+  process that exits after one command, as each of likeness's does,
+  needs a viewer that outlives it, which is a later item.
+- likeness loads neither extension yet and stays on the published
+  station. D-2026-11-14-1's consequence that it loads both waits for
+  W9's last item.
+- Nothing is released for this. A repository resolves another through
+  a link in an ignored dependency directory, and no manifest names a
+  path.
+
+Not chosen: station-view carrying a pipeline feature of its own, which
+would see raw credentials; the proxy's `station_call` as the tool
+shape; the official MCP SDK, Fastify or a UI framework; validity
+against the model's field types alone.
+
+Revisit when: attach ships, since the proxy can then be what
+station-view reads and where MCP is served; or likeness becomes the
+live test.

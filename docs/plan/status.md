@@ -1,7 +1,8 @@
 # Status: where the next session starts
 
-Snapshot, **2026-11-14**. `main` is at `ef358d6`, and **0.3.0 is
-released from it on every route** (W2.11). It carries all of this:
+Snapshot, **2026-11-16**. `main` is at `84efd1b`. **0.3.0 is released
+on every route**, from `ef358d6` (W2.11), and `main` is ahead of it by
+W8.6, the extension host in typescript. 0.3.0 carries all of this:
 the six pull requests of W1 merged on 2026-11-11 and changed every port's source, and on 2026-11-12
 W5.1 (the proxy builds), W4.3 (the fixture SDKs), W2.1 (the carried
 adapter's place), W2.2 (the Station out of the SDK's options), W2.4
@@ -111,21 +112,22 @@ passing; CI runs them once the fixture lane's patch is applied.
 
 ## In flight
 
-The owner's request of 2026-11-14 (D-2026-11-14-1): station-view and
-station-mcp as plugins station loads when asked to, stubs for now, and
-likeness loading both. W8.6: typescript hosts extensions
-(`docs/design/station-extensions.md`, voxgig/station#93), and both stubs
-are merged in their repositories. Review's two edges are closed in a
-follow-up, in review. likeness is next, and needs a station release with
-`use()` in it, which waits on the owner.
+W9, observing traffic locally, directed by the owner on 2026-11-16
+(D-2026-11-16-1): a user drives station-mcp, its tools call a generated
+SDK, the SDK calls a generated local mock, and station-view shows the
+calls on a local page. The plan is recorded, with its four rulings, and
+no item is started. Nothing is published for it, and likeness waits for
+its last item.
 
 
 ## Pick this up first
 
 In this order. Only the release dispatch waits on the maintainer.
 
-1. **W8, for station-view and station-mcp**: the owner's request of
-   2026-11-14, in flight.
+1. **W9.1 to W9.6**, in order: the extension points here, `ts-seed`
+   and `ts-mock` in voxgig/sdkgen-validpack, then station-mcp,
+   station-view and the demonstration. W9.2 and W9.3 can run beside
+   W9.1.
 2. **W4.1**, a completeness guard in typescript. W1.1, which edited the
    same test file, has landed.
 3. **W0.8**, the design's account of sdkgen.
@@ -144,6 +146,8 @@ Everything here needs the maintainer, and most of it fits one sitting.
 | Apply a workflow patch, when one is on `main` in [`patch/`](patch/README.md) | A token with the `workflow` scope. A session cannot push a change under `.github/workflows/`, so it commits a patch to `main` instead. Two are pending, both on `main`: `proxy-ci-lane.patch` and `fixtures-ci-lane.patch`. They apply in either order, re-checked against `main` on 2026-11-13. | W5.1 and W4.3 now; W3.11 and W4.4 when theirs are written |
 | Delete eleven merged branches | The owner ruled on 2026-11-12 that they go. A session cannot do it: its push access refuses a branch deletion (HTTP 403). The list is below. | — |
 | Register `@voxgig/sdkgen-station` for trusted publishing | An npm owner | W3.11 |
+| CI for voxgig/station-mcp and voxgig/sdkgen-validpack | Neither has a workflow, and a session cannot push one. Until one is applied from a patch, each change there rests on runs recorded in its pull request. | W9.2 to W9.6 |
+| Rule on seneca-station again (DEC-7) | It was parked until 0.3.0, which is released | C.3 |
 
 
 **The eleven branches to delete.** Each is merged, so nothing is lost:
@@ -165,6 +169,10 @@ git push origin --delete chore/comment-policy \
 
 ## Recently settled
 
+- **A Station hosts extensions, in typescript** (W8.6, 2026-11-14,
+  `e893528` and its follow-up `84efd1b`), and voxgig/station-view and
+  voxgig/station-mcp each hold a stub one. It found three things
+  upstream: `plugin-6`, `plugin-7` and `sekreto-7`.
 - **0.3.0 is released on all three routes** (W2.11, 2026-11-14, from
   `ef358d6`, run 43608982834): both npm packages as `latest`, with
   provenance, and the three tags. Release notes: `docs/release/0.3.0.md`.
