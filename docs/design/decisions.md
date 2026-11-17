@@ -400,3 +400,36 @@ Revisit when: never, for the grammar. The detection can still be added
 if the errors beside an old SDK turn out to cost people time.
 
 [voxgig/struct#178]: https://github.com/voxgig/struct/pull/178
+
+## D-2026-11-17-2 — sdkgen resyncs struct in all twenty targets at once
+
+Preparing sdkgen's half of the flag day (`sdkgen-18`) found that ten of
+its twenty bundled targets carry hand-kept struct copies older than
+`$NOF`, which no vendoring route produces: rb, php, rust, c, cpp, swift,
+scala, clojure, elixir and ocaml. The prepared branch still handed them
+`$ONE`, through a shim. But create-sdkgen's struct corpus cannot serve
+both generations. The routed targets fail the old corpus on its `$ONE`
+cases, and an old struct (rb, measured) fails the new one in `basic`,
+`child` and `special`. Station's ruby and php ports also need their
+generated SDKs on a `$NOF` struct (D-2026-11-17-1, its third
+consequence).
+
+The owner ruled, by question, on 2026-11-17: **resync all ten now.**
+
+- struct is routed for all twenty targets, at the checkpoint the owner
+  cuts.
+- php's templates emit a `[]` shape that the new validate refuses; they
+  are fixed first, in a commit of their own. rb's resync flips its null
+  class, in a commit of its own that moves its characterization too.
+- create-sdkgen's struct corpus is regenerated from struct's
+  `build/test/validate.aon`, and sdkgen's runner templates move from
+  `validate.one` to `nof` in the same change.
+- Toolchains this machine lacks are installed where apt or a pinned
+  tarball allows. A target that still cannot be built is named, not
+  claimed.
+
+Not chosen: rb and php now and the other eight later, behind a pinned
+copy of the old corpus; holding sdkgen and releasing station 0.4.0 with
+a documented gap in ruby and php.
+
+Revisit when: a target cannot take struct's current port at all.

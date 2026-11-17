@@ -129,7 +129,9 @@ repository, in order:
 2. A checkpoint in voxgig/admin, cut by the owner now that the bump
    has merged, so that the vendored struct declares 0.4.0.
 3. sdkgen re-vendored at that checkpoint, with its own specs on `$NOF`
-   (`sdkgen-18`), released; then the fixture SDKs regenerate on it.
+   and struct resynced in all twenty targets, as the owner ruled on
+   2026-11-17 (`sdkgen-18`, D-2026-11-17-2), released; then the fixture
+   SDKs regenerate on it.
 
 0.4.0 then releases every port together.
 
