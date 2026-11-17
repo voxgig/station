@@ -146,10 +146,10 @@ In this order. W4.10's releases and its checkpoint wait on the owner.
 
 1. **W4.10**, as above: each step is a pull request in struct or
    sdkgen, then the manifests here.
-2. **W9.1 to W9.6**, in order: the extension points here, `ts-seed`
-   and `ts-mock` in voxgig/sdkgen-validpack, then station-mcp,
-   station-view and the demonstration. W9.2 and W9.3 can run beside
-   W9.1.
+2. **W9.3 to W9.6**, in order: `ts-mock` in voxgig/sdkgen-validpack,
+   then station-mcp, station-view and the demonstration. W9.1, the
+   extension points, is done on the branch of voxgig/station#95, and
+   W9.2, `ts-seed`, is voxgig/sdkgen-validpack#1.
 3. **W4.1**, a completeness guard in typescript. W1.1, which edited the
    same test file, has landed.
 4. **W0.8**, the design's account of sdkgen.
