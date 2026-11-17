@@ -121,12 +121,13 @@ side is done on the branch of voxgig/station#95 and passes in every
 port against struct's `main`. It waits on three things outside this
 repository, in order:
 
-1. struct's release, prepared as [voxgig/struct#180]: once it merges,
-   the owner dispatches `publish.yml` for typescript and javascript and
-   pushes `go/v0.2.0`. Then the three manifests here move to 0.4.0,
-   0.2.0 and `v0.2.0`, and typescript's lane goes green.
-2. A checkpoint in voxgig/admin, cut by the owner after the release
-   bump merges, so that the vendored struct declares 0.4.0.
+1. struct's release. The bump merged as [voxgig/struct#180] on
+   2026-11-17, with one macOS runner job red, on the owner's ruling
+   (`struct-8`). The owner dispatches `publish.yml` for typescript and
+   javascript and runs `make publish-go`. Then the three manifests here
+   move to 0.4.0, 0.2.0 and `v0.2.0`, and typescript's lane goes green.
+2. A checkpoint in voxgig/admin, cut by the owner now that the bump
+   has merged, so that the vendored struct declares 0.4.0.
 3. sdkgen re-vendored at that checkpoint, with its own specs on `$NOF`
    (`sdkgen-18`), released; then the fixture SDKs regenerate on it.
 
@@ -135,9 +136,9 @@ repository, in order:
 W9, observing traffic locally, directed by the owner on 2026-11-16
 (D-2026-11-16-1): a user drives station-mcp, its tools call a generated
 SDK, the SDK calls a generated local mock, and station-view shows the
-calls on a local page. The plan is recorded, with its four rulings, and
-no item is started. Nothing is published for it, and likeness waits for
-its last item.
+calls on a local page. W9.1, W9.2, W9.4 and W9.5 are done, W9.3, the
+mock, is being built, and W9.6, the demonstration, follows it. Nothing
+is published for it, and likeness waits for its last item.
 
 
 ## Pick this up first
@@ -149,9 +150,11 @@ In this order. W4.10's releases and its checkpoint wait on the owner.
 2. **W9.3, then W9.6**: `ts-mock` in voxgig/sdkgen-validpack, then the
    demonstration. Done: W9.1, the extension points, on the branch of
    voxgig/station#95; W9.2, `ts-seed`, merged as
-   voxgig/sdkgen-validpack#1; W9.4, station-mcp's server, merged as
+   voxgig/sdkgen-validpack#1, with its review fixes in
+   voxgig/sdkgen-validpack#2; W9.4, station-mcp's server, merged as
    voxgig/station-mcp#3; W9.5, station-view's page, merged as
-   voxgig/station-view#3.
+   voxgig/station-view#3, with review fixes in voxgig/station-view#4
+   and voxgig/station-view#5, and voxgig/station-view#6 open.
 3. **W4.1**, a completeness guard in typescript. W1.1, which edited the
    same test file, has landed.
 4. **W0.8**, the design's account of sdkgen.
@@ -167,6 +170,7 @@ Everything here needs the maintainer, and most of it fits one sitting.
 
 | what | why a human | rows |
 |---|---|---|
+| Release struct: `publish.yml` for typescript and for javascript, then `make publish-go`; then cut a checkpoint in voxgig/admin | A session can push neither a tag nor a release. [voxgig/struct#180] merged the bump on 2026-11-17. | W4.10 |
 | Apply a workflow patch, when one is on `main` in [`patch/`](patch/README.md) | A token with the `workflow` scope. A session cannot push a change under `.github/workflows/`, so it commits a patch to `main` instead. Two are pending, both on `main`: `proxy-ci-lane.patch` and `fixtures-ci-lane.patch`. They apply in either order, re-checked against `main` on 2026-11-13. | W5.1 and W4.3 now; W3.11 and W4.4 when theirs are written |
 | Delete eleven merged branches | The owner ruled on 2026-11-12 that they go. A session cannot do it: its push access refuses a branch deletion (HTTP 403). The list is below. | — |
 | Register `@voxgig/sdkgen-station` for trusted publishing | An npm owner | W3.11 |
@@ -282,6 +286,7 @@ Each is source or prose the plan schedules:
   sdkgen as it stood in August. W0.8; `upstream.md` has the current
   state.
 
+[voxgig/struct#180]: https://github.com/voxgig/struct/pull/180
 [#24]: https://github.com/voxgig/station/issues/24
 [#27]: https://github.com/voxgig/station/issues/27
 [#63]: https://github.com/voxgig/station/issues/63

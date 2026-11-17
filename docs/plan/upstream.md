@@ -39,7 +39,7 @@ station), `DECISION NEEDED`.
 | | | `javascript/package.json` | `@voxgig/sekreto-js` `^0.2.0`, locked 0.2.0 | npm 0.2.0 |
 | | | `python/pyproject.toml` | `voxgig-sekreto>=0.1` | not on PyPI |
 | | | `c/vendor/sekreto`, since W1.6 | `SEKRETO_C_COMMIT`, `32b83ac` | — |
-| **voxgig/struct** | library | `build.yml` checkout | **unpinned**, until Stage 5 is complete, and not pinned for the drift of 2026-11-16 (D-2026-11-17-1) | `main` is `1ba9203` on 2026-11-17. On 2026-11-16 it dropped `$ONE` (`struct-3`). |
+| **voxgig/struct** | library | `build.yml` checkout | **unpinned**, until Stage 5 is complete, and not pinned for the drift of 2026-11-16 (D-2026-11-17-1) | `main` is `03b9f2f` on 2026-11-17, the release bump (`struct-7`). On 2026-11-16 it dropped `$ONE` (`struct-3`). |
 | | | `typescript/package.json` | `^0.2.2`, locked 0.2.2 | npm 0.3.7, outside the range. W4.10 takes 0.4.0 once it is out (`struct-7`). |
 | | | `javascript/package.json` | `@voxgig/struct-js` `^0.1.7`, locked 0.1.7 | npm 0.1.7. W4.10 takes 0.2.0. |
 | | | `go/go.mod` | `v0.1.6` | `go/v0.1.6`. W4.10 takes `go/v0.2.0`. |
@@ -139,8 +139,9 @@ sections were written.
 | struct-3 | — | [struct#178], a parity pull request across its ports | DONE, merged 2026-11-16 | It replaced `$ONE` with `$NOF` and made `validate` refuse a checker it lacks. Station's CI went red the same day: W4.10, D-2026-11-17-1. |
 | struct-4 | Packages on Packagist and Maven Central | — | NOT FILED | W3.5, W3.6. It is on every other registry station's ports use. |
 | struct-5 | Perl's `parse_json` decodes an escaped surrogate pair as one character | — | NOT FILED | Found by W2.9: it decodes each `\u` escape on its own, so `\ud83d\ude00` arrives as two surrogate characters (run, at `055ac4a`). Station's perl joins the halves after it reads (`jsonform`), and the corpus holds it to that. |
-| struct-7 | A release that carries `$NOF`: `@voxgig/struct` 0.4.0, `@voxgig/struct-js` 0.2.0, `go/v0.2.0` | [struct#180], the version bump | OPEN | W4.10. Prepared from this session; the owner dispatches the two npm publishes and pushes the go tag. typescript's lane is red until npm has 0.4.0. |
+| struct-7 | A release that carries `$NOF`: `@voxgig/struct` 0.4.0, `@voxgig/struct-js` 0.2.0, `go/v0.2.0` | [struct#180], the version bump | OPEN: the bump merged on 2026-11-17, and nothing is published yet | W4.10. Prepared from this session, and merged with one CI job red on the owner's ruling (`struct-8`). The owner dispatches `publish.yml` for typescript and for javascript, and runs `make publish-go` for the go tag. typescript's lane is red until npm has 0.4.0. |
 | struct-6 | Perl's `parse_json` reads a value that begins with an unexpected character as an empty number | — | NOT FILED | Found by W2.15: `x`, `{"a": x}` and a text that begins with a byte order mark each print `Argument "" isn't numeric in int`, then are refused at the next delimiter, as trailing data or a missing `,` (run, at `055ac4a`). The text is refused either way, so station's answer is right; the warning reaches its perl suite's output, and the refusal names the wrong fault. |
+| struct-8 | `test-php (macos-15)` gets as far as struct's tests | — | NOT FILED | Found by W4.10 on 2026-11-17. The job fails inside `shivammathur/setup-php`, before any of struct's code runs: `Could not setup PHP 8.3`, after `php_config: parameter null or not set`. It failed so twice on [struct#180], and `main`'s build of `1ba9203` was cancelled in it after 28 minutes. Until it passes, no struct build is green on every leg. |
 
 
 ## voxgig/plugin
