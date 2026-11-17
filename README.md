@@ -123,6 +123,37 @@ proxy features `proxy/README.md` lists as deferred.
   auth, error envelopes that echo the presented credential, a redirect
   to an off-policy host, fat `Set-Cookie` headers, pagination.
 
+## Watching an SDK's traffic
+
+`tools/traffic.js` runs a generated SDK against a generated local mock in
+one process. station-mcp serves the SDK's operations as MCP tools, and
+station-view shows each call on a local page as it happens. The SDK is
+solardemo, generated with sdkgen's `telemetry`, `debug`, `audit` and
+`metrics` features. The mock serves records from a seed, so the same seed
+gives the same data.
+
+It needs the typescript port built, and checkouts of
+[voxgig/station-view](https://github.com/voxgig/station-view),
+[voxgig/station-mcp](https://github.com/voxgig/station-mcp) and
+[voxgig/sdkgen-validpack](https://github.com/voxgig/sdkgen-validpack)
+beside this one. Generate the SDK and its mock once:
+
+```sh
+make traffic
+```
+
+Then register the command with an MCP client, Claude Code for example:
+
+```sh
+claude mcp add station-traffic -- node /path/to/station/tools/traffic.js
+```
+
+The page is at <http://127.0.0.1:8960/>; `--view-port` moves it.
+The tools are `solardemo_demo_list`, `_load`, `_create`, `_update` and
+`_remove`, and `--read-only` leaves out the three that write.
+`make traffic-test` drives the same command over MCP and reads the calls
+back from the view.
+
 Run the spike: `make test` (needs sibling `sekreto`, `struct`, `plugin`
 and `omni` checkouts; the integration suites also need generated SDKs,
 which `make fixtures` writes, and skip cleanly without them).
