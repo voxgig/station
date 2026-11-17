@@ -131,7 +131,10 @@ repository, in order:
 3. sdkgen re-vendored at that checkpoint, with its own specs on `$NOF`
    and struct resynced in all twenty targets, as the owner ruled on
    2026-11-17 (`sdkgen-18`, D-2026-11-17-2), released; then the fixture
-   SDKs regenerate on it.
+   SDKs regenerate on it. That work is ready on sdkgen's branch, each
+   target run on its own toolchain, and needs only the checkpoint's tag,
+   then its pull requests and sdkgen's release. It carries three struct
+   defects as marked patches (`struct-9` to `struct-11`).
 
 0.4.0 then releases every port together.
 
@@ -180,6 +183,7 @@ Everything here needs the maintainer, and most of it fits one sitting.
 | Apply a workflow patch, when one is on `main` in [`patch/`](patch/README.md) | A token with the `workflow` scope. A session cannot push a change under `.github/workflows/`, so it commits a patch to `main` instead. Two are pending, both on `main`: `proxy-ci-lane.patch` and `fixtures-ci-lane.patch`. They apply in either order, re-checked against `main` on 2026-11-13. | W5.1 and W4.3 now; W3.11 and W4.4 when theirs are written |
 | Delete eleven merged branches | The owner ruled on 2026-11-12 that they go. A session cannot do it: its push access refuses a branch deletion (HTTP 403). The list is below. | — |
 | Register `@voxgig/sdkgen-station` for trusted publishing | An npm owner | W3.11 |
+| Rule on `sdkgen-20`, and say whether `struct-9` to `struct-11` and `sdkgen-21` are filed | `sdkgen-20` is the swift SDK's API, and filing notifies upstream | W4.10 |
 | CI for voxgig/station-mcp and voxgig/sdkgen-validpack | Neither has a workflow, and a session cannot push one. Until one is applied from a patch, each change there rests on runs recorded in its pull request. | W9.2 to W9.6 |
 | Rule on seneca-station again (DEC-7) | It was parked until 0.3.0, which is released | C.3 |
 
