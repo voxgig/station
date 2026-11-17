@@ -136,10 +136,10 @@ repository, in order:
 W9, observing traffic locally, directed by the owner on 2026-11-16
 (D-2026-11-16-1): a user drives station-mcp, its tools call a generated
 SDK, the SDK calls a generated local mock, and station-view shows the
-calls on a local page. W9.1 to W9.5 are done, and W9.6, the
-demonstration, is on #95's branch: `make traffic`, then `make
-traffic-test`, passes, and waits on voxgig/station-view#7. Nothing is
-published for it, and likeness waits for its last item.
+calls on a local page. W9.1 to W9.6 are done, W9.1 and W9.6 on #95's
+branch, and W9's exit holds: from clean checkouts of the four
+repositories, `make traffic` and then `make traffic-test` pass, with
+nothing published. W9.7, likeness as the live test, is next.
 
 
 ## Pick this up first
@@ -148,16 +148,17 @@ In this order. W4.10's releases and its checkpoint wait on the owner.
 
 1. **W4.10**, as above: each step is a pull request in struct or
    sdkgen, then the manifests here.
-2. **W9.6, then W9.7**: merge voxgig/station-view#7 and
-   voxgig/sdkgen-validpack#4, run `make traffic-test` from clean
-   checkouts, which is W9's exit, then likeness. Done: W9.1, the
-   extension points, on the branch of voxgig/station#95; W9.2,
-   `ts-seed`, merged as voxgig/sdkgen-validpack#1, with its review fixes
-   in voxgig/sdkgen-validpack#2; W9.3, `ts-mock`, merged as
-   voxgig/sdkgen-validpack#3; W9.4, station-mcp's server, merged as
+2. **W9.7**, likeness as the live test: each of its commands exits,
+   so it needs a viewer that outlives them. Done: W9.1, the extension
+   points, and W9.6, the demonstration, on the branch of
+   voxgig/station#95; W9.2, `ts-seed`, merged as
+   voxgig/sdkgen-validpack#1, with its review fixes in
+   voxgig/sdkgen-validpack#2; W9.3, `ts-mock`, merged as
+   voxgig/sdkgen-validpack#3, with its review fixes in
+   voxgig/sdkgen-validpack#4; W9.4, station-mcp's server, merged as
    voxgig/station-mcp#3; W9.5, station-view's page, merged as
-   voxgig/station-view#3, with review fixes in voxgig/station-view#4,
-   voxgig/station-view#5 and voxgig/station-view#6.
+   voxgig/station-view#3, with review fixes in voxgig/station-view#4 to
+   voxgig/station-view#7.
 3. **W4.1**, a completeness guard in typescript. W1.1, which edited the
    same test file, has landed.
 4. **W0.8**, the design's account of sdkgen.
