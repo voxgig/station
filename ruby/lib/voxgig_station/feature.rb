@@ -356,6 +356,12 @@ module VoxgigStation
   }.freeze
 
   # The kinds an `optspec` type admits, or nil when it admits any.
+  # The fewest alternatives a `$NOF` count requires to admit a value.
+  def spec_least(count)
+    least = count.is_a?(Hash) ? count['min'] : count
+    least.is_a?(Numeric) ? least : 0
+  end
+
   def spec_kinds(spec)
     if spec.is_a?(String)
       token = /\A`\$([A-Z]+)`\z/.match(spec)
@@ -365,9 +371,13 @@ module VoxgigStation
       return kind.nil? ? nil : [kind]
     end
 
-    if spec.is_a?(Array) && '`$ONE`' == spec[0]
+    # A value has one kind, so the alternatives bound it only when at
+    # least one of them has to admit it.
+    if spec.is_a?(Array) && '`$NOF`' == spec[0]
+      return nil if spec_least(spec[1]) < 1
+
       kinds = []
-      spec[1..].each do |alt|
+      spec[2..].each do |alt|
         some = spec_kinds(alt)
         return nil if some.nil?
 

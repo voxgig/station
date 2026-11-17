@@ -26,7 +26,7 @@ use warnings;
 use utf8;
 
 use JSON::PP ();
-use Scalar::Util qw(blessed);
+use Scalar::Util qw(blessed looks_like_number);
 
 use Voxgig::Station::Descriptor ();
 use Voxgig::Station::Error ();
@@ -421,6 +421,15 @@ my %TOKEN_KIND = (
 );
 
 # The kinds an `optspec` type admits, or undef when it admits any.
+# The fewest alternatives a `$NOF` count requires to admit a value.
+sub _leastof {
+    my ($count) = @_;
+    my $least = _ismap($count) ? $count->{min} : $count;
+    return ( defined $least && !ref $least && looks_like_number($least) )
+      ? $least
+      : 0;
+}
+
 sub _speckinds {
     my ($spec) = @_;
     if ( defined $spec && !ref $spec ) {
@@ -430,9 +439,13 @@ sub _speckinds {
 
     if ( _islist($spec) && @$spec && defined $spec->[0] && !ref $spec->[0] ) {
         my ( $head, @rest ) = @$spec;
-        if ( '`$ONE`' eq $head ) {
+        # A value has one kind, so the alternatives bound it only when at
+        # least one of them has to admit it.
+        if ( '`$NOF`' eq $head ) {
+            my ( $count, @alts ) = @rest;
+            return undef if _leastof($count) < 1;
             my @kinds;
-            for my $alt (@rest) {
+            for my $alt (@alts) {
                 my $some = _speckinds($alt);
                 return undef unless defined $some;
                 for my $k (@$some) {

@@ -1,6 +1,10 @@
 # Status: where the next session starts
 
-Snapshot, **2026-11-16**. `main` is at `84efd1b`. **0.3.0 is released
+Snapshot, **2026-11-17**. `main` is at `84efd1b`. **CI has been red on
+every pull request since 2026-11-16**, because voxgig/struct's `main`
+dropped the `$ONE` checker station's shape is written with, and **no
+station pull request merges until CI is green again** (D-2026-11-17-1).
+Until then station's work stacks on one branch, voxgig/station#95. **0.3.0 is released
 on every route**, from `ef358d6` (W2.11), and `main` is ahead of it by
 W8.6, the extension host in typescript. 0.3.0 carries all of this:
 the six pull requests of W1 merged on 2026-11-11 and changed every port's source, and on 2026-11-12
@@ -112,6 +116,22 @@ passing; CI runs them once the fixture lane's patch is applied.
 
 ## In flight
 
+**W4.10, the flag day onto struct's `$NOF`** (D-2026-11-17-1). Station's
+side is done on the branch of voxgig/station#95 and passes in every
+port against struct's `main`. It waits on three things outside this
+repository, in order:
+
+1. struct's release, prepared as [voxgig/struct#180]: once it merges,
+   the owner dispatches `publish.yml` for typescript and javascript and
+   pushes `go/v0.2.0`. Then the three manifests here move to 0.4.0,
+   0.2.0 and `v0.2.0`, and typescript's lane goes green.
+2. A checkpoint in voxgig/admin, cut by the owner after the release
+   bump merges, so that the vendored struct declares 0.4.0.
+3. sdkgen re-vendored at that checkpoint, with its own specs on `$NOF`
+   (`sdkgen-18`), released; then the fixture SDKs regenerate on it.
+
+0.4.0 then releases every port together.
+
 W9, observing traffic locally, directed by the owner on 2026-11-16
 (D-2026-11-16-1): a user drives station-mcp, its tools call a generated
 SDK, the SDK calls a generated local mock, and station-view shows the
@@ -122,15 +142,17 @@ its last item.
 
 ## Pick this up first
 
-In this order. Only the release dispatch waits on the maintainer.
+In this order. W4.10's releases and its checkpoint wait on the owner.
 
-1. **W9.1 to W9.6**, in order: the extension points here, `ts-seed`
+1. **W4.10**, as above: each step is a pull request in struct or
+   sdkgen, then the manifests here.
+2. **W9.1 to W9.6**, in order: the extension points here, `ts-seed`
    and `ts-mock` in voxgig/sdkgen-validpack, then station-mcp,
    station-view and the demonstration. W9.2 and W9.3 can run beside
    W9.1.
-2. **W4.1**, a completeness guard in typescript. W1.1, which edited the
+3. **W4.1**, a completeness guard in typescript. W1.1, which edited the
    same test file, has landed.
-3. **W0.8**, the design's account of sdkgen.
+4. **W0.8**, the design's account of sdkgen.
 
 Two more can start at any time, since each begins with a document:
 **W8.1**, the design note for taking voxgig/plugin, which every later

@@ -45,7 +45,7 @@ taken.
 ### One recorded workaround, in `pin_spec_names`
 
 Canonical struct lowers a spec term's `` `$NAME` `` to a bare `name`
-across the whole joined description, so a `$ONE` failure reads
+across the whole joined description, so a `$NOF` failure reads
 `[exact,library]`. The **C++ port of struct applies that only to a
 top-level string term**, so a nested list or map term keeps its
 backticked names. Five corpus entries pin the canonical spelling, so

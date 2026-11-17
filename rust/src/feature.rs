@@ -448,6 +448,18 @@ pub fn check_features(merged: &Json, descriptor: &Json) -> Vec<Fault> {
 }
 
 /// The kinds an `optspec` type admits, or None when it admits any.
+/// The fewest alternatives a `$NOF` count requires to admit a value.
+fn least_of(count: Option<&Json>) -> f64 {
+    match count {
+        Some(Json::Num(num)) => *num,
+        Some(Json::Map(fields)) => match fields.get("min") {
+            Some(Json::Num(num)) => *num,
+            _ => 0.0,
+        },
+        _ => 0.0,
+    }
+}
+
 fn spec_kinds(spec: &Json) -> Option<Vec<&'static str>> {
     let head = match spec {
         Json::List(items) => match items.first() {
@@ -461,9 +473,14 @@ fn spec_kinds(spec: &Json) -> Option<Vec<&'static str>> {
             None => Some(vec![featurekind(Some(spec))]),
             Some(name) => token_kind(name).map(|kind| vec![kind]),
         },
-        Json::List(items) if "`$ONE`" == head => {
+        // A value has one kind, so the alternatives bound it only when at
+        // least one of them has to admit it.
+        Json::List(items) if "`$NOF`" == head => {
+            if 1.0 > least_of(items.get(1)) {
+                return None;
+            }
             let mut kinds: Vec<&'static str> = Vec::new();
-            for alt in &items[1..] {
+            for alt in items.iter().skip(2) {
                 for kind in spec_kinds(alt)? {
                     if !kinds.contains(&kind) {
                         kinds.push(kind);

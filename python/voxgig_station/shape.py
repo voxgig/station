@@ -4,9 +4,9 @@
 #
 # struct drops the unexpected-key check for a map whose spec node ends
 # up empty - "an empty spec object means the object can be open". An
-# optional key is `['$ONE','$NIL', spec]`, and when the data does not
-# carry that key the validator REMOVES it from the spec node. So a
-# block whose keys are all optional degenerates into an open map
+# optional key is `['$NOF',{min:1},'$NIL', spec]`, and when the data
+# does not carry that key the validator REMOVES it from the spec node.
+# So a block whose keys are all optional degenerates into an open map
 # exactly when the data has none of them, and `{"solar": {"bass": 1}}`
 # validates clean - the one property the whole exercise is for,
 # silently absent in the one case that matters.
@@ -173,10 +173,8 @@ _CONFIG_SHAPE = None
 
 
 def config_shape():
-    """A FRESH DEEP COPY of the shape, every call: struct's validate
-    consumes the spec it walks (it deletes satisfied `$ONE` branches as
-    it goes), so handing it the parsed constant twice would validate the
-    second config against a spec the first had already eaten."""
+    """A fresh deep copy of the shape, every call, so no validate that
+    rewrites the spec it walks can change the shape the next one reads."""
     global _CONFIG_SHAPE
     if _CONFIG_SHAPE is None:
         file = os.path.abspath(
@@ -227,9 +225,9 @@ def validate_config(normalized):
 
     The 4.4 workarounds are merged into the SAME throw as struct's own
     errors: a struct new enough to reject a first-element gap itself
-    reports a DIFFERENT spelling ("to be one of ..."), and the corpus
-    pins the explicit one - so the pinned message is produced here
-    either way, and behavior is identical whatever struct version
+    reports a DIFFERENT spelling ("to be at least 1 of ..."), and the
+    corpus pins the explicit one - so the pinned message is produced
+    here either way, and behavior is identical whatever struct version
     resolves.
 
     Takes the NORMALIZED form. Handing it a raw config is the mistake

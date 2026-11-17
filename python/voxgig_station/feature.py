@@ -335,6 +335,14 @@ _TOKEN_KIND = {
 _TOKEN_RE = re.compile(r'^`\$([A-Z]+)`$')
 
 
+def _leastof(count):
+    """The fewest alternatives a `$NOF` count requires to admit a value."""
+    least = count.get('min') if isinstance(count, dict) else count
+    if isinstance(least, bool) or not isinstance(least, (int, float)):
+        return 0
+    return least
+
+
 def _speckinds(spec):
     """The kinds an `optspec` type admits, or None when it admits any."""
     if isinstance(spec, str):
@@ -344,9 +352,13 @@ def _speckinds(spec):
         return [_TOKEN_KIND[token.group(1)]] \
             if token.group(1) in _TOKEN_KIND else None
 
-    if isinstance(spec, list) and 0 < len(spec) and '`$ONE`' == spec[0]:
+    # A value has one kind, so the alternatives bound it only when at
+    # least one of them has to admit it.
+    if isinstance(spec, list) and 0 < len(spec) and '`$NOF`' == spec[0]:
+        if _leastof(spec[1] if 1 < len(spec) else None) < 1:
+            return None
         kinds = []
-        for alt in spec[1:]:
+        for alt in spec[2:]:
             some = _speckinds(alt)
             if some is None:
                 return None

@@ -1001,9 +1001,9 @@ inline Normalized normalize_descriptor(const Jval& config, const Jval& active_fe
 //
 // struct drops the unexpected-key check for a map whose spec node ends
 // up EMPTY - "an empty spec object means the object can be open". An
-// optional key is `['$ONE','$NIL', spec]`, and when the data does not
-// carry that key the validator REMOVES it from the spec node. So a
-// block whose keys are all optional degenerates into an open map
+// optional key is `['$NOF',{min:1},'$NIL', spec]`, and when the data
+// does not carry that key the validator REMOVES it from the spec node.
+// So a block whose keys are all optional degenerates into an open map
 // exactly when the data has none of them, and `{"solar": {"bass": 1}}`
 // validates clean - the one property the whole exercise is for,
 // silently absent in the one case that matters.
@@ -1222,27 +1222,42 @@ inline const char* config_shape_json() {
         "`$CHILD`": {
           "active": "`$BOOLEAN`",
           "package": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             "`$STRING`"
           ],
           "export": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             "`$STRING`"
           ],
           "base": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             "`$STRING`"
           ],
           "secret": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             "`$STRING`"
           ],
           "resolve": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             [
               "`$EXACT`",
@@ -1254,7 +1269,10 @@ inline const char* config_shape_json() {
             ]
           ],
           "capture": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             [
               "`$EXACT`",
@@ -1270,11 +1288,17 @@ inline const char* config_shape_json() {
             ]
           ],
           "policy": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             {
               "allow": [
-                "`$ONE`",
+                "`$NOF`",
+                {
+                  "min": 1
+                },
                 "`$NIL`",
                 {
                   "method": [
@@ -1288,16 +1312,25 @@ inline const char* config_shape_json() {
                 }
               ],
               "budget": [
-                "`$ONE`",
+                "`$NOF`",
+                {
+                  "min": 1
+                },
                 "`$NIL`",
                 {
                   "concurrency": [
-                    "`$ONE`",
+                    "`$NOF`",
+                    {
+                      "min": 1
+                    },
                     "`$NIL`",
                     "`$INTEGER`"
                   ],
                   "rps": [
-                    "`$ONE`",
+                    "`$NOF`",
+                    {
+                      "min": 1
+                    },
                     "`$NIL`",
                     "`$NUMBER`"
                   ]
@@ -1308,7 +1341,10 @@ inline const char* config_shape_json() {
                 "`$STRING`"
               ],
               "mode": [
-                "`$ONE`",
+                "`$NOF`",
+                {
+                  "min": 1
+                },
                 "`$NIL`",
                 [
                   "`$EXACT`",
@@ -1334,14 +1370,20 @@ inline const char* config_shape_json() {
             }
           ],
           "agent": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             {
               "write": "`$BOOLEAN`"
             }
           ],
           "options": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             "`$MAP`"
           ],
@@ -1357,27 +1399,42 @@ inline const char* config_shape_json() {
         "`$CHILD`": {
           "active": "`$BOOLEAN`",
           "package": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             "`$STRING`"
           ],
           "export": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             "`$STRING`"
           ],
           "base": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             "`$STRING`"
           ],
           "secret": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             "`$STRING`"
           ],
           "resolve": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             [
               "`$EXACT`",
@@ -1389,7 +1446,10 @@ inline const char* config_shape_json() {
             ]
           ],
           "capture": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             [
               "`$EXACT`",
@@ -1405,11 +1465,17 @@ inline const char* config_shape_json() {
             ]
           ],
           "policy": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             {
               "allow": [
-                "`$ONE`",
+                "`$NOF`",
+                {
+                  "min": 1
+                },
                 "`$NIL`",
                 {
                   "method": [
@@ -1423,16 +1489,25 @@ inline const char* config_shape_json() {
                 }
               ],
               "budget": [
-                "`$ONE`",
+                "`$NOF`",
+                {
+                  "min": 1
+                },
                 "`$NIL`",
                 {
                   "concurrency": [
-                    "`$ONE`",
+                    "`$NOF`",
+                    {
+                      "min": 1
+                    },
                     "`$NIL`",
                     "`$INTEGER`"
                   ],
                   "rps": [
-                    "`$ONE`",
+                    "`$NOF`",
+                    {
+                      "min": 1
+                    },
                     "`$NIL`",
                     "`$NUMBER`"
                   ]
@@ -1443,7 +1518,10 @@ inline const char* config_shape_json() {
                 "`$STRING`"
               ],
               "mode": [
-                "`$ONE`",
+                "`$NOF`",
+                {
+                  "min": 1
+                },
                 "`$NIL`",
                 [
                   "`$EXACT`",
@@ -1469,14 +1547,20 @@ inline const char* config_shape_json() {
             }
           ],
           "agent": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             {
               "write": "`$BOOLEAN`"
             }
           ],
           "options": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             "`$MAP`"
           ],
@@ -1493,7 +1577,10 @@ inline const char* config_shape_json() {
           "active": "`$BOOLEAN`",
           "order": {
             "before": [
-              "`$ONE`",
+              "`$NOF`",
+              {
+                "min": 1
+              },
               "`$NIL`",
               "`$STRING`",
               [
@@ -1502,7 +1589,10 @@ inline const char* config_shape_json() {
               ]
             ],
             "after": [
-              "`$ONE`",
+              "`$NOF`",
+              {
+                "min": 1
+              },
               "`$NIL`",
               "`$STRING`",
               [
@@ -1511,7 +1601,10 @@ inline const char* config_shape_json() {
               ]
             ],
             "band": [
-              "`$ONE`",
+              "`$NOF`",
+              {
+                "min": 1
+              },
               "`$NIL`",
               "`$INTEGER`"
             ]
@@ -1527,11 +1620,9 @@ inline const char* config_shape_json() {
 }
 // --- END GENERATED: config-shape ---
 
-// A FRESH DEEP COPY ON EVERY CALL, and that is not an optimization left
-// undone: struct's validate CONSUMES the spec it walks - it deletes
-// satisfied `$ONE` branches as it goes - so handing it one parsed
-// constant twice validates the second config against a spec the first
-// already ate. Re-parsing the mirror IS the copy.
+// A fresh deep copy on every call, so no validate that rewrites the spec
+// it walks can change the shape the next one reads. Re-parsing the
+// mirror is the copy.
 inline Jval config_shape() { return parse_json(config_shape_json()); }
 
 namespace detail {
@@ -1587,11 +1678,11 @@ inline ::voxgig::structlib::Value to_struct(const Jval& v) {
 // `[`$EXACT`,library]` reads `[exact,library]`. THE C++ PORT OF STRUCT
 // APPLIES IT PER TOP-LEVEL TERM ONLY, so a nested list or map term
 // keeps its backticked names - `config#resolve-is-an-enum`,
-// `config#policy-typo-is-the-generic-one-form`,
+// `config#policy-typo-is-the-generic-nof-form`,
 // `config#order-list-element-type`,
 // `config#capture-depth-must-be-a-known-depth` and
 // `config#agent-block-stays-closed` all pin the canonical spelling and
-// all five see the raw one. struct's own corpus has no `$ONE` carrying
+// all five see the raw one. struct's own corpus has no `$NOF` carrying
 // a compound term, which is why the gap is untested upstream.
 //
 // So the replacement is finished here, over CANONICAL'S OWN SCOPE and
@@ -2089,9 +2180,10 @@ inline std::string renamehint(const Jval& cfg) {
 //
 // The design 4.4 workarounds are merged into the SAME throw as struct's
 // own errors: a struct new enough to reject a first-element gap itself
-// reports a DIFFERENT spelling ("to be one of ..."), and the corpus
-// pins the explicit one - so the pinned message is produced here either
-// way, and behaviour is identical whatever struct version is vendored.
+// reports a DIFFERENT spelling ("to be at least 1 of ..."), and the
+// corpus pins the explicit one - so the pinned message is produced here
+// either way, and behaviour is identical whatever struct version is
+// vendored.
 //
 // Takes the NORMALIZED form. Handing it a raw config is the mistake
 // design 4.2 exists to prevent, so every caller goes through
@@ -2500,6 +2592,12 @@ inline bool is_spec_token(const std::string& text) {
   return true;
 }
 
+// The fewest alternatives a `$NOF` count requires to admit a value.
+inline double spec_least(const Jval& count) {
+  const Jval least = count.ismap() ? count.get("min") : count;
+  return least.isnum() ? least.nval : 0;
+}
+
 inline void spec_kinds(const Jval& spec, SpecKinds& out) {
   static const std::map<std::string, std::string> token_kind = {
       {"`$MAP`", "map"},          {"`$LIST`", "list"},       {"`$ARRAY`", "list"},
@@ -2518,8 +2616,14 @@ inline void spec_kinds(const Jval& spec, SpecKinds& out) {
   }
   if (spec.islist() && !spec.lval.empty() && spec.lval[0].isstr()) {
     const std::string& head = spec.lval[0].sval;
-    if ("`$ONE`" == head) {
-      for (size_t i = 1; i < spec.lval.size(); i++) {
+    // A value has one kind, so the alternatives bound it only when at
+    // least one of them has to admit it.
+    if ("`$NOF`" == head) {
+      if (spec_least(1 < spec.lval.size() ? spec.lval[1] : Jval::absent()) < 1) {
+        out.any = true;
+        return;
+      }
+      for (size_t i = 2; i < spec.lval.size(); i++) {
         spec_kinds(spec.lval[i], out);
       }
       return;

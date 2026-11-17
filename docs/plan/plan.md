@@ -263,6 +263,12 @@ do.
   every port, adapter code that compiles only inside a generated SDK is
   never compiled ([#60] names three such pieces), and [#63] could not
   be caught. This is the lane `station.md` §9.5 and §13 already require.
+- Station moves to struct's `$NOF` checker, which replaced `$ONE` on
+  struct's `main` on 2026-11-16, by a flag day at 0.4.0
+  (D-2026-11-17-1). The shape, the corpus and the option-spec reading
+  move together, and the three manifests move to struct's next release.
+  sdkgen re-vendors the same struct first, so that station's fixture
+  SDKs carry it.
 - CI pins `struct` once the last five ports have taken that tranche,
   which is when `build.yml` itself says to. `plugin` stays unpinned, on
   purpose: its corpus is the C4 contract, and a red lane when plugin
@@ -459,7 +465,7 @@ and name [#36] too if it lands first: a failed operation then emits one
 | risk | why it is real | what the plan does |
 |---|---|---|
 | **A local merge passes and CI does not.** | Five ports have no toolchain outside CI. Both faults found while W1 merged were in them, and the trial merge had passed. | A branch is brought up to `main` and its CI run again before it merges. Standing rule 8. |
-| **Upstream moves under a floating CI.** | `plugin` and `struct` float in `build.yml`, both by decision: plugin so that drift from its corpus goes red, struct until Stage 5 completes. struct has a parity pull request open that changes behaviour across its ports. A red lane on an unrelated pull request is the likely first symptom. | A red lane is read as upstream drift first, and reported upstream. W4 pins struct when the last five ports have landed. |
+| **Upstream moves under a floating CI.** | `plugin` and `struct` float in `build.yml`, both by decision: plugin so that drift from its corpus goes red, struct until Stage 5 completes. It happened on 2026-11-16: struct's `main` dropped `$ONE`, and ten lanes went red on every pull request. | A red lane is read as upstream drift first, and reported upstream. The owner ruled against a pin for that drift and for a flag day instead (D-2026-11-17-1, W4.10). W4 still pins struct when the last five ports have landed. |
 | **Code without a CI lane dies quietly.** | The proxy stopped compiling when sekreto's API moved, and nothing went red. | W5 item 1 adds the lane before anything else is built on it. |
 | **A fix skips the corpus.** | Sixteen ports make every fix expensive, and the cheap version is to fix the port that was reported. | Standing rule 2, and the exit of every W2 item. |
 | **Distribution waits on other repositories.** | sekreto and plugin are on npm only. | The staged route does not wait for them (D-2026-11-11-1). |

@@ -39,16 +39,16 @@ station), `DECISION NEEDED`.
 | | | `javascript/package.json` | `@voxgig/sekreto-js` `^0.2.0`, locked 0.2.0 | npm 0.2.0 |
 | | | `python/pyproject.toml` | `voxgig-sekreto>=0.1` | not on PyPI |
 | | | `c/vendor/sekreto`, since W1.6 | `SEKRETO_C_COMMIT`, `32b83ac` | — |
-| **voxgig/struct** | library | `build.yml` checkout | **unpinned**, until Stage 5 is complete | `main` is `055ac4a` on 2026-11-11. It moved on both days this register was checked. |
-| | | `typescript/package.json` | `^0.2.2`, locked 0.2.2 | npm 0.3.7, outside the range |
-| | | `javascript/package.json` | `@voxgig/struct-js` `^0.1.7`, locked 0.1.7 | npm 0.1.7 |
-| | | `go/go.mod` | `v0.1.6` | `go/v0.1.6` |
+| **voxgig/struct** | library | `build.yml` checkout | **unpinned**, until Stage 5 is complete, and not pinned for the drift of 2026-11-16 (D-2026-11-17-1) | `main` is `1ba9203` on 2026-11-17. On 2026-11-16 it dropped `$ONE` (`struct-3`). |
+| | | `typescript/package.json` | `^0.2.2`, locked 0.2.2 | npm 0.3.7, outside the range. W4.10 takes 0.4.0 once it is out (`struct-7`). |
+| | | `javascript/package.json` | `@voxgig/struct-js` `^0.1.7`, locked 0.1.7 | npm 0.1.7. W4.10 takes 0.2.0. |
+| | | `go/go.mod` | `v0.1.6` | `go/v0.1.6`. W4.10 takes `go/v0.2.0`. |
 | | | `rust/Cargo.toml` | a path to `vendor/struct`, a link to the sibling checkout; the lock records 0.1.7 | crates.io 0.1.7 |
 | **voxgig/plugin** | sekreto's dependency; the C4 corpus | `build.yml` checkout | **unpinned**, on purpose | `main` is `8605cdc` |
 | | | `go/go.mod`, indirect | a pseudo-version of `91f294b` (2026-09-01) | `go/v0.2.0` |
 | | | typescript lockfile, transitive | 0.1.7 | npm 0.2.0 |
 | **voxgig/omni** | tests only | `build.yml` checkout | `dcbab7a` (voxgig/omni#36, 2026-08-22) | `main` is `ef55ad0`; npm 0.2.0; `go/v0.2.0` |
-| **voxgig/sdkgen** | generator, for sdkgen-station | `sdkgen-station/package.json` peer | `>=3.6` | npm 4.44.0 on 2026-11-12; `main` is `9aebaf9` |
+| **voxgig/sdkgen** | generator, for sdkgen-station | `sdkgen-station/package.json` peer | `>=3.6` | npm 4.44.1 on 2026-11-17, still vendoring struct at `sdk-20261016-0845-0`, which has `$ONE` only (`sdkgen-18`); `main` is `a939e09` |
 
 Three things in that table are worth knowing. The first two are rows
 W4.4 and W4.5 of the plan register:
@@ -114,6 +114,7 @@ sections were written.
 | sdkgen-15 | Does sdkgen adopt voxgig/plugin? (plugin's design §17.2) | plugin's register, item 6.2 | DECISION NEEDED | Nothing here. It is the "second consumer" this plan wanted DEC-3 to wait for. DEC-3 was ruled without it on 2026-11-11 (D-2026-11-11-4), so until sdkgen decides, station is plugin's only consumer. |
 | sdkgen-16 | A public `client.extend()` late-attach seam (`station.md` §18) | — | NOT FILED | Nothing. It would upgrade `adopt()` beyond construction time; v1 does not need it. |
 | sdkgen-17 | One id for a call across `telemetry`'s span, `debug`'s entry and `audit`'s record | — | NOT FILED | W9.5. The span carries `traceId` and `spanId`, the audit record carries `correlationId`, the context's id, and the debug entry carries no id of its own (read, at 4.44.0). station-view joins the three by client, operation and time until they share one. |
+| sdkgen-18 | Vendor struct at a checkpoint that has `$NOF`, and generate specs with `$NOF` in place of `$ONE` | — | NOT FILED | W4.10. Without it every SDK sdkgen generates holds a struct that station 0.4.0's shape cannot use, in ruby, perl, php, c and cpp. Prepared from this session once the owner cuts the checkpoint in voxgig/admin. Its own `$ONE` sites, read at `a939e09`: the `netsim` and `validate` option specs, and `canonSpec.ts`, which builds the entity specs. |
 
 
 ## voxgig/sekreto
@@ -135,9 +136,10 @@ sections were written.
 |---|---|---|---|---|
 | struct-1 | `$CHILD` in list mode validates element 0 | [struct#113] | DONE, closed 2026-08-25 | W4.8: station's explicit first-element checks can go once every port's struct carries the fix. |
 | struct-2 | A closed map whose keys are all optional still refuses an undeclared key | [struct#175] | OPEN | `sdkgen-5`. A strict feature refuses a misspelled option only when a correctly spelled one is passed beside it. Found by W1.1. |
-| struct-3 | — | [struct#178], a parity pull request across its ports | WATCH | W4.4. It changes behaviour, and station's CI takes struct `main`. |
+| struct-3 | — | [struct#178], a parity pull request across its ports | DONE, merged 2026-11-16 | It replaced `$ONE` with `$NOF` and made `validate` refuse a checker it lacks. Station's CI went red the same day: W4.10, D-2026-11-17-1. |
 | struct-4 | Packages on Packagist and Maven Central | — | NOT FILED | W3.5, W3.6. It is on every other registry station's ports use. |
 | struct-5 | Perl's `parse_json` decodes an escaped surrogate pair as one character | — | NOT FILED | Found by W2.9: it decodes each `\u` escape on its own, so `\ud83d\ude00` arrives as two surrogate characters (run, at `055ac4a`). Station's perl joins the halves after it reads (`jsonform`), and the corpus holds it to that. |
+| struct-7 | A release that carries `$NOF`: `@voxgig/struct` 0.4.0, `@voxgig/struct-js` 0.2.0, `go/v0.2.0` | [struct#180], the version bump | OPEN | W4.10. Prepared from this session; the owner dispatches the two npm publishes and pushes the go tag. typescript's lane is red until npm has 0.4.0. |
 | struct-6 | Perl's `parse_json` reads a value that begins with an unexpected character as an empty number | — | NOT FILED | Found by W2.15: `x`, `{"a": x}` and a text that begins with a byte order mark each print `Argument "" isn't numeric in int`, then are refused at the next delimiter, as trailing data or a missing `,` (run, at `055ac4a`). The text is refused either way, so station's answer is right; the warning reaches its perl suite's output, and the refusal names the wrong fault. |
 
 
@@ -242,6 +244,7 @@ and are better added there than filed new. They have not been added:
 [struct#113]: https://github.com/voxgig/struct/issues/113
 [struct#175]: https://github.com/voxgig/struct/issues/175
 [struct#178]: https://github.com/voxgig/struct/pull/178
+[struct#180]: https://github.com/voxgig/struct/pull/180
 [omni#74]: https://github.com/voxgig/omni/issues/74
 [plugin-contracts]: https://github.com/voxgig/plugin/blob/main/doc/plan/contracts.md
 [joplin-sdk#2]: https://github.com/voxgig-sdk/joplin-sdk/issues/2

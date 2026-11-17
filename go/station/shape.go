@@ -172,11 +172,9 @@ func init() {
 	}
 }
 
-// ConfigShape returns a FRESH DEEP COPY of the shape on every call.
-// struct's validate CONSUMES the spec it walks - it deletes satisfied
-// `$ONE` branches as it goes - so handing it the parsed constant twice
-// would validate the second config against a spec the first had already
-// eaten.
+// ConfigShape returns a fresh deep copy of the shape on every call, so no
+// validate that rewrites the spec it walks can change the shape the next
+// one reads.
 func ConfigShape() any {
 	return voxgigstruct.Clone(configShape)
 }

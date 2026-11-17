@@ -4,9 +4,9 @@
  *
  * struct drops the unexpected-key check for a map whose spec node ends
  * up empty - "an empty spec object means the object can be open". An
- * optional key is `['$ONE','$NIL', spec]`, and when the data does not
- * carry that key the validator REMOVES it from the spec node. So a
- * block whose keys are all optional degenerates into an open map
+ * optional key is `['$NOF',{min:1},'$NIL', spec]`, and when the data
+ * does not carry that key the validator REMOVES it from the spec node.
+ * So a block whose keys are all optional degenerates into an open map
  * exactly when the data has none of them, and `{"solar": {"bass": 1}}`
  * validates clean - the one property the whole exercise is for,
  * silently absent in the one case that matters.
@@ -214,11 +214,9 @@ vxstn_val* vxstn_normalize_config(const vxstn_val* raw) {
  * The shape, and the struct bridge
  * =========================================================================*/
 
-/* A FRESH DEEP COPY ON EVERY CALL, and that is not an optimization
- * left undone: struct's validate CONSUMES the spec it walks - it
- * deletes satisfied `$ONE` branches as it goes - so handing it one
- * parsed constant twice validates the second config against a spec the
- * first already ate. Re-parsing the mirror is the copy. */
+/* A fresh deep copy on every call, so no validate that rewrites the
+ * spec it walks can change the shape the next one reads. Re-parsing the
+ * mirror is the copy. */
 vxstn_val* vxstn_config_shape(void) {
   return vxstn_parse_json(VXSTN_CONFIG_SHAPE_JSON, NULL);
 }
@@ -957,9 +955,9 @@ static char* joinlist(const vxstn_val* a, const vxstn_val* b) {
  *
  * The design 4.4 workarounds are merged into the SAME error as struct's
  * own: a struct new enough to reject a first-element gap itself reports
- * a DIFFERENT spelling ("to be one of ..."), and the corpus pins the
- * explicit one - so the pinned message is produced here either way, and
- * behaviour is identical whatever struct version is vendored.
+ * a DIFFERENT spelling ("to be at least 1 of ..."), and the corpus pins
+ * the explicit one - so the pinned message is produced here either way,
+ * and behaviour is identical whatever struct version is vendored.
  *
  * Takes the NORMALIZED form. Handing it a raw config is the mistake
  * design 4.2 exists to prevent, so every caller goes through

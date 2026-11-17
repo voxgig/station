@@ -34,10 +34,8 @@ func TestShapeMirrorHasNotDrifted(t *testing.T) {
 	}
 }
 
-// Every validate must get a FRESH DEEP COPY: struct's validator CONSUMES
-// the spec it walks - it deletes satisfied `$ONE` branches as it goes -
-// so handing it one parsed constant twice validates the second config
-// against a spec the first already ate.
+// Each validate gets a fresh deep copy, so no validate that rewrites the
+// spec it walks can change the shape the next one reads.
 func TestShapeIsFreshEachCall(t *testing.T) {
 	first := station.ConfigShape()
 	second := station.ConfigShape()

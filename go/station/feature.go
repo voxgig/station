@@ -501,6 +501,22 @@ var tokenKind = map[string]string{
 
 var tokenRE = regexp.MustCompile("^`\\$([A-Z]+)`$")
 
+// leastOf is the fewest alternatives a `$NOF` count requires to admit a value.
+func leastOf(count any) float64 {
+	if fields, is := count.(map[string]any); is {
+		count = fields["min"]
+	}
+	switch num := count.(type) {
+	case int:
+		return float64(num)
+	case int64:
+		return float64(num)
+	case float64:
+		return num
+	}
+	return 0
+}
+
 // specKinds is the kinds an `optspec` type admits, or nil when it
 // admits any.
 func specKinds(spec any) []string {
@@ -517,9 +533,14 @@ func specKinds(spec any) []string {
 
 	if items, is := spec.([]any); is && 0 < len(items) {
 		switch items[0] {
-		case "`$ONE`":
+		// A value has one kind, so the alternatives bound it only when at
+		// least one of them has to admit it.
+		case "`$NOF`":
+			if 2 > len(items) || 1 > leastOf(items[1]) {
+				return nil
+			}
 			kinds := []string{}
-			for _, alt := range items[1:] {
+			for _, alt := range items[2:] {
 				some := specKinds(alt)
 				if nil == some {
 					return nil

@@ -89,10 +89,8 @@ function normfeatures(f: any): any {
 // ---------------------------------------------------------------------
 
 /** `spec/config-shape.json`, §4.3 verbatim, through the shipped mirror.
- * Every validate gets a CLONE: struct's validate consumes the spec it
- * walks (it deletes satisfied `$ONE` branches as it goes), so handing it
- * the module constant twice would validate the second config against a
- * spec the first had already eaten. */
+ * Each validate gets a clone: a struct that rewrites the spec it walks
+ * must not reach the shared constant. */
 export function configShape(): any {
   return clone(CONFIG_SHAPE)
 }
@@ -113,12 +111,20 @@ const UNBROKEN_RUN = new RegExp('[A-Za-z0-9]{' + RUN_BOUND + ',}')
 export function validateConfig(normalized: any): any {
   const errs: string[] = []
   validate(normalized, configShape(), { errs })
-  if (0 < errs.length) {
-    throw new StationError('station_config_invalid',
-      errs.join('; ') + renamehint(normalized))
-  }
 
-  scanConfig(normalized)
+  // One throw: struct and the explicit checks can catch the same fault.
+  const { secrets, reserved, invalid } = scanConfig(normalized)
+
+  if (0 < errs.length || 0 < invalid.length) {
+    throw new StationError('station_config_invalid',
+      errs.concat(invalid).join('; ') + renamehint(normalized))
+  }
+  if (0 < reserved.length) {
+    throw new StationError('station_feature_reserved', reserved.join('; '))
+  }
+  if (0 < secrets.length) {
+    throw new StationError('station_config_secret', secrets.join('; '))
+  }
   return normalized
 }
 
@@ -132,7 +138,9 @@ function renamehint(cfg: any): string {
     ' - the keys are unchanged, an untagged ref IS an api slug (§3.4)'
 }
 
-function scanConfig(cfg: any): void {
+function scanConfig(cfg: any): {
+  secrets: string[], reserved: string[], invalid: string[]
+} {
   const secrets: string[] = []
   const reserved: string[] = []
   const invalid: string[] = []
@@ -170,15 +178,7 @@ function scanConfig(cfg: any): void {
     }
   }
 
-  if (0 < invalid.length) {
-    throw new StationError('station_config_invalid', invalid.join('; '))
-  }
-  if (0 < reserved.length) {
-    throw new StationError('station_feature_reserved', reserved.join('; '))
-  }
-  if (0 < secrets.length) {
-    throw new StationError('station_config_secret', secrets.join('; '))
-  }
+  return { secrets, reserved, invalid }
 }
 
 /** A feature map at any level. `station` is reserved: station composes

@@ -13,27 +13,42 @@ module.exports.CONFIG_SHAPE = {
         "`$CHILD`": {
           "active": "`$BOOLEAN`",
           "package": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             "`$STRING`"
           ],
           "export": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             "`$STRING`"
           ],
           "base": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             "`$STRING`"
           ],
           "secret": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             "`$STRING`"
           ],
           "resolve": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             [
               "`$EXACT`",
@@ -45,7 +60,10 @@ module.exports.CONFIG_SHAPE = {
             ]
           ],
           "capture": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             [
               "`$EXACT`",
@@ -61,11 +79,17 @@ module.exports.CONFIG_SHAPE = {
             ]
           ],
           "policy": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             {
               "allow": [
-                "`$ONE`",
+                "`$NOF`",
+                {
+                  "min": 1
+                },
                 "`$NIL`",
                 {
                   "method": [
@@ -79,16 +103,25 @@ module.exports.CONFIG_SHAPE = {
                 }
               ],
               "budget": [
-                "`$ONE`",
+                "`$NOF`",
+                {
+                  "min": 1
+                },
                 "`$NIL`",
                 {
                   "concurrency": [
-                    "`$ONE`",
+                    "`$NOF`",
+                    {
+                      "min": 1
+                    },
                     "`$NIL`",
                     "`$INTEGER`"
                   ],
                   "rps": [
-                    "`$ONE`",
+                    "`$NOF`",
+                    {
+                      "min": 1
+                    },
                     "`$NIL`",
                     "`$NUMBER`"
                   ]
@@ -99,7 +132,10 @@ module.exports.CONFIG_SHAPE = {
                 "`$STRING`"
               ],
               "mode": [
-                "`$ONE`",
+                "`$NOF`",
+                {
+                  "min": 1
+                },
                 "`$NIL`",
                 [
                   "`$EXACT`",
@@ -125,14 +161,20 @@ module.exports.CONFIG_SHAPE = {
             }
           ],
           "agent": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             {
               "write": "`$BOOLEAN`"
             }
           ],
           "options": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             "`$MAP`"
           ],
@@ -148,27 +190,42 @@ module.exports.CONFIG_SHAPE = {
         "`$CHILD`": {
           "active": "`$BOOLEAN`",
           "package": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             "`$STRING`"
           ],
           "export": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             "`$STRING`"
           ],
           "base": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             "`$STRING`"
           ],
           "secret": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             "`$STRING`"
           ],
           "resolve": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             [
               "`$EXACT`",
@@ -180,7 +237,10 @@ module.exports.CONFIG_SHAPE = {
             ]
           ],
           "capture": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             [
               "`$EXACT`",
@@ -196,11 +256,17 @@ module.exports.CONFIG_SHAPE = {
             ]
           ],
           "policy": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             {
               "allow": [
-                "`$ONE`",
+                "`$NOF`",
+                {
+                  "min": 1
+                },
                 "`$NIL`",
                 {
                   "method": [
@@ -214,16 +280,25 @@ module.exports.CONFIG_SHAPE = {
                 }
               ],
               "budget": [
-                "`$ONE`",
+                "`$NOF`",
+                {
+                  "min": 1
+                },
                 "`$NIL`",
                 {
                   "concurrency": [
-                    "`$ONE`",
+                    "`$NOF`",
+                    {
+                      "min": 1
+                    },
                     "`$NIL`",
                     "`$INTEGER`"
                   ],
                   "rps": [
-                    "`$ONE`",
+                    "`$NOF`",
+                    {
+                      "min": 1
+                    },
                     "`$NIL`",
                     "`$NUMBER`"
                   ]
@@ -234,7 +309,10 @@ module.exports.CONFIG_SHAPE = {
                 "`$STRING`"
               ],
               "mode": [
-                "`$ONE`",
+                "`$NOF`",
+                {
+                  "min": 1
+                },
                 "`$NIL`",
                 [
                   "`$EXACT`",
@@ -260,14 +338,20 @@ module.exports.CONFIG_SHAPE = {
             }
           ],
           "agent": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             {
               "write": "`$BOOLEAN`"
             }
           ],
           "options": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             "`$MAP`"
           ],
@@ -284,7 +368,10 @@ module.exports.CONFIG_SHAPE = {
           "active": "`$BOOLEAN`",
           "order": {
             "before": [
-              "`$ONE`",
+              "`$NOF`",
+              {
+                "min": 1
+              },
               "`$NIL`",
               "`$STRING`",
               [
@@ -293,7 +380,10 @@ module.exports.CONFIG_SHAPE = {
               ]
             ],
             "after": [
-              "`$ONE`",
+              "`$NOF`",
+              {
+                "min": 1
+              },
               "`$NIL`",
               "`$STRING`",
               [
@@ -302,7 +392,10 @@ module.exports.CONFIG_SHAPE = {
               ]
             ],
             "band": [
-              "`$ONE`",
+              "`$NOF`",
+              {
+                "min": 1
+              },
               "`$NIL`",
               "`$INTEGER`"
             ]

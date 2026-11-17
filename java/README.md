@@ -212,7 +212,7 @@ disagree.
   six, and struct's `$EXACT` compares with `equals` — so the value handed
   to the validator is number-normalized to `double` first. A copy, and
   only the validator sees it.
-- **struct's `$ONE` message spelling.** The canonical struct lowers every
+- **struct's `$NOF` message spelling.** The canonical struct lowers every
   transform-command marker in an alternatives list by applying
   ``/`\$([A-Z]+)`/g`` GLOBALLY to the joined description, so a NESTED
   marker reads `[exact,library]`. struct's Java port applies that regex

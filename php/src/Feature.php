@@ -459,6 +459,17 @@ const TOKEN_KIND = [
  *
  * @return array<int, string>|null
  */
+/** The fewest alternatives a `$NOF` count requires to admit a value. */
+function spec_least(mixed $count): int|float
+{
+    if ($count instanceof \stdClass) {
+        $count = $count->min ?? null;
+    } elseif (is_map($count)) {
+        $count = $count['min'] ?? null;
+    }
+    return is_int($count) || is_float($count) ? $count : 0;
+}
+
 function spec_kinds(mixed $spec): ?array
 {
     if (is_string($spec)) {
@@ -468,9 +479,14 @@ function spec_kinds(mixed $spec): ?array
         return isset(TOKEN_KIND[$token[1]]) ? [TOKEN_KIND[$token[1]]] : null;
     }
 
-    if (is_listv($spec) && 0 < count($spec) && '`$ONE`' === $spec[0]) {
+    // A value has one kind, so the alternatives bound it only when at
+    // least one of them has to admit it.
+    if (is_listv($spec) && 0 < count($spec) && '`$NOF`' === $spec[0]) {
+        if (spec_least($spec[1] ?? null) < 1) {
+            return null;
+        }
         $kinds = [];
-        foreach (array_slice($spec, 1) as $alt) {
+        foreach (array_slice($spec, 2) as $alt) {
             $some = spec_kinds($alt);
             if (null === $some) {
                 return null;

@@ -212,7 +212,7 @@ describe('feature-check', () => {
     const netsim = {
       features: [{
         name: 'netsim', active: false, options: { active: false, latency: 0 },
-        optspec: { latency: ['`$ONE`', '`$NUMBER`', '`$MAP`'] },
+        optspec: { latency: ['`$NOF`', { min: 1 }, '`$NUMBER`', '`$MAP`'] },
       }],
     }
     deepStrictEqual(

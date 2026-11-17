@@ -4,9 +4,9 @@
 //
 // struct drops the unexpected-key check for a map whose spec node ends
 // up empty - "an empty spec object means the object can be open". An
-// optional key is `['$ONE','$NIL', spec]`, and when the data does not
-// carry that key the validator REMOVES it from the spec node. So a
-// block whose keys are all optional degenerates into an open map
+// optional key is `['$NOF',{min:1},'$NIL', spec]`, and when the data
+// does not carry that key the validator REMOVES it from the spec node.
+// So a block whose keys are all optional degenerates into an open map
 // exactly when the data has none of them, and `{"solar": {"bass": 1}}`
 // validates clean - the one property the whole exercise is for,
 // silently absent in the one case that matters.
@@ -139,10 +139,8 @@ function normfeatures(f) {
 // validateConfig
 // ---------------------------------------------------------------------
 
-// Every validate gets a CLONE: struct's validate consumes the spec it
-// walks (it deletes satisfied `$ONE` branches as it goes), so handing it
-// the constant twice would validate the second config against a spec the
-// first had already eaten.
+// Every validate gets a clone, so no validate that rewrites the spec it
+// walks can change the shape the next one reads.
 function configShape() {
   return clone(CONFIG_SHAPE)
 }

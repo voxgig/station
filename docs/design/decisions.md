@@ -346,3 +346,57 @@ against the model's field types alone.
 Revisit when: attach ships, since the proxy can then be what
 station-view reads and where MCP is served; or likeness becomes the
 live test.
+
+## D-2026-11-17-1 — struct's `$ONE` goes, by a flag day at 0.4.0
+
+voxgig/struct's `main` replaced the `$ONE` checker with `$NOF` on
+2026-11-16 ([voxgig/struct#178]), and its `validate` now refuses a spec
+that names a checker it lacks. Station's shape was written with `$ONE`,
+and `build.yml` takes struct's `main`, so the ten lanes that read
+struct from a checkout went red on every pull request. typescript
+stayed green on npm's struct 0.2.2.
+
+The owner ruled, by question, on 2026-11-16 and 2026-11-17:
+
+1. **No pin.** struct is released with `$NOF`, and station migrates now.
+2. **No station pull request merges until CI is green.** Station's work
+   stacks on one branch meanwhile.
+3. **A flag day.** The shape, the corpus and the option-spec reading
+   move to `$NOF` alone. Station then works only beside an SDK generated
+   by an sdkgen that vendors the new struct.
+4. **No old-struct detection.** An SDK generated before the change, and
+   holding its own struct in the same process, gets struct's errors as
+   they are. The release notes say so.
+5. **0.4.0** carries it, every port together, by `make version-set`.
+6. **The upstream work is prepared from this session**: struct's
+   release bump, then sdkgen's re-vendor at a new checkpoint, with its
+   own specs moved to `$NOF`. The owner dispatches struct's and
+   sdkgen's publishes and cuts the checkpoint in voxgig/admin.
+7. **W9 carries on meanwhile**, and voxgig/sdkgen-validpack, which has no
+   CI, merges on the local runs recorded in each pull request.
+
+Consequences:
+- A refusal reads `to be at least 1 of …` where it read `to be one of
+  …`, and a list that is not a map reads `to be map`. The corpus pins
+  the new wording.
+- An option spec's `$NOF` bounds a value's kinds only when its count
+  requires at least one alternative to admit the value; otherwise it
+  admits any kind. The corpus has a case for each.
+- In ruby, perl and php a process holds one struct, and once a generated
+  SDK is loaded it is the SDK's copy. So station 0.4.0 refuses a valid
+  `station.json` beside an SDK generated before the change. The c, cpp
+  and perl payloads compile against the SDK's own struct, so the same
+  holds inside such an SDK. typescript, javascript and go keep their own
+  struct, and only the option-spec reading reaches them.
+- Station's CI goes green when npm has the new `@voxgig/struct`, which
+  the typescript lane installs. Its fixture SDKs follow once sdkgen
+  vendors the new struct.
+
+Not chosen: pinning struct at the last revision with `$ONE` and parking
+the move; a `$ONE` alias in struct; a shape that speaks both grammars;
+detecting an old struct to refuse more clearly.
+
+Revisit when: never, for the grammar. The detection can still be added
+if the errors beside an old SDK turn out to cost people time.
+
+[voxgig/struct#178]: https://github.com/voxgig/struct/pull/178
