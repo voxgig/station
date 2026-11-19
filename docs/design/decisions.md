@@ -433,3 +433,39 @@ copy of the old corpus; holding sdkgen and releasing station 0.4.0 with
 a documented gap in ruby and php.
 
 Revisit when: a target cannot take struct's current port at all.
+
+## D-2026-11-19-1 — the struct defects sdkgen's resync found go upstream, and every runner runs every validate group
+
+Resyncing struct in all twenty of sdkgen's targets (D-2026-11-17-2)
+found three struct ports that disagree with the canonical or lack what
+a generated SDK needs, each carried in sdkgen as a marked patch
+(`struct-9` to `struct-11`), and two questions for sdkgen
+(`sdkgen-20`, `sdkgen-21`).
+
+The owner ruled, by question, on 2026-11-19:
+
+1. **File all three, and fix c's and cpp's in struct.** They are
+   [voxgig/struct#181] to [voxgig/struct#183], and the two fixes are
+   one pull request, [voxgig/struct#184]. The checkpoint does not wait
+   for it: sdkgen keeps its patches until a checkpoint carries the
+   fixes.
+2. **A swift SDK keeps accepting invalid options, for now.** The gap
+   between swift and the other targets stays recorded, and the sdkgen
+   change makes no swift API change.
+3. **Every generated SDK's struct runner runs every `validate` group,
+   in the sdkgen change**, with a check in each runner that fails when
+   a group is left out. A struct defect it finds is carried as a marked
+   patch and taken upstream, never skipped.
+4. **Nothing else starts** while W4.10 waits on struct's releases and
+   the checkpoint.
+
+Not chosen: filing without fixing, or recording without filing; a
+throwing swift constructor, or a trap, now; the runners' gap as a
+separate follow-up; starting W9.7 or W4.1 meanwhile.
+
+Revisit when: a swift SDK's user is hurt by an option it should have
+refused.
+
+[voxgig/struct#181]: https://github.com/voxgig/struct/issues/181
+[voxgig/struct#183]: https://github.com/voxgig/struct/issues/183
+[voxgig/struct#184]: https://github.com/voxgig/struct/pull/184
