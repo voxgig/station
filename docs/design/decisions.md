@@ -469,3 +469,28 @@ refused.
 [voxgig/struct#181]: https://github.com/voxgig/struct/issues/181
 [voxgig/struct#183]: https://github.com/voxgig/struct/issues/183
 [voxgig/struct#184]: https://github.com/voxgig/struct/pull/184
+
+## D-2026-11-19-2 — lua and elixir leave out the validate entries they cannot express, and the other skipped sections come next
+
+Running every `validate` group in every generated SDK (`sdkgen-21`,
+D-2026-11-19-1) found that lua cannot run fourteen of the entries and
+elixir three. Each needs a JSON null the language cannot hold: a Lua
+table cannot store a nil, and Elixir has one nil for null and absent.
+struct's own lua and elixir runners leave out the same entries, each
+named and guarded so that a change to the corpus fails rather than
+skipping a different entry. It also found other corpus sections that
+some targets' runners do not run.
+
+The owner ruled, by question, on 2026-11-19:
+
+1. **Accept the exclusions**, guarded and named as struct's runners
+   have them.
+2. **The other skipped sections are sdkgen's next pull request**, after
+   the current one merges, with the same check per runner (`sdkgen-22`).
+
+Not chosen: running the entries and leaving lua's and elixir's suites
+red; folding the other sections into the current pull request; only
+recording them.
+
+Revisit when: lua or elixir gains a way to represent JSON null in
+struct.
