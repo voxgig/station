@@ -135,8 +135,9 @@ repository, in order:
    target run on its own toolchain, and needs only the checkpoint's tag,
    then its pull requests and sdkgen's release. It carries three struct
    defects as marked patches (`struct-9` to `struct-11`), now filed as
-   voxgig/struct#181 to #183; the c and cpp fixes are voxgig/struct#184,
-   and the checkpoint need not wait for it (D-2026-11-19-1). Every
+   voxgig/struct#181 to #183. The c and cpp fixes merged as
+   voxgig/struct#184 (`3c2b647`), so a checkpoint cut from struct's
+   `main` lets sdkgen drop those two patches (D-2026-11-19-1). Every
    runner is being made to run every `validate` group (`sdkgen-21`).
 
 0.4.0 then releases every port together.
