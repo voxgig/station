@@ -12,27 +12,42 @@
         "`$CHILD`": {
           "active": "`$BOOLEAN`",
           "package": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             "`$STRING`"
           ],
           "export": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             "`$STRING`"
           ],
           "base": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             "`$STRING`"
           ],
           "secret": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             "`$STRING`"
           ],
           "resolve": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             [
               "`$EXACT`",
@@ -44,7 +59,10 @@
             ]
           ],
           "capture": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             [
               "`$EXACT`",
@@ -60,11 +78,17 @@
             ]
           ],
           "policy": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             {
               "allow": [
-                "`$ONE`",
+                "`$NOF`",
+                {
+                  "min": 1
+                },
                 "`$NIL`",
                 {
                   "method": [
@@ -78,16 +102,25 @@
                 }
               ],
               "budget": [
-                "`$ONE`",
+                "`$NOF`",
+                {
+                  "min": 1
+                },
                 "`$NIL`",
                 {
                   "concurrency": [
-                    "`$ONE`",
+                    "`$NOF`",
+                    {
+                      "min": 1
+                    },
                     "`$NIL`",
                     "`$INTEGER`"
                   ],
                   "rps": [
-                    "`$ONE`",
+                    "`$NOF`",
+                    {
+                      "min": 1
+                    },
                     "`$NIL`",
                     "`$NUMBER`"
                   ]
@@ -98,7 +131,10 @@
                 "`$STRING`"
               ],
               "mode": [
-                "`$ONE`",
+                "`$NOF`",
+                {
+                  "min": 1
+                },
                 "`$NIL`",
                 [
                   "`$EXACT`",
@@ -124,14 +160,20 @@
             }
           ],
           "agent": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             {
               "write": "`$BOOLEAN`"
             }
           ],
           "options": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             "`$MAP`"
           ],
@@ -147,27 +189,42 @@
         "`$CHILD`": {
           "active": "`$BOOLEAN`",
           "package": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             "`$STRING`"
           ],
           "export": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             "`$STRING`"
           ],
           "base": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             "`$STRING`"
           ],
           "secret": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             "`$STRING`"
           ],
           "resolve": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             [
               "`$EXACT`",
@@ -179,7 +236,10 @@
             ]
           ],
           "capture": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             [
               "`$EXACT`",
@@ -195,11 +255,17 @@
             ]
           ],
           "policy": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             {
               "allow": [
-                "`$ONE`",
+                "`$NOF`",
+                {
+                  "min": 1
+                },
                 "`$NIL`",
                 {
                   "method": [
@@ -213,16 +279,25 @@
                 }
               ],
               "budget": [
-                "`$ONE`",
+                "`$NOF`",
+                {
+                  "min": 1
+                },
                 "`$NIL`",
                 {
                   "concurrency": [
-                    "`$ONE`",
+                    "`$NOF`",
+                    {
+                      "min": 1
+                    },
                     "`$NIL`",
                     "`$INTEGER`"
                   ],
                   "rps": [
-                    "`$ONE`",
+                    "`$NOF`",
+                    {
+                      "min": 1
+                    },
                     "`$NIL`",
                     "`$NUMBER`"
                   ]
@@ -233,7 +308,10 @@
                 "`$STRING`"
               ],
               "mode": [
-                "`$ONE`",
+                "`$NOF`",
+                {
+                  "min": 1
+                },
                 "`$NIL`",
                 [
                   "`$EXACT`",
@@ -259,14 +337,20 @@
             }
           ],
           "agent": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             {
               "write": "`$BOOLEAN`"
             }
           ],
           "options": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             "`$MAP`"
           ],
@@ -283,7 +367,10 @@
           "active": "`$BOOLEAN`",
           "order": {
             "before": [
-              "`$ONE`",
+              "`$NOF`",
+              {
+                "min": 1
+              },
               "`$NIL`",
               "`$STRING`",
               [
@@ -292,7 +379,10 @@
               ]
             ],
             "after": [
-              "`$ONE`",
+              "`$NOF`",
+              {
+                "min": 1
+              },
               "`$NIL`",
               "`$STRING`",
               [
@@ -301,7 +391,10 @@
               ]
             ],
             "band": [
-              "`$ONE`",
+              "`$NOF`",
+              {
+                "min": 1
+              },
               "`$NIL`",
               "`$INTEGER`"
             ]

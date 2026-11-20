@@ -163,6 +163,18 @@ fixtures-test:
 	cd php && php test/quickstart.php && php test/retrofit.php
 	cd perl && prove -Ilib -It t/quickstart.t t/retrofit.t
 
+# The traffic demonstration: traffic generates its SDK, with sdkgen-validpack's
+# seed library and mock, into $(SDKS)/traffic-sdk, and links station-view and
+# station-mcp to this checkout. traffic-test drives tools/traffic.js over MCP
+# and reads the calls back from the view.
+.PHONY: traffic traffic-test
+traffic:
+	tools/traffic.sh $(SDKS)
+
+traffic-test: export STATION_TRAFFIC_SDK = $(SDKS)/traffic-sdk
+traffic-test:
+	node --test --test-concurrency=1 tools/traffic.test.js
+
 .PHONY: comments comments-test hooks
 comments:
 	node tools/comment-gate.cjs

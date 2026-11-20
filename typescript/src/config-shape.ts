@@ -13,27 +13,42 @@ export const CONFIG_SHAPE: any = {
         "`$CHILD`": {
           "active": "`$BOOLEAN`",
           "package": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             "`$STRING`"
           ],
           "export": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             "`$STRING`"
           ],
           "base": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             "`$STRING`"
           ],
           "secret": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             "`$STRING`"
           ],
           "resolve": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             [
               "`$EXACT`",
@@ -45,7 +60,10 @@ export const CONFIG_SHAPE: any = {
             ]
           ],
           "capture": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             [
               "`$EXACT`",
@@ -61,11 +79,17 @@ export const CONFIG_SHAPE: any = {
             ]
           ],
           "policy": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             {
               "allow": [
-                "`$ONE`",
+                "`$NOF`",
+                {
+                  "min": 1
+                },
                 "`$NIL`",
                 {
                   "method": [
@@ -79,16 +103,25 @@ export const CONFIG_SHAPE: any = {
                 }
               ],
               "budget": [
-                "`$ONE`",
+                "`$NOF`",
+                {
+                  "min": 1
+                },
                 "`$NIL`",
                 {
                   "concurrency": [
-                    "`$ONE`",
+                    "`$NOF`",
+                    {
+                      "min": 1
+                    },
                     "`$NIL`",
                     "`$INTEGER`"
                   ],
                   "rps": [
-                    "`$ONE`",
+                    "`$NOF`",
+                    {
+                      "min": 1
+                    },
                     "`$NIL`",
                     "`$NUMBER`"
                   ]
@@ -99,7 +132,10 @@ export const CONFIG_SHAPE: any = {
                 "`$STRING`"
               ],
               "mode": [
-                "`$ONE`",
+                "`$NOF`",
+                {
+                  "min": 1
+                },
                 "`$NIL`",
                 [
                   "`$EXACT`",
@@ -125,14 +161,20 @@ export const CONFIG_SHAPE: any = {
             }
           ],
           "agent": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             {
               "write": "`$BOOLEAN`"
             }
           ],
           "options": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             "`$MAP`"
           ],
@@ -148,27 +190,42 @@ export const CONFIG_SHAPE: any = {
         "`$CHILD`": {
           "active": "`$BOOLEAN`",
           "package": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             "`$STRING`"
           ],
           "export": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             "`$STRING`"
           ],
           "base": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             "`$STRING`"
           ],
           "secret": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             "`$STRING`"
           ],
           "resolve": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             [
               "`$EXACT`",
@@ -180,7 +237,10 @@ export const CONFIG_SHAPE: any = {
             ]
           ],
           "capture": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             [
               "`$EXACT`",
@@ -196,11 +256,17 @@ export const CONFIG_SHAPE: any = {
             ]
           ],
           "policy": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             {
               "allow": [
-                "`$ONE`",
+                "`$NOF`",
+                {
+                  "min": 1
+                },
                 "`$NIL`",
                 {
                   "method": [
@@ -214,16 +280,25 @@ export const CONFIG_SHAPE: any = {
                 }
               ],
               "budget": [
-                "`$ONE`",
+                "`$NOF`",
+                {
+                  "min": 1
+                },
                 "`$NIL`",
                 {
                   "concurrency": [
-                    "`$ONE`",
+                    "`$NOF`",
+                    {
+                      "min": 1
+                    },
                     "`$NIL`",
                     "`$INTEGER`"
                   ],
                   "rps": [
-                    "`$ONE`",
+                    "`$NOF`",
+                    {
+                      "min": 1
+                    },
                     "`$NIL`",
                     "`$NUMBER`"
                   ]
@@ -234,7 +309,10 @@ export const CONFIG_SHAPE: any = {
                 "`$STRING`"
               ],
               "mode": [
-                "`$ONE`",
+                "`$NOF`",
+                {
+                  "min": 1
+                },
                 "`$NIL`",
                 [
                   "`$EXACT`",
@@ -260,14 +338,20 @@ export const CONFIG_SHAPE: any = {
             }
           ],
           "agent": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             {
               "write": "`$BOOLEAN`"
             }
           ],
           "options": [
-            "`$ONE`",
+            "`$NOF`",
+            {
+              "min": 1
+            },
             "`$NIL`",
             "`$MAP`"
           ],
@@ -284,7 +368,10 @@ export const CONFIG_SHAPE: any = {
           "active": "`$BOOLEAN`",
           "order": {
             "before": [
-              "`$ONE`",
+              "`$NOF`",
+              {
+                "min": 1
+              },
               "`$NIL`",
               "`$STRING`",
               [
@@ -293,7 +380,10 @@ export const CONFIG_SHAPE: any = {
               ]
             ],
             "after": [
-              "`$ONE`",
+              "`$NOF`",
+              {
+                "min": 1
+              },
               "`$NIL`",
               "`$STRING`",
               [
@@ -302,7 +392,10 @@ export const CONFIG_SHAPE: any = {
               ]
             ],
             "band": [
-              "`$ONE`",
+              "`$NOF`",
+              {
+                "min": 1
+              },
               "`$NIL`",
               "`$INTEGER`"
             ]

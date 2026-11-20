@@ -1,8 +1,8 @@
 # Extensions: voxgig/plugin definitions a Station hosts
 
-**Status:** typescript, since W8.6. The owner asked for it on
-2026-11-14 (D-2026-11-14-1). The first two extensions,
-voxgig/station-view and voxgig/station-mcp, are stubs.
+**Status:** typescript, since W8.6, and its two extension points since
+W9.1. The owner asked for it on 2026-11-14 (D-2026-11-14-1). The first
+two extensions, voxgig/station-view and voxgig/station-mcp, are stubs.
 
 ## What an extension is
 
@@ -72,6 +72,65 @@ of them.
 6. **Teardown.** `close()` closes the extension host first, which takes
    every extension down in reverse ref order: `deactivate`, then its
    releases, newest first, then `close`.
+
+## Two extension points
+
+The Station's plugin host declares two points an extension can bind in
+its `define`:
+
+```ts
+import { BOUND_POINT, FEATURE_POINT, withfeature } from '@voxgig/station'
+
+export const Watch = {
+  name: 'watch',
+  define(inst) {
+    inst.bind(FEATURE_POINT, (next, feature, info) =>
+      next(withfeature(feature, 'telemetry',
+        { active: true, exporter: (span) => keep(span) }, info.descriptor), info))
+    inst.bind(BOUND_POINT, ({ name, api, descriptor, client }) => hold(name, client))
+  },
+}
+```
+
+- **`sdk.feature`** is a chain. Before the Station constructs an SDK it
+  passes the caller's feature collection through every binding, in
+  sdkgen's map form or its list form as the caller wrote it, with what
+  the Station knows of the SDK: `{ name, api, descriptor }`. That
+  happens for `connect()`, `adopt()`, `sdk()` and `create()`, and in
+  `options()` for a caller who constructs the SDK itself. A binding
+  returns `next(feature, info)`, amended. It sees neither the rest of
+  the options, which can hold the caller's key, nor station's own
+  entry, which joins the collection afterwards in its pinned place.
+- **`sdk.bound`** is a hook. Each client the Station binds is told to
+  every binding, as `{ name, api, descriptor, client }`.
+
+Five rules go with them:
+
+1. **The descriptor is there when the Station knows the API before
+   construction.** It does on the declarative paths, and for a
+   `connect()` that names its instance. An unnamed `connect()` learns
+   its API from the SDK's own config during construction, so its
+   bindings get `{}`.
+2. **An SDK is never handed a feature it was not generated with**,
+   because a generated constructor fails on an active feature it has no
+   class for. `withfeature` checks the descriptor's `features`, and
+   leaves the collection as it was when the feature is not there, or
+   when there is no descriptor.
+3. **The caller's settings win.** `withfeature` lays the extension's
+   entry under the caller's. Where both set a function, the caller's
+   runs first and its result stands, and the extension's runs after it
+   and cannot fail the SDK's call. A caller who switched a feature off
+   keeps it off.
+4. **An extension cannot break construction.** A binding that throws at
+   `sdk.feature` leaves the collection as the caller gave it. One that
+   throws at `sdk.bound` does not stop the others, because the hook runs
+   in plugin's `serial` mode, which collects errors. Each failure is a
+   `station` event with a warning: `an extension failed at sdk.feature:
+   …`.
+5. **The client is still being constructed** when `sdk.bound` is told
+   of it: the Station binds it from inside the SDK's constructor. An
+   extension keeps it for later. It learns only of clients bound after
+   its `use()`, so a caller uses extensions before building SDKs.
 
 ## Three things plugin 0.2.0 decides
 

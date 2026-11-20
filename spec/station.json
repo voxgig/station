@@ -453,7 +453,7 @@
       }
      },
      {
-      "err": "to be one of nil, [exact,library], [exact,proxy]",
+      "err": "to be at least 1 of nil, [exact,library], [exact,proxy]",
       "id": "config#resolve-is-an-enum",
       "in": {
        "profiles": {
@@ -469,7 +469,7 @@
       }
      },
      {
-      "err": "to be one of nil, string, but found integer: 8080",
+      "err": "to be at least 1 of nil, string, but found integer: 8080",
       "id": "config#base-is-a-string",
       "in": {
        "profiles": {
@@ -486,8 +486,8 @@
      },
      {
       "doc": true,
-      "err": "to be one of nil, {allow:[one,nil,{method:[child,string],op:[child,string]}],budget:[one,nil,{concurrency:[one,nil,integer],rps:[one,nil,number]}],hosts:[child,string],mode:[one,nil,[exact,live],[exact,record],[exact,replay],[exact,mock],[exact,block]]}",
-      "id": "config#policy-typo-is-the-generic-one-form",
+      "err": "to be at least 1 of nil, {allow:[nof,{min:1},nil,{method:[child,string],op:[child,string]}],budget:[nof,{min:1},nil,{concurrency:[nof,{min:1},nil,integer],rps:[nof,{min:1},nil,number]}],hosts:[child,string],mode:[nof,{min:1},nil,[exact,live],[exact,record],[exact,replay],[exact,mock],[exact,block]]}",
+      "id": "config#policy-typo-is-the-generic-nof-form",
       "in": {
        "profiles": {
         "default": {
@@ -506,7 +506,7 @@
       }
      },
      {
-      "err": "Expected field profiles to be object, but found list",
+      "err": "Expected field profiles to be map, but found list",
       "id": "config#profiles-must-be-a-map",
       "in": {
        "profiles": [],
@@ -514,7 +514,7 @@
       }
      },
      {
-      "err": "Expected field profiles.default.feature to be object, but found list",
+      "err": "Expected field profiles.default.feature to be map, but found list",
       "id": "config#feature-must-be-a-map",
       "in": {
        "profiles": {
@@ -546,7 +546,7 @@
       }
      },
      {
-      "err": "order.before to be one of nil, string, [child,string]",
+      "err": "order.before to be at least 1 of nil, string, [child,string]",
       "id": "config#order-list-element-type",
       "in": {
        "profiles": {
@@ -719,7 +719,7 @@
       }
      },
      {
-      "err": "policy to be one of nil, {allow:",
+      "err": "policy to be at least 1 of nil, {allow:",
       "id": "config#policy-mode-is-an-enum",
       "in": {
        "profiles": {
@@ -812,7 +812,7 @@
       }
      },
      {
-      "err": "policy to be one of nil, {allow:",
+      "err": "policy to be at least 1 of nil, {allow:",
       "id": "config#policy-allow-op-is-a-list",
       "in": {
        "profiles": {
@@ -832,7 +832,7 @@
       }
      },
      {
-      "err": "policy to be one of nil, {allow:",
+      "err": "policy to be at least 1 of nil, {allow:",
       "id": "config#policy-allow-unknown-key",
       "in": {
        "profiles": {
@@ -876,7 +876,7 @@
       }
      },
      {
-      "err": "policy to be one of nil, {allow:",
+      "err": "policy to be at least 1 of nil, {allow:",
       "id": "config#policy-budget-rps-is-a-number",
       "in": {
        "profiles": {
@@ -1397,7 +1397,7 @@
       }
      },
      {
-      "err": "capture to be one of nil, [exact,meta], [exact,headers], [exact,full]",
+      "err": "capture to be at least 1 of nil, [exact,meta], [exact,headers], [exact,full]",
       "id": "config#capture-depth-must-be-a-known-depth",
       "in": {
        "profiles": {
@@ -1413,7 +1413,7 @@
       }
      },
      {
-      "err": "agent to be one of nil, {write:boolean}",
+      "err": "agent to be at least 1 of nil, {write:boolean}",
       "id": "config#agent-block-stays-closed",
       "in": {
        "profiles": {
@@ -2680,7 +2680,10 @@
          },
          "optspec": {
           "latency": [
-           "`$ONE`",
+           "`$NOF`",
+           {
+            "min": 1
+           },
            "`$NUMBER`",
            "`$MAP`"
           ]
@@ -2709,7 +2712,10 @@
          },
          "optspec": {
           "latency": [
-           "`$ONE`",
+           "`$NOF`",
+           {
+            "min": 1
+           },
            "`$NUMBER`",
            "`$MAP`"
           ]
@@ -2725,6 +2731,38 @@
         "key": "latency"
        }
       ]
+     },
+     {
+      "id": "feature#check-nof-that-may-admit-none-bounds-no-kind",
+      "in": {
+       "check": {
+        "netsim": {
+         "latency": "slow"
+        }
+       },
+       "features": [
+        {
+         "active": false,
+         "name": "netsim",
+         "options": {
+          "active": false,
+          "latency": 0
+         },
+         "optspec": {
+          "latency": [
+           "`$NOF`",
+           {
+            "max": 0
+           },
+           "`$NUMBER`",
+           "`$MAP`"
+          ]
+         },
+         "strict": false
+        }
+       ]
+      },
+      "out": []
      },
      {
       "id": "feature#check-exact-is-a-kind",
@@ -2743,7 +2781,10 @@
          },
          "optspec": {
           "mode": [
-           "`$ONE`",
+           "`$NOF`",
+           {
+            "min": 1
+           },
            [
             "`$EXACT`",
             "throw"
@@ -2783,7 +2824,10 @@
          },
          "optspec": {
           "mode": [
-           "`$ONE`",
+           "`$NOF`",
+           {
+            "min": 1
+           },
            [
             "`$EXACT`",
             "throw"

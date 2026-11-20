@@ -8,7 +8,10 @@ export {
 export { adapterFeature, featureBinding } from './adapter'
 export type { FeatureBinding } from './adapter'
 export { StationError } from './error'
-export type { Definition as ExtensionDefinition, ExtensionRow } from './extension'
+export { BOUND_POINT, FEATURE_POINT, hasfeature, withfeature } from './extension'
+export type {
+  BoundSdk, Definition as ExtensionDefinition, ExtensionRow, SdkInfo,
+} from './extension'
 export {
   canonicalSerialize,
   envtoken,

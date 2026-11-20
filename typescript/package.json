@@ -51,7 +51,7 @@
   "dependencies": {
     "@voxgig/plugin": "^0.2.0",
     "@voxgig/sekreto": "^0.3.0",
-    "@voxgig/struct": "^0.2.2"
+    "@voxgig/struct": "^0.4.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

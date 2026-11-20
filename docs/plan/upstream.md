@@ -39,16 +39,16 @@ station), `DECISION NEEDED`.
 | | | `javascript/package.json` | `@voxgig/sekreto-js` `^0.2.0`, locked 0.2.0 | npm 0.2.0 |
 | | | `python/pyproject.toml` | `voxgig-sekreto>=0.1` | not on PyPI |
 | | | `c/vendor/sekreto`, since W1.6 | `SEKRETO_C_COMMIT`, `32b83ac` | — |
-| **voxgig/struct** | library | `build.yml` checkout | **unpinned**, until Stage 5 is complete | `main` is `055ac4a` on 2026-11-11. It moved on both days this register was checked. |
-| | | `typescript/package.json` | `^0.2.2`, locked 0.2.2 | npm 0.3.7, outside the range |
-| | | `javascript/package.json` | `@voxgig/struct-js` `^0.1.7`, locked 0.1.7 | npm 0.1.7 |
-| | | `go/go.mod` | `v0.1.6` | `go/v0.1.6` |
+| **voxgig/struct** | library | `build.yml` checkout | **unpinned**, until Stage 5 is complete, and not pinned for the drift of 2026-11-16 (D-2026-11-17-1) | `main` is `3c2b647` on 2026-11-19: the c and cpp fixes of [struct#184] (`struct-9`, `struct-10`) and a change to its PHP CI job, on top of the release bump `03b9f2f` (`struct-7`). On 2026-11-16 it dropped `$ONE` (`struct-3`). |
+| | | `typescript/package.json` | `^0.4.0`, locked 0.4.0, since 2026-11-20 (W4.10) | npm 0.4.0 |
+| | | `javascript/package.json` | `@voxgig/struct-js` `^0.2.0`, locked 0.2.0, since 2026-11-20 (W4.10) | npm 0.2.0 |
+| | | `go/go.mod` | `v0.1.6` | `go/v0.1.6`. W4.10 takes `go/v0.2.0`, which is not tagged yet (`struct-7`). |
 | | | `rust/Cargo.toml` | a path to `vendor/struct`, a link to the sibling checkout; the lock records 0.1.7 | crates.io 0.1.7 |
 | **voxgig/plugin** | sekreto's dependency; the C4 corpus | `build.yml` checkout | **unpinned**, on purpose | `main` is `8605cdc` |
 | | | `go/go.mod`, indirect | a pseudo-version of `91f294b` (2026-09-01) | `go/v0.2.0` |
 | | | typescript lockfile, transitive | 0.1.7 | npm 0.2.0 |
 | **voxgig/omni** | tests only | `build.yml` checkout | `dcbab7a` (voxgig/omni#36, 2026-08-22) | `main` is `ef55ad0`; npm 0.2.0; `go/v0.2.0` |
-| **voxgig/sdkgen** | generator, for sdkgen-station | `sdkgen-station/package.json` peer | `>=3.6` | npm 4.44.0 on 2026-11-12; `main` is `9aebaf9` |
+| **voxgig/sdkgen** | generator, for sdkgen-station | `sdkgen-station/package.json` peer | `>=3.6` | npm 4.44.1 on 2026-11-17, still vendoring struct at `sdk-20261016-0845-0`, which has `$ONE` only (`sdkgen-18`); `main` is `a939e09` |
 
 Three things in that table are worth knowing. The first two are rows
 W4.4 and W4.5 of the plan register:
@@ -113,6 +113,33 @@ sections were written.
 | sdkgen-14 | A TLS trust option in every transport | [sdkgen#408] | OPEN | likeness's Obsidian source. Station passes `options.tls` through and owns none of it. |
 | sdkgen-15 | Does sdkgen adopt voxgig/plugin? (plugin's design §17.2) | plugin's register, item 6.2 | DECISION NEEDED | Nothing here. It is the "second consumer" this plan wanted DEC-3 to wait for. DEC-3 was ruled without it on 2026-11-11 (D-2026-11-11-4), so until sdkgen decides, station is plugin's only consumer. |
 | sdkgen-16 | A public `client.extend()` late-attach seam (`station.md` §18) | — | NOT FILED | Nothing. It would upgrade `adopt()` beyond construction time; v1 does not need it. |
+| sdkgen-17 | One id for a call across `telemetry`'s span, `debug`'s entry and `audit`'s record | — | NOT FILED | W9.5. The span carries `traceId` and `spanId`, the audit record carries `correlationId`, the context's id, and the debug entry carries no id of its own (read, at 4.44.0). station-view joins the three by client, operation and time until they share one. |
+| sdkgen-18 | Vendor struct at a checkpoint that has `$NOF`, and generate specs with `$NOF` in place of `$ONE` | — | NOT FILED | W4.10. Without it every SDK sdkgen generates holds a struct that station 0.4.0's shape cannot use, in ruby, perl, php, c and cpp. **Ready on sdkgen's `claude/bold-newton-4of9bo`, now at `3b287c9` with `sdkgen-21`, and waiting on the checkpoint.** `7cbda27` re-vendors at a local tag, `sdk-local-nof`, which names struct `03b9f2f`, and must not merge as it is; `dd797f6` writes every spec as `$NOF`. As the owner ruled on 2026-11-17 (D-2026-11-17-2), the ten targets whose struct copies no route produced, rb, php, rust, c, cpp, swift, scala, clojure, elixir and ocaml, are routed and resynced at the same tag, each built and run on its own toolchain (target by target below), and `dee8b22` deletes the `$ONE` shim: a spec that still names `$ONE` is refused at generation. On `dee8b22`, `make all` passed: 3236 tests, none failed, 96 skipped where a toolchain or a header is missing (run). Re-checked apart from that run: `make vendor-check` clean at 80 routes; the vendoring, null, option-spec and swift-type guards, 220 tests; and cpp's secrets and entity lanes (run). Three struct defects are carried as marked patches until struct fixes them (`struct-9` to `struct-11`). create-sdkgen's struct corpus is struct's own at `03b9f2f`, on its `claude/bold-newton-4of9bo` at `b9fb8e9`, and a project re-pulls it, since the runners now run `validate.nof`. The checkpoint will also move omni to `ef55ad0` and plugin to `8605cdc`, past the commits `sdk-20261016-0845-0` names, and that part of the resync is not run yet. After it: a pull request in each of sdkgen and create-sdkgen, then sdkgen's release. |
+| sdkgen-19 | The `debug` feature records the URL a call was sent to | — | NOT FILED | Found by W9.6, in the ts template at sdkgen 4.44.1; the other targets are not read. `PreRequest` runs before `makeFetchDef` sets `spec.url`, so the entry takes `spec.path`, the route (`api/planet/{id}`), and `PreResponse` keeps it: `entry.url = entry.url \|\| spec.url`. A call with path parameters is reported by its route, never by its address. station-view shows the route as written. |
+| sdkgen-20 | Does a swift SDK refuse invalid options, as every other target's does? | — | WATCH | Found by W4.10 (`sdkgen-18`) on 2026-11-17. A swift SDK's `makeOptions` has never refused anything, because the struct copy it carried dropped validate's errors. struct's swift `validate` now throws, and the resync keeps the old behaviour on purpose: `validateKept` and `transformKept` discard the errors. Refusing needs a throwing initialiser or a trap, and that is the owner's call. The owner ruled on 2026-11-19 to leave it for now (D-2026-11-19-1): the sdkgen change makes no swift API change, and the gap stays recorded. |
+| sdkgen-21 | Every target's struct-corpus runner runs every `validate` group | — | NOT FILED | Found by W4.10 (`sdkgen-18`) on 2026-11-17. struct's corpus now has six more groups: `directive`, `all`, `len`, `range`, `like` and `unknown`. rust's runner, whose completeness guard asks for every group, runs them; the others run the groups they name, `nof` among them, and none of the six (read). The owner ruled on 2026-11-19 to close it in the sdkgen change (D-2026-11-19-1), with a check in each runner that fails when a group is left out; under way on sdkgen's branch. **Done on sdkgen's branch**, `dee8b22..3b287c9`, twenty commits, on 2026-11-19: every target's runner runs all twelve `validate` groups, with a check that reads the groups from the corpus file and fails on one left out or on none, each check seen red with a group removed. No struct copy needed a patch. perl's corpus adapter handed struct bytes where it wants characters, and is corrected; c now runs `validate.special` too. lua leaves out fourteen entries and elixir three, each needing a JSON null the language cannot hold, guarded and named as struct's own runners do; the owner accepted that on 2026-11-19 (D-2026-11-19-2). `make all` on `3b287c9`: 3236 tests, 3218 passed, none failed, 18 skipped where a toolchain or a probe is missing (run); `make vendor-check` clean. Runners still leave other sections out, which is `sdkgen-22`. |
+| sdkgen-22 | Every target's struct-corpus runner runs every section and group of the corpus, not only `validate` | — | NOT FILED | Found by `sdkgen-21` on 2026-11-19 (read): php leaves out all of `nullsem`, all of `select` and transform's `apply`, `each`, `format` and `pack`; rb, clojure and lua all of `nullsem`; java, kotlin and cpp `getpath.handler`, `inject.basic`, `merge.basic`, `transform.basic` and `walk.log`; swift getpath's `handler`, `relative` and `special`, `inject.basic`, `merge.basic`, `transform.basic` and walk's `copy`, `depth` and `log`; c transform's `apply`, `basic`, `format` and `modify` and walk's `copy` and `log`; zig `inject.basic`, `merge.basic`, `transform.basic` and `walk.log`. The owner ruled on 2026-11-19 to take it up as sdkgen's next pull request, after the current one merges, with the same check per runner (D-2026-11-19-2). |
+
+### sdkgen-18, target by target
+
+The ten targets of D-2026-11-17-2, resynced on sdkgen's
+`claude/bold-newton-4of9bo` at `sdk-local-nof` (run, 2026-11-17).
+"Generated SDK" is the generated solardemo SDK's own suites, with its
+struct corpus where it carries one; "lanes" are sdkgen's
+`generatedcompile` lanes for the target.
+
+| target | commit | generated SDK | lanes | notes |
+|---|---|---|---|---|
+| php | `9ced9e9`, after `c5e82bb` | 265 tests, none failed; 53 skipped, features this SDK lacks | 44, all passed | |
+| rb | `2bcb977`, `4439a1d` | 267 runs, none failed; 58 skipped, features this SDK lacks | 56 passed | struct's null class moves, and `structnull.test.ts` pins it |
+| rust | `888398f` | 125 passed | 41 passed | the one runner that runs every `validate` group (`sdkgen-21`) |
+| c | `a7f63eb` | 14 binaries, 355 checks; struct corpus, 1256 cases | 36 passed; 1 skipped, the secrets lane, for want of libcurl and OpenSSL headers | one patch (`struct-9`) |
+| cpp | `1aef54b` | 15 binaries, 452 checks; struct corpus, 1317 cases | 34 passed; 2 skipped, transport probes | one patch (`struct-10`) |
+| elixir | `046d3dc` | 153 passed; struct corpus, 1317 cases | 25 passed; 1 skipped, Hex | |
+| ocaml | `a03b5d3` | 68 passed; struct corpus, 1322 cases | 26 passed; 2 skipped | run on OCaml 4.14, where CI's is 5 |
+| scala | `4ba2e8c` | every suite passed; struct corpus, 1322 cases | 16 passed | routes both its struct copies, the scala port and a java `Struct.java` |
+| clojure | `8d7b356` | 149 passed; struct corpus, 1289 cases | 17 passed | |
+| swift | `8c8bd93` | 111 tests, 110 passed; struct corpus, 1265 cases | 25 passed | ten patches (`struct-11`), and `sdkgen-20`. The failing test, `testTheSweepCanSeeALeakCleanSwitchedOffShowsTheCredential`, fails the same way before the resync. |
 
 
 ## voxgig/sekreto
@@ -134,10 +161,15 @@ sections were written.
 |---|---|---|---|---|
 | struct-1 | `$CHILD` in list mode validates element 0 | [struct#113] | DONE, closed 2026-08-25 | W4.8: station's explicit first-element checks can go once every port's struct carries the fix. |
 | struct-2 | A closed map whose keys are all optional still refuses an undeclared key | [struct#175] | OPEN | `sdkgen-5`. A strict feature refuses a misspelled option only when a correctly spelled one is passed beside it. Found by W1.1. |
-| struct-3 | — | [struct#178], a parity pull request across its ports | WATCH | W4.4. It changes behaviour, and station's CI takes struct `main`. |
+| struct-3 | — | [struct#178], a parity pull request across its ports | DONE, merged 2026-11-16 | It replaced `$ONE` with `$NOF` and made `validate` refuse a checker it lacks. Station's CI went red the same day: W4.10, D-2026-11-17-1. |
 | struct-4 | Packages on Packagist and Maven Central | — | NOT FILED | W3.5, W3.6. It is on every other registry station's ports use. |
 | struct-5 | Perl's `parse_json` decodes an escaped surrogate pair as one character | — | NOT FILED | Found by W2.9: it decodes each `\u` escape on its own, so `\ud83d\ude00` arrives as two surrogate characters (run, at `055ac4a`). Station's perl joins the halves after it reads (`jsonform`), and the corpus holds it to that. |
+| struct-7 | A release that carries `$NOF`: `@voxgig/struct` 0.4.0, `@voxgig/struct-js` 0.2.0, `go/v0.2.0` | [struct#180], the version bump | OPEN: npm has `@voxgig/struct` 0.4.0 and `@voxgig/struct-js` 0.2.0 since 2026-11-20; `go/v0.2.0` is not tagged | W4.10. Prepared from this session, and merged with one CI job red on the owner's ruling (`struct-8`). The owner dispatches `publish.yml` for typescript and for javascript, and runs `make publish-go` for the go tag. typescript's lane is red until npm has 0.4.0. On 2026-11-20, on the owner's word, this session dispatched `publish.yml` for typescript and for javascript on `main` at `d47ba41`. Both published over OIDC and tagged `typescript/v0.4.0` and `javascript/v0.2.0`. The go tag comes from `make publish-go`, which pushes a tag, and a session cannot. |
 | struct-6 | Perl's `parse_json` reads a value that begins with an unexpected character as an empty number | — | NOT FILED | Found by W2.15: `x`, `{"a": x}` and a text that begins with a byte order mark each print `Argument "" isn't numeric in int`, then are refused at the next delimiter, as trailing data or a missing `,` (run, at `055ac4a`). The text is refused either way, so station's answer is right; the warning reaches its perl suite's output, and the refusal names the wrong fault. |
+| struct-8 | `test-php (macos-15)` gets as far as struct's tests | — | NOT FILED | Found by W4.10 on 2026-11-17. The job fails inside `shivammathur/setup-php`, before any of struct's code runs: `Could not setup PHP 8.3`, after `php_config: parameter null or not set`. It failed so twice on [struct#180], and `main`'s build of `1ba9203` was cancelled in it after 28 minutes. Until it passes, no struct build is green on every leg. On 2026-11-19 struct's `main` took `a6e713c`, which retries a stalled Setup PHP once and moves macOS back to `-latest`; whether the job now passes is not yet read. On [struct#184]'s build, the job failed in PHP setup once and passed on its re-run. On 2026-11-19 `da05133` moved macOS PHP to Homebrew's `php@8.3`. |
+| struct-9 | c's `getpath` reads each step as `getprop` does, so a stored null is no value | [struct#181], fixed by [struct#184] | DONE, merged 2026-11-19 | Found by W4.10 (`sdkgen-18`) on 2026-11-17, at `03b9f2f`: each step reads the raw value, so `getpath({a: null}, 'a')` gives null where the canonical gives no value. create-sdkgen's `nullsem` corpus sees it; struct's own corpus has no case that does. sdkgen's c copy carries a marked patch until struct is fixed. Filed on 2026-11-19, on the owner's ruling (D-2026-11-19-1). [struct#184] reads each step with `voxgig_getprop`, with smoke checks at one and two levels that fail without it; a shared corpus case was left out, because in the ports with a single null it cannot tell null from no value. [struct#184] merged as `3c2b647`, every check of its build green after one re-run. sdkgen's c copy keeps its patch until it resyncs at a checkpoint at or after `3c2b647`. |
+| struct-10 | cpp's `validate` admits a function in a `$NOF` alternative | [struct#182], fixed by [struct#184] | DONE, merged 2026-11-19 | Found by W4.10 (`sdkgen-18`) on 2026-11-17, at `03b9f2f`: `admits` asks `keeps` whether validate gave the value back as it was, `keeps` asks `deepequal`, and no two cpp functions compare equal. So an option holding a function, a secrets provider, an audit sink or a clock, is refused. Four of sdkgen's cpp lanes failed on it, and its cpp copy carries a marked patch. Filed on 2026-11-19 (D-2026-11-19-1). [struct#184] has `keeps` count a function given back as one of the same kind as kept, since `std::function` has no identity, with a smoke check that fails without it. Merged with `struct-9` as `3c2b647`. sdkgen's cpp copy keeps its patch until the same resync. |
+| struct-11 | swift's `Value` can hold an opaque native value | [struct#183] | OPEN | Found by W4.10 (`sdkgen-18`) on 2026-11-17: a swift SDK keeps native objects in its struct values, as a `.native` case that struct's swift port lacks, so sdkgen's resynced copy carries it as ten marked patches. Whether the port should have the case is struct's to decide. Filed on 2026-11-19 as a question for the port (D-2026-11-19-1); no fix is offered from here. |
 
 
 ## voxgig/plugin
@@ -200,7 +232,8 @@ each was checked against the upstream's current code first.
 | W4.4 and W4.5 | voxgig/station | [#69] |
 | W5.5 | voxgig/station | [#70] |
 
-Still not filed, and not among the eleven: `sdkgen-10` and `sdkgen-16`,
+Still not filed, and not among the eleven: `sdkgen-10`, `sdkgen-16` and
+`sdkgen-17`,
 `sekreto-4` to `sekreto-7`, `struct-4` to `struct-6`, `plugin-5` to
 `plugin-7`, and `omni-3`. Each is marked `NOT FILED` in its row above.
 
@@ -240,6 +273,11 @@ and are better added there than filed new. They have not been added:
 [struct#113]: https://github.com/voxgig/struct/issues/113
 [struct#175]: https://github.com/voxgig/struct/issues/175
 [struct#178]: https://github.com/voxgig/struct/pull/178
+[struct#180]: https://github.com/voxgig/struct/pull/180
+[struct#181]: https://github.com/voxgig/struct/issues/181
+[struct#182]: https://github.com/voxgig/struct/issues/182
+[struct#183]: https://github.com/voxgig/struct/issues/183
+[struct#184]: https://github.com/voxgig/struct/pull/184
 [omni#74]: https://github.com/voxgig/omni/issues/74
 [plugin-contracts]: https://github.com/voxgig/plugin/blob/main/doc/plan/contracts.md
 [joplin-sdk#2]: https://github.com/voxgig-sdk/joplin-sdk/issues/2

@@ -494,6 +494,12 @@ public final class Feature {
       java.util.regex.Pattern.compile("^`\\$([A-Z]+)`$");
 
   /** The kinds an `optspec` type admits, or null when it admits any. */
+  /** The fewest alternatives a {@code $NOF} count requires to admit a value. */
+  static double leastof(Object count) {
+    Object least = count instanceof Map ? ((Map<String, Object>) count).get("min") : count;
+    return least instanceof Number ? ((Number) least).doubleValue() : 0;
+  }
+
   static List<String> speckinds(Object spec) {
     if (spec instanceof String) {
       java.util.regex.Matcher token = TOKEN_RE.matcher((String) spec);
@@ -507,9 +513,14 @@ public final class Feature {
     if (spec instanceof List && !((List<Object>) spec).isEmpty()) {
       List<Object> items = (List<Object>) spec;
       Object head = items.get(0);
-      if ("`$ONE`".equals(head)) {
+      // A value has one kind, so the alternatives bound it only when at
+      // least one of them has to admit it.
+      if ("`$NOF`".equals(head)) {
+        if (2 > items.size() || 1 > leastof(items.get(1))) {
+          return null;
+        }
         List<String> kinds = new ArrayList<>();
-        for (Object alt : items.subList(1, items.size())) {
+        for (Object alt : items.subList(2, items.size())) {
           List<String> some = speckinds(alt);
           if (null == some) {
             return null;

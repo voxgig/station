@@ -219,8 +219,8 @@ the measured cost per port is far from what §2.1 estimated.
 ## D-2026-11-11-5 — station-view waits for the proxy and attach
 
 **Status: parked by the owner on 2026-11-11 (DEC-6); its "no code"
-superseded by D-2026-11-14-1 on 2026-11-14. Gates:
-voxgig/station-view.**
+superseded by D-2026-11-14-1 on 2026-11-14, and its question ruled on
+2026-11-16 by D-2026-11-16-1. Gates: voxgig/station-view.**
 
 What station-view reads is not decided. No work is done on it, and the
 question is not put again, until the proxy and attach have shipped.
@@ -255,8 +255,9 @@ Revisit when: 0.3.0 is out (W2.11).
 ## D-2026-11-14-1 — station-view and station-mcp are extensions a Station loads when asked
 
 **Status: requested by the owner on 2026-11-14. Supersedes the "no
-code" of D-2026-11-11-5. Gates: voxgig/station-view,
-voxgig/station-mcp, voxgig/likeness.**
+code" of D-2026-11-11-5. Its open question is answered for now, and its
+likeness consequence deferred, by D-2026-11-16-1. Gates:
+voxgig/station-view, voxgig/station-mcp, voxgig/likeness.**
 
 The owner asked for voxgig/station-view, and a new repository,
 voxgig/station-mcp, to be plugins voxgig/station loads optionally, with
@@ -283,3 +284,213 @@ process, it would not have that property. The stub decides nothing
 about it, since it has no transport.
 
 Revisit when: station-mcp grows a transport, or attach ships.
+
+## D-2026-11-16-1 — Traffic is observed locally first: a view over sdkgen's telemetry features, an MCP that drives it, and generated mocks
+
+**Status: directed by the owner on 2026-11-16, with four points ruled
+by question the same day. Gates: voxgig/station-view,
+voxgig/station-mcp, voxgig/sdkgen-validpack, voxgig/likeness.**
+
+The owner's direction. Nothing is published yet, and the repositories
+link to each other locally. station-view exposes a local web interface
+for observing and filtering API traffic made through the SDKs, using
+sdkgen's telemetry features and the hooks they provide. station-mcp
+exposes an MCP a user drives to generate that traffic. likeness is the
+live test eventually, and local mocks come first: voxgig/sdkgen-validpack
+gains a target that generates a local mock for an API, in TypeScript,
+which depends on a second target there that generates schema-valid,
+human-readable test data deterministically from a seed.
+
+Ruled by question:
+
+1. **What station-view reads.** The callbacks of sdkgen's `telemetry`,
+   `debug` and `audit` features and the counters of `metrics`, wired
+   into every SDK a Station builds that carries them; and station's own
+   `http` and `op` events for an SDK generated without them.
+2. **station-mcp's tools** take the shape sdkgen's go-mcp target gives
+   its own, per bound SDK: `<slug>_list` and `<slug>_load`, and
+   `_create`, `_update`, `_patch` and `_remove` when writes are on,
+   each taking `entity` and a `query` or `data` map. `station_status`
+   and `station_integrations` stay.
+3. **No third-party runtime dependency** in station-view's server and
+   page, in station-mcp's server, or in the generated mock.
+4. **"Schema-valid" means valid against the API definition's schemas**,
+   read through apidef's resolved definition, as sdkgen's own
+   definition tests read it. The model alone carries no enum, range,
+   pattern or nested shape.
+
+Consequences:
+- The work is W9 of the plan. Station gains two extension points, so
+  that an extension can add feature options to the SDKs a Station
+  builds, and learn of each client it binds.
+- station-mcp serves MCP from the application's process. That answers
+  D-2026-11-14-1's open question for now. The proxy's surface
+  (`station.md` §7) is unchanged, and is still where an agent cannot
+  reach a secret; a tool's result here passes through the Station's
+  redaction.
+- station-view's server runs in the application's process first. A
+  process that exits after one command, as each of likeness's does,
+  needs a viewer that outlives it, which is a later item.
+- likeness loads neither extension yet and stays on the published
+  station. D-2026-11-14-1's consequence that it loads both waits for
+  W9's last item.
+- Nothing is released for this. A repository resolves another through
+  a link in an ignored dependency directory, and no manifest names a
+  path.
+
+Not chosen: station-view carrying a pipeline feature of its own, which
+would see raw credentials; the proxy's `station_call` as the tool
+shape; the official MCP SDK, Fastify or a UI framework; validity
+against the model's field types alone.
+
+Revisit when: attach ships, since the proxy can then be what
+station-view reads and where MCP is served; or likeness becomes the
+live test.
+
+## D-2026-11-17-1 — struct's `$ONE` goes, by a flag day at 0.4.0
+
+voxgig/struct's `main` replaced the `$ONE` checker with `$NOF` on
+2026-11-16 ([voxgig/struct#178]), and its `validate` now refuses a spec
+that names a checker it lacks. Station's shape was written with `$ONE`,
+and `build.yml` takes struct's `main`, so the ten lanes that read
+struct from a checkout went red on every pull request. typescript
+stayed green on npm's struct 0.2.2.
+
+The owner ruled, by question, on 2026-11-16 and 2026-11-17:
+
+1. **No pin.** struct is released with `$NOF`, and station migrates now.
+2. **No station pull request merges until CI is green.** Station's work
+   stacks on one branch meanwhile.
+3. **A flag day.** The shape, the corpus and the option-spec reading
+   move to `$NOF` alone. Station then works only beside an SDK generated
+   by an sdkgen that vendors the new struct.
+4. **No old-struct detection.** An SDK generated before the change, and
+   holding its own struct in the same process, gets struct's errors as
+   they are. The release notes say so.
+5. **0.4.0** carries it, every port together, by `make version-set`.
+6. **The upstream work is prepared from this session**: struct's
+   release bump, then sdkgen's re-vendor at a new checkpoint, with its
+   own specs moved to `$NOF`. The owner dispatches struct's and
+   sdkgen's publishes and cuts the checkpoint in voxgig/admin.
+7. **W9 carries on meanwhile**, and voxgig/sdkgen-validpack, which has no
+   CI, merges on the local runs recorded in each pull request.
+
+Consequences:
+- A refusal reads `to be at least 1 of …` where it read `to be one of
+  …`, and a list that is not a map reads `to be map`. The corpus pins
+  the new wording.
+- An option spec's `$NOF` bounds a value's kinds only when its count
+  requires at least one alternative to admit the value; otherwise it
+  admits any kind. The corpus has a case for each.
+- In ruby, perl and php a process holds one struct, and once a generated
+  SDK is loaded it is the SDK's copy. So station 0.4.0 refuses a valid
+  `station.json` beside an SDK generated before the change. The c, cpp
+  and perl payloads compile against the SDK's own struct, so the same
+  holds inside such an SDK. typescript, javascript and go keep their own
+  struct, and only the option-spec reading reaches them.
+- Station's CI goes green when npm has the new `@voxgig/struct`, which
+  the typescript lane installs. Its fixture SDKs follow once sdkgen
+  vendors the new struct.
+
+Not chosen: pinning struct at the last revision with `$ONE` and parking
+the move; a `$ONE` alias in struct; a shape that speaks both grammars;
+detecting an old struct to refuse more clearly.
+
+Revisit when: never, for the grammar. The detection can still be added
+if the errors beside an old SDK turn out to cost people time.
+
+[voxgig/struct#178]: https://github.com/voxgig/struct/pull/178
+
+## D-2026-11-17-2 — sdkgen resyncs struct in all twenty targets at once
+
+Preparing sdkgen's half of the flag day (`sdkgen-18`) found that ten of
+its twenty bundled targets carry hand-kept struct copies older than
+`$NOF`, which no vendoring route produces: rb, php, rust, c, cpp, swift,
+scala, clojure, elixir and ocaml. The prepared branch still handed them
+`$ONE`, through a shim. But create-sdkgen's struct corpus cannot serve
+both generations. The routed targets fail the old corpus on its `$ONE`
+cases, and an old struct (rb, measured) fails the new one in `basic`,
+`child` and `special`. Station's ruby and php ports also need their
+generated SDKs on a `$NOF` struct (D-2026-11-17-1, its third
+consequence).
+
+The owner ruled, by question, on 2026-11-17: **resync all ten now.**
+
+- struct is routed for all twenty targets, at the checkpoint the owner
+  cuts.
+- php's templates emit a `[]` shape that the new validate refuses; they
+  are fixed first, in a commit of their own. rb's resync flips its null
+  class, in a commit of its own that moves its characterization too.
+- create-sdkgen's struct corpus is regenerated from struct's
+  `build/test/validate.aon`, and sdkgen's runner templates move from
+  `validate.one` to `nof` in the same change.
+- Toolchains this machine lacks are installed where apt or a pinned
+  tarball allows. A target that still cannot be built is named, not
+  claimed.
+
+Not chosen: rb and php now and the other eight later, behind a pinned
+copy of the old corpus; holding sdkgen and releasing station 0.4.0 with
+a documented gap in ruby and php.
+
+Revisit when: a target cannot take struct's current port at all.
+
+## D-2026-11-19-1 — the struct defects sdkgen's resync found go upstream, and every runner runs every validate group
+
+Resyncing struct in all twenty of sdkgen's targets (D-2026-11-17-2)
+found three struct ports that disagree with the canonical or lack what
+a generated SDK needs, each carried in sdkgen as a marked patch
+(`struct-9` to `struct-11`), and two questions for sdkgen
+(`sdkgen-20`, `sdkgen-21`).
+
+The owner ruled, by question, on 2026-11-19:
+
+1. **File all three, and fix c's and cpp's in struct.** They are
+   [voxgig/struct#181] to [voxgig/struct#183], and the two fixes are
+   one pull request, [voxgig/struct#184]. The checkpoint does not wait
+   for it: sdkgen keeps its patches until a checkpoint carries the
+   fixes.
+2. **A swift SDK keeps accepting invalid options, for now.** The gap
+   between swift and the other targets stays recorded, and the sdkgen
+   change makes no swift API change.
+3. **Every generated SDK's struct runner runs every `validate` group,
+   in the sdkgen change**, with a check in each runner that fails when
+   a group is left out. A struct defect it finds is carried as a marked
+   patch and taken upstream, never skipped.
+4. **Nothing else starts** while W4.10 waits on struct's releases and
+   the checkpoint.
+
+Not chosen: filing without fixing, or recording without filing; a
+throwing swift constructor, or a trap, now; the runners' gap as a
+separate follow-up; starting W9.7 or W4.1 meanwhile.
+
+Revisit when: a swift SDK's user is hurt by an option it should have
+refused.
+
+[voxgig/struct#181]: https://github.com/voxgig/struct/issues/181
+[voxgig/struct#183]: https://github.com/voxgig/struct/issues/183
+[voxgig/struct#184]: https://github.com/voxgig/struct/pull/184
+
+## D-2026-11-19-2 — lua and elixir leave out the validate entries they cannot express, and the other skipped sections come next
+
+Running every `validate` group in every generated SDK (`sdkgen-21`,
+D-2026-11-19-1) found that lua cannot run fourteen of the entries and
+elixir three. Each needs a JSON null the language cannot hold: a Lua
+table cannot store a nil, and Elixir has one nil for null and absent.
+struct's own lua and elixir runners leave out the same entries, each
+named and guarded so that a change to the corpus fails rather than
+skipping a different entry. It also found other corpus sections that
+some targets' runners do not run.
+
+The owner ruled, by question, on 2026-11-19:
+
+1. **Accept the exclusions**, guarded and named as struct's runners
+   have them.
+2. **The other skipped sections are sdkgen's next pull request**, after
+   the current one merges, with the same check per runner (`sdkgen-22`).
+
+Not chosen: running the entries and leaving lua's and elixir's suites
+red; folding the other sections into the current pull request; only
+recording them.
+
+Revisit when: lua or elixir gains a way to represent JSON null in
+struct.

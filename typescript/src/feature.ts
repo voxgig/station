@@ -239,9 +239,12 @@ function speckinds(spec: any): string[] | null {
     return null == kind ? null : [kind]
   }
 
-  if (Array.isArray(spec) && '`$ONE`' === spec[0]) {
+  // A value has one kind, so the alternatives bound it only when at least
+  // one of them has to admit it.
+  if (Array.isArray(spec) && '`$NOF`' === spec[0]) {
+    if (leastof(spec[1]) < 1) { return null }
     const kinds: string[] = []
-    for (const alt of spec.slice(1)) {
+    for (const alt of spec.slice(2)) {
       const some = speckinds(alt)
       if (null == some) { return null }
       for (const k of some) { if (-1 === kinds.indexOf(k)) { kinds.push(k) } }
@@ -287,6 +290,12 @@ export function featuremap(feature: any): { [name: string]: any } {
     }
   }
   return out
+}
+
+/** The fewest alternatives a `$NOF` count requires to admit a value. */
+function leastof(count: any): number {
+  if ('number' === typeof count) { return count }
+  return null != count && 'number' === typeof count.min ? count.min : 0
 }
 
 function kindof(v: any): string {

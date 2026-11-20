@@ -511,15 +511,15 @@ just naming a shape file.
 
 struct drops the unexpected-key check for a map whose spec node ends up
 empty — "an empty spec object means the object can be open". An
-optional key is expressed as `` ['`$ONE`','`$NIL`', spec] ``, and when
+optional key is expressed as `` ['`$NOF`',{min:1},'`$NIL`', spec] ``, and when
 the data does not carry that key the validator removes it from the spec
 node. So **a block whose keys are all optional degenerates into an open
 map exactly when the data has none of them** — and `{"solar": {"bass":
 1}}` validates clean. The one property the whole exercise is for,
 silently absent in the one case that matters.
 
-Wrapping containers in `` `$ONE` `` has a second cost: the failure
-message collapses to `to be one of nil, {…whole spec dumped…}` instead
+Wrapping containers in `` `$NOF` `` has a second cost: the failure
+message collapses to `to be at least 1 of nil, {…whole spec dumped…}` instead
 of naming the offending path, and sibling errors stop accumulating.
 
 So the pipeline is two steps, and the first one is what makes the
@@ -594,27 +594,32 @@ against the cases in §4.5.
         "`$CHILD`": {
           "active": "`$BOOLEAN`",
           "package": [
-            "`$ONE`",
+            "`$NOF`",
+            {"min": 1},
             "`$NIL`",
             "`$STRING`"
           ],
           "export": [
-            "`$ONE`",
+            "`$NOF`",
+            {"min": 1},
             "`$NIL`",
             "`$STRING`"
           ],
           "base": [
-            "`$ONE`",
+            "`$NOF`",
+            {"min": 1},
             "`$NIL`",
             "`$STRING`"
           ],
           "secret": [
-            "`$ONE`",
+            "`$NOF`",
+            {"min": 1},
             "`$NIL`",
             "`$STRING`"
           ],
           "resolve": [
-            "`$ONE`",
+            "`$NOF`",
+            {"min": 1},
             "`$NIL`",
             [
               "`$EXACT`",
@@ -626,7 +631,8 @@ against the cases in §4.5.
             ]
           ],
           "policy": [
-            "`$ONE`",
+            "`$NOF`",
+            {"min": 1},
             "`$NIL`",
             {
               "hosts": [
@@ -636,7 +642,8 @@ against the cases in §4.5.
             }
           ],
           "options": [
-            "`$ONE`",
+            "`$NOF`",
+            {"min": 1},
             "`$NIL`",
             "`$MAP`"
           ],
@@ -652,27 +659,32 @@ against the cases in §4.5.
         "`$CHILD`": {
           "active": "`$BOOLEAN`",
           "package": [
-            "`$ONE`",
+            "`$NOF`",
+            {"min": 1},
             "`$NIL`",
             "`$STRING`"
           ],
           "export": [
-            "`$ONE`",
+            "`$NOF`",
+            {"min": 1},
             "`$NIL`",
             "`$STRING`"
           ],
           "base": [
-            "`$ONE`",
+            "`$NOF`",
+            {"min": 1},
             "`$NIL`",
             "`$STRING`"
           ],
           "secret": [
-            "`$ONE`",
+            "`$NOF`",
+            {"min": 1},
             "`$NIL`",
             "`$STRING`"
           ],
           "resolve": [
-            "`$ONE`",
+            "`$NOF`",
+            {"min": 1},
             "`$NIL`",
             [
               "`$EXACT`",
@@ -684,7 +696,8 @@ against the cases in §4.5.
             ]
           ],
           "policy": [
-            "`$ONE`",
+            "`$NOF`",
+            {"min": 1},
             "`$NIL`",
             {
               "hosts": [
@@ -694,7 +707,8 @@ against the cases in §4.5.
             }
           ],
           "options": [
-            "`$ONE`",
+            "`$NOF`",
+            {"min": 1},
             "`$NIL`",
             "`$MAP`"
           ],
@@ -710,9 +724,9 @@ against the cases in §4.5.
         "`$CHILD`": {
           "active": "`$BOOLEAN`",
           "order": {
-            "before": ["`$ONE`", "`$NIL`", "`$STRING`", ["`$CHILD`", "`$STRING`"]],
-            "after": ["`$ONE`", "`$NIL`", "`$STRING`", ["`$CHILD`", "`$STRING`"]],
-            "band": ["`$ONE`", "`$NIL`", "`$INTEGER`"]
+            "before": ["`$NOF`", {"min": 1}, "`$NIL`", "`$STRING`", ["`$CHILD`", "`$STRING`"]],
+            "after": ["`$NOF`", {"min": 1}, "`$NIL`", "`$STRING`", ["`$CHILD`", "`$STRING`"]],
+            "band": ["`$NOF`", {"min": 1}, "`$NIL`", "`$INTEGER`"]
           },
           "`$OPEN`": true
         }
@@ -743,11 +757,11 @@ chain is a list; sekreto checks what is in it.
 ### 4.4 Two honest limits
 
 - **`policy` stays optional, so its errors are the generic
-  `` `$ONE` `` form.** It cannot be normalized away: a default
+  `` `$NOF` `` form.** It cannot be normalized away: a default
   `{"hosts": []}` would mean *deny everything*, which is not what
   "absent" means. A typo inside it is still caught (`hosts` is required
   when `policy` is present), just reported as
-  `policy to be one of nil, {hosts:[child,string]}` rather than by path.
+  `policy to be at least 1 of nil, {hosts:[child,string]}` rather than by path.
   Accepted.
 - **`` `$CHILD` `` in list mode does not validate element 0.** Verified:
   `["a", 1]` fails at index 1, `[1]` passes.
@@ -809,14 +823,14 @@ section of the conformance corpus (§10.1).
 | `api.x.packag` | `Unexpected keys at field profiles.default.api.x: packag` |
 | `api.x.api` | `Unexpected keys at field profiles.default.api.x: api` |
 | `"station": 2` | `Expected field station to be exactly equal to 1` |
-| `resolve: "vault"` | `to be one of nil, [exact,library], [exact,proxy]` |
-| `base: 8080` | `to be one of nil, string, but found integer: 8080` |
-| `policy: {host:[…]}` | fails (generic `$ONE` form, §4.4) |
-| `profiles: []` | `Expected field profiles to be object, but found list` |
+| `resolve: "vault"` | `to be at least 1 of nil, [exact,library], [exact,proxy]` |
+| `base: 8080` | `to be at least 1 of nil, string, but found integer: 8080` |
+| `policy: {host:[…]}` | fails (generic `$NOF` form, §4.4) |
+| `profiles: []` | `Expected field profiles to be map, but found list` |
 | the §8.2 three-level feature config | passes |
 | `profiles.default.features` (typo for `feature`) | `Unexpected keys at field profiles.default: features` |
 | `feature.retry.active: "yes"` | `Expected field ... .active to be boolean, but found string: yes` |
-| `order: ["test", 7]` | `to be one of nil, string, [child,string]` |
+| `order: ["test", 7]` | `to be at least 1 of nil, string, [child,string]` |
 | `feature: []` | `Expected field profiles.default.feature to be object, but found list` |
 | `feature.retry.retires: 5` | **passes statically** — caught at registration by §8.5 when `retry` is `strict`, with the declared key list; a feature that is not strict takes it, as the SDK does |
 | `order: [7]` | **passes the shape** (the §4.4 element-0 gap) — caught by `validateConfig`'s explicit first-element check |
@@ -1778,8 +1792,9 @@ declaration*:
   type still outranks it. A token names one kind —
   `` `$MAP` ``, `` `$STRING` ``, `` `$NUMBER` `` (with `` `$INTEGER` ``
   and `` `$DECIMAL` ``), `` `$BOOLEAN` ``, `` `$FUNCTION` ``,
-  `` `$ARRAY` `` or `` `$LIST` ``, `` `$NULL` ``. `` [`$ONE`, …] ``
-  admits each alternative's kind and `` [`$EXACT`, …] `` the kinds of
+  `` `$ARRAY` `` or `` `$LIST` ``, `` `$NULL` ``. `` [`$NOF`, count, …] ``
+  admits each alternative's kind when its count requires at least one
+  alternative to admit the value, and any kind when it does not, and `` [`$EXACT`, …] `` the kinds of
   its values, the values themselves being the SDK's to check.
   `` `$ANY` ``, and a token station does not know, admit everything, so
   a token sdkgen adds later is never a refusal. A function is the
@@ -2302,7 +2317,7 @@ carries a declarative-config column, updated as ports land.
 ## 13. Risks
 
 - **The struct optional-container trap (§4.2) is easy to reintroduce.**
-  Someone adds an optional key, wraps a container in `` `$ONE` ``, and
+  Someone adds an optional key, wraps a container in `` `$NOF` ``, and
   quietly reopens a map. Mitigation: the `config` corpus section carries
   a typo case for **every** map level, so reopening one fails a test
   rather than passing silently.

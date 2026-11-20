@@ -543,6 +543,17 @@ static bool istoken(const char* text) {
   return true;
 }
 
+/* The fewest alternatives a `$NOF` count requires to admit a value. */
+static double spec_least(const vxstn_val* count) {
+  if (vxstn_is_map(count)) {
+    count = vxstn_map_get(count, "min");
+  }
+  if (NULL == count || VXSTN_NUM != count->kind) {
+    return 0;
+  }
+  return count->isint ? (double)count->i : count->num;
+}
+
 static void spec_kinds(const vxstn_val* spec, speckinds* kinds) {
   size_t i;
   if (NULL != spec && VXSTN_STR == spec->kind && istoken(spec->str)) {
@@ -557,8 +568,14 @@ static void spec_kinds(const vxstn_val* spec, speckinds* kinds) {
   }
   if (vxstn_is_list(spec) && 0 < spec->len && VXSTN_STR == spec->items[0]->kind) {
     const char* head = spec->items[0]->str;
-    if (0 == strcmp("`$ONE`", head)) {
-      for (i = 1; i < spec->len; i++) {
+    /* A value has one kind, so the alternatives bound it only when at
+     * least one of them has to admit it. */
+    if (0 == strcmp("`$NOF`", head)) {
+      if (spec_least(vxstn_list_get(spec, 1)) < 1) {
+        kinds->any = true;
+        return;
+      }
+      for (i = 2; i < spec->len; i++) {
         spec_kinds(spec->items[i], kinds);
       }
       return;

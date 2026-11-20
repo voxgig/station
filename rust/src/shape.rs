@@ -600,7 +600,7 @@ fn shapekind(val: &Json) -> &'static str {
 // Station's value model IS sekreto's Json (one dependency, one value
 // Json's maps are BTreeMap, so a map's key order becomes BYTEWISE SORTED
 // on the way across. That reaches exactly one observable place - the
-// stringified spec inside a `$ONE` failure message - and every map the
+// stringified spec inside a `$NOF` failure message - and every map the
 // authored in sorted order already, so the messages are byte-identical.
 
 pub fn json_to_value(val: &Json) -> Value {

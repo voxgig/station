@@ -172,9 +172,9 @@ validation runs at `open()` rather than only under test - so
 `make sync-shape` after editing the spec; `test/unit.c` compares the
 embedded bytes against the file and fails on drift.
 
-Every `vxstn_config_shape()` call returns a FRESH DEEP COPY, because
-struct's validator consumes the spec it walks (it deletes satisfied
-`$ONE` branches as it goes).
+Every `vxstn_config_shape()` call returns a fresh deep copy, so no
+validate that rewrites the spec it walks can change the shape the next
+one reads.
 
 ## Conformance, and the completeness guard
 

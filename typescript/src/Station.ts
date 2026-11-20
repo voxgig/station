@@ -1,8 +1,8 @@
 import { adapterFeature } from './adapter'
 import { StationError } from './error'
 import { EventBuffer } from './events'
-import { makeextensions } from './extension'
-import type { Definition, ExtensionRow, Extensions } from './extension'
+import { BOUND_POINT, FEATURE_POINT, makeextensions } from './extension'
+import type { BoundSdk, Definition, ExtensionRow, Extensions, SdkInfo } from './extension'
 import { canonicalSerialize, normalizeDescriptor, secretnameDefault } from './descriptor'
 import {
   blockOf, configScope, instanceOptions, loadConfig, refapi, resolveProfile,
@@ -227,7 +227,7 @@ export class Station {
     const { as, instance, ...sdkopts } = calleropts
     const options = {
       ...sdkopts,
-      feature: withStation(sdkopts.feature, {
+      feature: withStation(this.extended(sdkopts.feature, this.sdkinfo(ref)), {
         ...activation(this, calleropts),
         // §6.1: `as` is a tag, resolved against the SDK's api in _register.
         ...(null == as ? {} : { as }),
@@ -279,8 +279,43 @@ export class Station {
     const { as: _as, instance: _instance, ...sdkopts } = calleropts
     return {
       ...sdkopts,
-      feature: withStation(sdkopts.feature, { ...activation(this, calleropts), ...names }),
+      feature: withStation(this.extended(sdkopts.feature, this.sdkinfo(ref)),
+        { ...activation(this, calleropts), ...names }),
     }
+  }
+
+  // The caller's features, as the extensions amend them. They never see
+  // the rest of the options, which can hold a key, nor station's entry.
+  private extended(feature: any, info: SdkInfo): any {
+    if (null === this.ext) { return feature }
+    try {
+      return this.ext.feature(feature, info)
+    }
+    catch (err: any) {
+      this.extensionfailed(FEATURE_POINT, info, err)
+      return feature
+    }
+  }
+
+  private sdkinfo(ref?: string): SdkInfo {
+    if (null == ref) { return {} }
+    const api = refapi(ref)
+    return { name: ref, api, descriptor: factoryFor(api)?.descriptor }
+  }
+
+  private tellbound(sdk: BoundSdk): void {
+    if (null === this.ext) { return }
+    let errs: unknown[]
+    try { errs = this.ext.bound(sdk) }
+    catch (err) { errs = [err] }
+    for (const err of errs) { this.extensionfailed(BOUND_POINT, sdk, err) }
+  }
+
+  private extensionfailed(point: string, info: SdkInfo, err: any): void {
+    this.emit({
+      t: Date.now(), kind: 'station', plugin: info.name, api: info.api,
+      meta: { warn: 'an extension failed at ' + point + ': ' + String(err?.message ?? err) },
+    })
   }
 
 
@@ -346,6 +381,7 @@ export class Station {
       t: Date.now(), kind: 'construct', plugin: name, api,
       meta: { name: descriptor.name, version: descriptor.version, rung },
     })
+    this.tellbound({ name, api, descriptor, client })
 
     return { binding, profilePlugin }
   }
