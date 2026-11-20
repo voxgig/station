@@ -494,3 +494,35 @@ recording them.
 
 Revisit when: lua or elixir gains a way to represent JSON null in
 struct.
+
+## D-2026-11-20-1 — struct's Go release and the checkpoint run from GitHub Actions
+
+A struct Go release is its tag alone, `go/v0.2.0`, and until now only
+`make publish-go` on a workstation could write it: struct's `publish.yml`
+had no go target, and a session can push neither a tag nor a workflow
+change. The checkpoint was the same: `make checkpoint` runs the four
+repositories' gates side by side on a workstation, then pushes one tag to
+all four.
+
+The owner ruled, by question, on 2026-11-20:
+
+1. **struct's `publish.yml` gains a `go` target.** It runs the build, vet
+   and tests that `make publish-go` runs, then writes the tag. The change
+   waits on struct's `claude/bold-newton-4of9bo` as a patch for the owner
+   to apply. A dispatch then releases `go/v0.2.0`, and every later Go
+   release.
+2. **A workflow in voxgig/admin cuts checkpoints, with the four suites
+   run together.** One job per repository runs that repository's gate,
+   with all four cloned beside admin at the commits being checkpointed,
+   and a last job tags all four with the Makefile's own `tag`. It needs
+   `CHECKPOINT_TOKEN`, a fine-grained token with Contents: read and write
+   on the four, and only the tagging step reads it. The workflow waits on
+   admin's `claude/bold-newton-4of9bo` as a patch.
+
+Not chosen: running `make publish-go` and `make checkpoint` by hand; a
+checkpoint workflow that tags each `main` once that repository's own CI
+has passed there, which drops the side-by-side run a checkpoint exists
+for.
+
+Revisit when: the first checkpoint run shows that one runner per
+repository cannot hold every toolchain its gate needs.

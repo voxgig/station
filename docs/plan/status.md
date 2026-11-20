@@ -115,11 +115,12 @@ this repository, in order:
 
 1. struct's Go tag. npm has `@voxgig/struct` 0.4.0 and
    `@voxgig/struct-js` 0.2.0 since 2026-11-20, released by `publish.yml`
-   dispatch, which does not release go. struct's `go/v0.2.0` is the
-   owner's (`make publish-go`), and station's `go/go.mod` moves to it
-   from v0.1.6 before 0.4.0 is released.
-2. A checkpoint in voxgig/admin, cut by the owner, so that the vendored
-   struct declares 0.4.0.
+   dispatch. struct's `go/v0.2.0` comes the same way once the owner applies
+   the patch that gives `publish.yml` a go target (D-2026-11-20-1), and
+   station's `go/go.mod` moves to it from v0.1.6 before 0.4.0 is released.
+2. A checkpoint, so that the vendored struct declares 0.4.0. It comes from
+   a dispatch of voxgig/admin's checkpoint workflow, once the owner applies
+   it and adds its token (D-2026-11-20-1).
 3. sdkgen re-vendored at that checkpoint, with its own specs on `$NOF`
    and struct resynced in all twenty targets, as the owner ruled on
    2026-11-17 (`sdkgen-18`, D-2026-11-17-2), released; then the fixture
@@ -182,7 +183,7 @@ Everything here needs the maintainer, and most of it fits one sitting.
 
 | what | why a human | rows |
 |---|---|---|
-| Tag struct's Go module, `go/v0.2.0`, by `make publish-go`; then cut a checkpoint in voxgig/admin | A session cannot push a tag. npm's struct 0.4.0 and struct-js 0.2.0 went out on 2026-11-20 by `publish.yml` dispatch, which does not release go. | W4.10 |
+| Apply two patches, each on its repository's `claude/bold-newton-4of9bo`: the go target for struct's `publish.yml`, and voxgig/admin's checkpoint workflow. Then add admin's `CHECKPOINT_TOKEN` secret | A session can push neither a workflow change nor a tag, and the token is the owner's to create. The dispatches that follow are this session's (D-2026-11-20-1). | W4.10 |
 | Apply a workflow patch, when one is on `main` in [`patch/`](patch/README.md) | A token with the `workflow` scope. A session cannot push a change under `.github/workflows/`, so it commits a patch to `main` instead. Two are pending, both on `main`: `proxy-ci-lane.patch` and `fixtures-ci-lane.patch`. They apply in either order, re-checked against `main` on 2026-11-13. | W5.1 and W4.3 now; W3.11 and W4.4 when theirs are written |
 | Delete eleven merged branches | The owner ruled on 2026-11-12 that they go. A session cannot do it: its push access refuses a branch deletion (HTTP 403). The list is below. | — |
 | Register `@voxgig/sdkgen-station` for trusted publishing | An npm owner | W3.11 |
