@@ -2,7 +2,9 @@
 
 **Status:** typescript, since W8.6, and its two extension points since
 W9.1. The owner asked for it on 2026-11-14 (D-2026-11-14-1). The first
-two extensions, voxgig/station-view and voxgig/station-mcp, are stubs.
+two extensions are voxgig/station-view, which shows an SDK's traffic on
+a local page (W9.5), and voxgig/station-mcp, which serves its
+operations over MCP (W9.4).
 
 ## What an extension is
 
@@ -153,19 +155,25 @@ Five rules go with them:
 
 ## station-view and station-mcp
 
-- **station-view** exports `view`, whose `snapshot()` reads the
-  Station's status, instances and events. That is one process's
-  in-memory event ring, one of the two sources D-2026-11-11-5 left
-  open. The other is the proxy's `/v1/status`, `/v1/tap` and
-  `/v1/traffic`, for when attach has shipped.
+- **station-view** exports `view`. Its `snapshot()` reads the
+  Station's status, instances and events, and since W9.5 its `listen()`
+  serves the traffic as a page, a read-only JSON API and a server-sent
+  stream, on loopback only. Through `sdk.feature` it switches on
+  `telemetry`, `debug`, `audit` and `metrics` in each SDK generated with
+  them. That is one process's traffic, one of the two sources
+  D-2026-11-11-5 left open. The other is the proxy's `/v1/status`,
+  `/v1/tap` and `/v1/traffic`, for when attach has shipped.
 - **station-mcp** exports `mcp`, whose `tools()` and `call()` answer
   two of the proxy's tools, `station_status` and
-  `station_integrations`, from the Station's public API. It has no
-  transport. The design puts the agent surface in the proxy (`station.md`
-  §7), where no SDK code runs. An extension runs in the application's
-  process, so it does not have that property. Whether station-mcp's
-  real surface is served from there or relayed to the proxy's
-  `/v1/mcp` is the question D-2026-11-14-1 leaves open.
+  `station_integrations`, from the Station's public API. Since W9.4 it
+  also serves sdkgen go-mcp's tool shape for each SDK `sdk.bound`
+  reports, the write tools only with `{ write: true }`, over JSON-RPC in
+  process and on stdio; streamable HTTP is not done. The design puts
+  the agent surface in the proxy (`station.md` §7), where no SDK code
+  runs. An extension runs in the application's process, so it does not
+  have that property. Whether station-mcp's real surface is served from
+  there or relayed to the proxy's `/v1/mcp` is the question
+  D-2026-11-14-1 leaves open.
 
 ## Ports
 
