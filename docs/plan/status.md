@@ -121,11 +121,11 @@ side is done on the branch of voxgig/station#95 and passes in every
 port against struct's `main`. It waits on three things outside this
 repository, in order:
 
-1. struct's release. The bump merged as [voxgig/struct#180] on
-   2026-11-17, with one macOS runner job red, on the owner's ruling
-   (`struct-8`). The owner dispatches `publish.yml` for typescript and
-   javascript and runs `make publish-go`. Then the three manifests here
-   move to 0.4.0, 0.2.0 and `v0.2.0`, and typescript's lane goes green.
+1. struct's release. npm has `@voxgig/struct` 0.4.0 and
+   `@voxgig/struct-js` 0.2.0 since 2026-11-20, and typescript and
+   javascript moved to them, so typescript's lane can go green. The
+   `go/v0.2.0` tag is the owner's (`make publish-go`), and go's manifest
+   moves to it before 0.4.0 is released.
 2. A checkpoint in voxgig/admin, cut by the owner now that the bump
    has merged, so that the vendored struct declares 0.4.0.
 3. sdkgen re-vendored at that checkpoint, with its own specs on `$NOF`

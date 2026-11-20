@@ -38,6 +38,6 @@
   ],
   "dependencies": {
     "@voxgig/sekreto-js": "^0.2.0",
-    "@voxgig/struct-js": "^0.1.7"
+    "@voxgig/struct-js": "^0.2.0"
   }
 }
