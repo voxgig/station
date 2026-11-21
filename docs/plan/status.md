@@ -5,8 +5,8 @@ every lane again.** It was red on every pull request from 2026-11-16,
 when voxgig/struct's `main` dropped the `$ONE` checker station's shape
 was written with, until voxgig/station#95 moved station onto `$NOF` and
 npm took struct 0.4.0. #95 merged on 2026-11-20, so pull requests merge
-again (D-2026-11-17-1), but **nothing else starts while W4.10 waits on
-struct's Go tag and the checkpoint** (D-2026-11-19-1). **0.3.0 is
+again (D-2026-11-17-1), but **nothing else starts until W4.10's checkpoint
+exists** (D-2026-11-19-1). **0.3.0 is
 released on every route**, from `ef358d6` (W2.11), and `main` is ahead
 of it by W8.6, the extension host in typescript, and by #95: W9.1,
 W9.6 and W4.10's move onto `$NOF`. 0.3.0 carries all of this:
@@ -110,18 +110,17 @@ hand). That stays true until sdkgen is released on the new struct.
 **W4.10, the flag day onto struct's `$NOF`** (D-2026-11-17-1). Station's
 side merged as voxgig/station#95 on 2026-11-20 and passes in every
 port: typescript and javascript on npm's struct 0.4.0 and struct-js
-0.2.0, the others on struct's `main`. It waits on three things outside
-this repository, in order:
+0.2.0, the others on struct's `main`. struct's releases are all out: npm
+has `@voxgig/struct` 0.4.0 and `@voxgig/struct-js` 0.2.0 since 2026-11-20,
+and `go/v0.2.0` came on 2026-11-21 from a `publish.yml` dispatch, once the
+owner applied its go target (D-2026-11-20-1). Station's `go/go.mod` takes
+it. W4.10 waits on two things outside this repository, in order:
 
-1. struct's Go tag. npm has `@voxgig/struct` 0.4.0 and
-   `@voxgig/struct-js` 0.2.0 since 2026-11-20, released by `publish.yml`
-   dispatch. struct's `go/v0.2.0` comes the same way once the owner applies
-   the patch that gives `publish.yml` a go target (D-2026-11-20-1), and
-   station's `go/go.mod` moves to it from v0.1.6 before 0.4.0 is released.
-2. A checkpoint, so that the vendored struct declares 0.4.0. It comes from
-   a dispatch of voxgig/admin's checkpoint workflow, once the owner applies
-   it and adds its token (D-2026-11-20-1).
-3. sdkgen re-vendored at that checkpoint, with its own specs on `$NOF`
+1. A checkpoint, so that the vendored struct declares 0.4.0. voxgig/admin's
+   checkpoint workflow cuts it (D-2026-11-20-1). The owner applied it on
+   2026-11-21, and its first run, a dry run, started that day. The real
+   run needs the `CHECKPOINT_TOKEN` secret.
+2. sdkgen re-vendored at that checkpoint, with its own specs on `$NOF`
    and struct resynced in all twenty targets, as the owner ruled on
    2026-11-17 (`sdkgen-18`, D-2026-11-17-2), released; then the fixture
    SDKs regenerate on it. That work is ready on sdkgen's branch, each
@@ -150,12 +149,12 @@ W9.7, likeness as the live test, is next once W4.10 stops waiting
 
 ## Pick this up first
 
-In this order. W4.10's Go tag and its checkpoint wait on the owner,
-and nothing else starts while they do (D-2026-11-19-1).
+In this order. Nothing else starts until W4.10's checkpoint exists
+(D-2026-11-19-1).
 
-1. **W4.10**, as above: go's manifest once struct's `go/v0.2.0` is
-   tagged; then sdkgen's and create-sdkgen's pull requests at the
-   checkpoint, sdkgen's release, the fixtures, and 0.4.0.
+1. **W4.10**, as above: the checkpoint, from voxgig/admin's workflow;
+   then sdkgen's and create-sdkgen's pull requests at it, sdkgen's
+   release, the fixtures, and 0.4.0.
 2. **W9.7**, likeness as the live test: each of its commands exits,
    so it needs a viewer that outlives them. Done: W9.1, the extension
    points, and W9.6, the demonstration, merged as
@@ -183,7 +182,7 @@ Everything here needs the maintainer, and most of it fits one sitting.
 
 | what | why a human | rows |
 |---|---|---|
-| Apply two patches, each on its repository's `claude/bold-newton-4of9bo`: the go target for struct's `publish.yml`, and voxgig/admin's checkpoint workflow. Then add admin's `CHECKPOINT_TOKEN` secret | A session can push neither a workflow change nor a tag, and the token is the owner's to create. The dispatches that follow are this session's (D-2026-11-20-1). | W4.10 |
+| Add voxgig/admin's `CHECKPOINT_TOKEN` secret, if it is not set yet: the checkpoint workflow's real run refuses without it. The owner applied both workflow patches on 2026-11-21 | The token is the owner's to create. A dry run needs none, and the dispatches are this session's (D-2026-11-20-1). | W4.10 |
 | Apply a workflow patch, when one is on `main` in [`patch/`](patch/README.md) | A token with the `workflow` scope. A session cannot push a change under `.github/workflows/`, so it commits a patch to `main` instead. Two are pending, both on `main`: `proxy-ci-lane.patch` and `fixtures-ci-lane.patch`. They apply in either order, re-checked against `main` on 2026-11-13. | W5.1 and W4.3 now; W3.11 and W4.4 when theirs are written |
 | Delete eleven merged branches | The owner ruled on 2026-11-12 that they go. A session cannot do it: its push access refuses a branch deletion (HTTP 403). The list is below. | — |
 | Register `@voxgig/sdkgen-station` for trusted publishing | An npm owner | W3.11 |
@@ -210,6 +209,10 @@ git push origin --delete chore/comment-policy \
 
 ## Recently settled
 
+- **struct's Go module is released, and station takes it**
+  (2026-11-21): `go/v0.2.0`, from a `publish.yml` dispatch once the
+  owner applied its go target (D-2026-11-20-1), and `go/go.mod` moved to
+  it.
 - **Station is on struct's `$NOF`, and W9's traffic view is merged**
   (2026-11-20, voxgig/station#95, `b83a16d`): W9.1, W9.6 and W4.10's
   change in every port, once CI passed on every lane. typescript and
