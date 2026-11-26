@@ -1,15 +1,17 @@
 # Status: where the next session starts
 
-Snapshot, **2026-11-20**. `main` is at `b83a16d`, and **CI is green on
-every lane again.** It was red on every pull request from 2026-11-16,
+Snapshot, **2026-11-26**. `main` is at `24f859c`, and **CI is green on
+every lane.** It was red on every pull request from 2026-11-16,
 when voxgig/struct's `main` dropped the `$ONE` checker station's shape
 was written with, until voxgig/station#95 moved station onto `$NOF` and
 npm took struct 0.4.0. #95 merged on 2026-11-20, so pull requests merge
-again (D-2026-11-17-1), but **nothing else starts until W4.10's checkpoint
-exists** (D-2026-11-19-1). **0.3.0 is
+again (D-2026-11-17-1). **W4.10's checkpoint exists** since 2026-11-25,
+so the hold of D-2026-11-19-1 has lifted: struct's releases are out and
+the checkpoint is cut. **0.3.0 is
 released on every route**, from `ef358d6` (W2.11), and `main` is ahead
-of it by W8.6, the extension host in typescript, and by #95: W9.1,
-W9.6 and W4.10's move onto `$NOF`. 0.3.0 carries all of this:
+of it by W8.6, the extension host in typescript, and by #95 and #98:
+W9.1, W9.6 and W4.10's move onto `$NOF`, with go on struct's
+`go/v0.2.0`. 0.3.0 carries all of this:
 the six pull requests of W1 merged on 2026-11-11 and changed every port's source, and on 2026-11-12
 W5.1 (the proxy builds), W4.3 (the fixture SDKs), W2.1 (the carried
 adapter's place), W2.2 (the Station out of the SDK's options), W2.4
@@ -33,6 +35,10 @@ wrong status file is worse than none.**
 
 ## How this snapshot was checked
 
+- **CI, on `main` at `24f859c`.** Run 44951039784, on the push that
+  merged voxgig/station#98, is green on every lane. Since `b83a16d` the
+  only code that changed is go's `go.mod` and `go.sum`, so the counts
+  in the table below, from the run on `b83a16d`, stand.
 - **CI, on `main` at `b83a16d`.** Run 44646671763, on the push that
   merged voxgig/station#95: green, every lane, against omni `dcbab7a`,
   sekreto `32b83ac`, plugin's `main` at `8605cdc` and struct's `main`
@@ -114,26 +120,34 @@ port: typescript and javascript on npm's struct 0.4.0 and struct-js
 has `@voxgig/struct` 0.4.0 and `@voxgig/struct-js` 0.2.0 since 2026-11-20,
 and `go/v0.2.0` came on 2026-11-21 from a `publish.yml` dispatch, once the
 owner applied its go target (D-2026-11-20-1). Station's `go/go.mod` takes
-it. W4.10 waits on two things outside this repository, in order:
+it. Two steps outside this repository are done:
 
-1. A checkpoint, so that the vendored struct declares 0.4.0. voxgig/admin's
-   checkpoint workflow cuts it (D-2026-11-20-1). The owner applied it on
-   2026-11-21, and its first run, a dry run, started that day. The real
-   run needs the `CHECKPOINT_TOKEN` secret.
-2. sdkgen re-vendored at that checkpoint, with its own specs on `$NOF`
-   and struct resynced in all twenty targets, as the owner ruled on
-   2026-11-17 (`sdkgen-18`, D-2026-11-17-2), released; then the fixture
-   SDKs regenerate on it. That work is ready on sdkgen's branch, each
-   target run on its own toolchain, and needs only the checkpoint's tag,
-   then its pull requests and sdkgen's release. It carries three struct
-   defects as marked patches (`struct-9` to `struct-11`), now filed as
-   voxgig/struct#181 to #183. The c and cpp fixes merged as
-   voxgig/struct#184 (`3c2b647`), so a checkpoint cut from struct's
-   `main` lets sdkgen drop those two patches (D-2026-11-19-1). Every
-   runner now runs every `validate` group, with lua and elixir leaving
-   out the entries they cannot express (`sdkgen-21`, D-2026-11-19-2).
-   The sections some runners still skip are sdkgen's next pull request
-   (`sdkgen-22`).
+1. **The checkpoint is cut.** voxgig/admin's checkpoint workflow tagged
+   `sdk-20261125-1959-0` on 2026-11-25, in its first real run, with the
+   four repositories' gates passing together (D-2026-11-20-1). It names
+   struct `358af9d`, past the c and cpp fixes of voxgig/struct#184 and
+   the validate changes of voxgig/struct#192 and voxgig/struct#193.
+2. **sdkgen is re-vendored at it**, merged as voxgig/sdkgen#523 on
+   2026-11-26, with create-sdkgen's validate corpus at struct's own as
+   voxgig/create-sdkgen#72 (`sdkgen-18`, D-2026-11-17-2). Every target
+   vendors a struct with `$NOF`, the c and cpp patches are gone
+   (`struct-9`, `struct-10`), and every runner runs all thirteen
+   `validate` groups, with lua and elixir leaving out the entries they
+   cannot express (`sdkgen-21`, D-2026-11-19-2). swift's patch stays
+   while voxgig/struct#183 is open (`struct-11`).
+
+W4.10 now waits on these, in order:
+
+1. **A fix before sdkgen's release** (`sdkgen-23`). The review of #523
+   found two PHP regressions from the resync, both verified: a 204 on
+   update, patch or remove clears the entity's data, and the validate
+   feature refuses an empty payload. perl's update has cleared data on
+   a 204 since before the resync.
+2. **sdkgen's release and create-sdkgen's, together.** A project
+   regenerated with the new sdkgen needs the new corpus, and re-scaffolds
+   to take both.
+3. The fixture SDKs regenerate on them. The sections some runners still
+   skip are sdkgen's pull request after the fix (`sdkgen-22`).
 
 0.4.0 then releases every port together.
 
@@ -143,18 +157,16 @@ SDK, the SDK calls a generated local mock, and station-view shows the
 calls on a local page. W9.1 to W9.6 are done and merged, W9.1 and
 W9.6 as voxgig/station#95, and W9's exit holds on `main`: `make
 traffic` and then `make traffic-test` pass, with nothing published.
-W9.7, likeness as the live test, is next once W4.10 stops waiting
-(D-2026-11-19-1).
+W9.7, likeness as the live test, may start now that the hold of
+D-2026-11-19-1 has lifted.
 
 
 ## Pick this up first
 
-In this order. Nothing else starts until W4.10's checkpoint exists
-(D-2026-11-19-1).
+In this order. The hold of D-2026-11-19-1 lifted with the checkpoint.
 
-1. **W4.10**, as above: the checkpoint, from voxgig/admin's workflow;
-   then sdkgen's and create-sdkgen's pull requests at it, sdkgen's
-   release, the fixtures, and 0.4.0.
+1. **W4.10**, as above: `sdkgen-23`, then sdkgen's and create-sdkgen's
+   releases, the fixtures, and 0.4.0.
 2. **W9.7**, likeness as the live test: each of its commands exits,
    so it needs a viewer that outlives them. Done: W9.1, the extension
    points, and W9.6, the demonstration, merged as
@@ -170,8 +182,7 @@ In this order. Nothing else starts until W4.10's checkpoint exists
    same test file, has landed.
 4. **W0.8**, the design's account of sdkgen.
 
-Two more begin with a document and wait on nothing else, once W4.10
-stops waiting: **W8.1**, the design note for taking voxgig/plugin,
+Two more begin with a document and wait on nothing else: **W8.1**, the design note for taking voxgig/plugin,
 which every later step of W8 waits on; and **W3.2**, now that the
 route is ruled.
 
@@ -182,7 +193,6 @@ Everything here needs the maintainer, and most of it fits one sitting.
 
 | what | why a human | rows |
 |---|---|---|
-| Add voxgig/admin's `CHECKPOINT_TOKEN` secret, if it is not set yet: the checkpoint workflow's real run refuses without it. The owner applied both workflow patches on 2026-11-21 | The token is the owner's to create. A dry run needs none, and the dispatches are this session's (D-2026-11-20-1). | W4.10 |
 | Apply a workflow patch, when one is on `main` in [`patch/`](patch/README.md) | A token with the `workflow` scope. A session cannot push a change under `.github/workflows/`, so it commits a patch to `main` instead. Two are pending, both on `main`: `proxy-ci-lane.patch` and `fixtures-ci-lane.patch`. They apply in either order, re-checked against `main` on 2026-11-13. | W5.1 and W4.3 now; W3.11 and W4.4 when theirs are written |
 | Delete eleven merged branches | The owner ruled on 2026-11-12 that they go. A session cannot do it: its push access refuses a branch deletion (HTTP 403). The list is below. | — |
 | Register `@voxgig/sdkgen-station` for trusted publishing | An npm owner | W3.11 |
