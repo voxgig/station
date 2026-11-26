@@ -1,6 +1,6 @@
 # Status: where the next session starts
 
-Snapshot, **2026-11-26**. `main` is at `24f859c`, and **CI is green on
+Snapshot, **2026-11-26**. `main` is at `8adbc5d`, and **CI is green on
 every lane.** It was red on every pull request from 2026-11-16,
 when voxgig/struct's `main` dropped the `$ONE` checker station's shape
 was written with, until voxgig/station#95 moved station onto `$NOF` and
@@ -35,6 +35,9 @@ wrong status file is worse than none.**
 
 ## How this snapshot was checked
 
+- **CI, on `main` at `8adbc5d`.** Run 45737845061, on the push that
+  merged voxgig/station#99, is green on every lane. Since `24f859c`
+  only the plan register changed.
 - **CI, on `main` at `24f859c`.** Run 44951039784, on the push that
   merged voxgig/station#98, is green on every lane. Since `b83a16d` the
   only code that changed is go's `go.mod` and `go.sum`, so the counts
@@ -120,7 +123,7 @@ port: typescript and javascript on npm's struct 0.4.0 and struct-js
 has `@voxgig/struct` 0.4.0 and `@voxgig/struct-js` 0.2.0 since 2026-11-20,
 and `go/v0.2.0` came on 2026-11-21 from a `publish.yml` dispatch, once the
 owner applied its go target (D-2026-11-20-1). Station's `go/go.mod` takes
-it. Two steps outside this repository are done:
+it. Three steps outside this repository are done:
 
 1. **The checkpoint is cut.** voxgig/admin's checkpoint workflow tagged
    `sdk-20261125-1959-0` on 2026-11-25, in its first real run, with the
@@ -135,19 +138,18 @@ it. Two steps outside this repository are done:
    `validate` groups, with lua and elixir leaving out the entries they
    cannot express (`sdkgen-21`, D-2026-11-19-2). swift's patch stays
    while voxgig/struct#183 is open (`struct-11`).
+3. **The fix for the resync's review is merged**, as voxgig/sdkgen#525
+   on 2026-11-26 (`sdkgen-23`). A 204 on update, patch or remove no
+   longer clears an entity's data in php, perl, java and scala, and php's
+   validate feature checks an empty payload as a map.
 
 W4.10 now waits on these, in order:
 
-1. **A fix before sdkgen's release** (`sdkgen-23`). The review of #523
-   found two PHP regressions from the resync, both verified: a 204 on
-   update, patch or remove clears the entity's data, and the validate
-   feature refuses an empty payload. perl's update has cleared data on
-   a 204 since before the resync.
-2. **sdkgen's release and create-sdkgen's, together.** A project
-   regenerated with the new sdkgen needs the new corpus, and re-scaffolds
-   to take both.
-3. The fixture SDKs regenerate on them. The sections some runners still
-   skip are sdkgen's pull request after the fix (`sdkgen-22`).
+1. **sdkgen's release and create-sdkgen's, together.** Each is a
+   workflow dispatch. A project regenerated with the new sdkgen needs
+   the new corpus, and re-scaffolds to take both.
+2. The fixture SDKs regenerate on them. The sections some runners still
+   skip are sdkgen's next pull request (`sdkgen-22`).
 
 0.4.0 then releases every port together.
 
@@ -165,8 +167,8 @@ D-2026-11-19-1 has lifted.
 
 In this order. The hold of D-2026-11-19-1 lifted with the checkpoint.
 
-1. **W4.10**, as above: `sdkgen-23`, then sdkgen's and create-sdkgen's
-   releases, the fixtures, and 0.4.0.
+1. **W4.10**, as above: sdkgen's and create-sdkgen's releases, the
+   fixtures, and 0.4.0.
 2. **W9.7**, likeness as the live test: each of its commands exits,
    so it needs a viewer that outlives them. Done: W9.1, the extension
    points, and W9.6, the demonstration, merged as
