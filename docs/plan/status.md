@@ -1,17 +1,17 @@
 # Status: where the next session starts
 
-Snapshot, **2026-11-27**. `main` is at `0d65fe9`, and **CI is green on
+Snapshot, **2026-11-27**. `main` is at `8639364`, and **CI is green on
 every lane.** It was red on every pull request from 2026-11-16,
 when voxgig/struct's `main` dropped the `$ONE` checker station's shape
 was written with, until voxgig/station#95 moved station onto `$NOF` and
 npm took struct 0.4.0. #95 merged on 2026-11-20, so pull requests merge
 again (D-2026-11-17-1). **W4.10's checkpoint exists** since 2026-11-25,
 so the hold of D-2026-11-19-1 has lifted: struct's releases are out and
-the checkpoint is cut. **0.3.0 is
-released on every route**, from `ef358d6` (W2.11), and `main` is ahead
-of it by W8.6, the extension host in typescript, and by #95 and #98:
-W9.1, W9.6 and W4.10's move onto `$NOF`, with go on struct's
-`go/v0.2.0`. 0.3.0 carries all of this:
+the checkpoint is cut. **0.4.0 is
+released on every route**, from `8639364` (W4.10): every port's move
+onto `$NOF`, with go on struct's `go/v0.2.0`, and in typescript W8.6,
+the extension host, and W9.1, its extension points. 0.3.0, from
+`ef358d6` (W2.11), carried all of this:
 the six pull requests of W1 merged on 2026-11-11 and changed every port's source, and on 2026-11-12
 W5.1 (the proxy builds), W4.3 (the fixture SDKs), W2.1 (the carried
 adapter's place), W2.2 (the Station out of the SDK's options), W2.4
@@ -35,10 +35,10 @@ wrong status file is worse than none.**
 
 ## How this snapshot was checked
 
-- **CI, on `main` at `0d65fe9`.** voxgig/station#101's run
-  45920486754, on `9c934d2`, the same tree, is green on every lane.
-  Since `24f859c` only the plan register and the fixture scripts'
-  create-sdkgen default changed.
+- **CI, on `main` at `8639364`.** Run 45922255319, on the push that
+  merged voxgig/station#102, is green on every lane. Since `24f859c`
+  the code that changed is every port's version declaration and the
+  fixture scripts' create-sdkgen default.
 - **CI, on `main` at `24f859c`.** Run 44951039784, on the push that
   merged voxgig/station#98, is green on every lane. Since `b83a16d` the
   only code that changed is go's `go.mod` and `go.sum`, so the counts
@@ -59,18 +59,17 @@ wrong status file is worse than none.**
 - **The fixtures, on 2026-11-27.** On create-sdkgen 0.31.12, which
   takes sdkgen 4.48.1, `make fixtures-test` passes 77 tests, none
   skipped, and `make traffic-test` 2 of 2, beside the same three.
-- **`make release-plan`**, with the bump to 0.4.0, reads every port
-  `unreleased`, and plans typescript and javascript as publish and tag,
-  and go as a tag.
+- **`make release-plan`** reports every port released at 0.4.0: each
+  tag is on `8639364`, and npm built both packages from it.
 
 
 ## The ports
 
 | port | secrets | corpus sections | guard | declarative front door | suite in CI | released as |
 |---|---|---|---|---|---|---|
-| typescript (canonical) | sekreto | 11 | **no** | yes | 201 tests: 181 pass, 20 skipped | npm `@voxgig/station` 0.3.0 |
-| javascript | sekreto | 11 | yes | yes | 58 pass | npm `@voxgig/station-js` 0.3.0 |
-| go | sekreto | 11 | yes | yes | three packages pass | tag `go/v0.3.0` |
+| typescript (canonical) | sekreto | 11 | **no** | yes | 201 tests: 181 pass, 20 skipped | npm `@voxgig/station` 0.4.0 |
+| javascript | sekreto | 11 | yes | yes | 58 pass | npm `@voxgig/station-js` 0.4.0 |
+| go | sekreto | 11 | yes | yes | three packages pass | tag `go/v0.4.0` |
 | python | sekreto | 11 | yes | yes | 126 pass | — |
 | ruby | sekreto | 11 | yes | yes | 93 and 12 pass | — |
 | php | sekreto | 11 | yes | yes | 94 pass | — |
@@ -85,9 +84,9 @@ wrong status file is worse than none.**
 | elixir | env only | **8** | **no** | **no** | 50 pass | — |
 | lua | env only | **8** | **no** | **no** | 50 and 8 pass | vendored into SDKs |
 
-The "released as" column is 0.3.0, from `ef358d6`, which is not the
-tree these counts are from: `main` has moved on by W8.6 and
-voxgig/station#95.
+The "released as" column is 0.4.0, from `8639364`. The counts are
+from the run on `b83a16d`, and since then the code that changed is
+go's `go.mod` and `go.sum` and every port's version declaration.
 
 The eleven sections are `secretname`, `placeholder`, `substitute`,
 `descriptor`, `descriptorwarnings`, `canonical`, `config`, `feature`,
@@ -121,43 +120,9 @@ refuses it.
 
 ## In flight
 
-**W4.10, the flag day onto struct's `$NOF`** (D-2026-11-17-1). Station's
-side merged as voxgig/station#95 on 2026-11-20 and passes in every
-port: typescript and javascript on npm's struct 0.4.0 and struct-js
-0.2.0, the others on struct's `main`. struct's releases are all out: npm
-has `@voxgig/struct` 0.4.0 and `@voxgig/struct-js` 0.2.0 since 2026-11-20,
-and `go/v0.2.0` came on 2026-11-21 from a `publish.yml` dispatch, once the
-owner applied its go target (D-2026-11-20-1). Station's `go/go.mod` takes
-it. Four steps outside this repository are done:
-
-1. **The checkpoint is cut.** voxgig/admin's checkpoint workflow tagged
-   `sdk-20261125-1959-0` on 2026-11-25, in its first real run, with the
-   four repositories' gates passing together (D-2026-11-20-1). It names
-   struct `358af9d`, past the c and cpp fixes of voxgig/struct#184 and
-   the validate changes of voxgig/struct#192 and voxgig/struct#193.
-2. **sdkgen is re-vendored at it**, merged as voxgig/sdkgen#523 on
-   2026-11-26, with create-sdkgen's validate corpus at struct's own as
-   voxgig/create-sdkgen#72 (`sdkgen-18`, D-2026-11-17-2). Every target
-   vendors a struct with `$NOF`, the c and cpp patches are gone
-   (`struct-9`, `struct-10`), and every runner runs all thirteen
-   `validate` groups, with lua and elixir leaving out the entries they
-   cannot express (`sdkgen-21`, D-2026-11-19-2). swift's patch stays
-   while voxgig/struct#183 is open (`struct-11`).
-3. **The fix for the resync's review is merged**, as voxgig/sdkgen#525
-   on 2026-11-26 (`sdkgen-23`). A 204 on update, patch or remove no
-   longer clears an entity's data in php, perl, java and scala, and php's
-   validate feature checks an empty payload as a map.
-4. **sdkgen and create-sdkgen are released**: sdkgen 4.48.0 and 4.48.1
-   on 2026-11-26, and create-sdkgen 0.31.12, which takes sdkgen 4.48.1
-   and the new corpus. Station's fixture SDKs regenerate on them since
-   2026-11-27.
-
-W4.10 now waits only on **0.4.0**, which releases every port together.
-The bump is in review, with the release notes in
-`docs/release/0.4.0.md`, and one dispatch of `release.yml` on its
-merged commit follows.
-The sections some struct runners still skip are sdkgen's next pull
-request (`sdkgen-22`), and 0.4.0 does not wait on it.
+**W4.10 is done**: 0.4.0 released it on 2026-11-27 (see "Recently
+settled"). The sections some struct runners still skip are sdkgen's
+next pull request (`sdkgen-22`), on sdkgen's side.
 
 W9, observing traffic locally, directed by the owner on 2026-11-16
 (D-2026-11-16-1): a user drives station-mcp, its tools call a generated
@@ -173,10 +138,7 @@ D-2026-11-19-1 has lifted.
 
 In this order. The hold of D-2026-11-19-1 lifted with the checkpoint.
 
-1. **W4.10**, as above: 0.4.0, in flight. If a run publishes and then
-   fails before tagging, read "Irreversible" in `AGENTS.md` before
-   doing anything else.
-2. **W9.7**, likeness as the live test: each of its commands exits,
+1. **W9.7**, likeness as the live test: each of its commands exits,
    so it needs a viewer that outlives them. Done: W9.1, the extension
    points, and W9.6, the demonstration, merged as
    voxgig/station#95; W9.2, `ts-seed`, merged as
@@ -187,9 +149,9 @@ In this order. The hold of D-2026-11-19-1 lifted with the checkpoint.
    voxgig/station-mcp#3; W9.5, station-view's page, merged as
    voxgig/station-view#3, with review fixes in voxgig/station-view#4 to
    voxgig/station-view#7.
-3. **W4.1**, a completeness guard in typescript. W1.1, which edited the
+2. **W4.1**, a completeness guard in typescript. W1.1, which edited the
    same test file, has landed.
-4. **W0.8**, the design's account of sdkgen.
+3. **W0.8**, the design's account of sdkgen.
 
 Two more begin with a document and wait on nothing else: **W8.1**, the design note for taking voxgig/plugin,
 which every later step of W8 waits on; and **W3.2**, now that the
@@ -228,6 +190,12 @@ git push origin --delete chore/comment-policy \
 
 ## Recently settled
 
+- **0.4.0 is released on all three routes** (W4.10, 2026-11-27, from
+  `8639364`, run 45922269816): both npm packages as `latest`, with
+  provenance, and the three tags. Release notes: `docs/release/0.4.0.md`.
+  sdkgen 4.48.0 and 4.48.1 and create-sdkgen 0.31.12 came first, on
+  2026-11-26, and the fixture SDKs regenerated on them
+  (voxgig/station#101).
 - **struct's Go module is released, and station takes it**
   (2026-11-21): `go/v0.2.0`, from a `publish.yml` dispatch once the
   owner applied its go target (D-2026-11-20-1), and `go/go.mod` moved to
