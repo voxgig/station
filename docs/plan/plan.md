@@ -103,6 +103,7 @@ the plan depends on all of them.
 | **W7** | Phase 3 | §8.4, §9.1, §17 | W5, and upstream | anyone, plus upstream |
 | **W8** | Take voxgig/plugin as a dependency | `station-and-plugin.md`; D-2026-11-11-4 | its own design note | anyone; canonical first |
 | **W9** | Observe traffic locally | `station-extensions.md`; D-2026-11-16-1 | W8's item 6, done in typescript | anyone; typescript first |
+| **W10** | The extensions, complete in local TypeScript | `station-extensions.md`, §7; D-2026-11-27-1 | W9 | anyone; typescript only |
 
 ```
 W0 ──► W1 ──┬──► W2 ──► release 0.3.0 ──► W5.5 onward (attach) ──► W6 ──► W7
@@ -111,6 +112,7 @@ W0 ──► W1 ──┬──► W2 ──► release 0.3.0 ──► W5.5 onw
 W5.1 (the proxy builds, and CI holds it) depends on nothing and can start today.
 W8 (plugin as a dependency) starts with a design note, which depends on nothing.
 W9 (observe traffic locally) rests on W8's item 6, which is done in typescript.
+W10 (the extensions in local typescript) follows W9; its item 7 waits on an sdkgen release.
 ```
 
 W0 and W1 are done, but for one stale passage of the design (W0.8). W1
@@ -393,6 +395,43 @@ Items 4 and 5 need item 1, and item 6 needs the five before it.
 **Exit:** the demonstration's test passes from clean checkouts of the
 four repositories, linked, with no package published for it.
 
+### W10. The extensions, complete in local TypeScript
+
+Directed by the owner on 2026-11-27, with two points ruled by question
+that day (D-2026-11-27-1). station-view and station-mcp do everything
+the design asks of an extension in the application's process, in
+typescript. The proxy, attach, other languages and a release stay out
+of it.
+
+1. Both extensions build and test on npm's station 0.4.0, which
+   carries the extension points, with no checkout link.
+2. A CI workflow for each, as a patch for the owner to apply.
+3. station-mcp keeps §7's rules in process: a write tool needs both
+   the `write` option and the instance's `agent.write`, and what it
+   returns is labelled as external data, as the proxy labels its own.
+4. station-mcp answers the rest of §7's tools in process:
+   `station_describe`, `station_traffic`, `station_secrets` and
+   `station_policy`. The typescript Station says which store answers
+   each secret, never its value.
+5. station-mcp serves MCP's streamable HTTP transport, on loopback
+   only.
+6. station-view keeps a record log, and a `station-view` command
+   serves the page from it, live and with its history.
+7. One call's records are joined: sdkgen puts the operation context's
+   id on `telemetry`'s span, `debug`'s entry and `audit`'s record in
+   every target, a release carries it (`sdkgen-17`), and station-view
+   joins on it.
+
+Items 1 to 6 need nothing outside these repositories, and item 7
+needs sdkgen's release. W9.7, likeness as the live test, follows
+item 6.
+
+**Exit:** likeness's TypeScript commands, run against its mock, show
+in one `station-view` page that outlives them, with each call's
+records joined; an MCP client drives the same SDKs over stdio and
+streamable HTTP, with §7's in-process tools and gates; and both
+repositories' tests pass on npm's station.
+
 
 ## 5. The decisions
 
@@ -456,8 +495,8 @@ and name [#36] too if it lands first: a failed operation then emits one
 | client | state | what it needs from this plan |
 |---|---|---|
 | **voxgig/likeness** | Stages 0 and 1 done; Stage 2 at 9 of 20 cells; Stage 3 not started. On station 0.2.0 in every port that pins it. CI green. | A release carrying [#51], for eight Go entries, and [#58], for the C port; [#36] and [#61] for parity. The rest is the generated SDKs: see [`upstream.md`](upstream.md). |
-| **voxgig/station-view** | A stub extension in typescript (W8.6). | W9: the extension points, then its own item, W9.5. |
-| **voxgig/station-mcp** | A stub extension in typescript (W8.6). No CI. | W9: the extension points, then its own item, W9.4. |
+| **voxgig/station-view** | A local web view of one process's traffic, in typescript (W9.5). Its CI runs the comment gate alone. | W10: npm's station (W10.1), CI (W10.2), the record log and its command (W10.6), and each call's records joined (W10.7). |
+| **voxgig/station-mcp** | An MCP server over the Station's SDKs, in process and on stdio, in typescript (W9.4). No CI. | W10: npm's station (W10.1), CI (W10.2), §7's gates and labels (W10.3), the rest of §7's tools (W10.4) and streamable HTTP (W10.5). |
 | **senecajs/seneca-station** | A README. No code, no design. | Nothing now. It was parked until 0.3.0 (D-2026-11-11-6), which is released, so its revisit is due. |
 
 

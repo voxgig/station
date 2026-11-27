@@ -120,6 +120,12 @@ refuses it.
 
 ## In flight
 
+**W10, the extensions completed in local TypeScript**, directed by the
+owner on 2026-11-27 with two points ruled (D-2026-11-27-1): a record
+log that a `station-view` command serves, and one id per call from
+sdkgen, in every target. Its seven items are in `plan.md`, and none
+has started.
+
 **W4.10 is done**: 0.4.0 released it on 2026-11-27 (see "Recently
 settled"). The sections some struct runners still skip are sdkgen's
 next pull request (`sdkgen-22`), on sdkgen's side.
@@ -138,20 +144,16 @@ D-2026-11-19-1 has lifted.
 
 In this order. The hold of D-2026-11-19-1 lifted with the checkpoint.
 
-1. **W9.7**, likeness as the live test: each of its commands exits,
-   so it needs a viewer that outlives them. Done: W9.1, the extension
-   points, and W9.6, the demonstration, merged as
-   voxgig/station#95; W9.2, `ts-seed`, merged as
-   voxgig/sdkgen-validpack#1, with its review fixes in
-   voxgig/sdkgen-validpack#2; W9.3, `ts-mock`, merged as
-   voxgig/sdkgen-validpack#3, with its review fixes in
-   voxgig/sdkgen-validpack#4; W9.4, station-mcp's server, merged as
-   voxgig/station-mcp#3; W9.5, station-view's page, merged as
-   voxgig/station-view#3, with review fixes in voxgig/station-view#4 to
-   voxgig/station-view#7.
-2. **W4.1**, a completeness guard in typescript. W1.1, which edited the
+1. **W10**, in its order: W10.1 and W10.2, then station-mcp's W10.3
+   to W10.5 and station-view's W10.6, with W10.7's sdkgen change
+   beside them.
+2. **W9.7**, likeness as the live test, once W10.6 gives it a
+   viewer that outlives its commands. W9.1 to W9.6 are done:
+   voxgig/station#95, voxgig/sdkgen-validpack#1 to #4,
+   voxgig/station-mcp#3 and voxgig/station-view#3 to #7.
+3. **W4.1**, a completeness guard in typescript. W1.1, which edited the
    same test file, has landed.
-3. **W0.8**, the design's account of sdkgen.
+4. **W0.8**, the design's account of sdkgen.
 
 Two more begin with a document and wait on nothing else: **W8.1**, the design note for taking voxgig/plugin,
 which every later step of W8 waits on; and **W3.2**, now that the
