@@ -387,7 +387,9 @@ directories, as `tools/fixtures.sh` already links `sdkgen-station`.
    SDK lacks them, and serves a page that filters them.
 6. A demonstration and its test: one command, and a tool call over MCP
    that is read back from the view.
-7. likeness as the live test.
+7. likeness as the live test. Its TypeScript port loads both
+   extensions, and a `likeness mcp` command serves its SDKs over MCP,
+   which its other ports refuse (D-2026-11-27-2).
 
 Items 2 and 3 are in another repository and can run beside item 1.
 Items 4 and 5 need item 1, and item 6 needs the five before it.

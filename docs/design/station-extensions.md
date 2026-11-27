@@ -160,7 +160,8 @@ Five rules go with them:
   serves the traffic as a page, a read-only JSON API and a server-sent
   stream, on loopback only. Through `sdk.feature` it switches on
   `telemetry`, `debug`, `audit` and `metrics` in each SDK generated with
-  them. That is one process's traffic, one of the two sources
+  them, and since W10.7 it joins one call's records on the id sdkgen
+  4.50.0 puts on each (`sdkgen-17`). That is one process's traffic, one of the two sources
   D-2026-11-11-5 left open. Since W10.6 a view can also append each
   record, redacted, to a log only its owner can read, and the
   `station-view` command serves the same page from that log, so a
