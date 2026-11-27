@@ -1,6 +1,6 @@
 # Status: where the next session starts
 
-Snapshot, **2026-11-27**. `main` is at `0528692`, and **CI is green on
+Snapshot, **2026-11-27**. `main` is at `0d65fe9`, and **CI is green on
 every lane.** It was red on every pull request from 2026-11-16,
 when voxgig/struct's `main` dropped the `$ONE` checker station's shape
 was written with, until voxgig/station#95 moved station onto `$NOF` and
@@ -35,9 +35,10 @@ wrong status file is worse than none.**
 
 ## How this snapshot was checked
 
-- **CI, on `main` at `0528692`.** Run 45750204564, on the push that
-  merged voxgig/station#100, is green on every lane. Since `24f859c`
-  only the plan register changed.
+- **CI, on `main` at `0d65fe9`.** voxgig/station#101's run
+  45920486754, on `9c934d2`, the same tree, is green on every lane.
+  Since `24f859c` only the plan register and the fixture scripts'
+  create-sdkgen default changed.
 - **CI, on `main` at `24f859c`.** Run 44951039784, on the push that
   merged voxgig/station#98, is green on every lane. Since `b83a16d` the
   only code that changed is go's `go.mod` and `go.sum`, so the counts
@@ -58,9 +59,9 @@ wrong status file is worse than none.**
 - **The fixtures, on 2026-11-27.** On create-sdkgen 0.31.12, which
   takes sdkgen 4.48.1, `make fixtures-test` passes 77 tests, none
   skipped, and `make traffic-test` 2 of 2, beside the same three.
-- **`make release-plan` refuses, as it should.** It says `typescript
-  changed since typescript/v0.3.0 was released on ef358d630fb5`, and to
-  bump `VERSION`. The version moves with 0.4.0 (W4.10).
+- **`make release-plan`**, with the bump to 0.4.0, reads every port
+  `unreleased`, and plans typescript and javascript as publish and tag,
+  and go as a tag.
 
 
 ## The ports
@@ -152,6 +153,9 @@ it. Four steps outside this repository are done:
    2026-11-27.
 
 W4.10 now waits only on **0.4.0**, which releases every port together.
+The bump is in review, with the release notes in
+`docs/release/0.4.0.md`, and one dispatch of `release.yml` on its
+merged commit follows.
 The sections some struct runners still skip are sdkgen's next pull
 request (`sdkgen-22`), and 0.4.0 does not wait on it.
 
@@ -169,7 +173,9 @@ D-2026-11-19-1 has lifted.
 
 In this order. The hold of D-2026-11-19-1 lifted with the checkpoint.
 
-1. **W4.10**, as above: 0.4.0.
+1. **W4.10**, as above: 0.4.0, in flight. If a run publishes and then
+   fails before tagging, read "Irreversible" in `AGENTS.md` before
+   doing anything else.
 2. **W9.7**, likeness as the live test: each of its commands exits,
    so it needs a viewer that outlives them. Done: W9.1, the extension
    points, and W9.6, the demonstration, merged as

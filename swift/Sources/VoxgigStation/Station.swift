@@ -33,7 +33,7 @@ import Foundation
 
 public final class Station {
 
-  public static let version = "0.3.0"
+  public static let version = "0.4.0"
 
   // --- ambient instance (design 10.2) ---
 
