@@ -161,7 +161,10 @@ Five rules go with them:
   stream, on loopback only. Through `sdk.feature` it switches on
   `telemetry`, `debug`, `audit` and `metrics` in each SDK generated with
   them. That is one process's traffic, one of the two sources
-  D-2026-11-11-5 left open. The other is the proxy's `/v1/status`,
+  D-2026-11-11-5 left open. Since W10.6 a view can also append each
+  record, redacted, to a log only its owner can read, and the
+  `station-view` command serves the same page from that log, so a
+  process that exits at once still leaves its calls to look at. The other is the proxy's `/v1/status`,
   `/v1/tap` and `/v1/traffic`, for when attach has shipped.
 - **station-mcp** exports `mcp`, whose `tools()` and `call()` answer
   six of the proxy's tools from the Station's public API, with the
@@ -170,8 +173,9 @@ Five rules go with them:
   `station_secrets` and `station_policy` (W10.4). The last two read
   the Station's `secrets()` and `policies()`, which typescript gained
   after 0.4.0. Since W9.4 it also serves sdkgen go-mcp's tool shape for
-  each SDK `sdk.bound` reports, over JSON-RPC in process and on stdio;
-  streamable HTTP is W10.5. It keeps the proxy's gates and labels
+  each SDK `sdk.bound` reports, over JSON-RPC in process and on stdio,
+  and since W10.5 over streamable HTTP on loopback, with the proxy's
+  `Host`, `Origin` and bearer-token checks (§8.1). It keeps the proxy's gates and labels
   (W10.3): a write tool exists only with the extension's `write` option
   and the instance's `agent.write`, and a result that carries upstream
   data is labelled external. `station_call` stays replaced by the

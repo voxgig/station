@@ -3,9 +3,11 @@
 
 // One process: the solardemo mock that tools/traffic.sh generated, a Station
 // holding station-view and station-mcp, and the generated SDK bound to the
-// mock. MCP is served on stdin and stdout, so everything else goes to stderr.
+// mock. MCP is served on stdin and stdout, so everything else goes to stderr,
+// or with --mcp-port over streamable HTTP, whose bearer token is
+// STATION_MCP_TOKEN, else one it makes and prints.
 //
-//   node tools/traffic.js [--view-port <n>] [--mock-port <n>] [--seed <s>] [--read-only]
+//   node tools/traffic.js [--view-port <n>] [--mock-port <n>] [--mcp-port <n>] [--seed <s>] [--read-only]
 //
 // STATION_TRAFFIC_SDK names the generated project, else test/sdk/traffic-sdk;
 // STATION_VIEW_HOME and STATION_MCP_HOME the extensions' checkouts, else
@@ -18,14 +20,14 @@ const SDK = Path.resolve(process.env.STATION_TRAFFIC_SDK || Path.join(ROOT, 'tes
 const VIEW = Path.resolve(process.env.STATION_VIEW_HOME || Path.join(ROOT, '..', 'station-view'))
 const MCP = Path.resolve(process.env.STATION_MCP_HOME || Path.join(ROOT, '..', 'station-mcp'))
 
-const USAGE = 'usage: traffic [--view-port <n>] [--mock-port <n>] [--seed <s>] [--read-only]\n'
+const USAGE = 'usage: traffic [--view-port <n>] [--mock-port <n>] [--mcp-port <n>] [--seed <s>] [--read-only]\n'
 
 function parse(argv) {
   const args = { viewPort: 8960, mockPort: 0, seed: 1, write: true }
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i]
     if ('--read-only' === flag) { args.write = false; continue }
-    if (!['--view-port', '--mock-port', '--seed'].includes(flag)) {
+    if (!['--view-port', '--mock-port', '--mcp-port', '--seed'].includes(flag)) {
       throw new Error('not understood: ' + flag)
     }
     const value = argv[++i]
@@ -34,6 +36,7 @@ function parse(argv) {
     const port = /^\d+$/.test(value) && Number(value) <= 65535 ? Number(value) : undefined
     if (undefined === port) { throw new Error(flag + ' is not a port: ' + value) }
     if ('--view-port' === flag) { args.viewPort = port }
+    else if ('--mcp-port' === flag) { args.mcpPort = port }
     else { args.mockPort = port }
   }
   return args
@@ -71,22 +74,28 @@ async function main() {
   st.connect(SolardemoSDK, { instance: 'solardemo$demo', base: mock.url })
 
   const view = await st.extension('view/view').listen({ port: args.viewPort })
-  const stop = st.extension('mcp/mcp').serve({ input: process.stdin, output: process.stdout })
+  const mcp = st.extension('mcp/mcp')
+  const token = process.env.STATION_MCP_TOKEN
+  const http = undefined === args.mcpPort ? undefined :
+    await mcp.listen({ port: args.mcpPort, ...(token ? { token } : {}) })
+  const stop = undefined === http ? mcp.serve({ input: process.stdin, output: process.stdout }) : http.close
+  const where = undefined === http ? 'stdin and stdout' :
+    http.url + ', bearer token ' + (token ? 'from STATION_MCP_TOKEN' : http.token)
   process.stderr.write('traffic: station-view on ' + view.url + '\n' +
     'traffic: solardemo mock on ' + mock.url + '\n' +
-    'traffic: MCP on stdin and stdout' + (args.write ? '' : ', read only') + '\n')
+    'traffic: MCP on ' + where + (args.write ? '' : ', read only') + '\n')
 
   let closing = false
   const close = async () => {
     if (closing) { return }
     closing = true
-    stop()
+    await stop()
     process.stdin.destroy()
     await view.close()
     await mock.close()
     st.close()
   }
-  process.stdin.once('end', close)
+  if (undefined === http) { process.stdin.once('end', close) }
   process.once('SIGINT', close)
   process.once('SIGTERM', close)
 }
