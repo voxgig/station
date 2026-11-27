@@ -1,4 +1,4 @@
-import { Sekreto, SekretoError } from '@voxgig/sekreto'
+import { Sekreto, SekretoError, envkey } from '@voxgig/sekreto'
 import { allplugins } from '@voxgig/sekreto/plugins'
 
 import { StationError } from './error'
@@ -118,9 +118,11 @@ export class SecretBroker {
   #cache = new Map<string, string>()
   // Every value this broker ever held, for the exact-value scrub.
   #held: string[] = []
+  #envprefixes: string[]
 
   constructor(providers: any[]) {
     this.#sekreto = new Sekreto({ plugins: allplugins, providers })
+    this.#envprefixes = (providers || []).filter((p) => 'env' === p?.kind).map((p) => p.prefix ?? '')
   }
 
   hoist(slug: string, value: string): void {
@@ -160,6 +162,10 @@ export class SecretBroker {
 
   sources(): string[] {
     return this.#sekreto.sources()
+  }
+
+  envkeys(name: string): string[] {
+    return this.#envprefixes.map((prefix) => envkey(name, prefix))
   }
 
   // The first store, in resolution order, that has the name. A store that

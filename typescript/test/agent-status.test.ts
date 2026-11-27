@@ -63,11 +63,25 @@ test('secrets() names the store that answers each bound plugin, and never a valu
       plugin: 'lunar', secret: 'lunar.apikey', placement: PLACEMENT,
       chain: ['env:STATIONSECRETSTEST_', 'memory'],
       resolution: 'unresolved: no store in the chain has "lunar.apikey"',
-      remediation: 'set env var LUNAR_APIKEY, or add "lunar.apikey" to a configured store',
+      remediation: 'set env var STATIONSECRETSTEST_LUNAR_APIKEY, or add "lunar.apikey" to a configured store',
     },
   ])
   Assert.strictEqual(JSON.stringify(rows).includes(VALUE), false)
   st.close()
+})
+
+test('an unresolved secret names the variable each env store reads, and none with no env store', async () => {
+  const remedy = async (providers: any[]) => {
+    const st = station(providers)
+    st.connect(fakeSDK('lunar'), { instance: 'lunar' })
+    const rows = await st.secrets()
+    st.close()
+    return rows[0].remediation
+  }
+  Assert.strictEqual(await remedy([{ kind: 'env' }, { kind: 'env', prefix: 'APP_' }]),
+    'set env var LUNAR_APIKEY or APP_LUNAR_APIKEY, or add "lunar.apikey" to a configured store')
+  Assert.strictEqual(await remedy([{ kind: 'memory', values: {} }]),
+    'add "lunar.apikey" to a configured store')
 })
 
 test('secrets() reports the first store in resolution order', async () => {
