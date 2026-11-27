@@ -9,6 +9,7 @@ const Assert = require('node:assert')
 const Fs = require('node:fs')
 const Path = require('node:path')
 const { spawn } = require('node:child_process')
+const { randomBytes } = require('node:crypto')
 
 const ROOT = Path.resolve(__dirname, '..')
 const SDK = Path.resolve(process.env.STATION_TRAFFIC_SDK || Path.join(ROOT, 'test', 'sdk', 'traffic-sdk'))
@@ -23,12 +24,12 @@ function bounded(promise, what, ms = 20000) {
   return Promise.race([promise, late]).finally(() => clearTimeout(timer))
 }
 
-function start(args) {
+function start(args, env = {}) {
   if (!Fs.existsSync(Path.join(SDK, 'ts-mock', 'dist', 'index.js'))) {
     throw new Error('no traffic SDK at ' + SDK + ': run make traffic')
   }
   const child = spawn(process.execPath, [Path.join(__dirname, 'traffic.js'), '--view-port', '0', ...args],
-    { env: { ...process.env, STATION_TRAFFIC_SDK: SDK }, stdio: ['pipe', 'pipe', 'pipe'] })
+    { env: { ...process.env, STATION_TRAFFIC_SDK: SDK, ...env }, stdio: ['pipe', 'pipe', 'pipe'] })
   const waiting = new Map()
   let stderr = ''
   let buffered = ''
@@ -50,16 +51,18 @@ function start(args) {
     }
   })
   const exited = new Promise((resolve) => child.on('exit', (code) => resolve(code)))
+  const announced = (pattern) => bounded(new Promise((resolve, reject) => {
+    const timer = setInterval(() => {
+      const found = pattern.exec(stderr)
+      if (null != found) { clearInterval(timer); resolve(found[1]) }
+    }, 20)
+    exited.then((code) => { clearInterval(timer); reject(new Error('traffic exited ' + code + ': ' + stderr)) })
+  }), 'starting')
 
   return {
     exited,
-    view: () => bounded(new Promise((resolve, reject) => {
-      const timer = setInterval(() => {
-        const found = /station-view on (\S+)/.exec(stderr)
-        if (null != found) { clearInterval(timer); resolve(found[1]) }
-      }, 20)
-      exited.then((code) => { clearInterval(timer); reject(new Error('traffic exited ' + code + ': ' + stderr)) })
-    }), 'starting'),
+    view: () => announced(/station-view on (\S+)/),
+    mcp: () => announced(/MCP on (http:\/\/[^,\s]+)/),
     rpc: (method, params) => bounded(new Promise((resolve) => {
       const n = ++id
       waiting.set(n, resolve)
@@ -73,6 +76,7 @@ function start(args) {
     end: () => { child.stdin.end(); return bounded(exited, 'exiting when stdin ends') },
     stop: () => { child.kill('SIGTERM'); return bounded(exited, 'exiting on SIGTERM') },
     kill: () => child.kill('SIGKILL'),
+    stderr: () => stderr,
   }
 }
 
@@ -188,6 +192,56 @@ test('the agent tools answer in process, from this checkout\'s Station', { timeo
     Assert.deepStrictEqual(secrets.value.secrets.map((r) => r.plugin), ['solardemo$demo'])
 
     Assert.strictEqual(await traffic.end(), 0)
+  }
+  finally {
+    traffic.kill()
+  }
+})
+
+test('an MCP client drives the same tools over streamable HTTP, with its token', { timeout: 60000 }, async () => {
+  const token = randomBytes(24).toString('hex')
+  const traffic = start(['--mcp-port', '0'], { STATION_MCP_TOKEN: token })
+  try {
+    const view = await traffic.view()
+    const url = await traffic.mcp()
+    Assert.match(url, /^http:\/\/127\.0\.0\.1:\d+\/mcp$/)
+    let session
+    let id = 0
+    const post = async (method, params, bearer = token) => {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          accept: 'application/json, text/event-stream',
+          authorization: 'Bearer ' + bearer,
+          ...(undefined === session ? {} : { 'mcp-session-id': session, 'mcp-protocol-version': '2025-06-18' }),
+        },
+        body: JSON.stringify({ jsonrpc: '2.0', ...(method.startsWith('notifications/') ? {} : { id: ++id }), method, params }),
+      })
+      return { status: res.status, headers: res.headers, body: 202 === res.status ? undefined : await res.json() }
+    }
+    const value = (reply) => JSON.parse(reply.body.result.content[0].text)
+
+    const init = await post('initialize',
+      { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'traffic-test', version: '0' } })
+    Assert.strictEqual(init.status, 200)
+    Assert.strictEqual(init.body.result.serverInfo.name, 'station-mcp')
+    session = init.headers.get('mcp-session-id')
+    Assert.match(session, /^[0-9a-f]{32}$/)
+    Assert.strictEqual((await post('notifications/initialized')).status, 202)
+
+    const names = (await post('tools/list', {})).body.result.tools.map((t) => t.name)
+    Assert.ok(names.includes('solardemo_demo_create'), names.join(' '))
+    const planets = value(await post('tools/call', { name: 'solardemo_demo_list', arguments: { entity: 'planet' } }))
+    Assert.ok(0 < planets.length && planets.every((p) => /^planet-\d+$/.test(p.id)), JSON.stringify(planets))
+    const policy = value(await post('tools/call', { name: 'station_policy', arguments: { plugin: 'solardemo$demo' } }))
+    Assert.deepStrictEqual([policy.agentWrite, policy.writeTools], [true, true])
+    Assert.strictEqual((await post('ping', {}, 'x' + token)).status, 401)
+
+    Assert.deepStrictEqual((await records(view, { source: 'debug' })).map((r) => [r.op, r.method, r.status]),
+      [['planet.list', 'GET', 200]])
+    Assert.ok(!traffic.stderr().includes(token), 'the token is not printed')
+    Assert.strictEqual(await traffic.stop(), 0)
   }
   finally {
     traffic.kill()
