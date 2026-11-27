@@ -81,7 +81,7 @@ export function featureBinding(ctx: any, fopts: any): FeatureBinding | null {
     slug: name,
 
     PrePoint(opctx: any): void {
-      opctx.station$ = { corr: 'c' + (++corrSeq), start: Date.now() }
+      opctx.station$ = { corr: corrof(opctx), start: Date.now() }
     },
     PreDone(opctx: any): void {
       station._opEvent(name, opctx, resultOutcome(opctx))
@@ -90,6 +90,11 @@ export function featureBinding(ctx: any, fopts: any): FeatureBinding | null {
       station._opEvent(name, opctx, 'unexpected')
     },
   }
+}
+
+// The SDK's own id for the operation where it has one, which its features record too.
+function corrof(opctx: any): string {
+  return 'string' === typeof opctx?.id && '' !== opctx.id ? opctx.id : 'c' + (++corrSeq)
 }
 
 // The activation entry carries a closure; the carried adapter, the Station.

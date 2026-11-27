@@ -1,5 +1,5 @@
 import { describe, test } from 'node:test'
-import { deepStrictEqual, equal } from 'node:assert'
+import { deepStrictEqual, equal, ok } from 'node:assert'
 
 import { Station } from '../src/Station'
 import { featureBinding } from '../src/adapter'
@@ -121,6 +121,24 @@ describe('op-event', () => {
     equal(1, st.events().filter((e) => 'op' === e.kind).length,
       'an operation station never opened emits nothing')
 
+    st.close()
+  })
+
+  test('an op event takes the SDK\'s id for the operation as its corr, where it has one', () => {
+    const st = new Station({ config: null })
+    const { ctx } = fakeClient('vault')
+    const binding = featureBinding(ctx, { station: st })!
+
+    const own: any = { id: 'C12345678', op: { entity: 'note', name: 'load' }, result: { ok: true } }
+    binding.PrePoint(own)
+    binding.PreDone(own)
+    const bare: any = { op: { entity: 'note', name: 'list' }, result: { ok: true } }
+    binding.PrePoint(bare)
+    binding.PreDone(bare)
+
+    const op = st.events().filter((e) => 'op' === e.kind)
+    deepStrictEqual(op.map((e) => e.corr), ['C12345678', bare.station$.corr])
+    ok(/^c\d+$/.test(bare.station$.corr), bare.station$.corr)
     st.close()
   })
 })
