@@ -439,7 +439,8 @@ No decision is open.
 | **0.2.0** | Released: on npm 2026-10-16 and 17, and the Go tag on 2026-11-10. | Done; W0's housekeeping remains |
 | **0.3.0** | Released 2026-11-14 from `ef358d6`: W1, W2a and W2b, which landed before it. The first release to recommend for live use. | Done |
 | **0.3.x** | W3's port packaging, W4. | each item's own exit |
-| **0.4.0** | Attach in typescript and javascript, with the proxy binary released beside them. Phase 1's exit. | W5 items 1–7 |
+| **0.4.0** | Released 2026-11-27 from `8639364`: W4.10, every port on struct's `$NOF` (D-2026-11-17-1), with typescript's extension host (W8.6) and its first two extension points (W9.1). | Done |
+| **0.5.0** | Attach in typescript and javascript, with the proxy binary released beside them. Phase 1's exit. It was to be 0.4.0, until D-2026-11-17-1 gave that release to the flag day. | W5 items 1–7 |
 
 Every release moves every port (`make version-set`), and one dispatch
 of `release.yml` on that commit ships all three.
