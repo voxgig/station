@@ -117,6 +117,30 @@ export type PluginEntry = {
   secretname?: string
 }
 
+// One bound plugin's gates, as solo mode applies them.
+export type PolicyStatus = {
+  plugin: string
+  api: string
+  mode: 'live' | 'record' | 'replay' | 'mock' | 'block'
+  hosts: string[] | null
+  allow?: { op?: string[], method?: string[] }
+  budget?: { rps?: number, concurrency?: number }
+  resolve: 'library' | 'proxy'
+  capture?: 'meta' | 'headers' | 'full'
+  agentWrite: boolean
+}
+
+// What `secrets()` reports of a bound plugin's secret: names and stores, never a value.
+export type SecretStatus = {
+  plugin: string
+  secret?: string
+  placement: string
+  chain: string[]
+  store?: string
+  resolution: string
+  remediation?: string
+}
+
 export type ResolvedInstance = {
   name: string
   api: string

@@ -158,6 +158,27 @@ export class SecretBroker {
     return this.#sekreto.redact(redactValues(raw, this.#held))
   }
 
+  sources(): string[] {
+    return this.#sekreto.sources()
+  }
+
+  // The first store, in resolution order, that has the name. A store that
+  // cannot answer ends the walk, as it ends a lookup (design §5.2), so a
+  // weaker store is never reported in its place.
+  async answering(slug: string, name: string):
+    Promise<{ store?: string, hoisted?: boolean, error?: string }> {
+    if (this.#overrides.has(slug)) { return { hoisted: true } }
+    try {
+      for (const store of this.#sekreto.stores()) {
+        if (await this.#sekreto.hasin(store, name)) { return { store } }
+      }
+      return {}
+    }
+    catch (e: any) {
+      return { error: String(e?.message || e) }
+    }
+  }
+
   // Drop caches so the next resolve asks the stores again (rotation
   // support rides on sekreto's refresh, design §5.3).
   refresh(): void {
