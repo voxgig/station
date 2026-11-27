@@ -15,7 +15,7 @@ set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 OUT=${1:?usage: tools/traffic.sh <dir>}
-CREATE_SDKGEN=${CREATE_SDKGEN:-0.31.8}
+CREATE_SDKGEN=${CREATE_SDKGEN:-0.31.12}
 VALIDPACK_HOME=${VALIDPACK_HOME:-$ROOT/../sdkgen-validpack}
 STATION_VIEW_HOME=${STATION_VIEW_HOME:-$ROOT/../station-view}
 STATION_MCP_HOME=${STATION_MCP_HOME:-$ROOT/../station-mcp}

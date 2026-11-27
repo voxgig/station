@@ -12,7 +12,7 @@ set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 OUT=${1:?usage: tools/fixtures.sh <dir>}
-CREATE_SDKGEN=${CREATE_SDKGEN:-0.31.8}
+CREATE_SDKGEN=${CREATE_SDKGEN:-0.31.12}
 
 mkdir -p "$OUT"
 OUT=$(cd "$OUT" && pwd)
