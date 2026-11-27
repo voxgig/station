@@ -221,9 +221,9 @@ that day (D-2026-11-27-1): local TypeScript first, and completed.
 
 | Item | Status | Notes |
 |---|---|---|
-| W10.1 Both extensions on npm's station 0.4.0 | NOT STARTED | Each declares `@voxgig/station` `^0.3.0` as a dev dependency and links a station checkout for the extension points, which npm's 0.4.0 now carries. |
+| W10.1 Both extensions on npm's station 0.4.0 | DONE | Merged on 2026-11-27 as [voxgig/station-view#8] (`36fd2bb`) and [voxgig/station-mcp#4] (`f09640c`), on the local runs each records, as D-2026-11-17-1 allows for a repository without CI. Each took `@voxgig/station` `^0.3.0` as a dev dependency, which excludes 0.4.0, and linked a station checkout for the extension points. Each now takes `^0.4.0` and has no link, and station-mcp declares `>=0.4.0` as a peer, as station-view does. On npm's 0.4.0 alone, `make test` passes: station-view 14 of 14 with its Chromium page test, station-mcp 10 of 10 (run). Codex found nothing in either. |
 | W10.2 A CI workflow for each | NOT STARTED | station-mcp has none, and station-view runs the comment gate alone. A session cannot push a workflow, so each arrives as a patch. |
-| W10.3 station-mcp keeps §7's gates and labels | NOT STARTED | Today one `{ write: true }` option opens the write tools for every SDK, and nothing reads `agent.write`. The proxy requires its `--agent-write` flag and the instance's `agent.write`, and labels its results as external data. |
+| W10.3 station-mcp keeps §7's gates and labels | IN PROGRESS | One `{ write: true }` option opened the write tools for every SDK, and nothing read `agent.write`. The proxy requires its `--agent-write` flag and the instance's `agent.write`, and labels its results as external data. station-mcp's change does both, in its own pull request: a write tool needs the extension's `write` option and the instance's `agent.write`, per instance, and an SDK tool's result carries `_meta.contentOrigin` `upstream-external`, its description says so, and `initialize` gives the proxy's instructions. In the pull request that carries this row, the traffic demo declares its instance with `agent.write`, so its `create` keeps working: `make traffic-test` passes 2 of 2 on station-mcp with and without the change (run). |
 | W10.4 The rest of §7's tools, in process | NOT STARTED | `station_describe`, `station_traffic`, `station_secrets` and `station_policy`, from the Station's public API. The typescript Station does not yet say which store answers a secret. |
 | W10.5 Streamable HTTP | NOT STARTED | station-mcp speaks stdio and answers in process; the design's second transport is streamable HTTP (§7). |
 | W10.6 station-view's record log, and its command | NOT STARTED | D-2026-11-27-1's first ruling. W9.7 waits on it. |
@@ -320,7 +320,9 @@ and [#59] (W1.1), [#38] and [#50] (W1.2), [#52] (W1.3), [#45] (W1.5) and
 [voxgig/create-sdkgen#72]: https://github.com/voxgig/create-sdkgen/pull/72
 [voxgig/sdkgen-validpack#1]: https://github.com/voxgig/sdkgen-validpack/pull/1
 [voxgig/station-mcp#3]: https://github.com/voxgig/station-mcp/pull/3
+[voxgig/station-mcp#4]: https://github.com/voxgig/station-mcp/pull/4
 [voxgig/station-view#3]: https://github.com/voxgig/station-view/pull/3
+[voxgig/station-view#8]: https://github.com/voxgig/station-view/pull/8
 [voxgig/station-view#4]: https://github.com/voxgig/station-view/pull/4
 [voxgig/station-view#5]: https://github.com/voxgig/station-view/pull/5
 [voxgig/station-view#6]: https://github.com/voxgig/station-view/pull/6
