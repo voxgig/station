@@ -164,11 +164,19 @@ Five rules go with them:
   D-2026-11-11-5 left open. The other is the proxy's `/v1/status`,
   `/v1/tap` and `/v1/traffic`, for when attach has shipped.
 - **station-mcp** exports `mcp`, whose `tools()` and `call()` answer
-  two of the proxy's tools, `station_status` and
-  `station_integrations`, from the Station's public API. Since W9.4 it
-  also serves sdkgen go-mcp's tool shape for each SDK `sdk.bound`
-  reports, the write tools only with `{ write: true }`, over JSON-RPC in
-  process and on stdio; streamable HTTP is not done. The design puts
+  six of the proxy's tools from the Station's public API, with the
+  proxy's arguments and result shapes: `station_status`,
+  `station_integrations`, `station_describe`, `station_traffic`,
+  `station_secrets` and `station_policy` (W10.4). The last two read
+  the Station's `secrets()` and `policies()`, which typescript gained
+  after 0.4.0. Since W9.4 it also serves sdkgen go-mcp's tool shape for
+  each SDK `sdk.bound` reports, over JSON-RPC in process and on stdio;
+  streamable HTTP is W10.5. It keeps the proxy's gates and labels
+  (W10.3): a write tool exists only with the extension's `write` option
+  and the instance's `agent.write`, and a result that carries upstream
+  data is labelled external. `station_call` stays replaced by the
+  per-SDK tools (D-2026-11-16-1), and `station_replay` stays the
+  proxy's. The design puts
   the agent surface in the proxy (`station.md` §7), where no SDK code
   runs. An extension runs in the application's process, so it does not
   have that property. Whether station-mcp's real surface is served from

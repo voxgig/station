@@ -123,8 +123,11 @@ refuses it.
 **W10, the extensions completed in local TypeScript**, directed by the
 owner on 2026-11-27 with two points ruled (D-2026-11-27-1): a record
 log that a `station-view` command serves, and one id per call from
-sdkgen, in every target. Its seven items are in `plan.md`, and none
-has started.
+sdkgen, in every target. Its seven items are in `plan.md`. W10.1,
+W10.3 and W10.4 are done: both extensions test on npm's station, and
+station-mcp keeps §7's gates and labels and answers six of its tools
+in process. W10.6, station-view's record log and its command, is in
+review. W10.2, W10.5 and W10.7 have not started.
 
 **W4.10 is done**: 0.4.0 released it on 2026-11-27 (see "Recently
 settled"). The sections some struct runners still skip are sdkgen's
@@ -144,9 +147,9 @@ D-2026-11-19-1 has lifted.
 
 In this order. The hold of D-2026-11-19-1 lifted with the checkpoint.
 
-1. **W10**, in its order: W10.1 and W10.2, then station-mcp's W10.3
-   to W10.5 and station-view's W10.6, with W10.7's sdkgen change
-   beside them.
+1. **W10**, in its order: W10.6 once it merges, then W10.2's CI
+   patches, station-mcp's W10.5 and W10.7's sdkgen change. W10.1,
+   W10.3 and W10.4 are done.
 2. **W9.7**, likeness as the live test, once W10.6 gives it a
    viewer that outlives its commands. W9.1 to W9.6 are done:
    voxgig/station#95, voxgig/sdkgen-validpack#1 to #4,

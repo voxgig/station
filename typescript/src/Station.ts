@@ -1,4 +1,3 @@
-import { envkey } from '@voxgig/sekreto'
 
 import { adapterFeature } from './adapter'
 import { StationError } from './error'
@@ -1051,7 +1050,8 @@ export class Station {
       }
       else {
         row.resolution = 'unresolved: no store in the chain has "' + p.secretname + '"'
-        row.remediation = 'set env var ' + envkey(p.secretname) + ', or add "' +
+        const keys = this.broker.envkeys(p.secretname)
+        row.remediation = (0 < keys.length ? 'set env var ' + keys.join(' or ') + ', or add "' : 'add "') +
           p.secretname + '" to a configured store'
       }
     }
