@@ -59,7 +59,13 @@ async function main() {
   const { SolardemoSDK } = load(Path.join(SDK, 'ts'), 'generated SDK')
 
   const mock = await makeMock({ seed: args.seed }).listen(args.mockPort)
-  const st = Station.open({ config: null, proxy: 'off', load: false })
+  // station-mcp opens a write tool only for an instance whose block sets
+  // agent.write, as the proxy does, so the demo declares its instance.
+  const config = {
+    station: 1,
+    profiles: { default: { sdk: { 'solardemo$demo': { agent: { write: args.write } } } } },
+  }
+  const st = Station.open({ config, proxy: 'off', load: false })
     .use(StationView)
     .use(StationMcp, { write: args.write })
   st.connect(SolardemoSDK, { instance: 'solardemo$demo', base: mock.url })
