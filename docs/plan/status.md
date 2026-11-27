@@ -123,12 +123,13 @@ refuses it.
 **W10, the extensions completed in local TypeScript**, directed by the
 owner on 2026-11-27 with two points ruled (D-2026-11-27-1): a record
 log that a `station-view` command serves, and one id per call from
-sdkgen, in every target. Its seven items are in `plan.md`. W10.1,
-W10.3 and W10.4 are done: both extensions test on npm's station, and
-station-mcp keeps §7's gates and labels and answers six of its tools
-in process. W10.6, station-view's record log and its command, is
-merged, with a follow-up in review, and W10.5, streamable HTTP, is in
-review. W10.2 and W10.7 have not started.
+sdkgen, in every target. Its seven items are in `plan.md`, and W10.1
+to W10.6 are done. Both extensions test on npm's station. station-mcp
+keeps §7's gates and labels, and answers six of its tools in process,
+over stdio and over streamable HTTP. station-view keeps a record log
+that its `station-view` command serves. Each extension's CI is on its
+`main` as a patch for the owner. W10.7, one id across a call's records
+in every sdkgen target, is under way.
 
 **W4.10 is done**: 0.4.0 released it on 2026-11-27 (see "Recently
 settled"). The sections some struct runners still skip are sdkgen's
@@ -148,9 +149,8 @@ D-2026-11-19-1 has lifted.
 
 In this order. The hold of D-2026-11-19-1 lifted with the checkpoint.
 
-1. **W10**, in its order: W10.5 and W10.6's follow-up once they
-   merge, then W10.2's CI patches and W10.7's sdkgen change. W10.1,
-   W10.3 and W10.4 are done.
+1. **W10.7**: sdkgen-17 in every target, an sdkgen release, then
+   station-view's join. W10.1 to W10.6 are done.
 2. **W9.7**, likeness as the live test, once W10.6 gives it a
    viewer that outlives its commands. W9.1 to W9.6 are done:
    voxgig/station#95, voxgig/sdkgen-validpack#1 to #4,
@@ -173,7 +173,8 @@ Everything here needs the maintainer, and most of it fits one sitting.
 | Apply a workflow patch, when one is on `main` in [`patch/`](patch/README.md) | A token with the `workflow` scope. A session cannot push a change under `.github/workflows/`, so it commits a patch to `main` instead. Two are pending, both on `main`: `proxy-ci-lane.patch` and `fixtures-ci-lane.patch`. They apply in either order, re-checked against `main` on 2026-11-13. | W5.1 and W4.3 now; W3.11 and W4.4 when theirs are written |
 | Delete eleven merged branches | The owner ruled on 2026-11-12 that they go. A session cannot do it: its push access refuses a branch deletion (HTTP 403). The list is below. | — |
 | Register `@voxgig/sdkgen-station` for trusted publishing | An npm owner | W3.11 |
-| CI for voxgig/station-mcp and voxgig/sdkgen-validpack | Neither has a workflow, and a session cannot push one. Until one is applied from a patch, each change there rests on runs recorded in its pull request. | W9.2 to W9.6 |
+| Apply the CI patches in voxgig/station-view and voxgig/station-mcp | Each has a workflow patch on its `main`, in `patch/`, whose README names the apply command. Until applied, station-mcp has no CI, and station-view runs the comment gate alone. | W10.2 |
+| CI for voxgig/sdkgen-validpack | It has no workflow, and a session cannot push one. Until one is applied from a patch, each change there rests on runs recorded in its pull request. | W9.2 to W9.6 |
 | Rule on seneca-station again (DEC-7) | It was parked until 0.3.0, which is released | C.3 |
 
 
