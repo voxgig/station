@@ -526,3 +526,52 @@ for.
 
 Revisit when: the first checkpoint run shows that one runner per
 repository cannot hold every toolchain its gate needs.
+
+## D-2026-11-27-1 — The extensions are completed in local TypeScript: a record log for the view, and one id per call from sdkgen
+
+**Status: directed by the owner on 2026-11-27, with two points ruled by
+question the same day. Gates: voxgig/station-view, voxgig/station-mcp,
+voxgig/sdkgen, voxgig/likeness.**
+
+The owner's direction: stay with local TypeScript, and complete it.
+station-view and station-mcp do everything the design asks of an
+extension in the application's process, in typescript, before the
+proxy, attach, another language or a release. That is W10 of the plan.
+
+Ruled by question:
+
+1. **How station-view outlives a process.** A record log. Each process
+   appends its records, already redacted, to a local log that only its
+   owner can read, and a `station-view` command serves the same page
+   from that log: live as records arrive, and with the history from
+   before it started. Nothing has to be running while the commands run.
+2. **One call's records are joined, in every sdkgen target.** One
+   sdkgen change puts the operation context's id on `telemetry`'s span,
+   `debug`'s entry and `audit`'s record in all twenty targets, and a
+   release carries it (`sdkgen-17`). station-view joins a call's
+   records on that id.
+
+Consequences:
+- station-mcp gates a write as the proxy does: its `write` option and
+  the instance's `agent.write` must both be on (`station.md` §7). It
+  labels what it returns as external data, as the proxy does.
+- station-mcp answers `station_describe`, `station_traffic`,
+  `station_secrets` and `station_policy` in process, from the
+  Station's public API. `station_secrets` needs the Station to say which
+  store answers each secret, never its value, which the typescript
+  Station adds. `station_call` stays replaced by the per-SDK tools
+  (D-2026-11-16-1), and `station_replay` stays the proxy's.
+- station-mcp serves MCP's streamable HTTP transport beside stdio, on
+  loopback only.
+- Both repositories build and test on npm's station 0.4.0, which
+  carries the extension points, with no checkout link. Each gets a CI
+  workflow, as a patch for the owner to apply.
+- likeness's TypeScript port takes station 0.4.0 and loads both
+  extensions, which is W9.7.
+
+Not chosen: a viewer daemon that each process forwards its records to;
+both a log and forwarding; changing only sdkgen's ts and js targets;
+leaving a call's records unjoined.
+
+Revisit when: attach ships, for which D-2026-11-14-1 and
+D-2026-11-16-1 still hold; or a second language hosts extensions.

@@ -211,7 +211,23 @@ repositories link to each other locally.
 | W9.4 station-mcp serves MCP | DONE | Merged as [voxgig/station-mcp#3] (`11bea2d`) on 2026-11-17. It binds `sdk.bound`, and serves sdkgen go-mcp's tool shape per bound SDK, the write tools only with `{ write: true }`. A hand-written JSON-RPC 2.0 server answers in process (`handle()`) and over stdio (`serve()`). Every result and every failure passes through the Station's `redact()`: Codex found a P1 where a station tool's exception skipped it, fixed before the merge with a test. 10 tests; streamable HTTP is not done. |
 | W9.5 station-view shows the traffic | DONE | Merged as [voxgig/station-view#3] (`adbf1a5`) on 2026-11-17. Through `sdk.feature` it switches on `telemetry`, `debug`, `audit` and `metrics` in each SDK generated with them, with its own callbacks, and takes the Station's events for the rest. It serves a page and a read-only JSON API with a server-sent stream, on loopback only, to a loopback `Host` only, redacted. A test drives the page in Chromium. Codex's four P2 server faults, a malformed target that could end the host process among them, are fixed in [voxgig/station-view#4]. Its review found that a stream's backlog now counted against a slow reader's bound, fixed in [voxgig/station-view#5]; and that review, that the backlog stayed in memory for the connection's life and that the bound counted UTF-16 units rather than bytes, both fixed in [voxgig/station-view#6]. Records for one call are not joined (`sdkgen-17`). |
 | W9.6 A demonstration, and its test | DONE | Merged as voxgig/station#95 (`b83a16d`) on 2026-11-20. On `main` that day, beside station-view `25d73b7`, station-mcp `11bea2d` and sdkgen-validpack `c799ab4`, with station's typescript on npm's struct 0.4.0, `make traffic` and then `make traffic-test` pass 2 of 2 again. **W9's exit holds:** from clean clones of station at `32c4cb0`, station-view at `25d73b7`, station-mcp at `11bea2d` and sdkgen-validpack at `6d4a498`, linked as siblings, with station's typescript built on npm's struct 0.2.2 and nothing published, `make traffic` and then `make traffic-test` pass 2 of 2 (run on 2026-11-17). `make traffic` (`tools/traffic.sh`) generates solardemo in ts with sdkgen-station, `telemetry`, `debug`, `audit` and `metrics`, and validpack's `ts-seed` and `ts-mock`, and links both extensions' station to this checkout. `tools/traffic.js` is the one process: the mock, a Station with both extensions, and the SDK bound to the mock, with MCP on stdio and the page on 8960. `make traffic-test` drives it over MCP, with a list, a load, a create and a load that misses, then reads each call back from the view as station, `telemetry`, `debug` and `audit` records, and the SDK's metrics: 2 of 2. Connecting the SDK without an instance name fails both tests, and keeping stdin open on SIGTERM fails the stop test. It found that station-view misread station's `op` events, fixed in [voxgig/station-view#7], merged (`25d73b7`), and that sdkgen's `debug` feature reports a route rather than the URL sent (`sdkgen-19`). |
-| W9.7 likeness as the live test | NOT STARTED | After W9.6. Each of its commands exits, so it needs a viewer that outlives them. |
+| W9.7 likeness as the live test | NOT STARTED | After W9.6. Each of its commands exits, so it needs a viewer that outlives them: W10.6's record log and command (D-2026-11-27-1). likeness's TypeScript port pins station 0.2.0, and takes 0.4.0 for it. |
+
+
+## W10. The extensions, complete in local TypeScript
+
+Directed by the owner on 2026-11-27, with two points ruled by question
+that day (D-2026-11-27-1): local TypeScript first, and completed.
+
+| Item | Status | Notes |
+|---|---|---|
+| W10.1 Both extensions on npm's station 0.4.0 | NOT STARTED | Each declares `@voxgig/station` `^0.3.0` as a dev dependency and links a station checkout for the extension points, which npm's 0.4.0 now carries. |
+| W10.2 A CI workflow for each | NOT STARTED | station-mcp has none, and station-view runs the comment gate alone. A session cannot push a workflow, so each arrives as a patch. |
+| W10.3 station-mcp keeps §7's gates and labels | NOT STARTED | Today one `{ write: true }` option opens the write tools for every SDK, and nothing reads `agent.write`. The proxy requires its `--agent-write` flag and the instance's `agent.write`, and labels its results as external data. |
+| W10.4 The rest of §7's tools, in process | NOT STARTED | `station_describe`, `station_traffic`, `station_secrets` and `station_policy`, from the Station's public API. The typescript Station does not yet say which store answers a secret. |
+| W10.5 Streamable HTTP | NOT STARTED | station-mcp speaks stdio and answers in process; the design's second transport is streamable HTTP (§7). |
+| W10.6 station-view's record log, and its command | NOT STARTED | D-2026-11-27-1's first ruling. W9.7 waits on it. |
+| W10.7 One call's records joined | NOT STARTED | D-2026-11-27-1's second ruling, `sdkgen-17` in every target, then a release, then station-view. |
 
 
 ## Clients
@@ -219,8 +235,8 @@ repositories link to each other locally.
 | Item | Status | Notes |
 |---|---|---|
 | C.1 voxgig/likeness | BLOCKED | On `sdk-1` to `sdk-3` for the red cells of its matrix. Its own step, W0.4, is done. W1.2 (eight Go entries) and W1.6 (the C port) are on station's `main` now, and reach likeness when it pins a station that carries them: for its Go port that is a release, so 0.3.0 (W2.11), and for C it also takes regenerated C SDKs. It still waits on W2.6 and W2.9 (parity). Its Stage 3, search and writes, also needs the Joplin and Notion definitions to carry search. |
-| C.2 voxgig/station-view | IN PROGRESS | A stub extension since 2026-11-14 (W8.6): `snapshot()` over the Station's status, instances and events. What it reads was ruled on 2026-11-16 (D-2026-11-16-1), and W9.5 makes it the local web view. Its CI runs the comment gate alone. |
-| C.4 voxgig/station-mcp | IN PROGRESS | A stub extension since 2026-11-14 (W8.6): two of the proxy's tools, and no transport. W9.4 makes it an MCP server. It has no CI. |
+| C.2 voxgig/station-view | IN PROGRESS | A stub extension since 2026-11-14 (W8.6): `snapshot()` over the Station's status, instances and events. What it reads was ruled on 2026-11-16 (D-2026-11-16-1), and W9.5 made it the local web view. W10 completes it in local TypeScript (D-2026-11-27-1). Its CI runs the comment gate alone. |
+| C.4 voxgig/station-mcp | IN PROGRESS | A stub extension since 2026-11-14 (W8.6): two of the proxy's tools, and no transport. W9.4 made it an MCP server, and W10 completes it in local TypeScript (D-2026-11-27-1). It has no CI. |
 | C.3 senecajs/seneca-station | BLOCKED | Parked by the owner on 2026-11-11 until 0.3.0 is released, W2.11 (D-2026-11-11-6). 0.3.0 was released on 2026-11-14, so the question is due again, and has been put to the owner. What it is stays undecided. The repository holds a README and a licence. |
 
 
