@@ -1,3 +1,5 @@
+import { envkey } from '@voxgig/sekreto'
+
 import { adapterFeature } from './adapter'
 import { StationError } from './error'
 import { EventBuffer } from './events'
@@ -17,7 +19,7 @@ import {
 import { normalizeConfig, validateConfig } from './shape'
 import { SecretBroker, placeholderFor, substitute } from './secrets'
 import {
-  Binding, PluginEntry, ResolvedInstance, SdkBlock, StationEvent,
+  Binding, PluginEntry, PolicyStatus, ResolvedInstance, SdkBlock, SecretStatus, StationEvent,
   StationOptions,
 } from './types'
 
@@ -997,6 +999,63 @@ export class Station {
 
   redact(text: string): string {
     return this.broker.scrub(text)
+  }
+
+  /** Each bound plugin's gates as solo mode applies them (design §7,
+   * `station_policy`): an unset mode is `live`, and unset hosts allow any. */
+  policies(): PolicyStatus[] {
+    return this.plugins().map((p) => {
+      const block: SdkBlock = this.blockFor(p.name) || {}
+      const policy = block.policy || {}
+      return {
+        plugin: p.name,
+        api: p.api,
+        mode: policy.mode ?? 'live',
+        hosts: null == policy.hosts ? null : policy.hosts.slice(),
+        ...(null == policy.allow ? {} : { allow: { ...policy.allow } }),
+        ...(null == policy.budget ? {} : { budget: { ...policy.budget } }),
+        resolve: block.resolve ?? 'library',
+        ...(null == block.capture ? {} : { capture: block.capture }),
+        agentWrite: true === block.agent?.write,
+      }
+    })
+  }
+
+  /** Which store answers each bound plugin's secret (design §7,
+   * `station_secrets`). It asks the stores whether they have the name, and
+   * never reads a value. */
+  async secrets(): Promise<SecretStatus[]> {
+    const chain = this.broker.sources()
+    const out: SecretStatus[] = []
+    for (const p of this.plugins()) {
+      const row: SecretStatus = {
+        plugin: p.name, placement: 'library (R1): this process resolves the secret',
+        chain, resolution: '',
+      }
+      out.push(row)
+      if (null == p.secretname) {
+        row.resolution = 'none: the API takes no credential'
+        continue
+      }
+      row.secret = p.secretname
+      const at = await this.broker.answering(p.name, p.secretname)
+      if (at.hoisted) {
+        row.resolution = 'hoisted: adopt() took the credential from the SDK\'s own options'
+      }
+      else if (null != at.error) {
+        row.resolution = 'error: ' + at.error
+      }
+      else if (null != at.store) {
+        row.store = at.store
+        row.resolution = 'resolved by ' + at.store
+      }
+      else {
+        row.resolution = 'unresolved: no store in the chain has "' + p.secretname + '"'
+        row.remediation = 'set env var ' + envkey(p.secretname) + ', or add "' +
+          p.secretname + '" to a configured store'
+      }
+    }
+    return out
   }
 
   refreshSecrets(): void {

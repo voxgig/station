@@ -163,3 +163,33 @@ test('--read-only leaves the write tools out', { timeout: 60000 }, async () => {
     traffic.kill()
   }
 })
+
+test('the agent tools answer in process, from this checkout\'s Station', { timeout: 60000 }, async () => {
+  const traffic = start([])
+  try {
+    await traffic.view()
+    await traffic.rpc('initialize',
+      { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'traffic-test', version: '0' } })
+    await traffic.call('solardemo_demo_list', { entity: 'planet' })
+
+    const described = await traffic.call('station_describe', { plugin: 'solardemo$demo' })
+    Assert.strictEqual(described.isError, false, JSON.stringify(described.value))
+    Assert.ok(described.value.entities.planet.ops.includes('list'), JSON.stringify(described.value))
+
+    const events = await traffic.call('station_traffic', { plugin: 'solardemo$demo', grep: 'planet' })
+    Assert.strictEqual(events.isError, false, JSON.stringify(events.value))
+    Assert.ok(0 < events.value.events.length, JSON.stringify(events.value))
+
+    const policy = await traffic.call('station_policy', { plugin: 'solardemo$demo' })
+    Assert.deepStrictEqual([policy.value.agentWrite, policy.value.writeTools], [true, true])
+
+    const secrets = await traffic.call('station_secrets', {})
+    Assert.strictEqual(secrets.isError, false, JSON.stringify(secrets.value))
+    Assert.deepStrictEqual(secrets.value.secrets.map((r) => r.plugin), ['solardemo$demo'])
+
+    Assert.strictEqual(await traffic.end(), 0)
+  }
+  finally {
+    traffic.kill()
+  }
+})
