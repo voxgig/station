@@ -575,3 +575,36 @@ leaving a call's records unjoined.
 
 Revisit when: attach ships, for which D-2026-11-14-1 and
 D-2026-11-16-1 still hold; or a second language hosts extensions.
+
+## D-2026-11-27-2 — likeness serves its SDKs over MCP with a command of its own
+
+**Status: ruled by the owner by question on 2026-11-27. Gates:
+voxgig/likeness (W9.7).**
+
+The question: likeness's commands each exit at once, so station-view
+fits through its record log, but station-mcp needs a process that stays
+up. How should likeness's TypeScript port serve its three SDKs, Joplin,
+Notion and Obsidian, over MCP?
+
+Ruled: **a `likeness mcp` command.** It is new in the TypeScript port.
+It serves the bound SDKs through station-mcp on stdio, or on streamable
+HTTP with `--http`. Write tools stay off unless both gates are on. The
+Go, Python, Ruby and C ports refuse it as `unsupported-capability`, as
+C refuses the commands it cannot answer, so the transcript corpus
+records it.
+
+Consequences:
+- likeness's command table lets a command name the ports that serve
+  it. Every other port refuses it with one message, naming those ports.
+- A transcript entry of such a command carries what the other ports
+  answer as `unserved`, and each port's runner holds the entry to it.
+  likeness's byte comparison judges the entry among the ports that
+  serve it and, apart, among those that refuse it.
+- `--write` is the extension's `write` option, and an instance's
+  `agent.write` in station.json is the other gate (`station.md` §7).
+
+Not chosen: an environment switch that turns any likeness command into
+an MCP server; loading station-view alone in likeness, and showing the
+MCP half of W10's exit with station's traffic demonstration only.
+
+Revisit when: another likeness port can host station's extensions.
