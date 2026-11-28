@@ -637,9 +637,11 @@ Three questions W9.7 raised, each ruled:
    after W9.7, as an item of their own; leaving them as they are.
 
 Consequences:
-- `sdkgen-14` is sdkgen's next change: a `tls` client option in
+- W9.7 waits for `sdkgen-14`: a `tls` client option in
   `main.kit.optspec`, honoured by all twenty targets. Each target shows
-  that no request byte leaves before the pin matches.
+  that no request byte leaves before the pin matches. sdkgen's own plan
+  for its open issues already holds it, as D26 of its transport work
+  (`docs/design/issues-2026-12-plan.md` in voxgig/sdkgen).
 - likeness's TypeScript suite fails its seven Obsidian tests until the
   regenerated Obsidian SDK takes `tls`.
 
