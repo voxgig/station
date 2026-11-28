@@ -1,6 +1,6 @@
 # Status: where the next session starts
 
-Snapshot, **2026-11-27**. `main` is at `4bf5b4e`, and **CI is green on
+Snapshot, **2026-11-28**. `main` is at `b26a62a`, and **CI is green on
 every lane.** It was red on every pull request from 2026-11-16,
 when voxgig/struct's `main` dropped the `$ONE` checker station's shape
 was written with, until voxgig/station#95 moved station onto `$NOF` and
@@ -154,14 +154,13 @@ within W9.7, and station 0.5.0 is released for it.
 
 In this order. The hold of D-2026-11-19-1 lifted with the checkpoint.
 
-1. **Station 0.5.0**, released from `main` (D-2026-11-28-1).
-2. **`sdkgen-14`**, a `tls` option in every sdkgen target, then an
+1. **`sdkgen-14`**, a `tls` option in every sdkgen target, then an
    sdkgen release.
-3. **W9.7**: likeness's three SDKs regenerated on that release, then
+2. **W9.7**: likeness's three SDKs regenerated on that release, then
    likeness's pull request, on likeness's branch.
-4. **W4.1**, a completeness guard in typescript. W1.1, which edited the
+3. **W4.1**, a completeness guard in typescript. W1.1, which edited the
    same test file, has landed.
-5. **W0.8**, the design's account of sdkgen.
+4. **W0.8**, the design's account of sdkgen.
 
 Two more begin with a document and wait on nothing else: **W8.1**, the design note for taking voxgig/plugin,
 which every later step of W8 waits on; and **W3.2**, now that the
@@ -201,6 +200,11 @@ git push origin --delete chore/comment-policy \
 
 ## Recently settled
 
+- **0.5.0 is released on all three routes** (D-2026-11-28-1,
+  2026-11-28, from `b26a62a`, run 46170171928): both npm packages as
+  `latest`, with provenance, and the three tags. It carries the
+  typescript Station's `secrets()` and `policies()`, and the SDK's id as
+  an op's `corr`. Release notes: `docs/release/0.5.0.md`.
 - **sdkgen 4.50.0 is released** (W10.7, 2026-11-27, from `0dee8bd`,
   run 46075262935): telemetry's spans and debug's entries carry
   `correlationId` in all twenty targets (`sdkgen-17`), and station-view
