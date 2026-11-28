@@ -67,9 +67,9 @@ wrong status file is worse than none.**
 
 | port | secrets | corpus sections | guard | declarative front door | suite in CI | released as |
 |---|---|---|---|---|---|---|
-| typescript (canonical) | sekreto | 11 | **no** | yes | 201 tests: 181 pass, 20 skipped | npm `@voxgig/station` 0.4.0 |
-| javascript | sekreto | 11 | yes | yes | 58 pass | npm `@voxgig/station-js` 0.4.0 |
-| go | sekreto | 11 | yes | yes | three packages pass | tag `go/v0.4.0` |
+| typescript (canonical) | sekreto | 11 | yes | yes | 201 tests: 181 pass, 20 skipped | npm `@voxgig/station` 0.5.0 |
+| javascript | sekreto | 11 | yes | yes | 58 pass | npm `@voxgig/station-js` 0.5.0 |
+| go | sekreto | 11 | yes | yes | three packages pass | tag `go/v0.5.0` |
 | python | sekreto | 11 | yes | yes | 126 pass | — |
 | ruby | sekreto | 11 | yes | yes | 93 and 12 pass | — |
 | php | sekreto | 11 | yes | yes | 94 pass | — |
@@ -84,9 +84,10 @@ wrong status file is worse than none.**
 | elixir | env only | **8** | **no** | **no** | 50 pass | — |
 | lua | env only | **8** | **no** | **no** | 50 and 8 pass | vendored into SDKs |
 
-The "released as" column is 0.4.0, from `8639364`. The counts are
-from the run on `b83a16d`, and since then the code that changed is
-go's `go.mod` and `go.sum` and every port's version declaration.
+The "released as" column is 0.5.0, from `b26a62a`. The counts are
+from the run on `b83a16d`. Since then the code that changed is go's
+`go.mod` and `go.sum`, every port's version declaration, and in
+typescript, W10's changes and W4.1's guard.
 
 The eleven sections are `secretname`, `placeholder`, `substitute`,
 `descriptor`, `descriptorwarnings`, `canonical`, `config`, `feature`,
@@ -158,9 +159,7 @@ In this order. The hold of D-2026-11-19-1 lifted with the checkpoint.
    sdkgen release.
 2. **W9.7**: likeness's three SDKs regenerated on that release, then
    likeness's pull request, on likeness's branch.
-3. **W4.1**, a completeness guard in typescript. W1.1, which edited the
-   same test file, has landed.
-4. **W0.8**, the design's account of sdkgen.
+3. **W0.8**, the design's account of sdkgen.
 
 Two more begin with a document and wait on nothing else: **W8.1**, the design note for taking voxgig/plugin,
 which every later step of W8 waits on; and **W3.2**, now that the
