@@ -144,21 +144,24 @@ W9.6 as voxgig/station#95, and W9's exit holds on `main`: `make
 traffic` and then `make traffic-test` pass, with nothing published.
 W9.7, likeness as the live test, is under way on likeness's branch
 (D-2026-11-27-2). Every likeness port passes but TypeScript's seven
-Obsidian tests, which wait on the owner's ruling on where Obsidian's
-certificate pin lives.
+Obsidian tests. The owner ruled on 2026-11-28 (D-2026-11-28-1) that they
+wait for `sdkgen-14`, a `tls` option in every SDK target, and that
+likeness's three SDKs are regenerated on the sdkgen that carries it,
+within W9.7, and station 0.5.0 is released for it.
 
 
 ## Pick this up first
 
 In this order. The hold of D-2026-11-19-1 lifted with the checkpoint.
 
-1. **W9.7**, likeness as the live test, on likeness's branch. Once the
-   owner rules where Obsidian's certificate pin lives, finish it and
-   open its pull request. Its other open questions are in "Blocked on
-   a human" below.
-2. **W4.1**, a completeness guard in typescript. W1.1, which edited the
+1. **Station 0.5.0**, released from `main` (D-2026-11-28-1).
+2. **`sdkgen-14`**, a `tls` option in every sdkgen target, then an
+   sdkgen release.
+3. **W9.7**: likeness's three SDKs regenerated on that release, then
+   likeness's pull request, on likeness's branch.
+4. **W4.1**, a completeness guard in typescript. W1.1, which edited the
    same test file, has landed.
-3. **W0.8**, the design's account of sdkgen.
+5. **W0.8**, the design's account of sdkgen.
 
 Two more begin with a document and wait on nothing else: **W8.1**, the design note for taking voxgig/plugin,
 which every later step of W8 waits on; and **W3.2**, now that the
@@ -177,9 +180,6 @@ Everything here needs the maintainer, and most of it fits one sitting.
 | Apply the CI patches in voxgig/station-view and voxgig/station-mcp | Each has a workflow patch on its `main`, in `patch/`, whose README names the apply command. Until applied, station-mcp has no CI, and station-view runs the comment gate alone. | W10.2 |
 | CI for voxgig/sdkgen-validpack | It has no workflow, and a session cannot push one. Until one is applied from a patch, each change there rests on runs recorded in its pull request. | W9.2 to W9.6 |
 | Rule on seneca-station again (DEC-7) | It was parked until 0.3.0, which is released | C.3 |
-| Rule where likeness keeps Obsidian's certificate pin | station 0.3.0 and later hand a named instance's block options to its SDK, and the Obsidian SDK refuses the pin likeness keeps there. It could move to likeness.json beside the instance's account, be stripped before the Station opens, or likeness could stay on station 0.2.0. | W9.7 |
-| Decide on a station release for likeness | likeness takes npm's station 0.4.0, which lacks W10.4's `secrets()` and `policies()` and W10.7's `corr`. Until a release carries them, `likeness mcp` answers `station_secrets` and `station_policy` with the Station's lack of them. W10 kept a release out of its scope. | W9.7 |
-| Decide whether likeness's SDKs are regenerated on sdkgen 4.50.0 | Their `debug` entries carry no `correlationId` until they are, so in the view a call's debug entry does not join its station events. The three SDK repositories move, and every likeness port reads them. | W9.7 |
 
 
 **The eleven branches to delete.** Each is merged, so nothing is lost:

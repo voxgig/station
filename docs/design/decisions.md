@@ -608,3 +608,40 @@ an MCP server; loading station-view alone in likeness, and showing the
 MCP half of W10's exit with station's traffic demonstration only.
 
 Revisit when: another likeness port can host station's extensions.
+
+## D-2026-11-28-1 — W9.7 waits for an SDK `tls` option, takes station 0.5.0, and regenerates likeness's SDKs
+
+**Status: ruled by the owner by question on 2026-11-28. Gates:
+voxgig/sdkgen (`sdkgen-14`), voxgig/station (0.5.0), voxgig-sdk's
+joplin, notion and obsidian SDKs, and voxgig/likeness (W9.7).**
+
+Three questions W9.7 raised, each ruled:
+
+1. **Where likeness keeps Obsidian's certificate pin.** Station 0.3.0
+   and later hand a named instance's block options to its SDK
+   (`station.md` §4), and the Obsidian SDK refuses likeness's
+   `options.tls`. Ruled: **wait for an SDK `tls` option**
+   (`sdkgen-14`). Every target's transport takes `tls`, which pins a
+   server certificate or trusts an authority, with verification never
+   switched off. The pin is then an SDK option, and station.json keeps
+   the shape likeness writes. Not chosen: moving the pin into
+   likeness.json; stripping it before the Station opens; keeping
+   likeness on station 0.2.0.
+2. **A station release.** Ruled: **release 0.5.0 now.** It carries the
+   typescript Station's `secrets()` and `policies()`, and its use of the
+   SDK's id as `corr`, which likeness's `mcp` command and its view
+   need. Not chosen: waiting for a later release.
+3. **likeness's SDKs.** Ruled: **regenerated within W9.7,** on the
+   sdkgen release that carries `sdkgen-14` and `sdkgen-17`, so W9.7
+   lands with a call's records joined. Not chosen: regenerating them
+   after W9.7, as an item of their own; leaving them as they are.
+
+Consequences:
+- `sdkgen-14` is sdkgen's next change: a `tls` client option in
+  `main.kit.optspec`, honoured by all twenty targets. Each target shows
+  that no request byte leaves before the pin matches.
+- likeness's TypeScript suite fails its seven Obsidian tests until the
+  regenerated Obsidian SDK takes `tls`.
+
+Revisit when: a target cannot honour `tls` without switching
+verification off.

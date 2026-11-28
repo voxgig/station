@@ -42,7 +42,7 @@ import java.util.regex.Pattern;
 @SuppressWarnings({"unchecked"})
 public class Station {
 
-  public static final String VERSION = "0.4.0";
+  public static final String VERSION = "0.5.0";
 
   /** The inner transport a station wrap delegates to. */
   @FunctionalInterface

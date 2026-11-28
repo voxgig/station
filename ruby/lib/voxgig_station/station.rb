@@ -30,7 +30,7 @@ require_relative 'secrets'
 require_relative 'shape'
 
 module VoxgigStation
-  VERSION = '0.4.0'
+  VERSION = '0.5.0'
 
   # The ref grammar is the JOINT identity model's (station-and-plugin.md
   # 2, plugin design 4): a NAME is a package-ish specifier

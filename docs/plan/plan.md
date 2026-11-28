@@ -389,7 +389,10 @@ directories, as `tools/fixtures.sh` already links `sdkgen-station`.
    that is read back from the view.
 7. likeness as the live test. Its TypeScript port loads both
    extensions, and a `likeness mcp` command serves its SDKs over MCP,
-   which its other ports refuse (D-2026-11-27-2).
+   which its other ports refuse (D-2026-11-27-2). It waits on
+   `sdkgen-14`, a `tls` option in every SDK target, and on likeness's
+   three SDKs regenerated on the sdkgen that carries it, and it takes
+   station 0.5.0 (D-2026-11-28-1).
 
 Items 2 and 3 are in another repository and can run beside item 1.
 Items 4 and 5 need item 1, and item 6 needs the five before it.
