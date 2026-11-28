@@ -11,23 +11,21 @@ Sections here are the pure-contract half: `secretname`, `placeholder`,
 **Coverage is not uniform, and this is the honest count.** Eleven of the
 sixteen ports run all eleven sections: `typescript` and the ten that took
 Stage 5's later tranche (`javascript`, `python`, `go`, `java`, `ruby`,
-`php`, `perl`, `rust`, `c`, `cpp`). Ten of those eleven also carry a
+`php`, `perl`, `rust`, `c`, `cpp`). All eleven also carry a
 COMPLETENESS GUARD - a test asserting that the sections it runs, plus any
 it explicitly pins as pending, are exactly the sections this file
-carries, so a section added here cannot silently go untested.
+carries, so a section added here cannot silently go untested. In
+`typescript`, the canonical port, the section tests are registered from
+a table of drivers, and `sections-covered` compares the table with this
+file. Verified by mutation: a bogus section added to `station.json` fails
+the typescript suite and the ten others.
 
-Two gaps follow from that, both real:
-
-- `dart`, `elixir` and `lua` run EIGHT sections, and `csharp` and
-  `swift` NINE. They crossed the `plugin` -> `sdk` rename and took
-  `substitute`, but not the later tranche, so `config` and `feature` are
-  not opted in there yet, nor `instanceref` outside `csharp` and `swift`,
-  which took it with their named instances.
-- `typescript` - the canonical port - has NO completeness guard. It
-  hand-writes one test per section rather than deriving them from a
-  table, so a section added here would silently not run in the very port
-  the others are ported from. Verified by mutation: a bogus section added
-  to `station.json` passes the typescript suite and fails ten others.
+One gap follows from that, and it is real: `dart`, `elixir` and `lua`
+run EIGHT sections, and `csharp` and `swift` NINE, with no guard. They
+crossed the `plugin` -> `sdk` rename and took `substitute`, but not the
+later tranche, so `config` and `feature` are not opted in there yet, nor
+`instanceref` outside `csharp` and `swift`, which took it with their
+named instances.
 
 `substitute` is §5.3's placement, the pure half of `inject`: the
 placeholder becomes the value in header values and in the URL query,

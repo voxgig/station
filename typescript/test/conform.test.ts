@@ -1,4 +1,6 @@
 
+import { deepStrictEqual, ok } from 'node:assert'
+import { readFileSync } from 'node:fs'
 import { before, describe, test } from 'node:test'
 
 import { envkey } from '@voxgig/sekreto'
@@ -42,6 +44,68 @@ const denull = (v: any): any => {
   return v
 }
 
+// The tests are registered from this table, so a section named here
+// cannot go unrun; `sections-covered` closes the other direction.
+const DRIVERS: Record<string, (vin: any) => any> = {
+  secretname: (vin) => {
+    const secretname = secretnameDefault(vin.slug)
+    return {
+      envtoken: envtoken(vin.slug),
+      secretname,
+      envkey: envkey(secretname),
+    }
+  },
+
+  placeholder: (slug) => placeholderFor(slug),
+
+  substitute: (vin) =>
+    substitute(vin.url, vin.headers, vin.placeholder, vin.value),
+
+  descriptor: (vin) =>
+    normalizeDescriptor(vin.config, vin.feature).descriptor,
+
+  descriptorwarnings: (vin) =>
+    normalizeDescriptor(vin.config, vin.feature).warnings.length,
+
+  canonical: (vin) => canonicalSerialize(denull(vin)),
+
+  config: (vin) => validateConfig(normalizeConfig(
+    'string' === typeof vin ? parseConfig(vin) : denull(vin))),
+
+  // The §3.3 merge, and the whole of this port's profile contract. A
+  // `ref` asks for the options that named instance is constructed with.
+  instance: (vin) => {
+    const profile = resolveProfile(denull(vin.config), vin.profile)
+    if (null == vin.ref) { return profile }
+    return instanceOptions(blockOf(profile, vin.ref), denull(vin.opts))
+  },
+
+  feature: (vin) => {
+    if (null != vin.check) {
+      return checkfeatures(denull(vin.check), { features: denull(vin.features) })
+        .map((f) => null == f.key
+          ? { code: f.code, feature: f.feature }
+          : { code: f.code, feature: f.feature, key: f.key })
+    }
+    if (null != vin.merged) {
+      const ordered = resolveorder(denull(vin.merged))
+      checkpin(ordered)
+      return ordered.map((o) => o.name)
+    }
+    return mergefeatures(featuresources(
+      denull(vin.base), denull(vin.overlay), vin.api, vin.ref))
+  },
+
+  // §6.1's `as` rule: pure over (api, opts), so it is corpus-shaped
+  // rather than driver-shaped even though it decides a registry key.
+  instanceref: (vin) => instanceRef(vin.api, vin.opts),
+
+  errors: (code) => isKnownCode(code),
+}
+
+// A section this port does not run, named with the reason.
+const PENDING: Record<string, string> = {}
+
 describe('station-conform', () => {
   let R: any
 
@@ -50,82 +114,17 @@ describe('station-conform', () => {
     R = await runner('station')
   })
 
-  test('secretname', async () => {
-    await R.runset(R.spec.secretname, (vin: any) => {
-      const secretname = secretnameDefault(vin.slug)
-      return {
-        envtoken: envtoken(vin.slug),
-        secretname,
-        envkey: envkey(secretname),
-      }
+  test('sections-covered', () => {
+    const spec = JSON.parse(readFileSync(specfile(), 'utf8'))
+    const present = Object.keys(spec.primary.station).sort()
+    const covered = [...Object.keys(DRIVERS), ...Object.keys(PENDING)].sort()
+    deepStrictEqual(covered, present)
+  })
+
+  for (const section of Object.keys(DRIVERS)) {
+    test(section, async () => {
+      ok(null != R.spec[section], 'corpus section missing: ' + section)
+      await R.runset(R.spec[section], DRIVERS[section])
     })
-  })
-
-  test('placeholder', async () => {
-    await R.runset(R.spec.placeholder, (slug: any) => placeholderFor(slug))
-  })
-
-  test('substitute', async () => {
-    await R.runset(R.spec.substitute, (vin: any) =>
-      substitute(vin.url, vin.headers, vin.placeholder, vin.value))
-  })
-
-  test('descriptor', async () => {
-    await R.runset(R.spec.descriptor, (vin: any) =>
-      normalizeDescriptor(vin.config, vin.feature).descriptor)
-  })
-
-  test('descriptorwarnings', async () => {
-    await R.runset(R.spec.descriptorwarnings, (vin: any) =>
-      normalizeDescriptor(vin.config, vin.feature).warnings.length)
-  })
-
-  test('canonical', async () => {
-    await R.runset(R.spec.canonical, (vin: any) => canonicalSerialize(denull(vin)))
-  })
-
-  test('config', async () => {
-    await R.runset(R.spec.config, (vin: any) =>
-      validateConfig(normalizeConfig(
-        'string' === typeof vin ? parseConfig(vin) : denull(vin))))
-  })
-
-  // The §3.3 merge, and the whole of this port's profile contract. A
-  // `ref` asks for the options that named instance is constructed with.
-  test('instance', async () => {
-    await R.runset(R.spec.instance, (vin: any) => {
-      const profile = resolveProfile(denull(vin.config), vin.profile)
-      if (null == vin.ref) { return profile }
-      return instanceOptions(blockOf(profile, vin.ref), denull(vin.opts))
-    })
-  })
-
-  test('feature', async () => {
-    await R.runset(R.spec.feature, (vin: any) => {
-      if (null != vin.check) {
-        return checkfeatures(denull(vin.check), { features: denull(vin.features) })
-          .map((f) => null == f.key
-            ? { code: f.code, feature: f.feature }
-            : { code: f.code, feature: f.feature, key: f.key })
-      }
-      if (null != vin.merged) {
-        const ordered = resolveorder(denull(vin.merged))
-        checkpin(ordered)
-        return ordered.map((o) => o.name)
-      }
-      return mergefeatures(featuresources(
-        denull(vin.base), denull(vin.overlay), vin.api, vin.ref))
-    })
-  })
-
-  // §6.1's `as` rule: pure over (api, opts), so it is corpus-shaped
-  // rather than driver-shaped even though it decides a registry key.
-  test('instanceref', async () => {
-    await R.runset(R.spec.instanceref, (vin: any) =>
-      instanceRef(vin.api, vin.opts))
-  })
-
-  test('errors', async () => {
-    await R.runset(R.spec.errors, (code: any) => isKnownCode(code))
-  })
+  }
 })
